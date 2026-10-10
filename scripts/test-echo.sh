@@ -4,8 +4,8 @@
 # writes, and many clients at once. Fails on the first error, or if a server
 # died along the way.
 #
-# The server command defaults to build/server; `scripts/test-echo.sh
-# scripts/run.sh` tests the TinyCC build instead. PORT picks the port (29080):
+# The server command defaults to build/server; another can be given as the
+# arguments. PORT picks the port (29080):
 # keep it below the kernel's ephemeral range (32768 and up), where the
 # clients' own TIME_WAIT sockets from earlier runs can block the bind.
 set -eu

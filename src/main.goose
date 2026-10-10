@@ -1,8 +1,9 @@
 import os;
 import echo;
+import server;
 
 fn usage() {
-    write_stderr("usage: server echo-blocking|echo-epoll [port]\n");
+    write_stderr("usage: server http|echo-blocking|echo-epoll [port]\n");
     exit(2);
 }
 
@@ -16,7 +17,8 @@ fn main() {
         port = p as i32;
     }
     let mode = argv[1];
-    if mode == "echo-blocking" { echo_blocking(port); }
+    if mode == "http" { serve_http(port); }
+    else if mode == "echo-blocking" { echo_blocking(port); }
     else if mode == "echo-epoll" { echo_epoll(port); }
     else { usage(); }
 }
