@@ -1,0 +1,181 @@
+[info] available CPUs: 16
+[info] load generators: docker mode
+[info] framework: dusty (dusty, Zig)
+[info] subscribed tests: baseline,latency-1m,latency-10k,latency-500k-8cpu,pipelined,limited-conn,async,json-comp,json-tls,8gbit,async-db,fortunes,echo-ws,echo-ws-pipeline,echo-ws-limited
+[info] building image: httparena-dusty
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.12kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/alpine:3.20
+#2 ...
+
+#3 [auth] library/alpine:pull token for registry-1.docker.io
+#3 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/alpine:3.20
+#2 DONE 1.6s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 2B done
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 13.12kB done
+#5 DONE 0.1s
+
+#6 [build 1/7] FROM docker.io/library/alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+#6 resolve docker.io/library/alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc 0.0s done
+#6 sha256:25f1d6b1951ac8eb3740558fe94cb83d377bdadf95fd9f98b50d2e1b96130471 0B / 3.63MB 0.2s
+#6 sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc 9.23kB / 9.23kB done
+#6 sha256:c64c687cbea9300178b30c95835354e34c4e4febc4badfe27102879de0483b5e 1.02kB / 1.02kB done
+#6 sha256:bf8527eb54c3680e728d5b4b383a8ba730d72dae7236fbc8dff97ed6b224a731 612B / 612B done
+#6 sha256:25f1d6b1951ac8eb3740558fe94cb83d377bdadf95fd9f98b50d2e1b96130471 1.05MB / 3.63MB 0.3s
+#6 sha256:25f1d6b1951ac8eb3740558fe94cb83d377bdadf95fd9f98b50d2e1b96130471 3.15MB / 3.63MB 0.5s
+#6 sha256:25f1d6b1951ac8eb3740558fe94cb83d377bdadf95fd9f98b50d2e1b96130471 3.63MB / 3.63MB 0.5s done
+#6 extracting sha256:25f1d6b1951ac8eb3740558fe94cb83d377bdadf95fd9f98b50d2e1b96130471 0.1s done
+#6 DONE 0.8s
+
+#7 [build 2/7] RUN apk add --no-cache ca-certificates curl git tar xz
+#7 0.230 fetch https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/APKINDEX.tar.gz
+#7 0.420 fetch https://dl-cdn.alpinelinux.org/alpine/v3.20/community/x86_64/APKINDEX.tar.gz
+#7 0.766 (1/18) Installing ca-certificates (20260413-r0)
+#7 0.834 (2/18) Installing brotli-libs (1.1.0-r2)
+#7 0.904 (3/18) Installing c-ares (1.33.1-r0)
+#7 0.927 (4/18) Installing libunistring (1.2-r0)
+#7 1.003 (5/18) Installing libidn2 (2.3.7-r0)
+#7 1.028 (6/18) Installing nghttp2-libs (1.62.1-r0)
+#7 1.050 (7/18) Installing libpsl (0.21.5-r1)
+#7 1.073 (8/18) Installing zstd-libs (1.5.6-r0)
+#7 1.124 (9/18) Installing libcurl (8.14.1-r2)
+#7 1.169 (10/18) Installing curl (8.14.1-r2)
+#7 1.200 (11/18) Installing libexpat (2.8.1-r0)
+#7 1.223 (12/18) Installing pcre2 (10.43-r0)
+#7 1.266 (13/18) Installing git (2.45.4-r0)
+#7 1.574 (14/18) Installing git-init-template (2.45.4-r0)
+#7 1.592 (15/18) Installing libacl (2.3.2-r0)
+#7 1.609 (16/18) Installing tar (1.35-r2)
+#7 1.644 (17/18) Installing xz-libs (5.8.3-r0)
+#7 1.671 (18/18) Installing xz (5.8.3-r0)
+#7 1.696 Executing busybox-1.36.1-r31.trigger
+#7 1.700 Executing ca-certificates-20260413-r0.trigger
+#7 1.761 OK: 21 MiB in 32 packages
+#7 DONE 2.0s
+
+#8 [build 3/7] WORKDIR /server
+#8 DONE 0.1s
+
+#9 [build 4/7] RUN set -eu;     case "amd64" in         amd64) ZIG_ARCH=x86_64 ;;         arm64) ZIG_ARCH=aarch64 ;;         *) echo "unsupported arch: amd64" >&2; exit 1 ;;     esac;     curl -fSL "https://ziglang.org/download/0.16.0/zig-${ZIG_ARCH}-linux-0.16.0.tar.xz"         | tar -xJ -C /opt;     mv "/opt/zig-${ZIG_ARCH}-linux-0.16.0" /opt/zig
+#9 0.214   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+#9 0.214                                  Dload  Upload   Total   Spent    Left  Speed
+#9 0.214   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  9 52.9M    9 5295k    0     0  8537k      0  0:00:06 --:--:--  0:00:06 8527k 25 52.9M   25 13.4M    0     0  8421k      0  0:00:06  0:00:01  0:00:05 8419k 41 52.9M   41 22.2M    0     0  8678k      0  0:00:06  0:00:02  0:00:04 8677k 63 52.9M   63 33.3M    0     0  9441k      0  0:00:05  0:00:03  0:00:02 9440k 81 52.9M   81 43.2M    0     0  9586k      0  0:00:05  0:00:04  0:00:01 9586k100 52.9M  100 52.9M    0     0  9884k      0  0:00:05  0:00:05 --:--:--  9.8M
+#9 DONE 6.7s
+
+#10 [build 5/7] COPY build.zig build.zig.zon ./
+#10 DONE 0.1s
+
+#11 [build 6/7] COPY src ./src
+#11 DONE 0.1s
+
+#12 [build 7/7] RUN set -eu;     case "amd64" in         amd64) ZIG_TARGET=x86_64-linux-musl; ZIG_CPU="x86_64_v3+aes+pclmul+adx" ;;         arm64) ZIG_TARGET=aarch64-linux-musl; ZIG_CPU=baseline ;;     esac;     zig build         -Dtarget="${ZIG_TARGET}"         -Dcpu="${ZIG_CPU}"         --release=fast --summary failures
+#12 DONE 85.3s
+
+#13 [stage-1 2/2] COPY --from=build /server/zig-out/bin/dusty-arena /dusty-arena
+#13 DONE 0.1s
+
+#14 exporting to image
+#14 exporting layers 0.0s done
+#14 writing image sha256:37f5d3bc595c8df4c0b37af89ec72c94cf657ea02cc6b664d6fde3e6a4715e3c done
+#14 naming to docker.io/library/httparena-dusty done
+#14 DONE 0.1s
+[info] skipping system tuning as requested (SKIP_TUNE=true)
+[info] starting postgres sidecar
+[info] postgres ready (seeded)
+
+==============================================
+=== dusty / baseline / 4096c (tool=gcannon) ===
+==============================================
+[info] waiting for server...
+[info] server ready
+
+[run 1/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  1
+  Req/conn:  unlimited (keep-alive)
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   7.97ms   2.10ms   3.39ms   72.90ms   277.30ms
+
+  1965996 requests in 5.00s, 1961900 responses
+  Throughput: 392.34K req/s
+  Bandwidth:  30.31MB/s
+  Status codes: 2xx=1961900, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 1961900 / 1961900 responses (100.0%)
+  Per-template: 656695,650827,654378
+  Per-template-ok: 656695,650827,654378
+[info] CPU 290.2% | Mem 148MiB
+
+[run 2/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  1
+  Req/conn:  unlimited (keep-alive)
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   10.07ms   2.03ms   3.53ms   87.60ms   173.20ms
+
+  2019315 requests in 5.00s, 2015219 responses
+  Throughput: 403.00K req/s
+  Bandwidth:  31.13MB/s
+  Status codes: 2xx=2015219, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 2015219 / 2015219 responses (100.0%)
+  Per-template: 673609,672689,668921
+  Per-template-ok: 673609,672689,668921
+[info] CPU 291.9% | Mem 176MiB
+
+[run 3/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  1
+  Req/conn:  unlimited (keep-alive)
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   10.45ms   2.07ms   3.80ms   87.60ms   170.30ms
+
+  1941972 requests in 5.00s, 1937876 responses
+  Throughput: 387.54K req/s
+  Bandwidth:  29.94MB/s
+  Status codes: 2xx=1937876, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 1937876 / 1937876 responses (100.0%)
+  Per-template: 648091,645918,643867
+  Per-template-ok: 648091,645918,643867
+[info] CPU 364.3% | Mem 175MiB
+
+=== Best: 403043 req/s (CPU: 291.9%, Mem: 176MiB) ===
+[info] input BW: 31.13MB/s (avg template: 81 bytes)
+[info] dry-run — not saving (use --save to persist)
+httparena-bench-dusty
+httparena-bench-dusty
+[info] done
+httparena-postgres

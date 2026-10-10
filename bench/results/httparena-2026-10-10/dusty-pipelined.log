@@ -1,0 +1,130 @@
+[info] available CPUs: 16
+[info] load generators: docker mode
+[info] framework: dusty (dusty, Zig)
+[info] subscribed tests: baseline,latency-1m,latency-10k,latency-500k-8cpu,pipelined,limited-conn,async,json-comp,json-tls,8gbit,async-db,fortunes,echo-ws,echo-ws-pipeline,echo-ws-limited
+[info] building image: httparena-dusty
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.12kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/alpine:3.20
+#2 DONE 2.6s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [build 1/7] FROM docker.io/library/alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 197B done
+#5 DONE 0.0s
+
+#6 [build 3/7] WORKDIR /server
+#6 CACHED
+
+#7 [build 4/7] RUN set -eu;     case "amd64" in         amd64) ZIG_ARCH=x86_64 ;;         arm64) ZIG_ARCH=aarch64 ;;         *) echo "unsupported arch: amd64" >&2; exit 1 ;;     esac;     curl -fSL "https://ziglang.org/download/0.16.0/zig-${ZIG_ARCH}-linux-0.16.0.tar.xz"         | tar -xJ -C /opt;     mv "/opt/zig-${ZIG_ARCH}-linux-0.16.0" /opt/zig
+#7 CACHED
+
+#8 [build 6/7] COPY src ./src
+#8 CACHED
+
+#9 [build 5/7] COPY build.zig build.zig.zon ./
+#9 CACHED
+
+#10 [build 2/7] RUN apk add --no-cache ca-certificates curl git tar xz
+#10 CACHED
+
+#11 [build 7/7] RUN set -eu;     case "amd64" in         amd64) ZIG_TARGET=x86_64-linux-musl; ZIG_CPU="x86_64_v3+aes+pclmul+adx" ;;         arm64) ZIG_TARGET=aarch64-linux-musl; ZIG_CPU=baseline ;;     esac;     zig build         -Dtarget="${ZIG_TARGET}"         -Dcpu="${ZIG_CPU}"         --release=fast --summary failures
+#11 CACHED
+
+#12 [stage-1 2/2] COPY --from=build /server/zig-out/bin/dusty-arena /dusty-arena
+#12 CACHED
+
+#13 exporting to image
+#13 exporting layers done
+#13 writing image sha256:37f5d3bc595c8df4c0b37af89ec72c94cf657ea02cc6b664d6fde3e6a4715e3c done
+#13 naming to docker.io/library/httparena-dusty done
+#13 DONE 0.0s
+[info] skipping system tuning as requested (SKIP_TUNE=true)
+[info] starting postgres sidecar
+[info] postgres ready (seeded)
+
+==============================================
+=== dusty / pipelined / 4096c (tool=gcannon) ===
+==============================================
+[info] waiting for server...
+[info] server ready
+
+[run 1/3]
+gcannon v0.6.1
+  Target:    localhost:8080/pipeline
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  16
+  Req/conn:  unlimited (keep-alive)
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   73.13ms   39.50ms   125.20ms   541.00ms    3.31s
+
+  2950087 requests in 5.00s, 2884551 responses
+  Throughput: 576.83K req/s
+  Bandwidth:  44.56MB/s
+  Status codes: 2xx=2884551, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 2884551 / 2884551 responses (100.0%)
+[info] CPU 278.6% | Mem 128MiB
+
+[run 2/3]
+gcannon v0.6.1
+  Target:    localhost:8080/pipeline
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  16
+  Req/conn:  unlimited (keep-alive)
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   105.00ms   81.80ms   177.90ms   412.50ms    3.41s
+
+  2832704 requests in 5.00s, 2767168 responses
+  Throughput: 553.38K req/s
+  Bandwidth:  42.75MB/s
+  Status codes: 2xx=2767168, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 2767168 / 2767168 responses (100.0%)
+[info] CPU 286.5% | Mem 162MiB
+
+[run 3/3]
+gcannon v0.6.1
+  Target:    localhost:8080/pipeline
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  16
+  Req/conn:  unlimited (keep-alive)
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   116.91ms   98.50ms   228.60ms   420.90ms    2.71s
+
+  2811798 requests in 5.00s, 2746262 responses
+  Throughput: 549.19K req/s
+  Bandwidth:  42.42MB/s
+  Status codes: 2xx=2746262, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 2746262 / 2746262 responses (100.0%)
+[info] CPU 291.7% | Mem 183MiB
+
+=== Best: 576910 req/s (CPU: 278.6%, Mem: 128MiB) ===
+[info] dry-run — not saving (use --save to persist)
+httparena-bench-dusty
+httparena-bench-dusty
+[info] done
+httparena-postgres

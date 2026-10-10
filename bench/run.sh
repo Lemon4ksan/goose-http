@@ -19,9 +19,11 @@
 # summary compares each server with the first in SERVERS.
 #
 # Settings, from the environment:
-#   SERVERS       goose may-minihttp hyper odin-http tokio dusty vanilla-epoll.
-#                 Any name starting with goose is a build of the Goose server,
-#                 run with its mode.
+#   SERVERS       goose may-minihttp hyper tokio dusty vanilla-epoll. Any name
+#                 starting with goose is a build of the Goose server, run with
+#                 its mode. bench/build.sh also builds odin-http, which task
+#                 009 left out: hyper's rate in JSON, 5-8% of Goose's in
+#                 plaintext.
 #   WORKER_COUNTS 1 and the number of SERVER_CPUS ("1 4")
 #   SERVER_CPUS   0-3: cores 0 and 1 with both SMT threads. One worker gets
 #                 CPU 0 alone.
@@ -37,7 +39,7 @@ set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 bin=$root/build/bench
-servers=${SERVERS:-goose may-minihttp hyper odin-http tokio dusty vanilla-epoll}
+servers=${SERVERS:-goose may-minihttp hyper tokio dusty vanilla-epoll}
 server_cpus=${SERVER_CPUS:-0-3}
 client_cpus=${CLIENT_CPUS:-4-15}
 threads=${CLIENT_THREADS:-8}
