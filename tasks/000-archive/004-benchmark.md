@@ -59,11 +59,11 @@ Both matrices ran in WSL with `GOOSE` and `~/.cargo/bin` on `PATH`:
 
 ```sh
 bench/build.sh
-OUT=bench/results/2026-10-10-before bench/run.sh   # server at c9d274a
-OUT=bench/results/2026-10-10-after bench/run.sh    # server at 4f16ffa
+OUT=bench/results/2026-10-10-before bench/run.sh   # server at a144f5e
+OUT=bench/results/2026-10-10-after bench/run.sh    # server at 6f9b6e1
 ```
 
-The `after` run's `env.txt` says `4f16ffa (modified)`: the uncommitted changes were this
+The `after` run's `env.txt` says `6f9b6e1 (modified)`: the uncommitted changes were this
 file and `docs/goose-findings.md`. Each measured wrk run is, for plaintext:
 
 ```sh
@@ -191,7 +191,7 @@ and name loops stayed, because their loop condition called `is_tchar`.
 
 ### Fix
 
-In `src/http.goose`, commit `4f16ffa`:
+In `src/http.goose`, commit `6f9b6e1`:
 
 - Header values are scanned 8 bytes at a time: the 8 bytes are assembled into a `u64`,
   which gcc compiles to one load, and a SWAR test finds a control byte or DEL in it.

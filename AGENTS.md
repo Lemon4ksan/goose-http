@@ -51,5 +51,5 @@ agent finds them.
 
 ## Commits
 
-- One or two lean sentences, imperative mood.
+- One lean sentence in imperative mood, at most 72 characters.
 - No body, no `Co-Authored-By` or any other trailers.
