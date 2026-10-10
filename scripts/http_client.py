@@ -60,8 +60,13 @@ class Response:
 class Conn:
     """A blocking connection that reads responses one at a time."""
 
-    def __init__(self, port, timeout=5):
-        self.sock = socket.create_connection((HOST, port), timeout=timeout)
+    def __init__(self, port, timeout=5, rcvbuf=0):
+        self.sock = socket.socket()
+        # Before connecting, so that the window starts small.
+        if rcvbuf:
+            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, rcvbuf)
+        self.sock.settimeout(timeout)
+        self.sock.connect((HOST, port))
         self.buf = b""
 
     def send(self, data):
@@ -181,6 +186,22 @@ def pipeline(port):
     for i in range(500):
         if c.response().status != 200:
             fail("500 pipelined requests")
+    c.close()
+    # A client that sends all its requests, then reads the responses only
+    # after the server's send has blocked: the server goes on once the
+    # socket takes more, with no request left to wake it. Blocking it takes
+    # megabytes on loopback, where the receive buffers grow, and the requests
+    # must fit the server's, or the client blocks too: it starts reading
+    # after 2 s either way.
+    n = 20000
+    c = Conn(port, rcvbuf=4096)
+    sender = threading.Thread(target=c.send, args=(request(b"/json") * n,))
+    sender.start()
+    sender.join(2)
+    for i in range(n):
+        if c.response().status != 200:
+            fail("a client that reads late")
+    sender.join()
     c.close()
     print("pipeline: ok")
 
