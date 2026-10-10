@@ -47,7 +47,7 @@ fn parse(buf: const u8[:]) -> Request, i32 {
 
     // The method, a token, and one space.
     let m0 = pos;
-    while pos < buf.len && is_tchar(buf[pos]) { pos++; }
+    while pos < buf.len { if !is_tchar(buf[pos]) { break; } pos++; }
     guard pos - m0 <= MAX_METHOD else { return Request { .. }, 400; }
     guard pos < buf.len else { return Request { .. }, short(buf); }
     guard pos > m0 && buf[pos] == ' ' else { return Request { .. }, 400; }
@@ -99,7 +99,7 @@ fn parse(buf: const u8[:]) -> Request, i32 {
         // The name, a token, and a colon right after it. This refuses
         // whitespace before the colon and obsolete line folding (§5.1, §5.2).
         let n0 = pos;
-        while pos < buf.len && is_tchar(buf[pos]) { pos++; }
+        while pos < buf.len { if !is_tchar(buf[pos]) { break; } pos++; }
         guard pos < buf.len else { return Request { .. }, short(buf); }
         guard pos > n0 && buf[pos] == ':' else { return Request { .. }, 400; }
         let name = buf[n0..pos];
@@ -109,6 +109,19 @@ fn parse(buf: const u8[:]) -> Request, i32 {
         // than tab aren't allowed in it.
         while pos < buf.len && (buf[pos] == ' ' || buf[pos] == '\t') { pos++; }
         let v0 = pos;
+        // Values are most of a request's bytes, so they're scanned eight
+        // at a time until a word may hold the end, then a byte at a time.
+        // The guard is spelled pos < buf.len - 7, which the compiler's
+        // bounds-check analysis reads, where pos + 8 <= buf.len would cost
+        // every check on pos in parse (docs/goose-findings.md).
+        while pos < buf.len - 7 {
+            let b = buf[pos..pos + 8];
+            let w = b[0] | (b[1] as u64 << 8) | (b[2] as u64 << 16) | (b[3] as u64 << 24) |
+                    (b[4] as u64 << 32) | (b[5] as u64 << 40) | (b[6] as u64 << 48) |
+                    (b[7] as u64 << 56);
+            if may_end_value(w) { break; }
+            pos += 8;
+        }
         while pos < buf.len && ((buf[pos] >= ' ' && buf[pos] != 0x7f) || buf[pos] == '\t') { pos++; }
         guard pos < buf.len else { return Request { .. }, short(buf); }
         guard buf[pos] == '\r' else { return Request { .. }, 400; }
@@ -155,13 +168,30 @@ fn short(buf: const u8[:]) -> i32 {
     if buf.len >= MAX_HEAD { 431 } else { INCOMPLETE }
 }
 
+// Whether eight bytes of a field value, as a word, may hold the value's
+// end: a byte below ' ' (tab included, which the byte loop then takes) or
+// DEL. Each such byte sets bit 7 of its own byte in ctl or del; a borrow
+// can set it in the bytes above too, which doesn't change the answer.
+fn may_end_value(w: u64) -> bool {
+    let ctl = (w - 0x2020202020202020) & ~w & 0x8080808080808080;
+    let d = w ^ 0x7f7f7f7f7f7f7f7f;
+    let del = (d - 0x0101010101010101) & ~d & 0x8080808080808080;
+    (ctl | del) != 0
+}
+
 fn is_digit(c: u8) -> bool { c >= '0' && c <= '9' }
 
-// A token character (RFC 9110 §5.6.2).
+// A token character (RFC 9110 §5.6.2): bit c of TCHAR_LO, or of TCHAR_HI
+// for c from 64 to 127. Small enough to inline, which parse's loops call
+// from their body, not their condition: a call inlined into a loop's
+// condition makes the compiler keep every bounds check on the index
+// (docs/goose-findings.md).
+let TCHAR_LO: u64 = 0x03ff6cfa00000000;   // ! # $ % & ' * + - . 0-9
+let TCHAR_HI: u64 = 0x57ffffffc7fffffe;   // A-Z ^ _ ` a-z | ~
+
 fn is_tchar(c: u8) -> bool {
-    if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || is_digit(c) || c == '-' { return true; }
-    return c == '!' || c == '#' || c == '$' || c == '%' || c == '&' || c == '\'' || c == '*' ||
-           c == '+' || c == '.' || c == '^' || c == '_' || c == '`' || c == '|' || c == '~';
+    let mask = if c < 64 { TCHAR_LO } else if c < 128 { TCHAR_HI } else { 0 };
+    (mask >> (c & 63)) & 1 != 0
 }
 
 // Whether a equals lower, ignoring the case of ASCII letters in a. lower
