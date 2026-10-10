@@ -44,6 +44,8 @@ frameworks=${FRAMEWORKS:-goose tokio dusty vanilla-epoll}
 profiles=${PROFILES:-baseline limited-conn latency-1m pipelined}
 server_cpus=${SERVER_CPUS:-0-3}
 out=${OUT:-$root/bench/results/httparena-$(date -u +%Y-%m-%dT%H%M)}
+# The runs happen in the checkout, so a relative OUT is taken from here.
+case $out in /*) ;; *) out=$PWD/$out ;; esac
 
 HTTPARENA_COMMIT=0720ee57dc20424cc3fa3fc1735946a1abaf1a59
 GCANNON_COMMIT=11c802b2bdfe9af2fac4ac2571ae2de4c530cc62
