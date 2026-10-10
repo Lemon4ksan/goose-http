@@ -7,7 +7,7 @@ the native compiler typechecks the program there, but the server only runs on Li
 
 | Tool | Where | Version used (2026-10-10) |
 |---|---|---|
-| Goose compiler | `../goose`, at the pin in `README.md` | `2ec9b38` |
+| Goose compiler | `../goose`, at the pin in `README.md` | `e7792d7` |
 | WSL2 Ubuntu | | 26.04.1 LTS, kernel 6.18.40.1-microsoft-standard-WSL2 |
 | C compilers | WSL | gcc 15.2.0, clang 21.1.8 |
 | CMake, Ninja | WSL, apt | 4.2.3, 1.13.2 |
@@ -86,7 +86,7 @@ covers both.
 
    ```sh
    git clone -o upstream https://github.com/aardappel/goose.git ../goose
-   git -C ../goose checkout 2ec9b38
+   git -C ../goose checkout e7792d7
    git -C ../goose submodule update --init third_party/tinycc
    ```
 
