@@ -8,18 +8,21 @@
     http_client.py PORT many N      N connections at once, each pipelining
     http_client.py PORT emfile N    N connections to a server with fewer fds
 
-Each check exits non-zero with a message on the first failure.
+Each check exits non-zero with a message on the first failure. SERVER_NAME
+is the Server field tfb expects (goose), for checking the servers in bench/.
 """
 
 import asyncio
 import email.utils
 import json
+import os
 import socket
 import sys
 import threading
 import time
 
 HOST = "127.0.0.1"
+SERVER_NAME = os.environ.get("SERVER_NAME", "goose")
 # The server's REQUEST_MS and IDLE_MS (src/server.goose), in seconds.
 REQUEST_TIMEOUT = 10
 # What TechEmpower's load generator sends with each request.
@@ -109,7 +112,7 @@ def check_tfb(r, ctype, now):
     """The response checks of TechEmpower's verifier for both tests."""
     if r.status != 200:
         fail(f"status {r.status}")
-    if r.header("server") != "goose":
+    if r.header("server") != SERVER_NAME:
         fail(f"Server {r.header('server')}")
     if r.header("content-type") != ctype:
         fail(f"Content-Type {r.header('content-type')}")
@@ -354,7 +357,8 @@ def many(port, n):
         await writer.drain()
         for _ in range(4):
             head = await reader.readuntil(b"\r\n\r\n")
-            if not head.startswith(b"HTTP/1.1 200 OK\r\n"):
+            # The reason phrase means nothing (RFC 9112 §4), and servers differ in it.
+            if head.split(b" ", 2)[:2] != [b"HTTP/1.1", b"200"]:
                 fail(f"client {i}: {head[:40]!r}")
             length = [l for l in head.split(b"\r\n") if l.lower().startswith(b"content-length:")]
             await reader.readexactly(int(length[0].split(b":")[1]))
