@@ -7,7 +7,7 @@ the native compiler typechecks the program there, but the server only runs on Li
 
 | Tool | Where | Version used (2026-10-10) |
 |---|---|---|
-| Goose compiler | `../goose`, at the pin in `README.md` | `3536810` |
+| Goose compiler | `../goose`, at the pin in `README.md` | `bab8b6f` |
 | WSL2 Ubuntu | | 26.04.1 LTS, kernel 6.18.40.1-microsoft-standard-WSL2 |
 | C compilers | WSL | gcc 15.2.0, clang 21.1.8 |
 | CMake, Ninja | WSL, apt | 4.2.3, 1.13.2 |
@@ -53,11 +53,13 @@ covers both.
 
 1. Clone the checkout at the pin, with the TinyCC submodule only. TinyCC is what lets
    `goose file.goose` compile and run a program in process; the other submodules are for
-   graphics, audio, and physics, which this server doesn't use.
+   graphics, audio, and physics, which this server doesn't use. The clone calls
+   `aardappel/goose` `upstream`, as Kait's checkout does, where `origin` is the fork
+   `kaitk/goose`.
 
    ```sh
-   git clone https://github.com/kaitk/goose.git ../goose
-   git -C ../goose checkout 3536810
+   git clone -o upstream https://github.com/aardappel/goose.git ../goose
+   git -C ../goose checkout bab8b6f
    git -C ../goose submodule update --init third_party/tinycc
    ```
 
@@ -101,9 +103,9 @@ The Goose repository changes daily. Fetch it at the start of a session, and move
 in its own commit with the builds and results that still hold (`README.md`):
 
 ```sh
-git -C ../goose fetch
-git -C ../goose log --oneline HEAD..origin/master
-git -C ../goose checkout origin/master
+git -C ../goose fetch upstream
+git -C ../goose log --oneline HEAD..upstream/master
+git -C ../goose checkout upstream/master
 git -C ../goose submodule update third_party/tinycc
 ```
 

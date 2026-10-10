@@ -1,7 +1,7 @@
 # goose-http
 
 A proof of concept: a small, fast HTTP/1.1 server written in
-[Goose](https://github.com/kaitk/goose), benchmarked against the fastest Rust and Odin
+[Goose](https://github.com/aardappel/goose), benchmarked against the fastest Rust and Odin
 servers. It starts with an epoll event loop per core and may move to io_uring.
 
 This repository is a Goose program, not an addition to Goose (Kait, 2026-10-10). Gaps found
@@ -39,6 +39,6 @@ Setup and the build commands are in [docs/development.md](docs/development.md).
 
 | What | Pin | Why |
 |---|---|---|
-| Goose compiler | `kaitk/goose` `3536810` (`master`, 2026-10-10) | The language and stdlib change often |
+| Goose compiler | `aardappel/goose` `bab8b6f` (`master`, 2026-10-10) | The language and stdlib change often |
 
 Move the pin in its own commit, with the build and benchmark results that still hold.
