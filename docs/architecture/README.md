@@ -25,7 +25,7 @@ until the task named beside it confirms or replaces it.
   - `send` passes `MSG_NOSIGNAL`, so a write to a closed connection is `-EPIPE`, not a
     `SIGPIPE` that ends the process. There is no signal handler to install.
   - There is no `writev`: spec §7.10 doesn't let a list of slices cross to C. Responses
-    are built into one buffer per connection and sent with one `send`.
+    are built into one buffer and sent with one `send`.
 
 - **One event loop per core, nothing shared.** Goose workers share no memory: a
   `thread_fn` is compiled as its own program, takes flat arguments, and copies the
@@ -39,13 +39,20 @@ until the task named beside it confirms or replaces it.
     `reusable` pool; its epoll tag is the slot. A table indexed by fd was rejected: fds
     are numbered across the process, so every worker's table would grow to the highest
     fd of all of them.
-  - A slot is a flat struct of about 16 KB: an 8 KB read buffer, which holds the longest
-    request head whole, and an 8 KB write buffer, which takes the responses to a read's
-    worth of pipelined requests (16 TechEmpower responses are about 2 KB). Nothing grows
-    per request: the parser returns slices of the read buffer, and the JSON body is
-    built in a fixed array on the native stack.
+  - The buffers belong to the worker, not the connection: an 8 KB read buffer, which
+    holds the longest request head whole, and an 8 KB write buffer, which takes the
+    responses to a read's worth of pipelined requests (16 TechEmpower responses are
+    about 2 KB). The connection being driven uses them. Nothing grows per request: the
+    parser returns slices of the read buffer, and the JSON body is built in a fixed array
+    on the native stack.
+  - Between events, a slot holds about 50 bytes and two slices into the worker's
+    `reusable[]` spill pool: the start of a request not yet whole, and responses the
+    socket didn't take, both empty almost always (task 009, 2026-10-10). Slots of 16 KB
+    with the buffers inline were rejected: every slot was written whole, so 4,096
+    connections held 66 MB, against 2.5 MB now and 55 MB for vanilla-epoll, which
+    allocates its buffers per connection and writes only what it uses.
   - A worker holds at most 16,384 connections, so one worker can take TechEmpower's
-    largest run alone: 270 MB of slots at most, committed as connections arrive. At the
+    largest run alone. At the
     limit, and when `accept` fails with `EMFILE` or `ENFILE`, the worker stops accepting
     and retries after each close and once a second. Waiting clients keep their place in
     the listen backlog rather than being refused, and `EMFILE` is logged once per pause.

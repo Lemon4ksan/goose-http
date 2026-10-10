@@ -299,3 +299,43 @@ Expected: a `ctz` the C compilers see as one (`__builtin_ctzll`), and a mask-bui
 the backend writes in a shape the C compilers recognize, or a stdlib function for it.
 
 Workaround: `std`'s `find_any`, whose runtime does the movemask and count in C.
+
+## A limited array's `..` default writes its whole capacity
+
+Found on `e7792d7`, task 009. Status: open
+
+Spec §4.2 says constructing a limited array writes only its metadata and any provided
+elements, and leaves the rest of its capacity uninitialized; C.2 and C.4 add that its
+pages aren't touched. The C backend zeroes the whole array instead. A struct literal
+whose `..` defaults a `u8[..8192]` field compiles to a `memset` of all 8,194 bytes:
+
+    struct Slot { fd: i32, n: i64, buf: u8[..8192] }
+
+    fn main() {
+        var pool: Slot[>..] = [];
+        for i in 3 { pool.push(Slot { fd: i as i32, .. }); }
+        print(pool.len + pool[2].buf.len);
+    }
+
+The generated C has `memset(&(*t5), 0, sizeof((*t5)))` on an `l8192_u8` temporary.
+Every element of an array of such structs is then resident in full, whatever it holds.
+Expected: the length written, the capacity left alone.
+
+Workaround: the server's connection slots hold no buffers (`docs/architecture/README.md`).
+
+## A struct literal is built in whole temporaries and copied
+
+Found on `e7792d7`, task 009. Status: open
+
+Spec §4.2 says a struct literal is constructed "directly into each field; no temporaries
+or copies are introduced". The C backend builds each field in a temporary, copies it
+into a temporary of the struct, copies that into a second struct temporary, and copies
+that into the destination. For the `Slot` above, gcc 15 at `-O2` keeps 2 `memset`s and 3
+`memcpy`s of 8 KB each for `pool.push(Slot { fd: i as i32, .. })`, and 4 `memcpy`s for
+`alloc_index` on a `reusable` pool. Copying fixed-size values is allowed (§4.1), so this
+is a cost, not a wrong result: the server's 16 KB slots wrote about 65 KB per accepted
+connection. Expected: each field written once, in the destination.
+
+Workaround: as above. Measured with HttpArena's `limited-conn` (a new connection every
+10 requests), the copies cost nothing visible: 307K to 314K requests per second with and
+without them (task 009).

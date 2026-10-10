@@ -1,22 +1,22 @@
 // The HTTP server: one worker per core, each with its own SO_REUSEPORT
 // listener and edge-triggered epoll loop, and nothing shared between them.
-// A connection belongs to the worker that accepted it, in a fixed-size slot
-// of that worker's pool.
+// A connection belongs to the worker that accepted it, in a slot of that
+// worker's pool.
 import std;
 import os;
 import sys;
 import http;
 
-// A connection's buffers. The read buffer holds the longest request head
-// whole. The write buffer takes the responses to a read's worth of pipelined
-// requests: 16 TechEmpower responses are about 2 KB. When it fills, the
-// server sends it and answers the rest of the read buffer after.
+// A worker's buffers, which the connection it's driving uses. The read
+// buffer holds the longest request head whole. The write buffer takes the
+// responses to a read's worth of pipelined requests: 16 TechEmpower
+// responses are about 2 KB. When it fills, the server sends it and answers
+// the rest of the read buffer after.
 let RBUF = http::MAX_HEAD;
 let WBUF = 8192;
 
 // The most connections one worker holds. One worker must be able to take
-// TechEmpower's largest run, 16,384 connections, alone. A slot is about
-// 16 KB, so that's 270 MB at most, committed as connections arrive.
+// TechEmpower's largest run, 16,384 connections, alone.
 let MAX_CONNS = 16384;
 let BACKLOG = 4096;
 
@@ -36,15 +36,16 @@ let DRAINING: u8 = 2;   // shut down, and dropping what arrives until the client
 // The listener's epoll tag. A connection's is its slot.
 let LISTENER: u64 = 0xFFFFFFFFFFFFFFFF;
 
+// Between events, a connection holds only what its socket left over: the
+// start of a request not yet whole, and responses the socket didn't take.
+// Both are runs of the worker's spill pool, empty almost always.
 struct Conn {
     fd: i32,            // -1 while the slot is free
     state: u8,
     deadline: i64,      // the time after which the sweep closes it
     discard: i64,       // request body bytes still to drop
-    rlen: i64,          // rbuf[..rlen] is received and not yet answered
-    woff: i64,          // wbuf[woff..] is still to send
-    rbuf: u8[RBUF],
-    wbuf: u8[..WBUF],
+    held: u8[:],        // received and not yet answered
+    out: u8[:],         // still to send
 }
 
 fn serve_http(port: i32) {
@@ -74,6 +75,7 @@ fn serve(port: i32) {
     let ep = sys::check("epoll_create", sys::epoll_create());
     sys::check("epoll_ctl", sys::epoll_ctl(ep, sys::CTL_ADD, lfd, sys::IN | sys::ET, LISTENER));
 
+    reusable[] var spill: u8[>..] = [];
     reusable var conns: Conn[>..] = [];
     var open = 0;
     // Set when accepting stopped before the backlog was empty: at MAX_CONNS,
@@ -86,6 +88,12 @@ fn serve(port: i32) {
     var date: u8[..32] = [];
     var date_s: i64 = -1;
     var events: sys::Event[256] = [sys::Event { events: 0, tag: 0 }; 256];
+    // The driven connection's bytes: rbuf[..rlen] is received and not yet
+    // answered, and wbuf[woff..] is still to send.
+    var rbuf: u8[RBUF] = [0; RBUF];
+    var rlen = 0;
+    var wbuf: u8[..WBUF] = [];
+    var woff = 0;
 
     fn accept_all() {
         let retry = paused;
@@ -120,6 +128,8 @@ fn serve(port: i32) {
         let c .= conns[i];
         sys::close(c.fd);
         c.fd = -1;
+        if c.held.len > 0 { spill.free_slice(c.held); }
+        if c.out.len > 0 { spill.free_slice(c.out); }
         conns.free(i);
         open--;
     }
@@ -131,23 +141,23 @@ fn serve(port: i32) {
         var off = 0;
         var done = 0;
         var full = false;
-        while off < c.rlen {
+        while off < rlen {
             if c.discard > 0 {
-                let k = min(c.discard, c.rlen - off);
+                let k = min(c.discard, rlen - off);
                 off += k;
                 c.discard -= k;
                 continue;
             }
-            if c.wbuf.cap - c.wbuf.len < http::MAX_RESPONSE {
+            if wbuf.cap - wbuf.len < http::MAX_RESPONSE {
                 full = true;
                 break;
             }
-            let req, status = http::parse(c.rbuf[off..c.rlen]);
+            let req, status = http::parse(rbuf[off..rlen]);
             if status == http::INCOMPLETE { break; }
             if status != 200 {
-                http::refuse(c.wbuf, status, date);
+                http::refuse(wbuf, status, date);
                 c.state = CLOSING;
-                off = c.rlen;
+                off = rlen;
                 break;
             }
             // A body the route reads, and a chunked one, are answered once
@@ -157,58 +167,86 @@ fn serve(port: i32) {
             let whole = req.chunked || (req.body > 0 && reads);
             var wire = 0;
             if whole {
-                let n, s = http::frame_body(c.rbuf[b0..c.rlen], req, RBUF - req.len);
+                let n, s = http::frame_body(rbuf[b0..rlen], req, RBUF - req.len);
                 if s == http::INCOMPLETE { break; }
                 if s != 200 {
-                    http::refuse(c.wbuf, s, date);
+                    http::refuse(wbuf, s, date);
                     c.state = CLOSING;
-                    off = c.rlen;
+                    off = rlen;
                     break;
                 }
                 wire = n;
             }
             let blen = if !reads { 0 }
-                       else if req.chunked { http::dechunk(c.rbuf[b0..b0 + wire]) }
+                       else if req.chunked { http::dechunk(rbuf[b0..b0 + wire]) }
                        else { wire };
             done++;
             off = b0 + wire;
             if !whole { c.discard = req.body; }
-            if !http::respond(c.wbuf, req, c.rbuf[b0..b0 + blen], date) {
+            if !http::respond(wbuf, req, rbuf[b0..b0 + blen], date) {
                 c.state = CLOSING;
-                off = c.rlen;
+                off = rlen;
                 break;
             }
         }
-        let rest = c.rlen - off;
-        if rest > 0 && off > 0 { copy_into(c.rbuf[..rest], c.rbuf[off..c.rlen]); }
-        c.rlen = rest;
+        let rest = rlen - off;
+        if rest > 0 && off > 0 { copy_into(rbuf[..rest], rbuf[off..rlen]); }
+        rlen = rest;
         return done, full;
     }
 
-    // Moves a connection on as far as its socket allows: answers what it
-    // can, sends the responses in one send, and reads more. Edge-triggered
-    // epoll reports a socket again only after its state changes, so this
-    // returns only once a send or a recv would block, or the connection is
-    // done, which is false.
+    // Moves a connection on as far as its socket allows, in the worker's
+    // buffers, and keeps what's left over in spill. False when the
+    // connection is done.
     fn drive(c: Conn&) -> bool {
+        rlen = c.held.len;
+        if rlen > 0 {
+            copy_into(rbuf[..rlen], c.held);
+            spill.free_slice(c.held);
+            c.held = c.held[..0];
+        }
+        wbuf.clear();
+        woff = 0;
+        if c.out.len > 0 {
+            wbuf.append(c.out);
+            spill.free_slice(c.out);
+            c.out = c.out[..0];
+        }
+        guard advance(c) else { return false; }
+        if rlen > 0 {
+            c.held = spill.alloc_slice(rlen);
+            copy_into(c.held, rbuf[..rlen]);
+        }
+        if woff < wbuf.len {
+            c.out = spill.alloc_slice(wbuf.len - woff);
+            copy_into(c.out, wbuf[woff..]);
+        }
+        return true;
+    }
+
+    // Answers what it can, sends the responses in one send, and reads more.
+    // Edge-triggered epoll reports a socket again only after its state
+    // changes, so this returns only once a send or a recv would block, or
+    // the connection is done, which is false.
+    fn advance(c: Conn&) -> bool {
         var progress = false;
         loop {
             var full = false;
-            if c.state == OPEN && c.rlen > 0 {
+            if c.state == OPEN && rlen > 0 {
                 let done, f = answer(c);
                 if done > 0 { progress = true; }
                 full = f;
             }
-            while c.woff < c.wbuf.len {
-                let w = sys::send(c.fd, c.wbuf[c.woff..]);
+            while woff < wbuf.len {
+                let w = sys::send(c.fd, wbuf[woff..]);
                 if w == -sys::EAGAIN { return wait(c, progress); }
                 if w == -sys::EINTR { continue; }
                 guard w > 0 else { return false; }   // EPIPE, ECONNRESET: the client left
-                c.woff += w;
+                woff += w;
                 progress = true;
             }
-            c.wbuf.clear();
-            c.woff = 0;
+            wbuf.clear();
+            woff = 0;
             if c.state == CLOSING {
                 sys::shutdown(c.fd, sys::SHUT_WR);
                 c.state = DRAINING;
@@ -217,12 +255,12 @@ fn serve(port: i32) {
             if full { continue; }
             // answer leaves rbuf full only to refuse the request with 431 or
             // 413, so an OPEN connection always has room to read into.
-            let r = if c.state == DRAINING { sys::recv(c.fd, c.rbuf) }
-                    else { sys::recv(c.fd, c.rbuf[c.rlen..]) };
+            let r = if c.state == DRAINING { sys::recv(c.fd, rbuf) }
+                    else { sys::recv(c.fd, rbuf[rlen..]) };
             if r == -sys::EAGAIN { return wait(c, progress); }
             if r == -sys::EINTR { continue; }
             guard r > 0 else { return false; }   // the client closed or reset
-            if c.state == OPEN { c.rlen += r; }
+            if c.state == OPEN { rlen += r; }
         }
     }
 
@@ -231,7 +269,7 @@ fn serve(port: i32) {
     // idle spell shorten it.
     fn wait(c: Conn&, progress: bool) -> bool {
         guard c.state != DRAINING else { return true; }
-        let idle = c.rlen == 0 && c.discard == 0 && c.woff == c.wbuf.len;
+        let idle = rlen == 0 && c.discard == 0 && woff == wbuf.len;
         if progress { c.deadline = now + (if idle { IDLE_MS } else { REQUEST_MS }); }
         else if !idle { c.deadline = min(c.deadline, now + REQUEST_MS); }
         return true;
@@ -243,9 +281,10 @@ fn serve(port: i32) {
         for i in conns.len {
             let c .= conns[i];
             if c.fd < 0 || c.deadline > now { continue; }
-            if c.state == OPEN && c.rlen > 0 && c.wbuf.len == 0 {
-                http::refuse(c.wbuf, 408, date);
-                sys::send(c.fd, c.wbuf);
+            if c.state == OPEN && c.held.len > 0 && c.out.len == 0 {
+                wbuf.clear();
+                http::refuse(wbuf, 408, date);
+                sys::send(c.fd, wbuf);
             }
             close_conn(i);
         }
