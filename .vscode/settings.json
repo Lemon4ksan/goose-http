@@ -1,0 +1,5 @@
+{
+    "goose.compilerPath": "../goose/build/Release/goose.exe",
+    "goose.stdlibPath": "../goose/stdlib",
+    "goose.entryFile": "src/main.goose"
+}

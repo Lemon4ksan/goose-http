@@ -5,6 +5,7 @@
 - What this is and its pins: `README.md`
 - Architecture decisions: `docs/architecture/README.md`
 - Toolchain and local setup: `docs/development.md`
+- What `extern fn` looks like from C, for the shim: `docs/c-interop.md`
 - Goose compiler and stdlib gaps found here: `docs/goose-findings.md`
 - Task tracking: `tasks/` (see `tasks/README.md`)
 - Writing docs: `.claude/skills/google-style/SKILL.md`
@@ -17,6 +18,8 @@ change or ask first.
 
 ## Goose, not an addition to Goose
 
+- The Goose repository changes daily. Fetch `../goose` at the start of a session and
+  move the pin when it lags (`docs/development.md`, "Move the pin").
 - Don't edit the Goose checkout. When the compiler rejects something it should accept,
   miscompiles, or the stdlib lacks something, reduce it to a minimal program, record it
   in `docs/goose-findings.md`, and work around it here. Tell Kait about blockers.
