@@ -58,7 +58,10 @@ ulimit -n 65536
 mkdir -p "$out"
 pid=
 mon=
-trap '[ -z "$pid" ] || kill "$pid" 2>/dev/null; [ -z "$mon" ] || kill "$mon" 2>/dev/null' EXIT
+# The FIFO h2load logs into lives on the Linux file system: mkfifo fails on
+# /mnt/c.
+tmp=$(mktemp -d)
+trap '[ -z "$pid" ] || kill "$pid" 2>/dev/null; [ -z "$mon" ] || kill "$mon" 2>/dev/null; rm -rf "$tmp"' EXIT
 
 # What the numbers were measured on.
 {
@@ -135,7 +138,7 @@ for workers in $worker_counts; do
         wait $mon 2>/dev/null || true
         mon=
 
-        fifo=$out/$name.fifo
+        fifo=$tmp/$name.fifo
         mkfifo "$fifo"
         "$bin/latency" <"$fifo" >"$out/$name.lat" &
         lat=$!
