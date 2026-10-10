@@ -19,13 +19,14 @@
 /* src/sys.goose spells these out as numbers; this keeps them honest on any
    target the C compiles for. */
 _Static_assert(EINTR == 4 && EAGAIN == 11 && EPIPE == 32 && ECONNABORTED == 103 &&
-               ECONNRESET == 104 && EADDRINUSE == 98 && EMFILE == 24,
+               ECONNRESET == 104 && EADDRINUSE == 98 && EMFILE == 24 && ENFILE == 23,
                "errno values differ from src/sys.goose");
 _Static_assert(EPOLLIN == 0x001 && EPOLLOUT == 0x004 && EPOLLERR == 0x008 &&
                EPOLLHUP == 0x010 && EPOLLRDHUP == 0x2000 && EPOLLET == 1u << 31,
                "epoll event bits differ from src/sys.goose");
 _Static_assert(EPOLL_CTL_ADD == 1 && EPOLL_CTL_DEL == 2 && EPOLL_CTL_MOD == 3,
                "epoll_ctl ops differ from src/sys.goose");
+_Static_assert(SHUT_WR == 1, "shutdown's how differs from src/sys.goose");
 _Static_assert(sizeof(sys_Event_g3) == 12, "sys::Event is not packed");
 
 /* Flags of net_listen and net_accept; sys::NONBLOCK and sys::REUSEPORT. */
@@ -76,6 +77,10 @@ static int64_t net_recv(int32_t fd, sl_u8 buf) {
 static int64_t net_send(int32_t fd, sl_u8 data) {
     ssize_t r = send(fd, data.data, (size_t)data.len, MSG_NOSIGNAL);
     return r < 0 ? -errno : r;
+}
+
+static int32_t net_shutdown(int32_t fd, int32_t how) {
+    return shutdown(fd, how) < 0 ? -errno : 0;
 }
 
 static int32_t net_close(int32_t fd) {
