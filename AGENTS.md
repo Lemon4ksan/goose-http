@@ -14,7 +14,9 @@
   assuming a feature exists.
 
 Follow the recorded decisions; if a change contradicts one, update the doc in the same
-change or ask first.
+change or ask first. Record setup facts and environment traps you find (paths, shell
+quirks, ports, encodings) in `docs/development.md`, not in agent memory, so the next
+agent finds them.
 
 ## Goose, not an addition to Goose
 

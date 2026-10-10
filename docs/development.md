@@ -20,7 +20,8 @@ come with tasks 003 and 004.
 ## Set up the Goose compiler
 
 The scripts expect a plain Goose checkout next to this repository, at `../goose`. Leave it
-on the pinned commit and don't edit it (`AGENTS.md`). One checkout serves both platforms:
+on the pinned commit and don't edit it (`AGENTS.md`). On Kait's machine, `../goose-fix`
+and `../goose-ngpu` are other Goose checkouts on feature branches: leave them alone. One checkout serves both platforms:
 WSL builds into `build-linux/` and Windows into `build/`, and the checkout's `.gitignore`
 covers both.
 
@@ -131,7 +132,7 @@ and a server port among them fails to bind with `EADDRINUSE`.
 ### From a Windows shell
 
 The repository lives on the Windows drive, so WSL sees it at
-`/mnt/c/Users/kait/projects/goose/goose-http`. Two things break commands passed to WSL
+`/mnt/c/Users/kait/projects/goose/goose-http`. These things break commands passed to WSL
 from Windows:
 
 - `wsl.exe` hands its arguments to a shell that expands `$VARS` before `bash -c` sees
@@ -140,6 +141,18 @@ from Windows:
 - Git Bash rewrites arguments that look like POSIX paths, so `/mnt/c/...` turns into
   `C:/Program Files/Git/mnt/c/...`. Set `MSYS_NO_PATHCONV=1` for the `wsl.exe` call.
   PowerShell doesn't rewrite paths.
+- `GOOSE` isn't set in Kait's WSL profile, and `bash script.sh` wouldn't read the profile
+  anyway. A script that calls `scripts/build.sh` or `scripts/run.sh` exports it first:
+  `export GOOSE=/mnt/c/Users/kait/projects/goose/goose/build-linux/goose`.
+- A server started in the background survives when its `wsl.exe` call ends early, for
+  example when the output is piped into `head`. It keeps its port, and the next run fails
+  to bind. Check with `ps aux | grep -E 'build/server|main.goose'` before rerunning.
+
+Windows `python`, called from Git Bash, writes text files with CRLF line endings and in
+cp1252, so a `§` it writes becomes the byte `0xA7`, which isn't UTF-8. A script that
+rewrites files here opens them with `encoding="utf-8", newline="\n"`.
+`.gitattributes` keeps `*.sh` and `*.py` at LF in the index, but WSL runs the working
+copy, so a CRLF script fails there before Git would fix it.
 
 ## Edit on Windows
 
