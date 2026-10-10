@@ -34,3 +34,16 @@ libreactorng) belong to task 005.
 - [ ] Zig's version and install in `docs/development.md`
 - [ ] Task 004's matrix rerun with them, and the results, wins and losses, in this file
 - [ ] vanilla-epoll added too, or the reason it wasn't recorded here
+- [ ] Where Goose loses a cell by more than the spread of its runs, the winner's source
+      and a `perf` profile of both servers say what it does differently, as task 004's
+      profile did; each idea is tried here or recorded with why not (a Goose finding, or
+      a behavior the tests require)
+- [ ] `bench/instructions.sh` run for every server too, with peak RSS added to what it
+      records
+- [ ] A results page, `docs/results.md`: the latest matrix for every server, with requests
+      per second, p50 and p99 latency, instructions and cycles per request, peak RSS, server
+      CPU time, and binary size, the machine and commands, and links to the task files
+      that hold the runs behind it
+- [ ] `README.md` gives a few headline numbers against the strongest competitors
+      (requests per second, instructions per request, and peak RSS), losses included, and
+      links `docs/results.md`
