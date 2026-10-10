@@ -1,0 +1,9 @@
+/build/
+*.o
+*.obj
+*.exe
+*.pdb
+*.db
+*.db-wal
+*.db-shm
+node_modules/
