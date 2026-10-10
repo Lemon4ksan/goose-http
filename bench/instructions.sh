@@ -9,7 +9,7 @@
 #   bench/instructions.sh SERVER...   (RUNS 3, PORT 29280)
 #
 # Prints one line per run: instructions per request in all, in user code, and
-# cycles per request.
+# cycles per request, and the server's peak RSS (VmHWM) over the whole run.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -21,7 +21,7 @@ tmp=$(mktemp -d)
 pid=
 trap '[ -z "$pid" ] || kill "$pid" 2>/dev/null; rm -rf "$tmp"' EXIT
 
-printf 'server\trun\treq/s\tinstructions/req\tuser instructions/req\tcycles/req\n'
+printf 'server\trun\treq/s\tinstructions/req\tuser instructions/req\tcycles/req\tpeak_rss_kb\n'
 for run in $(seq "$runs"); do
 for server in "$@"; do
     case $server in
@@ -37,13 +37,14 @@ for server in "$@"; do
     sleep 5
     perf stat -x, -e instructions,instructions:u,cycles -C 0 -o "$tmp/perf" -- sleep 10
     wait $w
+    rss=$(awk '/^VmHWM/ {print $2}' "/proc/$pid/status")
     kill "$pid"
     wait "$pid" 2>/dev/null || true
     pid=
     rps=$(awk '/^Requests\/sec/ {print $2}' "$tmp/wrk")
-    awk -F, -v rps="$rps" -v s="$server" -v r="$run" '
+    awk -F, -v rps="$rps" -v s="$server" -v r="$run" -v rss="$rss" '
         $3 == "instructions" { i = $1 } $3 == "instructions:u" { u = $1 } $3 == "cycles" { c = $1 }
-        END { n = rps * 10; printf "%s\t%s\t%.0f\t%.0f\t%.0f\t%.0f\n", s, r, rps, i / n, u / n, c / n }
+        END { n = rps * 10; printf "%s\t%s\t%.0f\t%.0f\t%.0f\t%.0f\t%s\n", s, r, rps, i / n, u / n, c / n, rss }
     ' "$tmp/perf"
 done
 done
