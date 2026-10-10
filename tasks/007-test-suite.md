@@ -20,7 +20,8 @@ at a smaller scale.
       and runs the integration scripts against the gcc build; it fails on the first
       failure
 - [ ] The Windows `--check` of every root file, so the Windows typecheck stays green
-- [ ] Unit tests for the parts of task 003 that work on bytes alone: the request parser,
-      the `Date` header, and the response builder
+- [x] Unit tests for the parts of task 003 that work on bytes alone: the request parser,
+      the `Date` header, and the response builder (`src/test_http.goose`, run by
+      `scripts/test-unit.sh`; task 003 also added `scripts/test-http.sh`)
 - [ ] How to run it, and what it covers, recorded in `docs/development.md`
 - [ ] The "Move the pin" steps in `docs/development.md` run `scripts/test.sh`

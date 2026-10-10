@@ -31,8 +31,8 @@ The path in the `#include` depends on the backend:
   `scripts/build.sh` gets `#include "../shim/net.h"` in `build/server.c`. An `-o` without
   a directory breaks an absolute path
   ([findings](goose-findings.md#an---include-path-is-rewritten-wrongly-when--o-names-no-directory)).
-- A TinyCC run uses the path as given, relative to the working directory, so
-  `scripts/run.sh` passes an absolute one.
+- A TinyCC run uses the path as given, relative to the working directory, so pass an
+  absolute one.
 
 ## Names and layouts
 

@@ -13,9 +13,21 @@ the native compiler typechecks the program there, but the server only runs on Li
 | CMake, Ninja | WSL, apt | 4.2.3, 1.13.2 |
 | Visual Studio Build Tools | Windows | 2026 (18), MSVC 19.51 |
 | VS Code | Windows | 1.85 or later, for the Goose extension |
+| Python | WSL | 3.14.4, for the test clients |
+| curl | WSL, apt | 8.18.0 |
+| wrk | WSL, apt | 4.1.0 (`4.1.0-4build3`) |
+| h2load | WSL, apt `nghttp2-client` | 1.68.0 |
+| oha | WSL, `cargo install oha --locked` | 1.16.0, with cargo 1.99.0 |
 
-Load generators (`wrk`, `oha`) and the competing servers (Rust through `cargo`, Odin)
-come with tasks 003 and 004.
+Install the test tools in WSL. Run `cargo` from a Linux directory
+([below](#from-a-windows-shell)); oha lands in `~/.cargo/bin`.
+
+```sh
+sudo apt-get install -y curl wrk nghttp2-client netcat-openbsd strace
+cd ~ && cargo install oha --locked
+```
+
+The competing servers (Rust through `cargo`, Odin) come with task 004.
 
 ## Set up the Goose compiler
 
@@ -86,29 +98,78 @@ scripts below, and update the pin in `README.md` and the table above.
 
 ## Build and run
 
-Run these in WSL. Both work from any directory.
+Run these in WSL. They work from any directory.
 
 | Command | What it does |
 |---|---|
-| `scripts/run.sh [args]` | Compiles and runs `src/main.goose` in process through TinyCC, passing `args` to the program. For quick iteration. |
-| `scripts/build.sh` | Compiles `src/main.goose` to `build/server.c` at `-O2`, then to `build/server` with `cc -O2`. For anything measured. |
-| `scripts/test-echo.sh [server]` | Tests the echo servers of `build/server`, or of another command such as `scripts/run.sh` (below). |
+| `scripts/build.sh` | Compiles `src/main.goose` to `build/server.c` at `-O2`, then to `build/server` with `cc -O2`. |
+| `scripts/test-unit.sh` | Runs each `src/test_*.goose` through TinyCC ([below](#test-the-http-server)). |
+| `scripts/test-http.sh` | Tests the HTTP server of `build/server` ([below](#test-the-http-server)). |
+| `scripts/test-echo.sh [server]` | Tests the echo servers of `build/server`, or of another command ([below](#test-the-echo-servers)). |
 
-Both build scripts pass `-D_GNU_SOURCE --include shim/net.h` to goose
-([c-interop.md](c-interop.md#where-the-header-goes)). `build.sh` takes the C compiler from
-`CC` and its flags from `CFLAGS` (default `-O2`). The generated C stays in
-`build/server.c` for reading.
+`build.sh` passes `-D_GNU_SOURCE --include shim/net.h` to goose
+([c-interop.md](c-interop.md#where-the-header-goes)). It takes the C compiler from `CC`
+and its flags from `CFLAGS` (default `-O2`). The generated C stays in `build/server.c`
+for reading.
 
-TinyCC can't place thread-local storage, so a program that spawns workers runs only
-through `build.sh`.
+TinyCC can't place thread-local storage, so it refuses to run any program that can reach
+`thread_spawn`, even when the spawn isn't taken. `src/main.goose` is one, so the server
+runs only through `build.sh`. The unit tests are root files of their own, which TinyCC
+runs.
 
-The program takes a mode and a port (default 8080). Until task 003 adds the HTTP server,
-the modes are the two echo servers of `src/echo.goose`:
+The program takes a mode and a port (default 8080):
 
 ```sh
-build/server echo-blocking 8080   # one client at a time
+build/server http 8080            # the HTTP server, one worker per hardware thread
+WORKERS=4 build/server http 8080  # with 4 workers
+build/server echo-blocking 8080   # the echo servers of task 002: one client at a time
 build/server echo-epoll 8080      # one edge-triggered epoll loop
 ```
+
+### Test the HTTP server
+
+`scripts/test-unit.sh` runs `src/test_http.goose`, which asserts what `src/http.goose`
+does with bytes alone: the parser on good, partial, pipelined, and refused requests, the
+`Date` header against dates from Python's `email.utils`, and the exact bytes of each
+kind of response.
+
+`scripts/test-http.sh` starts `build/server http` with 4 workers (`WORKERS`) and fails on
+the first error. It needs curl, wrk, h2load, oha, `nc`, and `python3`
+([toolchain](#toolchain)). Against the server it runs:
+
+- curl on `/plaintext`, `/json`, and a 404, and two requests on one connection.
+- `scripts/http_client.py`, in these modes:
+  - `tfb`: the checks TechEmpower's verifier makes of both tests, with its request
+    headers: status, `Server`, `Date` as an IMF-fixdate within 2 s of the clock,
+    `Content-Type`, `Content-Length` against the body, the body, and a `Date` that moves
+    on after a second.
+  - `pipeline`: 16 requests in one write, answered in order; a request sent a byte at a
+    time; 5-byte and 512 KB bodies dropped between pipelined requests; and 500
+    pipelined requests, more than the write buffer holds.
+  - `keepalive`: HTTP/1.0 with and without `Connection: keep-alive`, `Connection: close`
+    in a pipeline, and `HEAD`.
+  - `hostile`: 19 malformed or oversized requests, each refused with its status (400,
+    413, 414, 431, 501, or 505) and the connection closed, and a refusal after a good
+    request in a pipeline.
+  - `many 10000`: 10,000 connections open at once, each pipelining 4 requests.
+  - `slow`: at once, a client that trickles a request head (408 after the 10 s request
+    timeout), one that sends nothing (closed after 10 s), one that finishes a request
+    every 3 s (never cut off), and one that pipelines without reading (closed 10 s after
+    the server's buffers fill), while another client is served.
+- wrk for 3 s on `/plaintext` with 16-deep pipelining (`scripts/pipeline.lua`) and on
+  `/json`, h2load `--h1` for 200,000 requests 16 deep, and oha for 500,000 requests. Each
+  must see only 200s and no errors.
+- Then one worker under `ulimit -n 40` and 60 clients (`emfile`): the clients past the fd
+  limit wait in the listen backlog, and are served once earlier ones close.
+
+The load runs check correctness, not speed; their numbers aren't measurements (task 004).
+wrk 4.1.0 times requests with the wall clock, `gettimeofday`, and WSL2 steps its wall clock
+back by about a millisecond every 30 s or so. wrk then counts each request in flight
+across the step as a timeout, one per connection (64 for `-c 64`), with no slow
+response behind them. `test-http.sh` ignores wrk's timeouts for that reason and relies on
+h2load and oha, which use a monotonic clock. Task 004 has to allow for it too. And oha with `-z`
+aborts the requests in flight at the deadline and lists them as errors, so the test gives
+it a request count instead.
 
 ### Test the echo servers
 
@@ -142,11 +203,22 @@ from Windows:
   `C:/Program Files/Git/mnt/c/...`. Set `MSYS_NO_PATHCONV=1` for the `wsl.exe` call.
   PowerShell doesn't rewrite paths.
 - `GOOSE` isn't set in Kait's WSL profile, and `bash script.sh` wouldn't read the profile
-  anyway. A script that calls `scripts/build.sh` or `scripts/run.sh` exports it first:
-  `export GOOSE=/mnt/c/Users/kait/projects/goose/goose/build-linux/goose`.
+  anyway. A script that calls `scripts/build.sh` or `scripts/test-unit.sh` exports it
+  first: `export GOOSE=/mnt/c/Users/kait/projects/goose/goose/build-linux/goose`. The
+  same goes for `PATH`, which needs `$HOME/.cargo/bin` for oha.
 - A server started in the background survives when its `wsl.exe` call ends early, for
   example when the output is piped into `head`. It keeps its port, and the next run fails
-  to bind. Check with `ps aux | grep -E 'build/server|main.goose'` before rerunning.
+  to bind. Check with `ps aux | grep build/server` before rerunning.
+- `wsl.exe` starts in the Windows working directory, under `/mnt/c/Users/kait`, and cargo
+  reads the config files of every directory above its own. It then picks up the Windows
+  `C:\Users\kait\.cargo\config`. Run cargo with `wsl.exe --cd /root`, or `cd ~` first.
+- `pkill -f PATTERN` inside `wsl.exe -- bash -c '...'` matches that `bash -c` too, whose
+  command line holds the pattern, and kills it. Kill by PID instead.
+- Killing `strace` doesn't stop the server it started; kill the server's PID.
+
+The agent's Bash tool turns `\\` into `\` before the shell sees it, even inside a quoted
+heredoc, so `'\\n'` written through it reaches the file as a line break. Edit files with
+the file tools, or check the result, when the text has backslashes.
 
 Windows `python`, called from Git Bash, writes text files with CRLF line endings and in
 cp1252, so a `§` it writes becomes the byte `0xA7`, which isn't UTF-8. A script that
@@ -160,6 +232,7 @@ The Windows compiler typechecks the whole program without running it:
 
 ```powershell
 ..\goose\build\Release\goose.exe --check src\main.goose
+..\goose\build\Release\goose.exe --check src\test_http.goose
 ```
 
 `--check` and `-o out.c` don't compile the generated C, so the Linux-only C in `shim/` is
