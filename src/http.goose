@@ -305,7 +305,7 @@ fn path_of(target: const u8[:]) -> const u8[:] {
 
 // Writes the response to req, whose body is body, into out, and returns
 // whether the connection stays open after it. body is empty unless
-// reads_body(req) or the body was chunked.
+// reads_body(req).
 fn respond<A>(out: A&, req: Request, body: const u8[:], date: const u8[:]) -> bool {
     let path = path_of(req.target);
     let plaintext = path == "/plaintext";

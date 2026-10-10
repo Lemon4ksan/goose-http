@@ -58,9 +58,9 @@ until the task named beside it confirms or replaces it.
     the rest.
   - `Content-Length` request bodies are read and dropped as they arrive. Chunked bodies
     are accepted in HTTP/1.1 (task 009, for HttpArena's `baseline` profile, 2026-10-10):
-    the message must fit in the 8 KB read buffer with its head, or it gets 413, and the
-    body is decoded in place. So is a `Content-Length` body the route reads, which only
-    `POST /baseline11` does. Another transfer coding gets 501, and `Transfer-Encoding`
+    the message must fit in the 8 KB read buffer with its head, or it gets 413. So must
+    a `Content-Length` body the route reads, which only `POST /baseline11` does. A
+    chunked body the route reads is decoded in place. Another transfer coding gets 501, and `Transfer-Encoding`
     with `Content-Length`, or in HTTP/1.0, gets 400.
   - Routes: `/plaintext` and `/json` for TechEmpower's tests, and `/baseline11` and
     `/pipeline` for HttpArena's (`bench/httparena/goose`).

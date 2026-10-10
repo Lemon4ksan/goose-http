@@ -7,16 +7,26 @@
 #   bench/httparena.sh run                    scripts/benchmark.sh, each framework
 #                                             and profile, logs into OUT
 #
-# The checkout is HTTPARENA_COMMIT under CACHE, reset on every call. Two local
-# changes to it, so that the runs match bench/run.sh's layout on 16 CPUs:
+# The checkout is HTTPARENA_COMMIT under CACHE, reset on every call. What this
+# changes in it, so that the runs match bench/run.sh's layout on 16 CPUs and
+# work under Docker Desktop:
 #
 # - Every profile's server cpuset, 0-31,64-95 on HttpArena's 128-thread
 #   machine, becomes SERVER_CPUS (0-3). On a machine with fewer CPUs the
 #   harness would otherwise give the server all of them, shared with the load
 #   generator.
 # - The load generators run in Docker (LOADGEN_DOCKER) on LOAD_CPUS (4-15) with
-#   THREADS (12) threads. gcannon's image is built at GCANNON_COMMIT, where its
+#   THREADS (4) threads, where the harness's default is 64. With Goose, tokio,
+#   and vanilla-epoll on CPUs 0-3, baseline peaked at 4 gcannon threads (463K
+#   to 473K requests per second) and fell at 3 and at 6; 12 threads gave 267K
+#   (2026-10-10). gcannon's image is built at GCANNON_COMMIT, where its
 #   Dockerfile follows gcannon's main branch.
+# - latency-1m offers LATENCY_RATE (200,000) requests per second instead of
+#   1,000,000, which zrk couldn't reach here (309K against Goose): the profile
+#   compares CPU per request at a rate every server holds.
+#
+# - Under Docker Desktop, the readiness probe and the cgroup CPU reads run in
+#   helper containers (bench/httparena/docker-desktop.sh).
 #
 # SKIP_TUNE leaves the host as bench/run.sh measures it: the harness's
 # system_tune changes sysctls and restarts Docker.
@@ -51,9 +61,17 @@ cp -r "$root/src" "$root/shim" "$arena/frameworks/goose/"
 mkdir -p "$arena/frameworks/goose/scripts"
 cp "$root/scripts/build.sh" "$arena/frameworks/goose/scripts/"
 sed -i "s/0-31,64-95/$server_cpus/g" "$arena/scripts/lib/profiles.sh"
+# Docker Desktop's host network is its VM's, which the containers share but
+# WSL doesn't reach, so the readiness probe runs curl in a container too.
+if docker info --format '{{.OperatingSystem}}' | grep -q 'Docker Desktop'; then
+    sed -i 's|if curl -sk -o /dev/null --max-time 2 |if docker run --rm --network host curlimages/curl:8.11.1 -sk -o /dev/null --max-time 2 |' \
+        "$arena/scripts/lib/framework.sh"
+    cat "$root/bench/httparena/docker-desktop.sh" >>"$arena/scripts/lib/stats.sh"
+fi
 
 export LOADGEN_DOCKER=true SKIP_TUNE=true
-export GCANNON_CPUS=${LOAD_CPUS:-4-15} THREADS=${THREADS:-12}
+export GCANNON_CPUS=${LOAD_CPUS:-4-15} THREADS=${THREADS:-4}
+export ZRK_RATE_LATENCY_1M=${LATENCY_RATE:-200000}
 export RUNS=${RUNS:-3} DURATION=${DURATION:-5s}
 
 docker build -q --build-arg GCANNON_REF="$GCANNON_COMMIT" -t gcannon:latest \
@@ -73,7 +91,7 @@ run)
         echo "httparena: $HTTPARENA_COMMIT, gcannon: $GCANNON_COMMIT"
         echo "goose-http: $(git -C "$root" rev-parse --short HEAD)$(git -C "$root" diff --quiet || echo ' (modified)')"
         echo "server cpus: $server_cpus, load cpus: $GCANNON_CPUS, threads: $THREADS"
-        echo "runs: $RUNS, duration: $DURATION"
+        echo "runs: $RUNS, duration: $DURATION, latency-1m rate: $ZRK_RATE_LATENCY_1M"
         echo "docker: $(docker version --format '{{.Server.Version}}')"
     } >"$out/env.txt"
     for fw in $frameworks; do

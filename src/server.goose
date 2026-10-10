@@ -153,7 +153,8 @@ fn serve(port: i32) {
             // A body the route reads, and a chunked one, are answered once
             // they are whole in rbuf; any other body is dropped as it comes.
             let b0 = off + req.len;
-            let whole = req.chunked || (req.body > 0 && http::reads_body(req));
+            let reads = http::reads_body(req);
+            let whole = req.chunked || (req.body > 0 && reads);
             var wire = 0;
             if whole {
                 let n, s = http::frame_body(c.rbuf[b0..c.rlen], req, RBUF - req.len);
@@ -166,7 +167,9 @@ fn serve(port: i32) {
                 }
                 wire = n;
             }
-            let blen = if req.chunked { http::dechunk(c.rbuf[b0..b0 + wire]) } else { wire };
+            let blen = if !reads { 0 }
+                       else if req.chunked { http::dechunk(c.rbuf[b0..b0 + wire]) }
+                       else { wire };
             done++;
             off = b0 + wire;
             if !whole { c.discard = req.body; }

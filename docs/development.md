@@ -291,6 +291,19 @@ What the benchmark has to work around on this machine:
   `-C target-cpu=native` for every build (see [below](#from-a-windows-shell)).
   `bench/build.sh` runs cargo from its cache directory on the Linux file system, and sets
   the flags it wants itself.
+- Docker here is Docker Desktop, whose containers run in its own VM namespace. A
+  `--network host` container shares that VM's network with other such containers, but
+  WSL can't reach it on `localhost`, and its cgroup isn't under WSL's `/sys/fs/cgroup`.
+  `bench/httparena.sh` runs HttpArena's readiness probe and cgroup CPU reads in helper
+  containers for that (`bench/httparena/docker-desktop.sh`). `-p 8080:8080` publishing,
+  which `validate.sh` uses, does reach WSL.
+- gcannon, HttpArena's load generator, peaks at 4 threads on CPUs 4-15 against a
+  4-worker server: 466K requests per second on `baseline` for Goose, 248K at 2 threads,
+  386K at 6, and 267K at 12 (2026-10-10). More threads lose throughput, one per core
+  included, so a thread count from another machine doesn't carry over.
+- Zig 0.16 fetches a package's dependencies into `zig-pkg/` beside its `build.zig.zon`,
+  and renaming into a `.zig-cache` on `/mnt/c` fails with `AccessDenied`.
+  `bench/build.sh` copies `bench/dusty` into the Linux cache and builds it there.
 - perf runs on the WSL2 kernel, hardware counters included (`cycles`, `instructions`),
   as root. It can't read `/proc/schedstat`, which `perf record` mentions and survives.
 
