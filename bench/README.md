@@ -10,9 +10,10 @@ bench/run.sh           # the matrix, into bench/results/<date>/ (about 80 minute
 bench/compilers.sh     # the Goose server built by gcc and clang, into build/bench/
 bench/instructions.sh  # instructions per request of servers in build/bench/, with perf
 bench/parse.sh         # http::parse alone on the requests in bench/parse/
+bench/httparena.sh     # HttpArena's harness, in Docker, with Goose as an entry
 ```
 
-Both run in WSL, need `GOOSE` and `~/.cargo/bin` on `PATH`, and are configured through
+They run in WSL, need `GOOSE` and `~/.cargo/bin` on `PATH`, and are configured through
 the environment (see the comment at the top of each). `docs/development.md` lists the
 tools and the traps they work around.
 

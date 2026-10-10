@@ -192,9 +192,12 @@ the first error. It needs curl, wrk, h2load, oha, `nc`, and `python3`
   - `pipeline`: 16 requests in one write, answered in order; a request sent a byte at a
     time; 5-byte and 512 KB bodies dropped between pipelined requests; and 500
     pipelined requests, more than the write buffer holds.
+  - `chunked`: chunked bodies, with an extension and a trailer field, dropped between
+    pipelined requests and sent a byte at a time, and HttpArena's `/baseline11` with no
+    body, a `Content-Length` body, and a chunked one.
   - `keepalive`: HTTP/1.0 with and without `Connection: keep-alive`, `Connection: close`
     in a pipeline, and `HEAD`.
-  - `hostile`: 19 malformed or oversized requests, each refused with its status (400,
+  - `hostile`: 22 malformed or oversized requests, each refused with its status (400,
     413, 414, 431, 501, or 505) and the connection closed, and a refusal after a good
     request in a pipeline.
   - `many 10000`: 10,000 connections open at once, each pipelining 4 requests.
@@ -244,6 +247,12 @@ the matrix of task 004 against them. [`bench/README.md`](../bench/README.md) has
 method, the pins, and each server's configuration. Both scripts need `GOOSE` and
 `$HOME/.cargo/bin` on `PATH`, as above. A full run takes about 20 minutes per server,
 140 minutes for all seven, and nothing else should run on the machine meanwhile.
+
+`bench/httparena.sh` runs [HttpArena](https://github.com/MDA2AV/HttpArena)'s own
+harness, in Docker, with the Goose server as an entry: `validate` runs its
+`scripts/validate.sh`, and `run` its `baseline`, `limited-conn`, `latency-1m`, and
+`pipelined` profiles for Goose and HttpArena's tokio, dusty, and vanilla-epoll entries
+(task 009). The comment at its top lists what it changes in the checkout.
 
 `bench/compilers.sh` adds Goose builds to `build/bench/`: `goose-gcc`, `goose-clang`,
 and `goose-gcc-native` (`-march=native`). `bench/run.sh` runs any server whose name

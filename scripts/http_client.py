@@ -2,6 +2,7 @@
 
     http_client.py PORT tfb         TechEmpower's plaintext and JSON checks
     http_client.py PORT pipeline    pipelined requests and request bodies
+    http_client.py PORT chunked     chunked request bodies, and HttpArena's /baseline11
     http_client.py PORT keepalive   keep-alive, Connection: close, HTTP/1.0
     http_client.py PORT hostile     malformed and oversized requests
     http_client.py PORT slow        slow clients, against the server's timeouts
@@ -184,6 +185,40 @@ def pipeline(port):
     print("pipeline: ok")
 
 
+def chunked(port):
+    def te(body):
+        return request(b"/json", b"POST", b"Transfer-Encoding: chunked\r\n") + body
+
+    # Chunked bodies, with an extension and a trailer field, dropped between
+    # pipelined requests, and one sent a byte at a time.
+    c = Conn(port)
+    c.send(te(b"5\r\nhello\r\n0\r\n\r\n") +
+           te(b"3;x=y\r\nabc\r\nA\r\n0123456789\r\n0\r\nT: v\r\n\r\n") +
+           request(b"/plaintext"))
+    for want in (405, 405, 200):
+        r = c.response()
+        if r.status != want:
+            fail(f"after a chunked body: {r.status}, want {want}")
+    for b in te(b"2\r\nhi\r\n0\r\n\r\n"):
+        c.send(bytes([b]))
+    if c.response().status != 405:
+        fail("byte-at-a-time chunked body")
+    # HttpArena's baseline: a + b, plus the body of a POST, whichever framing.
+    for req, want in (
+        (request(b"/baseline11?a=13&b=42"), b"55"),
+        (request(b"/baseline11?b=-2&a=5&c=9"), b"3"),
+        (request(b"/baseline11?a=13&b=42", b"POST", b"Content-Length: 2\r\n") + b"20", b"75"),
+        (request(b"/baseline11?a=13&b=42", b"POST", b"Transfer-Encoding: chunked\r\n") +
+         b"1\r\n2\r\n1\r\n0\r\n0\r\n\r\n", b"75"),
+    ):
+        c.send(req)
+        r = c.response()
+        if r.status != 200 or r.body != want:
+            fail(f"{req!r}: {r.status} {r.body!r}, want {want!r}")
+    c.close()
+    print("chunked: ok")
+
+
 def keepalive(port):
     c = Conn(port)
     c.send(b"GET /plaintext HTTP/1.0\r\n\r\n")
@@ -231,8 +266,16 @@ def hostile(port):
         ("binary", bytes(range(256)), 400),
         ("TLS hello", b"\x16\x03\x01\x02\x00\x01\x00\x01\xfc\x03\x03" + b"\x00" * 40, 400),
         ("HTTP/2 preface", b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n", 505),
-        ("chunked", b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n"
-                    b"5\r\nhello\r\n0\r\n\r\n", 501),
+        ("gzip coding", b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip, chunked\r\n\r\n"
+                        b"5\r\nhello\r\n0\r\n\r\n", 501),
+        ("chunked and Content-Length",
+         b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\nContent-Length: 5\r\n\r\n"
+         b"0\r\n\r\n", 400),
+        ("bad chunk size", b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n"
+                           b"5x\r\nhello\r\n0\r\n\r\n", 400),
+        ("chunked body past the buffer",
+         b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n"
+         b"4000\r\n" + b"x" * 0x4000 + b"\r\n0\r\n\r\n", 413),
         ("huge body", b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 2000000000\r\n\r\n", 413),
         ("long target", b"GET /" + big + b" HTTP/1.1\r\nHost: x\r\n\r\n", 414),
         ("huge header", b"GET / HTTP/1.1\r\nHost: x\r\nX: " + big + b"\r\n\r\n", 431),
@@ -380,8 +423,8 @@ def main():
     if mode in ("many", "emfile"):
         {"many": many, "emfile": emfile}[mode](port, int(sys.argv[3]))
     else:
-        {"tfb": tfb, "pipeline": pipeline, "keepalive": keepalive, "hostile": hostile,
-         "slow": slow}[mode](port)
+        {"tfb": tfb, "pipeline": pipeline, "chunked": chunked, "keepalive": keepalive,
+         "hostile": hostile, "slow": slow}[mode](port)
 
 
 if __name__ == "__main__":

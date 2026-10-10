@@ -73,6 +73,7 @@ echo "curl: ok"
 
 $client tfb
 $client pipeline
+$client chunked
 $client keepalive
 $client hostile
 $client many 10000

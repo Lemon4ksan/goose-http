@@ -121,7 +121,11 @@ fn test_refused() {
     // Other versions, transfer codings, and the size limits.
     expect("GET / HTTP/2.0\r\nHost: x\r\n\r\n", 505);
     expect("GET / HTTP/0.9\r\nHost: x\r\n\r\n", 505);
-    expect("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n", 501);
+    expect("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip\r\n\r\n", 501);
+    expect("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip, chunked\r\n\r\n", 501);
+    expect("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\nContent-Length: 1\r\n\r\n", 400);
+    expect("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n", 400);
+    expect("POST / HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n", 400);
     expect("POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 1048577\r\n\r\n", 413);
     expect("POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 1048576\r\n\r\n", 200);
     expect("ABCDEFGHIJKLMNOPQ / HTTP/1.1\r\nHost: x\r\n\r\n", 400);
@@ -177,13 +181,56 @@ fn test_date() {
     }
 }
 
+// The chunked body at the start of text, decoded, or its status.
+fn dechunked(text: const u8[:], out: u8[>..]&) -> i32 {
+    let n, s = http::chunked_len(text);
+    if s == 200 {
+        var buf: u8[>..] = [];
+        buf.append(text[..n]);
+        let k = http::dechunk(buf);
+        out.append(buf[..k]);
+    }
+    return s;
+}
+
+fn test_chunked() {
+    let r, s = http::parse("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: Chunked\r\n\r\n");
+    assert(s == 200 && r.chunked && r.body == 0);
+
+    var out: u8[>..] = [];
+    let one = "5\r\nhello\r\n0\r\n\r\n";
+    assert(dechunked(one, out) == 200);
+    same(out, "hello");
+    // Every prefix is incomplete, and what follows is left alone.
+    for n in one.len { assert(dechunked(one[..n], out) == http::INCOMPLETE); }
+    let n1, s1 = http::chunked_len("0\r\n\r\nGET");
+    assert(s1 == 200 && n1 == 5);
+
+    out.clear();
+    assert(dechunked("3;x=y\r\nabc\r\nA\r\n0123456789\r\n0\r\nT: v\r\n\r\n", out) == 200);
+    same(out, "abc0123456789");
+    out.clear();
+    assert(dechunked("1\r\n2\r\n1\r\n0\r\n0\r\n\r\n", out) == 200);
+    same(out, "20");
+
+    // A size that isn't hex or is too long, data longer than its size, bare
+    // LFs, and control bytes in an extension.
+    assert(dechunked("5x\r\nhello\r\n0\r\n\r\n", out) == 400);
+    assert(dechunked("\r\n", out) == 400);
+    assert(dechunked("1000000000000000\r\n", out) == 400);
+    assert(dechunked("2\r\nabc\r\n0\r\n\r\n", out) == 400);
+    assert(dechunked("2\nab\r\n0\r\n\r\n", out) == 400);
+    assert(dechunked("0;a\x01\r\n\r\n", out) == 400);
+    assert(dechunked("0\r\n\n", out) == 400);
+}
+
 let DATE = "Sat, 10 Oct 2026 12:00:00 GMT";
 
-// The response respond writes for a request.
+// The response respond writes for a request, whose body follows its head.
 fn response(text: const u8[:], out: u8[>..]&) -> bool {
     let r, s = http::parse(text);
     assert(s == 200);
-    return http::respond(out, r, DATE);
+    return http::respond(out, r, text[r.len..], DATE);
 }
 
 fn same(got: const u8[:], want: const u8[:]) {
@@ -214,6 +261,27 @@ fn test_respond() {
     assert(response("POST /json HTTP/1.0\r\nConnection: keep-alive\r\nContent-Length: 2\r\n\r\n", out));
     same(out, "HTTP/1.1 405 Method Not Allowed\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nConnection: keep-alive\r\nAllow: GET, HEAD\r\nContent-Length: 0\r\n\r\n");
 
+    // HttpArena's endpoints.
+    out.clear();
+    assert(response("GET /baseline11?a=13&b=42 HTTP/1.1\r\nHost: x\r\n\r\n", out));
+    same(out, "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\n55");
+    out.clear();
+    assert(response("POST /baseline11?b=-50&x&a=1 HTTP/1.1\r\nHost: x\r\nContent-Length: 4\r\n\r\n 20\n", out));
+    same(out[^3..], "-29");
+    out.clear();
+    assert(response("POST /baseline11 HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\nzz", out));
+    same(out[^1..], "0");
+    out.clear();
+    assert(response("PUT /baseline11 HTTP/1.1\r\nHost: x\r\n\r\n", out));
+    same(out, "HTTP/1.1 405 Method Not Allowed\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nAllow: GET, HEAD, POST\r\nContent-Length: 0\r\n\r\n");
+    out.clear();
+    assert(response("GET /pipeline HTTP/1.1\r\nHost: x\r\n\r\n", out));
+    same(out[^2..], "ok");
+    let b, sb = http::parse("POST /baseline11?a=1 HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\n");
+    assert(sb == 200 && http::reads_body(b));
+    let p, sp = http::parse("POST /json HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\n");
+    assert(sp == 200 && !http::reads_body(p));
+
     // A limited array takes responses as the server's write buffer does.
     var wbuf: u8[..http::MAX_RESPONSE] = [];
     http::refuse(wbuf, 431, DATE);
@@ -229,6 +297,7 @@ fn main() {
     test_values();
     test_keep_alive();
     test_refused();
+    test_chunked();
     test_date();
     test_respond();
     print("test_http: ok");

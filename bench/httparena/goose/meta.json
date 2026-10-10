@@ -1,0 +1,11 @@
+{
+  "display_name": "goose",
+  "language": "Goose",
+  "type": "engine",
+  "engine": "epoll",
+  "description": "goose-http: an HTTP/1.1 server written in Goose, one worker per CPU, each with its own SO_REUSEPORT listener and edge-triggered epoll loop.",
+  "repo": "https://github.com/kaitk/goose-http",
+  "enabled": true,
+  "tests": ["baseline", "pipelined", "limited-conn", "latency-1m"],
+  "maintainers": []
+}

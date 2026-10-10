@@ -150,10 +150,27 @@ fn serve(port: i32) {
                 off = c.rlen;
                 break;
             }
+            // A body the route reads, and a chunked one, are answered once
+            // they are whole in rbuf; any other body is dropped as it comes.
+            let b0 = off + req.len;
+            let whole = req.chunked || (req.body > 0 && http::reads_body(req));
+            var wire = 0;
+            if whole {
+                let n, s = http::frame_body(c.rbuf[b0..c.rlen], req, RBUF - req.len);
+                if s == http::INCOMPLETE { break; }
+                if s != 200 {
+                    http::refuse(c.wbuf, s, date);
+                    c.state = CLOSING;
+                    off = c.rlen;
+                    break;
+                }
+                wire = n;
+            }
+            let blen = if req.chunked { http::dechunk(c.rbuf[b0..b0 + wire]) } else { wire };
             done++;
-            off += req.len;
-            c.discard = req.body;
-            if !http::respond(c.wbuf, req, date) {
+            off = b0 + wire;
+            if !whole { c.discard = req.body; }
+            if !http::respond(c.wbuf, req, c.rbuf[b0..b0 + blen], date) {
                 c.state = CLOSING;
                 off = c.rlen;
                 break;
@@ -195,8 +212,8 @@ fn serve(port: i32) {
                 c.deadline = now + LINGER_MS;
             }
             if full { continue; }
-            // answer leaves rbuf full only to refuse the request with 431,
-            // so an OPEN connection always has room to read into.
+            // answer leaves rbuf full only to refuse the request with 431 or
+            // 413, so an OPEN connection always has room to read into.
             let r = if c.state == DRAINING { sys::recv(c.fd, c.rbuf) }
                     else { sys::recv(c.fd, c.rbuf[c.rlen..]) };
             if r == -sys::EAGAIN { return wait(c, progress); }

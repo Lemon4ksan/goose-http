@@ -17,10 +17,11 @@ io_uring.
 
 ## Scope
 
-In scope: HTTP/1.1 with keep-alive and pipelining, `Content-Length` request bodies, a
-plaintext and a JSON endpoint, and the C shim the server needs for syscalls. Out of
-scope: TLS, HTTP/2, chunked request bodies, routing beyond a few fixed paths, and Windows
-as a benchmark platform.
+In scope: HTTP/1.1 with keep-alive and pipelining, `Content-Length` request bodies,
+chunked request bodies that fit in the read buffer, TechEmpower's plaintext and JSON
+endpoints and HttpArena's baseline and pipeline endpoints, and the C shim the server
+needs for syscalls. Out of scope: TLS, HTTP/2, routing beyond a few fixed paths, and
+Windows as a benchmark platform.
 
 ## Layout
 

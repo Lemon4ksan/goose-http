@@ -56,8 +56,14 @@ until the task named beside it confirms or replaces it.
   - Pipelining: every complete request in the read buffer is answered, and the responses
     go out in one `send`. When the write buffer fills, the server sends it and answers
     the rest.
-  - `Content-Length` request bodies are read and dropped. Any `Transfer-Encoding` gets
-    501, since the end of the body is then unknown.
+  - `Content-Length` request bodies are read and dropped as they arrive. Chunked bodies
+    are accepted in HTTP/1.1 (task 009, for HttpArena's `baseline` profile, 2026-10-10):
+    the message must fit in the 8 KB read buffer with its head, or it gets 413, and the
+    body is decoded in place. So is a `Content-Length` body the route reads, which only
+    `POST /baseline11` does. Another transfer coding gets 501, and `Transfer-Encoding`
+    with `Content-Length`, or in HTTP/1.0, gets 400.
+  - Routes: `/plaintext` and `/json` for TechEmpower's tests, and `/baseline11` and
+    `/pipeline` for HttpArena's (`bench/httparena/goose`).
   - Lines end in CRLF only; a bare LF is 400. HTTP/1.1 needs one `Host`.
   - Limits, in `src/http.goose`: a 4 KB request line (414), an 8 KB head or 100 fields
     (431), and a 1 MB body (413).
