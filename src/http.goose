@@ -1,0 +1,323 @@
+// HTTP/1.1 on bytes alone: the request parser, the Date header, and the
+// responses. Nothing here makes a system call, so src/test_http.goose runs it
+// through TinyCC without the shim.
+namespace http;
+
+import std;
+
+// The longest request head (the request line, the header fields, and the
+// blank line). The server's read buffer is this size, so a head always fits
+// whole; one that doesn't is refused with 431.
+let MAX_HEAD = 8192;
+// Longer request lines are refused with 414, longer methods with 400.
+let MAX_LINE = 4096;
+let MAX_METHOD = 16;
+// More header fields than this are refused with 431.
+let MAX_FIELDS = 100;
+// Request bodies are read and dropped; a longer one is refused with 413.
+let MAX_BODY = 1048576;
+// More than respond or refuse ever writes for one request.
+let MAX_RESPONSE = 512;
+
+// parse's status for a buffer that holds only the start of a request.
+let INCOMPLETE = 0;
+
+// A parsed request head. The slices point into the buffer it was parsed from.
+struct Request {
+    method: const u8[:],
+    target: const u8[:],     // as sent: the path and any query
+    minor: i32,              // the x of HTTP/1.x
+    keep_alive: bool,
+    body: i64,               // Content-Length, 0 without one
+    len: i64,                // bytes of the head, the blank line included
+}
+
+// Parses the request head at the start of buf. Returns the request and 200
+// once the whole head is there, INCOMPLETE until then, or the status to
+// refuse it with. Lines end in CRLF only: a bare LF is 400, which
+// RFC 9112 §2.2 allows.
+fn parse(buf: const u8[:]) -> Request, i32 {
+    // Empty lines before the request line are skipped (RFC 9112 §2.2).
+    var pos = 0;
+    while pos < buf.len && buf[pos] == '\r' {
+        guard pos + 1 < buf.len else { return Request { .. }, short(buf); }
+        guard buf[pos + 1] == '\n' else { return Request { .. }, 400; }
+        pos += 2;
+    }
+
+    // The method, a token, and one space.
+    let m0 = pos;
+    while pos < buf.len && is_tchar(buf[pos]) { pos++; }
+    guard pos - m0 <= MAX_METHOD else { return Request { .. }, 400; }
+    guard pos < buf.len else { return Request { .. }, short(buf); }
+    guard pos > m0 && buf[pos] == ' ' else { return Request { .. }, 400; }
+    let method = buf[m0..pos];
+    pos++;
+
+    // The target, visible ASCII, and one space.
+    let t0 = pos;
+    while pos < buf.len && buf[pos] > ' ' && buf[pos] < 0x7f { pos++; }
+    guard pos - m0 <= MAX_LINE else { return Request { .. }, 414; }
+    guard pos < buf.len else { return Request { .. }, short(buf); }
+    guard pos > t0 && buf[pos] == ' ' else { return Request { .. }, 400; }
+    let target = buf[t0..pos];
+    pos++;
+
+    // The version, HTTP/d.d, and CRLF: ten bytes. Waiting for them would
+    // hang a client that ended the line early, so a line end is checked first.
+    let rest = buf[pos..];
+    if rest.len < 10 {
+        guard position(rest, '\n') < 0 else { return Request { .. }, 400; }
+        return Request { .. }, short(buf);
+    }
+    guard rest[..5] == "HTTP/" && is_digit(rest[5]) && rest[6] == '.' && is_digit(rest[7]) else {
+        return Request { .. }, 400;
+    }
+    guard rest[5] == '1' else { return Request { .. }, 505; }
+    guard rest[8] == '\r' && rest[9] == '\n' else { return Request { .. }, 400; }
+    let minor: i32 = rest[7] - '0';
+    pos += 10;
+
+    // The header fields, up to the blank line.
+    var r = Request { method: method, target: target, minor: minor, .. };
+    var fields = 0;
+    var hosts = 0;
+    var has_length = false;
+    var close = false;
+    var keep = false;
+    loop {
+        guard pos < buf.len else { return Request { .. }, short(buf); }
+        if buf[pos] == '\r' {
+            guard pos + 1 < buf.len else { return Request { .. }, short(buf); }
+            guard buf[pos + 1] == '\n' else { return Request { .. }, 400; }
+            pos += 2;
+            break;
+        }
+        fields++;
+        guard fields <= MAX_FIELDS else { return Request { .. }, 431; }
+
+        // The name, a token, and a colon right after it. This refuses
+        // whitespace before the colon and obsolete line folding (§5.1, §5.2).
+        let n0 = pos;
+        while pos < buf.len && is_tchar(buf[pos]) { pos++; }
+        guard pos < buf.len else { return Request { .. }, short(buf); }
+        guard pos > n0 && buf[pos] == ':' else { return Request { .. }, 400; }
+        let name = buf[n0..pos];
+        pos++;
+
+        // The value, without the whitespace around it. Control bytes other
+        // than tab aren't allowed in it.
+        while pos < buf.len && (buf[pos] == ' ' || buf[pos] == '\t') { pos++; }
+        let v0 = pos;
+        while pos < buf.len && ((buf[pos] >= ' ' && buf[pos] != 0x7f) || buf[pos] == '\t') { pos++; }
+        guard pos < buf.len else { return Request { .. }, short(buf); }
+        guard buf[pos] == '\r' else { return Request { .. }, 400; }
+        guard pos + 1 < buf.len else { return Request { .. }, short(buf); }
+        guard buf[pos + 1] == '\n' else { return Request { .. }, 400; }
+        var v1 = pos;
+        while v1 > v0 && (buf[v1 - 1] == ' ' || buf[v1 - 1] == '\t') { v1--; }
+        let value = buf[v0..v1];
+        pos += 2;
+
+        if eq_fold(name, "content-length") {
+            guard value.len > 0 && value.len <= 18 else { return Request { .. }, 400; }
+            var n = 0;
+            for c in value {
+                guard is_digit(c) else { return Request { .. }, 400; }
+                n = n * 10 + (c - '0');
+            }
+            guard !has_length || n == r.body else { return Request { .. }, 400; }
+            guard n <= MAX_BODY else { return Request { .. }, 413; }
+            has_length = true;
+            r.body = n;
+        } else if eq_fold(name, "transfer-encoding") {
+            return Request { .. }, 501;
+        } else if eq_fold(name, "connection") {
+            each_split(value, ',') {
+                let opt = trim(it);
+                if eq_fold(opt, "close") { close = true; }
+                else if eq_fold(opt, "keep-alive") { keep = true; }
+            };
+        } else if eq_fold(name, "host") {
+            hosts++;
+        }
+    }
+    // HTTP/1.1 requires exactly one Host (RFC 9112 §3.2).
+    guard hosts == 1 || (hosts == 0 && minor == 0) else { return Request { .. }, 400; }
+    r.keep_alive = !close && (minor > 0 || keep);
+    r.len = pos;
+    return r, 200;
+}
+
+// The status for a head that has only partly arrived: wait for the rest,
+// unless it can't fit.
+fn short(buf: const u8[:]) -> i32 {
+    if buf.len >= MAX_HEAD { 431 } else { INCOMPLETE }
+}
+
+fn is_digit(c: u8) -> bool { c >= '0' && c <= '9' }
+
+// A token character (RFC 9110 §5.6.2).
+fn is_tchar(c: u8) -> bool {
+    if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || is_digit(c) || c == '-' { return true; }
+    return c == '!' || c == '#' || c == '$' || c == '%' || c == '&' || c == '\'' || c == '*' ||
+           c == '+' || c == '.' || c == '^' || c == '_' || c == '`' || c == '|' || c == '~';
+}
+
+// Whether a equals lower, ignoring the case of ASCII letters in a. lower
+// must be lowercase.
+fn eq_fold(a: const u8[:], lower: const u8[:]) -> bool {
+    guard a.len == lower.len else { return false; }
+    for c, i in a {
+        let l = if c >= 'A' && c <= 'Z' { c + 32 } else { c };
+        if l != lower[i] { return false; }
+    }
+    return true;
+}
+
+// The writers below take out as A&, a growable or limited u8 array. The
+// server's write buffer is a limited array, a fixed-size value, so an untyped
+// parameter would get a copy of it.
+
+// Writes the response to req into out, and returns whether the connection
+// stays open after it.
+fn respond<A>(out: A&, req: Request, date: const u8[:]) -> bool {
+    var path = req.target;
+    let q = position(path, '?');
+    if q >= 0 { path = path[..q]; }
+    let plaintext = path == "/plaintext";
+    let json = path == "/json";
+    let head_only = req.method == "HEAD";
+    if (plaintext || json) && !head_only && req.method != "GET" {
+        start(out, 405, date, req.keep_alive, req.minor);
+        out.append("Allow: GET, HEAD\r\n");
+        finish(out, "", "", false);
+    } else if plaintext {
+        start(out, 200, date, req.keep_alive, req.minor);
+        finish(out, "text/plain", "Hello, World!", head_only);
+    } else if json {
+        var body: u8[..64] = [];
+        json_object(body, Message { message: "Hello, World!" });
+        start(out, 200, date, req.keep_alive, req.minor);
+        finish(out, "application/json", body, head_only);
+    } else {
+        start(out, 404, date, req.keep_alive, req.minor);
+        finish(out, "", "", head_only);
+    }
+    return req.keep_alive;
+}
+
+// Writes the response that refuses a request with status. The connection
+// closes after it.
+fn refuse<A>(out: A&, status: i32, date: const u8[:]) {
+    start(out, status, date, false, 1);
+    finish(out, "", "", false);
+}
+
+// The status line and the fields every response has.
+fn start<A>(out: A&, status: i32, date: const u8[:], keep_alive: bool, minor: i32) {
+    out.append(status_line(status));
+    out.append("Server: goose\r\nDate: ");
+    out.append(date);
+    out.append("\r\n");
+    if !keep_alive { out.append("Connection: close\r\n"); }
+    else if minor == 0 { out.append("Connection: keep-alive\r\n"); }
+}
+
+// The body's fields, the blank line, and the body unless head_only.
+fn finish<A>(out: A&, ctype: const u8[:], body: const u8[:], head_only: bool) {
+    if ctype.len > 0 {
+        out.append("Content-Type: ");
+        out.append(ctype);
+        out.append("\r\n");
+    }
+    out.append("Content-Length: ");
+    format(out, body.len);
+    out.append("\r\n\r\n");
+    if !head_only { out.append(body); }
+}
+
+fn status_line(status: i32) -> const u8[:] {
+    match status {
+        200 => "HTTP/1.1 200 OK\r\n",
+        400 => "HTTP/1.1 400 Bad Request\r\n",
+        404 => "HTTP/1.1 404 Not Found\r\n",
+        405 => "HTTP/1.1 405 Method Not Allowed\r\n",
+        408 => "HTTP/1.1 408 Request Timeout\r\n",
+        413 => "HTTP/1.1 413 Content Too Large\r\n",
+        414 => "HTTP/1.1 414 URI Too Long\r\n",
+        431 => "HTTP/1.1 431 Request Header Fields Too Large\r\n",
+        501 => "HTTP/1.1 501 Not Implemented\r\n",
+        505 => "HTTP/1.1 505 HTTP Version Not Supported\r\n",
+        _ => "HTTP/1.1 500 Internal Server Error\r\n",
+    }
+}
+
+// The object /json serializes for each request, as TechEmpower's JSON test
+// asks.
+struct Message { message: const u8[:] }
+
+fn json_object<A>(out: A&, m: Message) {
+    out.append("{\"message\":");
+    json_string(out, m.message);
+    out.push('}');
+}
+
+fn json_string<A>(out: A&, s: const u8[:]) {
+    out.push('"');
+    for c in s {
+        if c == '"' || c == '\\' {
+            out.push('\\');
+            out.push(c);
+        } else if c < ' ' {
+            out.append("\\u00");
+            out.push("0123456789abcdef"[c >> 4]);
+            out.push("0123456789abcdef"[c & 15]);
+        } else {
+            out.push(c);
+        }
+    }
+    out.push('"');
+}
+
+// Appends t, in seconds since the epoch and not negative, as an HTTP date
+// (RFC 9110 §5.6.7): "Sat, 10 Oct 2026 12:00:00 GMT", 29 bytes.
+fn format_date<A>(out: A&, t: i64) {
+    let days = t / 86400;
+    let secs = t % 86400;
+    // The civil date of a day count, by Howard Hinnant's days_from_civil
+    // inverse: a 400-year era, then March-based years, so leap days fall last.
+    let z = days + 719468;
+    let era = z / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + (if month <= 2 { 1 } else { 0 });
+
+    // 1970-01-01 was a Thursday.
+    let w = (days + 4) % 7 * 3;
+    out.append("SunMonTueWedThuFriSat"[w..w + 3]);
+    out.append(", ");
+    two_digits(out, day);
+    out.push(' ');
+    let m = (month - 1) * 3;
+    out.append("JanFebMarAprMayJunJulAugSepOctNovDec"[m..m + 3]);
+    out.push(' ');
+    two_digits(out, year / 100);
+    two_digits(out, year % 100);
+    out.push(' ');
+    two_digits(out, secs / 3600);
+    out.push(':');
+    two_digits(out, secs / 60 % 60);
+    out.push(':');
+    two_digits(out, secs % 60);
+    out.append(" GMT");
+}
+
+fn two_digits<A>(out: A&, v: i64) {
+    out.push(('0' + v / 10) as u8);
+    out.push(('0' + v % 10) as u8);
+}
