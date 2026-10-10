@@ -145,8 +145,9 @@ with 141-150 MiB for o and a and 36-37 MiB for b.
 
 Next, in the order of the criteria:
 
-1. vanilla-epoll stays in the matrix unless Kait decides otherwise: it is the one server
-   ahead of Goose in plaintext, though only because it skips parsing.
+1. vanilla-epoll stays in the matrix (Kait, 2026-10-10): it is the one server ahead of
+   Goose in plaintext, though only because it skips parsing. Its JSON numbers come with
+   the `-gc none` leak above.
 2. The parser corpus request (criterion 7), `bench/instructions.sh` with peak RSS, the
    matrix (about 120 minutes for six servers), profiles of any losses, then
    `docs/results.md` and the README summary.
@@ -156,3 +157,15 @@ Next, in the order of the criteria:
    `answer`, separately; and fewer appends per response. `/baseline11` scans its query
    once per key, which matters only for HttpArena's profiles. dusty's limited-conn lead
    needs a profile.
+
+Settings for the next session:
+
+- Goose's pin lags `aardappel/goose` by five commits at `fc28b35` (`pop_n`, a test-log
+  summary, a cap on used-once inlining, two typechecker changes). Kait chose not to move
+  it on 2026-10-10, with more pushes expected. When it moves, rerun the minimal programs
+  of the two task 009 findings before marking them unchanged.
+- For a tuning change, build each version as `build/bench/goose-<name>` and run them
+  side by side, `SERVERS="goose-o goose-b" RUNS=3 DURATION=3 WARMUP=1 LATENCY=0
+  bench/run.sh`, about 5 minutes for two. Separate sessions drifted by up to 5% tonight.
+- `bench/httparena.sh` copies `src/` from the working tree, so swapping
+  `src/server.goose` between runs compares versions under HttpArena too.
