@@ -18,16 +18,30 @@ the native compiler typechecks the program there, but the server only runs on Li
 | wrk | WSL, apt | 4.1.0 (`4.1.0-4build3`) |
 | h2load | WSL, apt `nghttp2-client` | 1.68.0 |
 | oha | WSL, `cargo install oha --locked` | 1.16.0, with cargo 1.99.0 |
+| Rust | WSL, rustup | rustc 1.99.0, cargo 1.99.0, for the Rust servers in `bench/` |
+| Odin | WSL, `/opt/odin-dev-2026-10` | `dev-2026-10` (`dev-2026-10-nightly:84bc3fc`, LLVM 20.1.8), for odin-http |
+| perf | WSL, apt `linux-perf` | 7.0.14 (package `7.0.0-38.38`) |
 
 Install the test tools in WSL. Run `cargo` from a Linux directory
 ([below](#from-a-windows-shell)); oha lands in `~/.cargo/bin`.
 
 ```sh
-sudo apt-get install -y curl wrk nghttp2-client netcat-openbsd strace
+sudo apt-get install -y curl wrk nghttp2-client netcat-openbsd strace linux-perf
 cd ~ && cargo install oha --locked
 ```
 
-The competing servers (Rust through `cargo`, Odin) come with task 004.
+Odin comes from its GitHub release; `bench/build.sh` refuses any other version, because
+odin-http follows Odin's master branch:
+
+```sh
+curl -sSLf -o /tmp/odin.tgz \
+    https://github.com/odin-lang/Odin/releases/download/dev-2026-10/odin-linux-amd64-dev-2026-10.tar.gz
+mkdir -p /tmp/odin && tar -xzf /tmp/odin.tgz -C /tmp/odin
+sudo mv /tmp/odin/odin-linux-amd64-nightly+2026-10-06 /opt/odin-dev-2026-10
+sudo ln -sf /opt/odin-dev-2026-10/odin /usr/local/bin/odin
+```
+
+Odin links with clang, which is already installed.
 
 ## Set up the Goose compiler
 
@@ -106,6 +120,8 @@ Run these in WSL. They work from any directory.
 | `scripts/test-unit.sh` | Runs each `src/test_*.goose` through TinyCC ([below](#test-the-http-server)). |
 | `scripts/test-http.sh` | Tests the HTTP server of `build/server` ([below](#test-the-http-server)). |
 | `scripts/test-echo.sh [server]` | Tests the echo servers of `build/server`, or of another command ([below](#test-the-echo-servers)). |
+| `bench/build.sh` | Builds the Goose server and the competing servers into `build/bench/` ([below](#benchmark)). |
+| `bench/run.sh` | Runs the benchmark matrix against `build/bench/` and writes `bench/results/<date>/` ([below](#benchmark)). |
 
 `build.sh` passes `-D_GNU_SOURCE --include shim/net.h` to goose
 ([c-interop.md](c-interop.md#where-the-header-goes)). It takes the C compiler from `CC`
@@ -167,7 +183,8 @@ wrk 4.1.0 times requests with the wall clock, `gettimeofday`, and WSL2 steps its
 back by about a millisecond every 30 s or so. wrk then counts each request in flight
 across the step as a timeout, one per connection (64 for `-c 64`), with no slow
 response behind them. `test-http.sh` ignores wrk's timeouts for that reason and relies on
-h2load and oha, which use a monotonic clock. Task 004 has to allow for it too. And oha with `-z`
+h2load and oha, which use a monotonic clock; `bench/run.sh` gives wrk a monotonic clock
+instead ([below](#benchmark)). And oha with `-z`
 aborts the requests in flight at the deadline and lists them as errors, so the test gives
 it a request count instead.
 
@@ -189,6 +206,42 @@ It needs `nc` (`netcat-openbsd`) and `python3`. Against each server it runs:
 `PORT` picks the port (default 29080). Keep it below 32768: the many-client runs leave
 thousands of client sockets in `TIME_WAIT` on ports in the kernel's ephemeral range,
 and a server port among them fails to bind with `EADDRINUSE`.
+
+### Benchmark
+
+`bench/build.sh` builds the four servers into `build/bench/`, and `bench/run.sh` runs
+the matrix of task 004 against them. [`bench/README.md`](../bench/README.md) has the
+method, the pins, and each server's configuration. Both scripts need `GOOSE` and
+`$HOME/.cargo/bin` on `PATH`, as above. A full run takes about 80 minutes, and nothing
+else should run on the machine meanwhile.
+
+What the benchmark has to work around on this machine:
+
+- WSL2 steps the wall clock back by 0.4 to 2.6 ms every 30 s (measured with
+  `bench/clockstep.py`, 2026-10-10). wrk 4.1.0 counts each request in flight across a
+  step as a timeout: 106 and 154 in two 100 s runs at 64 connections. Preloaded with
+  `bench/wrk-monotonic.so`, which answers `gettimeofday` from `CLOCK_MONOTONIC`, it
+  counted none over the same kind of steps, at the same rate.
+- wrk's latency percentiles are wrong under pipelining. wrk 4.1.0 always corrects for
+  coordinated omission against each connection's mean request interval, about 13 µs at
+  16 deep, and adds synthetic samples below the histogram's minimum, where
+  `stats_percentile` doesn't look. p99 then reads `0.00us` whenever a run has an
+  outlier. `bench/run.sh` takes latency from h2load's per-request log instead, which it
+  times on a monotonic clock, summarized by `bench/latency.c` through a FIFO.
+- `mkfifo` fails on `/mnt/c` ("File exists"), so the FIFO goes in a Linux temporary
+  directory.
+- The load generator needs more CPU than the server. wrk spends about 1.4 times the
+  server's CPU time per pipelined request, and h2load more: 6.4 CPUs of system time and
+  2.4 of user time at 3.1 million requests per second. With 8 CPUs each, wrk was the bottleneck at 8 workers,
+  so `bench/run.sh` gives the server CPUs 0 to 3 and the clients CPUs 4 to 15.
+- wrk gives each thread `connections / threads` connections, rounded down, so the thread
+  count must divide every connection count. `bench/run.sh` uses 8 threads.
+- Cargo under `/mnt/c/Users/kait` reads the Windows `~/.cargo/config`, which sets
+  `-C target-cpu=native` for every build (see [below](#from-a-windows-shell)).
+  `bench/build.sh` runs cargo from its cache directory on the Linux file system, and sets
+  the flags it wants itself.
+- perf runs on the WSL2 kernel, hardware counters included (`cycles`, `instructions`),
+  as root. It can't read `/proc/schedstat`, which `perf record` mentions and survives.
 
 ### From a Windows shell
 

@@ -33,8 +33,7 @@ docs/          architecture, development setup, and the Goose findings log
 tasks/         task tracking (tasks/README.md)
 ```
 
-`bench/` arrives with task 004. Setup and the build commands are
-in [docs/development.md](docs/development.md).
+Setup and the build commands are in [docs/development.md](docs/development.md).
 
 ## Pins
 
