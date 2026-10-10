@@ -37,6 +37,15 @@ fn value_end_set() -> ByteSet {
     return byte_set(m);
 }
 
+// Where find_any stops a request target: a byte that isn't visible ASCII.
+let TARGET_END = target_end_set();
+
+fn target_end_set() -> ByteSet {
+    var m = [false; 256];
+    for i in 256 { m[i] = i <= 32 || i >= 127; }
+    return byte_set(m);
+}
+
 // A parsed request head. The slices point into the buffer it was parsed from.
 struct Request {
     method: const u8[:],
@@ -72,6 +81,8 @@ fn parse(buf: const u8[:]) -> Request, i32 {
 
     // The target, visible ASCII, and one space.
     let t0 = pos;
+    let kt = find_any(buf[pos..], TARGET_END);
+    if kt > 0 && kt <= buf.len - pos { pos = pos + kt; }
     while pos < buf.len && buf[pos] > ' ' && buf[pos] < 0x7f { pos++; }
     guard pos - m0 <= MAX_LINE else { return Request { .. }, 414; }
     guard pos < buf.len else { return Request { .. }, short(buf); }
@@ -115,6 +126,8 @@ fn parse(buf: const u8[:]) -> Request, i32 {
         // The name, a token, and a colon right after it. This refuses
         // whitespace before the colon and obsolete line folding (§5.1, §5.2).
         let n0 = pos;
+        let kn = find_any(buf[pos..], NAME_END);
+        if kn > 0 && kn <= buf.len - pos { pos = pos + kn; }
         while pos < buf.len && is_tchar(buf[pos]) { pos++; }
         guard pos < buf.len else { return Request { .. }, short(buf); }
         guard pos > n0 && buf[pos] == ':' else { return Request { .. }, 400; }
@@ -159,11 +172,16 @@ fn parse(buf: const u8[:]) -> Request, i32 {
             guard minor > 0 && !r.chunked else { return Request { .. }, 400; }
             r.chunked = true;
         } else if eq_fold(name, "connection") {
-            each_split(value, ',') {
-                let opt = trim(it);
-                if eq_fold(opt, "close") { close = true; }
-                else if eq_fold(opt, "keep-alive") { keep = true; }
-            };
+            // A single option, as clients almost always send, skips the split.
+            if eq_fold(value, "keep-alive") { keep = true; }
+            else if eq_fold(value, "close") { close = true; }
+            else {
+                each_split(value, ',') {
+                    let opt = trim(it);
+                    if eq_fold(opt, "close") { close = true; }
+                    else if eq_fold(opt, "keep-alive") { keep = true; }
+                };
+            }
         } else if eq_fold(name, "host") {
             hosts++;
         }
@@ -282,13 +300,22 @@ fn is_tchar(c: u8) -> bool {
     (mask >> (c & 63)) & 1 != 0
 }
 
+// Where find_any stops a field name: a byte that isn't a token character.
+let NAME_END = name_end_set();
+
+fn name_end_set() -> ByteSet {
+    var m = [false; 256];
+    for i in 256 { m[i] = !is_tchar(i as u8); }
+    return byte_set(m);
+}
+
 // Whether a equals lower, ignoring the case of ASCII letters in a. lower
-// must be lowercase.
-fn eq_fold(a: const u8[:], lower: const u8[:]) -> bool {
+// must hold only lowercase letters and '-', and a no control bytes but tab:
+// then c | 32 equals a byte of lower only where c does, ignoring case.
+inline fn eq_fold(a: const u8[:], lower: const u8[:]) -> bool {
     guard a.len == lower.len else { return false; }
     for c, i in a {
-        let l = if c >= 'A' && c <= 'Z' { c + 32 } else { c };
-        if l != lower[i] { return false; }
+        if c | 32 != lower[i] { return false; }
     }
     return true;
 }
