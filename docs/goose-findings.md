@@ -20,7 +20,7 @@ Workaround: ...
 
 ## A missing stdlib is reported as a missing file next to the program
 
-Found on `3536810`, task 001. Status: open (unchanged at `bab8b6f`)
+Found on `3536810`, task 001. Status: open (unchanged at `2ec9b38`)
 
 A compiler binary moved out of its checkout, run without `--stdlib` or `GOOSE_STDLIB`,
 can't find the stdlib. It then reports the import as missing beside the root file, the
@@ -42,7 +42,7 @@ binary (`docs/development.md`).
 
 ## An --include path is rewritten wrongly when -o names no directory
 
-Found on `3536810`, task 002. Status: open (unchanged at `bab8b6f`)
+Found on `3536810`, task 002. Status: open (unchanged at `2ec9b38`)
 
 `goose -o out.c --include /abs/net.h` writes `#include "abs/net.h"`, without the leading
 slash, and the C compiler can't find the header; `-o ./out.c` does the same. The compiler
@@ -67,7 +67,7 @@ Workaround: give `-o` a path with a directory, as `scripts/build.sh` does
 
 ## An --include header can't set feature-test macros
 
-Found on `3536810`, task 002. Status: open (unchanged at `bab8b6f`)
+Found on `3536810`, task 002. Status: open (unchanged at `2ec9b38`)
 
 The generated C includes `<stdio.h>`, `<unistd.h>`, and the runtime's other system
 headers before it includes an `--include` header, so a `#define _GNU_SOURCE` in the
@@ -94,7 +94,7 @@ stops with an `#error` without it.
 
 ## A long-distance return can't carry a struct holding a slice of a parameter
 
-Found on `3536810`, task 003. Status: open (unchanged at `bab8b6f`)
+Found on `3536810`, task 003. Status: open (unchanged at `2ec9b38`)
 
 `return E from f` accepts a slice of `f`'s own parameter as `E`, but not a struct
 holding that slice: "a long-distance return may only carry references to globals or
@@ -132,9 +132,9 @@ directly instead of through nested helpers.
 
 ## One unproven change to an index costs every bounds check on it
 
-Found on `3536810`, task 004. Status: open for the `pos + 8` guard. The
-inliner's case no longer loses checks at `bab8b6f`, where the program below has 3/3
-elided at `-O2`.
+Found on `3536810`, task 004. Status: open for the `pos + 8` guard (unchanged at
+`2ec9b38`). The inliner's case no longer loses checks at `bab8b6f`, where the program
+below has 3/3 elided at `-O2`.
 
 The bounds-check analysis proves `0 <= pos <= buf.len` for a whole function at once. A
 single write to `pos` that it can't prove stays in range, anywhere in the function,
@@ -227,8 +227,9 @@ and advances past `find_any`'s result, an external call, with `pos = pos + k` un
 
 ## The stdlib has no fast byte search, and no word loads
 
-Found on `3536810`, task 004. Status: open for word loads. `std` has had a
-byte search since `72b1bc5`: `find_any`, which scans 16 bytes at a time on x86-64.
+Found on `3536810`, task 004. Status: open for word loads (unchanged at `2ec9b38`).
+`std` has had a byte search since `72b1bc5`: `find_any`, which scans 16 bytes at a time
+on x86-64.
 
 `position(xs, v)` and `find(xs, sub)` in `stdlib/std.goose` compare one element per
 iteration, so a search for `'\r'` in a header costs about as much as a hand-written byte
@@ -254,7 +255,7 @@ needs a word load now.
 
 ## A simd fn parser ran slower than its baseline
 
-Found on `bab8b6f`, task 008. Status: open
+Found on `bab8b6f`, task 008. Status: open (unchanged at `2ec9b38`)
 
 `simd` (spec §7.12) on `http::parse` made it slower under clang 21 on a Ryzen 7 5800X3D,
 which runs the AVX2 version. The spec allows this: a `simd fn` suits a function that
@@ -278,7 +279,7 @@ Workaround: `http::parse` isn't a `simd fn`.
 
 ## Goose can't express a movemask and count trailing zeros
 
-Found on `bab8b6f`, task 008. Status: open
+Found on `bab8b6f`, task 008. Status: open (unchanged at `2ec9b38`)
 
 The fast HTTP parsers find the first byte of a set in a 32-byte block with a compare,
 `movemask`, and a trailing-zero count (httparse's AVX2 path), about six instructions.
