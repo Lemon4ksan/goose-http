@@ -39,7 +39,7 @@ libreactorng) belong to task 005.
       with query parsing), `limited-conn` (10 requests per connection), and `latency-1m`
       (CPU per request at a fixed offered load) profiles run for Goose and the servers
       above, the results recorded here
-- [ ] The parser microbenchmark parses picohttpparser's and httparse's benchmark request
+- [x] The parser microbenchmark parses picohttpparser's and httparse's benchmark request
       (a browser's, with a long cookie) beside wrk's and a Chrome request, so its numbers
       compare with those parsers' published ones
 - [ ] Where Goose loses a cell by more than the spread of its runs, the winner's source
@@ -143,14 +143,45 @@ baseline against 78 MiB for vanilla-epoll. limited-conn, three rounds of o, a, a
 turn (`bench/results/httparena-2026-10-10-limited-conn`): 307K to 314K for all three,
 with 141-150 MiB for o and a and 36-37 MiB for b.
 
+### The parser corpus request
+
+`bench/parse/pico.goose` parses picohttpparser's benchmark request (`bench.c` at
+`h2o/picohttpparser` `465a7ff`, 725 bytes), and `bench/parse/httparse.goose` httparse's
+(`benches/parse.rs` at `seanmonstar/httparse` `a0fa552`), which adds 17 bytes of cookie.
+picohttpparser's README shows only a chart from fast-http's 2014 benchmark, and httparse's
+README shows no numbers, so both parsers' benchmarks ran here too.
+
+All on the Ryzen 7 5800X3D, WSL2 kernel 6.18.40.1-microsoft-standard-WSL2, gcc 15.2.0,
+rustc 1.99.0, pinned to CPU 2, Goose at `e7792d7`. Goose and picohttpparser: 10 M parses
+per process, instructions from `perf stat -e instructions:u`, the best of 5 runs, and the
+median of 3 such runs (`bench/parse.sh` for Goose). httparse: its `req` benchmark under
+`cargo bench` with its `[profile.bench]` (`lto = true`, `codegen-units = 1`,
+`opt-level = 3`), criterion 0.3.6, the median of 3 runs' estimates.
+
+| Parser, build | Request | Instructions per parse | ns per parse |
+|---|---|---:|---:|
+| Goose, `goose -O2`, gcc `-O2` | picohttpparser's | 3,497 | 155.9 |
+| Goose, the same | httparse's | 3,511 | 156.6 |
+| picohttpparser, gcc `-O2` | picohttpparser's | 5,207 | 217.8 |
+| picohttpparser, gcc `-O2 -msse4.2` | picohttpparser's | 1,770 | 108.0 |
+| httparse 1.10.1, default (runtime SIMD detection) | httparse's | | 168.0 |
+| httparse 1.10.1, `-C target-cpu=native` | httparse's | | 144.7 |
+
+Goose takes 44% longer than picohttpparser built with SSE4.2, whose fast path compiles
+in only under that flag, and 8% longer than httparse built for this CPU. It beats
+picohttpparser without SSE4.2 by 28% and httparse's default build by 7%. The comparison
+favors the other two: Goose's `parse` also checks `Host`, `Content-Length`,
+`Transfer-Encoding`, and `Connection`, while they only split the head into slices, and
+`pico.goose` cycles through four copies of the request where `bench.c` parses one
+buffer.
+
 Next, in the order of the criteria:
 
 1. vanilla-epoll stays in the matrix (Kait, 2026-10-10): it is the one server ahead of
    Goose in plaintext, though only because it skips parsing. Its JSON numbers come with
    the `-gc none` leak above.
-2. The parser corpus request (criterion 7), `bench/instructions.sh` with peak RSS, the
-   matrix (about 120 minutes for six servers), profiles of any losses, then
-   `docs/results.md` and the README summary.
+2. `bench/instructions.sh` with peak RSS, the matrix (about 120 minutes for six
+   servers), profiles of any losses, then `docs/results.md` and the README summary.
 3. Ideas to measure once the competitor profiles show where Goose loses, in this order:
    the `Connection` field (about 520 of the 1,270 instructions per parse of wrk's
    request, task 008); `inline fn`, new at `e7792d7` (spec §7.13), on `http::parse` and
@@ -160,10 +191,10 @@ Next, in the order of the criteria:
 
 Settings for the next session:
 
-- Goose's pin lags `aardappel/goose` by five commits at `fc28b35` (`pop_n`, a test-log
-  summary, a cap on used-once inlining, two typechecker changes). Kait chose not to move
-  it on 2026-10-10, with more pushes expected. When it moves, rerun the minimal programs
-  of the two task 009 findings before marking them unchanged.
+- Goose's pin lags `aardappel/goose` by 16 commits at `752c3ce` (`pop_n`, a test-log
+  summary, a cap on used-once inlining, and typechecker and reference-analysis changes).
+  Kait chose not to move it on 2026-10-10, with more pushes expected. When it moves,
+  rerun the minimal programs of the two task 009 findings before marking them unchanged.
 - For a tuning change, build each version as `build/bench/goose-<name>` and run them
   side by side, `SERVERS="goose-o goose-b" RUNS=3 DURATION=3 WARMUP=1 LATENCY=0
   bench/run.sh`, about 5 minutes for two. Separate sessions drifted by up to 5% tonight.
