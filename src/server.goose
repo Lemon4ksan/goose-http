@@ -196,9 +196,9 @@ fn serve(port: i32) {
     }
 
     // Moves a connection on as far as its socket allows, in the worker's
-    // buffers, and keeps what's left over in spill. False when the
-    // connection is done.
-    fn drive(c: Conn&) -> bool {
+    // buffers, and keeps what's left over in spill. hup is whether the event
+    // reported the client's side closed. False when the connection is done.
+    fn drive(c: Conn&, hup: bool) -> bool {
         rlen = c.held.len;
         if rlen > 0 {
             copy_into(rbuf[..rlen], c.held);
@@ -212,7 +212,7 @@ fn serve(port: i32) {
             spill.free_slice(c.out);
             c.out = c.out[..0];
         }
-        guard advance(c) else { return false; }
+        guard advance(c, hup) else { return false; }
         if rlen > 0 {
             c.held = spill.alloc_slice(rlen);
             copy_into(c.held, rbuf[..rlen]);
@@ -226,10 +226,14 @@ fn serve(port: i32) {
 
     // Answers what it can, sends the responses in one send, and reads more.
     // Edge-triggered epoll reports a socket again only after its state
-    // changes, so this returns only once a send or a recv would block, or
-    // the connection is done, which is false.
-    fn advance(c: Conn&) -> bool {
+    // changes, so this returns only once a send would block, the socket is
+    // empty, or the connection is done, which is false. A recv that filled
+    // less than it was given emptied the socket, and the next byte to arrive
+    // raises a new event, so it isn't followed by a recv that would block,
+    // unless hup: a close that arrived with the last bytes raises none.
+    fn advance(c: Conn&, hup: bool) -> bool {
         var progress = false;
+        var drained = false;
         loop {
             var full = false;
             if c.state == OPEN && rlen > 0 {
@@ -253,14 +257,17 @@ fn serve(port: i32) {
                 c.deadline = now + LINGER_MS;
             }
             if full { continue; }
+            if drained { return wait(c, progress); }
             // answer leaves rbuf full only to refuse the request with 431 or
             // 413, so an OPEN connection always has room to read into.
+            let room = if c.state == DRAINING { RBUF } else { RBUF - rlen };
             let r = if c.state == DRAINING { sys::recv(c.fd, rbuf) }
                     else { sys::recv(c.fd, rbuf[rlen..]) };
             if r == -sys::EAGAIN { return wait(c, progress); }
             if r == -sys::EINTR { continue; }
             guard r > 0 else { return false; }   // the client closed or reset
             if c.state == OPEN { rlen += r; }
+            drained = r < room && !hup;
         }
     }
 
@@ -309,7 +316,7 @@ fn serve(port: i32) {
                 continue;
             }
             let i = ev.tag as i64;
-            if !drive(conns[i]) { close_conn(i); }
+            if !drive(conns[i], ev.events & (sys::RDHUP | sys::HUP | sys::ERR) != 0) { close_conn(i); }
         }
         if now >= next_sweep {
             sweep();
