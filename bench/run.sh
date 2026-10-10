@@ -15,10 +15,12 @@
 #
 # Plaintext is pipelined 16 deep, JSON isn't, as TechEmpower runs them, with
 # TechEmpower's request headers. The runs go round by round, so each server's
-# runs spread over the whole session. Each round's order is the same.
+# runs spread over the whole session. Each round's order is the same. The
+# summary compares each server with the first in SERVERS.
 #
 # Settings, from the environment:
-#   SERVERS       goose may-minihttp hyper odin-http
+#   SERVERS       goose may-minihttp hyper odin-http. Any name starting with
+#                 goose is a build of the Goose server, run with its mode.
 #   WORKER_COUNTS 1 and the number of SERVER_CPUS ("1 4")
 #   SERVER_CPUS   0-3: cores 0 and 1 with both SMT threads. One worker gets
 #                 CPU 0 alone.
@@ -28,6 +30,7 @@
 #                 CPUs each, wrk was the bottleneck. 8 threads divide every
 #                 connection count; wrk gives each thread conns / threads.
 #   TESTS         plaintext:256 plaintext:1024 plaintext:4096 json:256 json:1024
+#   LATENCY       1; 0 skips step 3, leaving the latency columns empty
 #   RUNS 3, DURATION 15, WARMUP 5, PORT 29280, OUT bench/results/<date>
 set -eu
 
@@ -43,6 +46,7 @@ tests=${TESTS:-plaintext:256 plaintext:1024 plaintext:4096 json:256 json:1024}
 runs=${RUNS:-3}
 duration=${DURATION:-15}
 warmup=${WARMUP:-5}
+latency=${LATENCY:-1}
 port=${PORT:-29280}
 out=${OUT:-$root/bench/results/$(date -u +%Y-%m-%dT%H%M)}
 url=http://127.0.0.1:$port
@@ -50,8 +54,11 @@ hz=$(getconf CLK_TCK)
 
 accept_plain='Accept: text/plain,text/html;q=0.9,application/xhtml+xml;q=0.9,application/xml;q=0.8,*/*;q=0.7'
 accept_json='Accept: application/json,text/html;q=0.9,application/xhtml+xml;q=0.9,application/xml;q=0.8,*/*;q=0.7'
+# wrk drops a header without a space after its colon.
+host='Host: tfb-server'
+conn='Connection: keep-alive'
 
-for b in goose may-minihttp hyper odin-http wrk-monotonic.so latency; do
+for b in $servers wrk-monotonic.so latency; do
     [ -e "$bin/$b" ] || { echo "bench/run.sh: no $bin/$b; run bench/build.sh"; exit 1; }
 done
 ulimit -n 65536
@@ -109,11 +116,10 @@ for workers in $worker_counts; do
             echo "bench/run.sh: port $port is taken; set PORT"
             exit 1
         fi
-        if [ "$server" = goose ]; then
-            WORKERS=$workers taskset -c "$cpus" "$bin/goose" http "$port" >"$out/$name.log" 2>&1 &
-        else
-            WORKERS=$workers taskset -c "$cpus" "$bin/$server" "$port" >"$out/$name.log" 2>&1 &
-        fi
+        case $server in
+        goose*) WORKERS=$workers taskset -c "$cpus" "$bin/$server" http "$port" >"$out/$name.log" 2>&1 & ;;
+        *) WORKERS=$workers taskset -c "$cpus" "$bin/$server" "$port" >"$out/$name.log" 2>&1 & ;;
+        esac
         pid=$!
         tries=0
         until nc -z 127.0.0.1 "$port" 2>/dev/null; do
@@ -122,15 +128,16 @@ for workers in $worker_counts; do
             sleep 0.1
         done
 
-        wrk="taskset -c $client_cpus wrk -t $threads -c $conns --timeout 8 -H Host:tfb-server -H Connection:keep-alive"
-        LD_PRELOAD=$bin/wrk-monotonic.so $wrk -H "$accept" -d "$warmup" "$@" >/dev/null
+        wrk="taskset -c $client_cpus wrk -t $threads -c $conns --timeout 8"
+        LD_PRELOAD=$bin/wrk-monotonic.so $wrk -H "$host" -H "$conn" -H "$accept" -d "$warmup" "$@" \
+            >/dev/null
 
         python3 "$root/bench/clockstep.py" >"$out/$name.steps" &
         mon=$!
         c0=$(cpu_ticks $pid)
         (
-            LD_PRELOAD=$bin/wrk-monotonic.so $wrk -H "$accept" -d "$duration" --latency "$@" \
-                >"$out/$name.wrk"
+            LD_PRELOAD=$bin/wrk-monotonic.so $wrk -H "$host" -H "$conn" -H "$accept" \
+                -d "$duration" --latency "$@" >"$out/$name.wrk"
             times >"$out/$name.times"
         )
         c1=$(cpu_ticks $pid)
@@ -138,15 +145,19 @@ for workers in $worker_counts; do
         wait $mon 2>/dev/null || true
         mon=
 
-        fifo=$tmp/$name.fifo
-        mkfifo "$fifo"
-        "$bin/latency" <"$fifo" >"$out/$name.lat" &
-        lat=$!
-        taskset -c "$client_cpus" h2load --h1 -t "$threads" -c "$conns" -m $depth \
-            -H "$accept" -D "$duration" --warm-up-time=2 --log-file="$fifo" \
-            "$url/$test" >"$out/$name.h2load" 2>&1 || true
-        wait $lat || true
-        rm -f "$fifo"
+        : >"$out/$name.h2load"
+        : >"$out/$name.lat"
+        if [ "$latency" = 1 ]; then
+            fifo=$tmp/$name.fifo
+            mkfifo "$fifo"
+            "$bin/latency" <"$fifo" >"$out/$name.lat" &
+            lat=$!
+            taskset -c "$client_cpus" h2load --h1 -t "$threads" -c "$conns" -m $depth \
+                -H "$host" -H "$conn" -H "$accept" -D "$duration" --warm-up-time=2 \
+                --log-file="$fifo" "$url/$test" >"$out/$name.h2load" 2>&1 || true
+            wait $lat || true
+            rm -f "$fifo"
+        fi
 
         rss=$(awk '/^VmHWM/ {print $2}' "/proc/$pid/status")
         kill $pid
@@ -167,10 +178,11 @@ for workers in $worker_counts; do
         printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
             "$server" "$workers" "$test" "$conns" "$run" "$rps" "${errors:-0}" "${non2xx:-0}" \
             "$(echo "$c0 $c1 $hz" | awk '{printf "%.2f", ($2 - $1) / $3}')" "$wrk_cpu" "$rss" \
-            "$steps" "${h2rps:-}" "${h2failed:-}" "$4" "$6" "${10}" "${12}" "${14}" >>"$out/runs.tsv"
+            "$steps" "${h2rps:-}" "${h2failed:-}" "${4:-}" "${6:-}" "${10:-}" "${12:-}" "${14:-}" \
+            >>"$out/runs.tsv"
     done
     done
 done
 done
 echo "results: $out"
-python3 "$root/bench/summarize.py" "$out/runs.tsv" | tee "$out/summary.md"
+python3 "$root/bench/summarize.py" "$out/runs.tsv" "${servers%% *}" | tee "$out/summary.md"

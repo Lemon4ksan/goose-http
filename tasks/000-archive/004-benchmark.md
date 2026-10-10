@@ -75,6 +75,11 @@ LD_PRELOAD=build/bench/wrk-monotonic.so taskset -c 4-15 wrk -t 8 -c CONNS --time
 and for JSON the same without the script, at `/json`. `bench/README.md` has the h2load
 command's role, where each column comes from, and the deviations each competitor needed.
 
+wrk dropped the `Host` and `Connection` headers written this way, without a space after
+the colon (found in task 008). Every request in these runs was `GET`, wrk's
+`Host: 127.0.0.1:29280`, and the `Accept` field, the same for every server; TechEmpower's
+`Connection: keep-alive` was missing. Task 008's runs send all three.
+
 ### After the fix
 
 Medians of 3 runs, from `bench/results/2026-10-10-after/summary.md`. Requests per second

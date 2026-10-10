@@ -1,11 +1,15 @@
 # Benchmark
 
 The servers task 004 compares, the scripts that build and run them, and the raw
-results. The results tables and what they mean are in task 004's file.
+results. The results tables and what they mean are in task 004's file, and for the C
+compilers in task 008's.
 
 ```sh
-bench/build.sh    # the four servers into build/bench/, in release mode
-bench/run.sh      # the matrix, into bench/results/<date>/ (about 80 minutes)
+bench/build.sh         # the four servers into build/bench/, in release mode
+bench/run.sh           # the matrix, into bench/results/<date>/ (about 80 minutes)
+bench/compilers.sh     # the Goose server built by gcc and clang, into build/bench/
+bench/instructions.sh  # instructions per request of servers in build/bench/, with perf
+bench/parse.sh         # http::parse alone on the requests in bench/parse/
 ```
 
 Both run in WSL, need `GOOSE` and `~/.cargo/bin` on `PATH`, and are configured through

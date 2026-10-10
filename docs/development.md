@@ -127,8 +127,9 @@ Run these in WSL. They work from any directory.
 
 `build.sh` passes `-D_GNU_SOURCE --include shim/net.h` to goose
 ([c-interop.md](c-interop.md#where-the-header-goes)). It takes the C compiler from `CC`
-and its flags from `CFLAGS` (default `-O2`). The generated C stays in `build/server.c`
-for reading.
+(default `cc`, gcc here) and its flags from `CFLAGS` (default `-O2`). The generated C
+stays in `build/server.c` for reading. gcc builds a faster server than clang
+(task 008).
 
 TinyCC can't place thread-local storage, so it refuses to run any program that can reach
 `thread_spawn`, even when the spawn isn't taken. `src/main.goose` is one, so the server
@@ -217,6 +218,13 @@ method, the pins, and each server's configuration. Both scripts need `GOOSE` and
 `$HOME/.cargo/bin` on `PATH`, as above. A full run takes about 80 minutes, and nothing
 else should run on the machine meanwhile.
 
+`bench/compilers.sh` adds Goose builds to `build/bench/`: `goose-gcc`, `goose-clang`,
+and `goose-gcc-native` (`-march=native`). `bench/run.sh` runs any server whose name
+starts with `goose` as a Goose build, so `SERVERS="goose-gcc goose-clang"` compares
+them. `bench/instructions.sh`, as root, counts instructions per request with
+`perf stat`, and `bench/parse.sh` times `http::parse` alone on the requests in
+`bench/parse/` (task 008).
+
 What the benchmark has to work around on this machine:
 
 - WSL2 steps the wall clock back by 0.4 to 2.6 ms every 30 s (measured with
@@ -238,6 +246,11 @@ What the benchmark has to work around on this machine:
   so `bench/run.sh` gives the server CPUs 0 to 3 and the clients CPUs 4 to 15.
 - wrk gives each thread `connections / threads` connections, rounded down, so the thread
   count must divide every connection count. `bench/run.sh` uses 8 threads.
+- wrk 4.1.0 drops a `-H` header without a space after its colon: `-H Host:tfb-server`
+  sends wrk's own `Host: 127.0.0.1:PORT`, and `-H Connection:keep-alive` sends nothing.
+  h2load accepts both spellings and adds `user-agent: h2load nghttp2/1.68.0`. Task 004's
+  runs sent only `Host` and `Accept` this way (found in task 008, by tracing the
+  server's `recvfrom`); write `-H "Host: tfb-server"`.
 - Cargo under `/mnt/c/Users/kait` reads the Windows `~/.cargo/config`, which sets
   `-C target-cpu=native` for every build (see [below](#from-a-windows-shell)).
   `bench/build.sh` runs cargo from its cache directory on the Linux file system, and sets
