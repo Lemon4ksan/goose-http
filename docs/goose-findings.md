@@ -131,3 +131,90 @@ first_word` without the struct, compiles.
 Workaround: the failure carries `Word { .. }`, whose empty slice points at nothing.
 `http::parse` refuses a request with `Request { .. }` and a status, and it returns
 directly instead of through nested helpers.
+
+## One unproven change to an index costs every bounds check on it
+
+Found on `3536810`, task 004. Status: open
+
+The bounds-check analysis proves `0 <= pos <= buf.len` for a whole function at once. A
+single write to `pos` that it can't prove stays in range, anywhere in the function,
+drops the proof, and with it every check indexed by `pos`, including those in loops that
+run before the write. Two ordinary spellings give it such a write:
+
+- A call in a loop condition, once inlined. At `-O1` and up, the optimizer runs before
+  the analysis and binds the call's argument to a fresh local (`let x = buf[pos]`).
+  `HasKillEffects` (`src/bce.h`) counts that binding as a mutation, so the condition
+  contributes no facts, and the loop's `pos++` is then unguarded.
+- A guard of the form `pos + 8 <= buf.len`. `CmpAdmissible` (`src/bce.h`) rejects
+  "variable + constant" as an operand, because the sum could have wrapped, and nothing
+  rewrites it to the equivalent `pos <= buf.len - 8`, which it accepts.
+
+Expected: the checks the function proved without these writes, at least those before
+them.
+
+    fn pred(x: u8) -> bool { x == 'z' }
+
+    fn scan(buf: const u8[:]) -> i64 {
+        var pos = 0;
+        while pos < buf.len && buf[pos] == 'a' { pos++; }
+        while pos < buf.len && !pred(buf[pos]) { pos++; }
+        while pos < buf.len && buf[pos] == 'b' { pos++; }
+        return pos;
+    }
+
+    fn main() { print(scan("aa  bbc")); }
+
+    $ goose -O0 --check z1.goose
+    bce: elided 3/3 index and 0/0 slice checks
+    $ goose -O2 --check z1.goose
+    bce: elided 0/3 index and 0/0 slice checks
+
+The generated C then checks every byte of all three loops:
+
+    uint8_t t11 = t10[GS_IDX((int64_t)(t9), buf_g.len, gs_file0, 5)];
+    uint8_t x_g = t18[GS_IDX((int64_t)(t17), buf_g.len, gs_file0, 6)];
+    uint8_t t27 = t26[GS_IDX((int64_t)(t25), buf_g.len, gs_file0, 7)];
+
+Writing the middle loop as `while pos < buf.len { if pred(buf[pos]) { break; } pos++; }`
+keeps all three elided at every level. Between the first and last loop, `pos += 8;`
+alone, `if pos + 8 <= buf.len { pos += 8; }`, and `pos = next(pos);` each lose all
+checks; `while pos < buf.len - 7 { pos += 8; }` keeps them. An `assert(pos < buf.len)`
+or `assert(pos <= buf.len)` right before an increment also restores them, but
+`assert(pos >= 0)` doesn't: the missing fact is the upper bound that proves the
+increment can't wrap.
+
+In `http::parse`, swapping a large `is_tchar`, which wasn't inlined, for a two-line one
+that was dropped the elided checks from 23 of 30 to 8 of 30.
+
+A fix that would cover the inliner's case: `HasKillEffects` ignores writes to variables
+declared inside the expression it scans, since no operand read before them can refer to
+them. Admitting `v + c` in `CmpAdmissible` where the addition is provably exact would
+cover the second.
+
+Workaround: `http::parse` calls `is_tchar` in its loops' bodies, not their conditions,
+and spells the guard of its eight-byte loop `pos < buf.len - 7`, with the bytes read in
+the loop rather than by a function given `pos`. Its comments point here.
+
+## The stdlib has no fast byte search, and no word loads
+
+Found on `3536810`, task 004. Status: open
+
+`position(xs, v)` and `find(xs, sub)` in `stdlib/std.goose` compare one element per
+iteration, so a search for `'\r'` in a header costs about as much as a hand-written byte
+loop, where C's `memchr` compares 16 or 32 bytes at a time. Goose also has no way to
+read a `u64` out of a `u8` buffer. The workaround that works is to assemble the word
+from eight bytes with shifts, which gcc 15 at `-O2` compiles to one 64-bit load once the
+bounds checks are gone:
+
+    let b = buf[pos..pos + 8];
+    let w = b[0] | (b[1] as u64 << 8) | (b[2] as u64 << 16) | (b[3] as u64 << 24) |
+            (b[4] as u64 << 32) | (b[5] as u64 << 40) | (b[6] as u64 << 48) |
+            (b[7] as u64 << 56);
+
+Expected: a byte search in the stdlib that the backend can vectorize or hand to
+`memchr`, or a word read like `binary`'s `read_u32le` for `u64` that's documented to
+compile to one load.
+
+Workaround: `http::parse` scans header values eight bytes at a time with the word above
+and a SWAR test (`may_end_value`), and finishes a byte at a time. It is the profile's
+largest single change: about 700 fewer instructions per request.
