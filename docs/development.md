@@ -20,6 +20,9 @@ the native compiler typechecks the program there, but the server only runs on Li
 | oha | WSL, `cargo install oha --locked` | 1.16.0, with cargo 1.99.0 |
 | Rust | WSL, rustup | rustc 1.99.0, cargo 1.99.0, for the Rust servers in `bench/` |
 | Odin | WSL, `/opt/odin-dev-2026-10` | `dev-2026-10` (`dev-2026-10-nightly:84bc3fc`, LLVM 20.1.8), for odin-http |
+| Zig | WSL, `/opt/zig-0.16.0` | 0.16.0, for dusty |
+| V | WSL, built by `bench/build.sh` in its cache | 0.5.2 `b99970b`, for vanilla-epoll; needs apt `liburing-dev` (2.14) |
+| Docker | WSL, Docker Desktop | 29.8.2, for HttpArena's harness |
 | perf | WSL, apt `linux-perf` | 7.0.14 (package `7.0.0-38.38`) |
 
 Install the test tools in WSL. Run `cargo` from a Linux directory
@@ -42,6 +45,30 @@ sudo ln -sf /opt/odin-dev-2026-10/odin /usr/local/bin/odin
 ```
 
 Odin links with clang, which is already installed.
+
+Zig comes from ziglang.org; `bench/build.sh` refuses any other version, because dusty
+pins `minimum_zig_version = "0.16.0"` and Zig's standard library changes between
+releases. The tarball's SHA-256 is
+`70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00`, as
+`https://ziglang.org/download/index.json` lists it:
+
+```sh
+curl -sSLf -o /tmp/zig.tar.xz https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
+mkdir -p /tmp/zig && tar -xJf /tmp/zig.tar.xz -C /tmp/zig
+sudo mv /tmp/zig/zig-x86_64-linux-0.16.0 /opt/zig-0.16.0
+sudo ln -sf /opt/zig-0.16.0/zig /usr/local/bin/zig
+```
+
+`bench/build.sh` builds V itself, at the commits HttpArena's vanilla-epoll image pins.
+vanilla's io_uring module needs liburing's header even in an epoll build:
+
+```sh
+sudo apt-get install -y liburing-dev
+```
+
+When V fails to compile the C it generated, it downloads a V release and retries with
+it, unpinned. A missing `liburing.h` did that once; a build whose output mentions
+`v1-fallback` didn't use the pinned V, so fix the cause and rebuild.
 
 ## Set up the Goose compiler
 
@@ -212,11 +239,11 @@ and a server port among them fails to bind with `EADDRINUSE`.
 
 ### Benchmark
 
-`bench/build.sh` builds the four servers into `build/bench/`, and `bench/run.sh` runs
+`bench/build.sh` builds the seven servers into `build/bench/`, and `bench/run.sh` runs
 the matrix of task 004 against them. [`bench/README.md`](../bench/README.md) has the
 method, the pins, and each server's configuration. Both scripts need `GOOSE` and
-`$HOME/.cargo/bin` on `PATH`, as above. A full run takes about 80 minutes, and nothing
-else should run on the machine meanwhile.
+`$HOME/.cargo/bin` on `PATH`, as above. A full run takes about 20 minutes per server,
+140 minutes for all seven, and nothing else should run on the machine meanwhile.
 
 `bench/compilers.sh` adds Goose builds to `build/bench/`: `goose-gcc`, `goose-clang`,
 and `goose-gcc-native` (`-march=native`). `bench/run.sh` runs any server whose name

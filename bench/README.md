@@ -1,11 +1,11 @@
 # Benchmark
 
-The servers task 004 compares, the scripts that build and run them, and the raw
-results. The results tables and what they mean are in task 004's file, and for the C
+The servers tasks 004 and 009 compare, the scripts that build and run them, and the raw
+results. The results tables and what they mean are in those tasks' files, and for the C
 compilers in task 008's.
 
 ```sh
-bench/build.sh         # the four servers into build/bench/, in release mode
+bench/build.sh         # the seven servers into build/bench/, in release mode
 bench/run.sh           # the matrix, into bench/results/<date>/ (about 80 minutes)
 bench/compilers.sh     # the Goose server built by gcc and clang, into build/bench/
 bench/instructions.sh  # instructions per request of servers in build/bench/, with perf
@@ -21,7 +21,7 @@ tools and the traps they work around.
 Each serves `GET /plaintext` and `GET /json` with the bodies and fields TechEmpower
 requires (`Server`, `Date`, `Content-Type`, `Content-Length`), 405 for other methods on
 those paths, and 404 elsewhere. Each takes its worker count from `WORKERS` and its port
-as its first argument. The JSON body is serialized per request in all four.
+as its first argument. The JSON body is serialized per request in all seven.
 
 | Server | Pin | Build | Workers |
 |---|---|---|---|
@@ -29,10 +29,15 @@ as its first argument. The JSON body is serialized per request in all four.
 | may-minihttp | `may_minihttp` 0.1.11, `may` 0.3.51 (`Cargo.lock`) | TechEmpower's: `opt-level = 3`, `codegen-units = 1`, thin LTO, `panic = "abort"`, `-C target-cpu=native`, mimalloc | `may` worker threads; one listener, a coroutine per connection |
 | hyper | `hyper` 1.12.0, `tokio` 1.53.2 (`Cargo.lock`) | TechEmpower's: `opt-level = 3`, `codegen-units = 1`, fat LTO, plus `panic = "abort"`, `-C target-cpu=native` | Tokio's multi-threaded runtime with `WORKERS` worker threads; one listener, a task per connection, `pipeline_flush` |
 | odin-http | `laytan/odin-http` `fac113f` (2026-08-26), Odin `dev-2026-10` | odin-http's own: `-o:speed -disable-assert -no-bounds-check` | `thread_count` threads, each with an io_uring event loop accepting on one shared listener |
+| tokio | HttpArena's `tokio` entry at `0720ee5`, `tokio` 1.52.3 (`Cargo.lock`) | the entry's: `opt-level = 3`, `codegen-units = 1`, thin LTO, `panic = "abort"`, `-C target-cpu=native` | one current-thread runtime per worker, each with its own `SO_REUSEPORT` listener; a hand-written parser, responses batched per read |
+| dusty | `lalinsky/dusty` `ae164fa`, `zio` 0.19.1 (`build.zig.zon`), Zig 0.16.0 | HttpArena's entry: `ReleaseFast`, `x86_64-linux-musl`, `-Dcpu=x86_64_v3+aes+pclmul+adx` | zio's work-stealing runtime with `WORKERS` executors, each with an io_uring ring (zio's choice on this kernel; it falls back to epoll); one listener with dusty's default accept loops; llhttp parser |
+| vanilla-epoll | `enghitalo/vanilla` `091c014`, V `b99970b` | HttpArena's entry: `v -prod -gc none` (gcc `-O3 -flto`) | one thread per worker, each with its own `SO_REUSEPORT` listener and epoll loop |
 
 The configurations follow each project's fastest documented setup: TechEmpower's entries
-for may-minihttp and hyper (`hyper --runtime multi-thread`), and odin-http's
-`comparisons/empty-ok-all` for its build flags. Goose builds with `scripts/build.sh`'s
+for may-minihttp and hyper (`hyper --runtime multi-thread`), odin-http's
+`comparisons/empty-ok-all` for its build flags, and
+[HttpArena](https://github.com/MDA2AV/HttpArena)'s entries, at commit `0720ee5`, for
+tokio, dusty, and vanilla-epoll. Goose builds with `scripts/build.sh`'s
 `-O2`, without `-march=native`, which the Rust builds get.
 
 Where a server needed more than its defaults to do the same work as the others, the app
@@ -48,6 +53,16 @@ says so in a comment:
   accept does by default. Without it, Nagle's algorithm held each pipelined response
   until the client acknowledged the one before, about 92,000 requests per second at any
   worker count. The app sets it on the listener, which accepted sockets copy.
+- The HttpArena entries serve HttpArena's endpoints (`/baseline11`, `/pipeline`), not
+  TechEmpower's, and send no `Date`; tokio's and vanilla-epoll's send no `Server`
+  either. Each app adds `/plaintext` and `/json` with those fields, and keeps the
+  entry's serving model. tokio refreshes a cached `Date` from a timer task per runtime,
+  dusty and vanilla-epoll per thread when the second changes.
+- vanilla-epoll's entry answers its plaintext test, `/pipeline`, from fixed bytes when
+  the request starts `GET /pipeline `, before parsing it. The app does the same for
+  `GET /plaintext `.
+- vanilla reads its worker count from `VANILLA_WORKERS` before `main` runs, so the app
+  sets it from `WORKERS` and re-executes itself.
 
 ### What each passes of `scripts/http_client.py`
 
@@ -60,9 +75,24 @@ value) and `many 4096` before it was measured, 2026-10-10. In `pipeline`:
 | may-minihttp | passes | `keepalive`: no `Connection` field on HTTP/1.0 |
 | hyper | passes | `keepalive`: answers HTTP/1.0 with an HTTP/1.0 status line |
 | odin-http | passes up to the 512 KB request body, which it refuses with 413: it reads at most 256 KB of a body the handler didn't (`Max_Post_Handler_Discard_Bytes`); passes the 500 pipelined requests on their own | `keepalive`: keeps HTTP/1.0 without keep-alive open |
+| tokio | passes | `keepalive`: keeps HTTP/1.0 without keep-alive open. `hostile`: never answers a request with bare-LF line ends, waiting for CRLF CRLF |
+| dusty | passes | `keepalive`: no `Connection: keep-alive` on HTTP/1.0 keep-alive. `hostile`: closes on a bare-LF request without a response |
+| vanilla-epoll | passes | as tokio |
 
-None of these touch the measured requests: the benchmark sends HTTP/1.1 `GET`s without
-bodies.
+`keepalive` fails on HTTP/1.0 in every competitor, and these were probed check by check
+(2026-10-10, one worker each):
+
+| Check | goose | may-minihttp | tokio | dusty | vanilla-epoll |
+|---|---|---|---|---|---|
+| HTTP/1.0 without keep-alive: `Connection: close`, then close | yes | stays open, no field | stays open, no field | yes | stays open, no field |
+| HTTP/1.0 with `Connection: keep-alive`: echoed | yes | no field | no field | no field | no field |
+| HTTP/1.1 `Connection: close` in a pipeline: stop after it | yes, with `close` | answers past it | yes, no field | yes, with `close` | yes, no field |
+| `HEAD` | yes | yes | yes | yes | yes |
+
+tokio's and vanilla-epoll's parsers don't read the HTTP version, so they serve HTTP/1.0
+as 1.1. Reading it costs one comparison per request, so this is scope, not speed:
+HttpArena and TechEmpower send only HTTP/1.1. None of these touch the measured requests,
+which are HTTP/1.1 `GET`s without bodies.
 
 ## Method
 

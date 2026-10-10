@@ -19,8 +19,9 @@
 # summary compares each server with the first in SERVERS.
 #
 # Settings, from the environment:
-#   SERVERS       goose may-minihttp hyper odin-http. Any name starting with
-#                 goose is a build of the Goose server, run with its mode.
+#   SERVERS       goose may-minihttp hyper odin-http tokio dusty vanilla-epoll.
+#                 Any name starting with goose is a build of the Goose server,
+#                 run with its mode.
 #   WORKER_COUNTS 1 and the number of SERVER_CPUS ("1 4")
 #   SERVER_CPUS   0-3: cores 0 and 1 with both SMT threads. One worker gets
 #                 CPU 0 alone.
@@ -36,7 +37,7 @@ set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 bin=$root/build/bench
-servers=${SERVERS:-goose may-minihttp hyper odin-http}
+servers=${SERVERS:-goose may-minihttp hyper odin-http tokio dusty vanilla-epoll}
 server_cpus=${SERVER_CPUS:-0-3}
 client_cpus=${CLIENT_CPUS:-4-15}
 threads=${CLIENT_THREADS:-8}
@@ -84,6 +85,8 @@ trap '[ -z "$pid" ] || kill "$pid" 2>/dev/null; [ -z "$mon" ] || kill "$mon" 2>/
     echo "cc: $(${CC:-cc} --version | head -1)"
     echo "rustc: $(PATH=$HOME/.cargo/bin:$PATH rustc --version)"
     echo "odin: $(${ODIN:-odin} version)"
+    echo "zig: $(${ZIG:-zig} version)"
+    echo "v: $("${CACHE:-$HOME/.cache/goose-http-bench}/deps/v/v" version)"
     echo "wrk: $(wrk -v 2>&1 | head -1)"
     echo "h2load: $(h2load --version)"
 } >"$out/env.txt"

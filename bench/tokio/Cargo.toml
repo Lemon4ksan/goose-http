@@ -1,0 +1,21 @@
+[package]
+name = "bench-tokio"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# HttpArena's tokio entry (frameworks/tokio at the commit in bench/build.sh),
+# with httpdate for the Date field and serde_json for /json.
+[dependencies]
+httpdate = "=1.0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+socket2 = { version = "0.5", features = ["all"] }
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "time"] }
+
+# The entry's profile.
+[profile.release]
+codegen-units = 1
+lto = "thin"
+opt-level = 3
+panic = "abort"
