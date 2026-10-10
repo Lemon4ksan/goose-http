@@ -191,10 +191,9 @@ Next, in the order of the criteria:
 
 Settings for the next session:
 
-- Goose's pin lags `aardappel/goose` by 16 commits at `752c3ce` (`pop_n`, a test-log
-  summary, a cap on used-once inlining, and typechecker and reference-analysis changes).
-  Kait chose not to move it on 2026-10-10, with more pushes expected. When it moves,
-  rerun the minimal programs of the two task 009 findings before marking them unchanged.
+- The pin is at `752c3ce`, after every run above. All tests and every finding's minimal
+  program give the same results there; the `simd fn` finding, which is about time, waits
+  for the next benchmark run.
 - For a tuning change, build each version as `build/bench/goose-<name>` and run them
   side by side, `SERVERS="goose-o goose-b" RUNS=3 DURATION=3 WARMUP=1 LATENCY=0
   bench/run.sh`, about 5 minutes for two. Separate sessions drifted by up to 5% tonight.

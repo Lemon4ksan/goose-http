@@ -20,7 +20,7 @@ Workaround: ...
 
 ## A missing stdlib is reported as a missing file next to the program
 
-Found on `3536810`, task 001. Status: open (unchanged at `e7792d7`)
+Found on `3536810`, task 001. Status: open (unchanged at `752c3ce`)
 
 A compiler binary moved out of its checkout, run without `--stdlib` or `GOOSE_STDLIB`,
 can't find the stdlib. It then reports the import as missing beside the root file, the
@@ -42,7 +42,7 @@ binary (`docs/development.md`).
 
 ## An --include path is rewritten wrongly when -o names no directory
 
-Found on `3536810`, task 002. Status: open (unchanged at `e7792d7`)
+Found on `3536810`, task 002. Status: open (unchanged at `752c3ce`)
 
 `goose -o out.c --include /abs/net.h` writes `#include "abs/net.h"`, without the leading
 slash, and the C compiler can't find the header; `-o ./out.c` does the same. The compiler
@@ -67,7 +67,7 @@ Workaround: give `-o` a path with a directory, as `scripts/build.sh` does
 
 ## An --include header can't set feature-test macros
 
-Found on `3536810`, task 002. Status: open (unchanged at `e7792d7`)
+Found on `3536810`, task 002. Status: open (unchanged at `752c3ce`)
 
 The generated C includes `<stdio.h>`, `<unistd.h>`, and the runtime's other system
 headers before it includes an `--include` header, so a `#define _GNU_SOURCE` in the
@@ -94,7 +94,7 @@ stops with an `#error` without it.
 
 ## A long-distance return can't carry a struct holding a slice of a parameter
 
-Found on `3536810`, task 003. Status: open (unchanged at `e7792d7`)
+Found on `3536810`, task 003. Status: open (unchanged at `752c3ce`)
 
 `return E from f` accepts a slice of `f`'s own parameter as `E`, but not a struct
 holding that slice: "a long-distance return may only carry references to globals or
@@ -121,7 +121,7 @@ such limit. Expected: both forms accepted, or the limit in §7.9.
     }
 
     $ goose rf.goose
-    rf.goose:8: error: a long-distance return may only carry references to globals or static data
+    rf.goose:7: error: a long-distance return may only carry references to globals or static data
 
 Returning `Word { w: s[..0] }` from `first_word` itself, or `s[..0], false from
 first_word` without the struct, compiles.
@@ -133,7 +133,7 @@ directly instead of through nested helpers.
 ## One unproven change to an index costs every bounds check on it
 
 Found on `3536810`, task 004. Status: open for the `pos + 8` guard (unchanged at
-`e7792d7`). The inliner's case no longer loses checks at `bab8b6f`, where the program
+`752c3ce`). The inliner's case no longer loses checks at `bab8b6f`, where the program
 below has 3/3 elided at `-O2`.
 
 The bounds-check analysis proves `0 <= pos <= buf.len` for a whole function at once. A
@@ -227,7 +227,7 @@ and advances past `find_any`'s result, an external call, with `pos = pos + k` un
 
 ## The stdlib has no fast byte search, and no word loads
 
-Found on `3536810`, task 004. Status: open for word loads (unchanged at `e7792d7`).
+Found on `3536810`, task 004. Status: open for word loads (unchanged at `752c3ce`).
 `std` has had a byte search since `72b1bc5`: `find_any`, which scans 16 bytes at a time
 on x86-64.
 
@@ -279,7 +279,7 @@ Workaround: `http::parse` isn't a `simd fn`.
 
 ## Goose can't express a movemask and count trailing zeros
 
-Found on `bab8b6f`, task 008. Status: open (unchanged at `e7792d7`)
+Found on `bab8b6f`, task 008. Status: open (unchanged at `752c3ce`)
 
 The fast HTTP parsers find the first byte of a set in a 32-byte block with a compare,
 `movemask`, and a trailing-zero count (httparse's AVX2 path), about six instructions.
@@ -302,7 +302,7 @@ Workaround: `std`'s `find_any`, whose runtime does the movemask and count in C.
 
 ## A limited array's `..` default writes its whole capacity
 
-Found on `e7792d7`, task 009. Status: open
+Found on `e7792d7`, task 009. Status: open (unchanged at `752c3ce`)
 
 Spec §4.2 says constructing a limited array writes only its metadata and any provided
 elements, and leaves the rest of its capacity uninitialized; C.2 and C.4 add that its
@@ -325,7 +325,7 @@ Workaround: the server's connection slots hold no buffers (`docs/architecture/RE
 
 ## A struct literal is built in whole temporaries and copied
 
-Found on `e7792d7`, task 009. Status: open
+Found on `e7792d7`, task 009. Status: open (unchanged at `752c3ce`)
 
 Spec §4.2 says a struct literal is constructed "directly into each field; no temporaries
 or copies are introduced". The C backend builds each field in a temporary, copies it
