@@ -39,3 +39,55 @@ compiler looked.
 
 Workaround: build the compiler inside its checkout, or set `GOOSE_STDLIB` for a copied
 binary (`docs/development.md`).
+
+## An --include path is rewritten wrongly when -o names no directory
+
+Found on `3536810`, task 002. Status: open
+
+`goose -o out.c --include /abs/net.h` writes `#include "abs/net.h"`, without the leading
+slash, and the C compiler can't find the header; `-o ./out.c` does the same. The compiler
+rewrites each `--include` path relative to the output file's directory (`RelativeTo` in
+`src/main.cpp`), and for a bare file name that directory is the empty string, which
+`PathParts` reads as the root. Expected: `#include "/abs/net.h"`, or a path relative to
+the working directory.
+
+    // main.goose
+    extern fn shim_one() -> i32;
+    fn main() { print(shim_one()); }
+
+    // net.h
+    static int32_t shim_one(void) { return 1; }
+
+    $ goose -o out.c --standalone --include "$PWD/net.h" main.goose
+    $ grep 'net\.h' out.c
+    #include "home/me/repro/net.h"
+
+Workaround: give `-o` a path with a directory, as `scripts/build.sh` does
+(`-o "$root/build/server.c"`). The header is then included as `../shim/net.h`.
+
+## An --include header can't set feature-test macros
+
+Found on `3536810`, task 002. Status: open
+
+The generated C includes `<stdio.h>`, `<unistd.h>`, and the runtime's other system
+headers before it includes an `--include` header, so a `#define _GNU_SOURCE` in the
+header comes too late. glibc then hides Linux-only declarations such as `accept4`, and
+gcc 15 rejects the call as an implicit declaration. Expected: a way for a header to run
+before the runtime's includes, or a note in spec §7.10 that `-D` is the way.
+
+    // main.goose
+    extern fn shim_accept(fd: i32) -> i32;
+    fn main() { print(shim_accept(-1)); }
+
+    // net.h
+    #define _GNU_SOURCE
+    #include <sys/socket.h>
+    static int32_t shim_accept(int32_t fd) { return accept4(fd, 0, 0, 0); }
+
+    $ goose -o build/out.c --standalone --include "$PWD/net.h" main.goose
+    $ cc build/out.c -o out -lm -pthread
+    net.h: error: implicit declaration of function 'accept4'
+
+Workaround: `goose -D_GNU_SOURCE`, which the compiler writes at the top of the generated C
+for both backends. `scripts/build.sh` and `scripts/run.sh` pass it, and `shim/net.h`
+stops with an `#error` without it.

@@ -33,7 +33,7 @@ docs/          architecture, development setup, and the Goose findings log
 tasks/         task tracking (tasks/README.md)
 ```
 
-`shim/` arrives with task 002 and `bench/` with task 004. Setup and the build commands are
+`bench/` arrives with task 004. Setup and the build commands are
 in [docs/development.md](docs/development.md).
 
 ## Pins

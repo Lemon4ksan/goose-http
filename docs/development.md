@@ -91,12 +91,42 @@ Run these in WSL. Both work from any directory.
 |---|---|
 | `scripts/run.sh [args]` | Compiles and runs `src/main.goose` in process through TinyCC, passing `args` to the program. For quick iteration. |
 | `scripts/build.sh` | Compiles `src/main.goose` to `build/server.c` at `-O2`, then to `build/server` with `cc -O2`. For anything measured. |
+| `scripts/test-echo.sh [server]` | Tests the echo servers of `build/server`, or of another command such as `scripts/run.sh` (below). |
 
-`build.sh` takes the C compiler from `CC` and its flags from `CFLAGS` (default `-O2`).
-The generated C stays in `build/server.c` for reading.
+Both build scripts pass `-D_GNU_SOURCE --include shim/net.h` to goose
+([c-interop.md](c-interop.md#where-the-header-goes)). `build.sh` takes the C compiler from
+`CC` and its flags from `CFLAGS` (default `-O2`). The generated C stays in
+`build/server.c` for reading.
 
 TinyCC can't place thread-local storage, so a program that spawns workers runs only
 through `build.sh`.
+
+The program takes a mode and a port (default 8080). Until task 003 adds the HTTP server,
+the modes are the two echo servers of `src/echo.goose`:
+
+```sh
+build/server echo-blocking 8080   # one client at a time
+build/server echo-epoll 8080      # one edge-triggered epoll loop
+```
+
+### Test the echo servers
+
+`scripts/test-echo.sh` starts each echo server in turn and fails on the first error.
+It needs `nc` (`netcat-openbsd`) and `python3`. Against each server it runs:
+
+- `nc` and a one-line echo.
+- 10 clients that hang up while the server writes (`scripts/echo_client.py cut`). Half
+  fill both directions' buffers and close with data unread, so the server's `send` fails
+  with `ECONNRESET`. The other half send 24 KB and close before the echo arrives, so a
+  later `send` fails with `EPIPE`, the error that raises `SIGPIPE`. The script checks
+  that the server logged an `EPIPE` and is still running.
+- Many clients at once, each sending random bytes and checking the echo: 20 clients of
+  64 KB for the blocking server, and 2,000 of 64 KB, then 10,000 of 100 bytes, for the
+  epoll server.
+
+`PORT` picks the port (default 29080). Keep it below 32768: the many-client runs leave
+thousands of client sockets in `TIME_WAIT` on ports in the kernel's ephemeral range,
+and a server port among them fails to bind with `EADDRINUSE`.
 
 ### From a Windows shell
 
@@ -123,8 +153,8 @@ The Windows compiler typechecks the whole program without running it:
 no obstacle on Windows.
 
 The Goose VS Code extension checks on save and underlines errors. Its run commands go
-through TinyCC without `--include`, so they stop working on Windows once the program
-calls into `shim/`. Install it from the checkout:
+through TinyCC without `--include`, so they can't run the program, which calls into
+`shim/`. Install it from the checkout:
 
 ```powershell
 code --install-extension ..\goose\vscode\goose-language.vsix

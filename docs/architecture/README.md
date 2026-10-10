@@ -12,6 +12,20 @@ until the task named beside it confirms or replaces it.
 - **Linux is the benchmark platform.** The fast paths (`SO_REUSEPORT`, epoll, io_uring)
   are Linux APIs, and that is where the competing servers are compared. Development runs
   on WSL2 Ubuntu.
+- **C behind a thin shim.** Goose calls C directly through `extern fn`, but C can't call
+  Goose back at runtime: there are no runtime function pointers (§7.5), and `export fn`
+  calls must stay on the thread that called `goose_init` (§7.11). So `shim/net.h` only
+  wraps calls that return, and returns `-errno` instead of `-1` and `errno`. It covers
+  sockets, epoll, coarse clocks, and `strerror`; io_uring will get `shim/uring.h`.
+  Anything that needs a callback, such as llhttp, libuv, or a C HTTP server, is out
+  (confirmed by task 002, 2026-10-10). Details:
+  - The shim owns the kernel structures whose layout varies by architecture.
+    `epoll_wait` fills a local `struct epoll_event` array, which is packed on x86-64 and
+    padded on arm64, and copies it into `sys::Event`, a struct of the program's own.
+  - `send` passes `MSG_NOSIGNAL`, so a write to a closed connection is `-EPIPE`, not a
+    `SIGPIPE` that ends the process. There is no signal handler to install.
+  - There is no `writev`: spec §7.10 doesn't let a list of slices cross to C. Responses
+    are built into one buffer per connection and sent with one `send`.
 
 ## Proposed
 
@@ -28,17 +42,6 @@ servers use the same shape, so the server leans into it:
   fixed-size read and write buffers, in a `reusable` pool or a table indexed by fd.
 - A request's data lives in the scope that handles it, so the data stacks free it when
   the response is written.
-
-### C behind a thin shim (task 002)
-
-Goose calls C directly through `extern fn`, but C can't call Goose back at runtime: there
-are no runtime function pointers (§7.5), and `export fn` calls must stay on the thread
-that called `goose_init` (§7.11). So the shim only wraps calls that return: sockets,
-epoll, `errno`, and the clock, in `shim/net.h`, and later io_uring in `shim/uring.h`.
-The shim also hides layouts that differ by architecture, such as `struct epoll_event`,
-which is packed on x86-64 but not on ARM.
-
-Anything that needs a callback, such as llhttp, libuv, or a C HTTP server, is out.
 
 ### HTTP/1.1, the parts benchmarks use (task 003)
 

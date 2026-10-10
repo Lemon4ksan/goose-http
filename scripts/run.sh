@@ -8,4 +8,4 @@
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-exec "${GOOSE:-goose}" "$root/src/main.goose" -- "$@"
+exec "${GOOSE:-goose}" -D_GNU_SOURCE --include "$root/shim/net.h" "$root/src/main.goose" -- "$@"

@@ -11,6 +11,7 @@ cc=${CC:-cc}
 cflags=${CFLAGS:--O2}
 
 mkdir -p "$root/build"
-"$goose" -O2 -o "$root/build/server.c" --standalone "$root/src/main.goose"
+"$goose" -O2 -o "$root/build/server.c" --standalone -D_GNU_SOURCE \
+    --include "$root/shim/net.h" "$root/src/main.goose"
 # shellcheck disable=SC2086 # CFLAGS is a list of flags
 $cc $cflags "$root/build/server.c" -o "$root/build/server" -lm -pthread
