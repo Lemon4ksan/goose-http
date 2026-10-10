@@ -12,16 +12,21 @@ readiness, as epoll does, so the epoll loop of task 003 can run on it behind a s
 same shape, `shim/kqueue.h`. IOCP reports completions, as io_uring does, so it follows
 task 005's loop, through `shim/iocp.h` over Winsock.
 
-Open questions for the start of the task:
+Errors keep one set of codes on every platform, as libuv does. libuv's `UV_EAGAIN`
+and the other codes are the negated errno on Unix, and its Windows layer
+(`uv_translate_sys_error`) maps Winsock and Win32 errors onto the same codes. Here the
+constants in `src/sys.goose` become the project's own codes, keeping their Linux values.
+Each shim returns them: `shim/net.h` passes errno through (its `_Static_assert`s pin the
+values), and `shim/kqueue.h` and `shim/iocp.h` translate (macOS's `EAGAIN` is 35, and
+Winsock's is `WSAEWOULDBLOCK`). Goose code never sees a platform's own numbers.
 
-- How the program picks a shim and a loop per platform. The spec has no conditional
-  compilation, so the choice likely sits in the build scripts: which header to
-  `--include`, and which root file to compile.
-- The errno values in `src/sys.goose` are Linux's, and macOS's differ (`EAGAIN` is 35,
-  not 11). `shim/net.h` asserts them at compile time; the other shims need either their
-  own constants or a translation to the Linux values.
-- Whether the Windows build works through the native `goose.exe` and MSVC, which
-  `docs/development.md` so far uses only for `--check`.
+The spec has no conditional compilation, so the build scripts pick the platform: which
+header to `--include`, and which root file to compile. Conditional compilation in Goose
+would let one root file serve every platform; that is a stretch goal, and an addition to
+Goose, so it starts as a findings entry and a question to Kait.
+
+Open question for the start of the task: whether the Windows build works through the
+native `goose.exe` and MSVC, which `docs/development.md` so far uses only for `--check`.
 
 ## Acceptance criteria
 
@@ -29,4 +34,6 @@ Open questions for the start of the task:
       tests as on Linux
 - [ ] `shim/iocp.h` and a completion loop running on Windows, passing the same tests
 - [ ] How each platform is built and tested recorded in `docs/development.md`
-- [ ] The way the platform is chosen recorded in `docs/architecture/README.md`
+- [ ] The error codes and the way the platform is chosen recorded in
+      `docs/architecture/README.md`
+- [ ] Stretch: one root file for every platform, if Goose gains conditional compilation
