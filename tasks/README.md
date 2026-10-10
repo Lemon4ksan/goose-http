@@ -44,4 +44,6 @@ tasks by number ("task 008"), not by path, so a move breaks no reference.
 Tasks 001–004 build and measure the epoll server. Task 008 moves to clang and upstream
 Goose's `simd` functions; task 005 then adds io_uring beside the epoll loop and compares
 the two on that build. Task 006 ports the loops to macOS, the BSDs, and Windows, after
-task 004. Task 007 gathers the tests into one command and can start at any point.
+task 004. Task 007 gathers the tests into one command and can start at any point. Task
+009 adds HttpArena's strongest epoll-era servers to the benchmark, and can start after
+task 008.

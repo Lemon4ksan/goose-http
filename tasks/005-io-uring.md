@@ -15,7 +15,9 @@ Task 004's profile favors trying it: after the parser fix, 73% of a worker's cyc
 the kernel, serving plaintext with 256 connections, and 27% in user code. Add
 `xitca-web` in its io_uring configuration to `bench/` as the io_uring competitor; the
 others in task 004 use epoll, except odin-http, whose cap there comes from one `send` per
-response, not from io_uring.
+response, not from io_uring. HttpArena's fastest io_uring servers are competitors too:
+zix and zeemo (Zig), first and fifth in its pipelined test, and libreactorng (C), ninth
+(task 009 has the source of these figures).
 
 ## Acceptance criteria
 
@@ -25,6 +27,8 @@ response, not from io_uring.
       provided buffer ring, and sends batched per loop iteration
 - [ ] The same behavior as task 003's server: its tests pass against both loops,
       selected at build time
+- [ ] xitca-web, zix, zeemo, and libreactorng in `bench/`, pinned and in their fastest
+      documented configuration
 - [ ] Task 004's matrix rerun with both loops, and the results recorded here
 - [ ] A decision recorded in `docs/architecture/README.md`: which loop is the default,
       and why; the epoll loop stays buildable and tested
