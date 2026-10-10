@@ -1,0 +1,19 @@
+server	workers	test	conns	run	rps	errors	non2xx	server_cpu_s	wrk_cpu_s	peak_rss_kb	steps	h2load_rps	h2load_failed	h2load_non2xx	p50_us	p99_us	p999_us	max_us
+goose-gcc-swar	1	plaintext	256	1	1687057.56	0	0	15.14	22.90	6268	1							
+goose-gcc	1	plaintext	256	1	1781427.30	0	0	15.15	23.41	6272	1							
+goose-gcc-native	1	plaintext	256	1	1743023.98	0	0	15.13	23.50	6272	0							
+goose-gcc-swar	4	plaintext	256	1	4822665.24	0	0	60.45	75.61	6932	1							
+goose-gcc	4	plaintext	256	1	5095422.80	0	0	60.46	79.19	6740	1							
+goose-gcc-native	4	plaintext	256	1	5033530.74	0	0	60.40	78.70	6760	0							
+goose-gcc-swar	1	plaintext	256	2	1715229.98	0	0	15.14	23.10	6268	1							
+goose-gcc	1	plaintext	256	2	1781768.49	0	0	15.15	23.54	6272	1							
+goose-gcc-native	1	plaintext	256	2	1765445.78	0	0	15.16	23.54	6272	0							
+goose-gcc-swar	4	plaintext	256	2	4878547.43	0	0	60.44	76.46	6772	1							
+goose-gcc	4	plaintext	256	2	5079211.47	0	0	60.43	79.21	6744	1							
+goose-gcc-native	4	plaintext	256	2	5052138.67	0	0	60.46	78.53	6712	0							
+goose-gcc-swar	1	plaintext	256	3	1711213.61	0	0	15.14	23.09	6268	0							
+goose-gcc	1	plaintext	256	3	1748667.34	0	0	15.16	23.28	6268	1							
+goose-gcc-native	1	plaintext	256	3	1736931.58	0	0	15.15	23.48	6268	0							
+goose-gcc-swar	4	plaintext	256	3	4943671.92	0	0	60.44	77.30	6820	0							
+goose-gcc	4	plaintext	256	3	4860801.09	0	0	60.45	75.64	6680	1							
+goose-gcc-native	4	plaintext	256	3	4926981.94	0	0	60.47	77.26	6948	0							

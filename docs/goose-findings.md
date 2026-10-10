@@ -191,9 +191,39 @@ declared inside the expression it scans, since no operand read before them can r
 them. Admitting `v + c` in `CmpAdmissible` where the addition is provably exact would
 cover the second.
 
+Adding a variable to the index is a third such write (found on `bab8b6f`, task 008).
+`pos += k` with a `k` that isn't a literal loses every check on `pos`, even under a
+guard that proves the sum in range: `Assign::BceMark` (`src/bce.h`) puts the variable
+in `wbad` for any compound assignment but a literal or a unit step. `pos = pos + k`
+under `k <= buf.len - pos` keeps them, but only where `pos <= buf.len` was established
+right before, as a kept check of `buf[pos..]` does, and only at `-O0` when the search is
+std's `position`, which `-O2` inlines between the two:
+
+    import std;
+
+    fn scan(buf: const u8[:]) -> i64 {
+        var pos = 0;
+        while pos < buf.len && buf[pos] == 'a' { pos++; }
+        let k = position(buf[pos..], 'b');
+        if k > 0 && k <= buf.len - pos { pos = pos + k; }
+        while pos < buf.len && buf[pos] == 'b' { pos++; }
+        return pos;
+    }
+
+    fn main() { print(scan("aaxxbbc")); }
+
+    $ goose -O0 --check m.goose
+    bce: elided 2/2 index and 0/1 slice checks
+    $ goose -O2 --check m.goose
+    bce: elided 0/2 index and 0/1 slice checks
+
+With `pos += k` in place of `pos = pos + k`, both levels elide 0/2. Expected: `pos += k`
+treated as `pos = pos + k`, and the guard's facts kept across an inlined call that
+writes neither `pos` nor `buf`.
+
 Workaround: `http::parse` calls `is_tchar` in its loops' bodies, not their conditions,
-and spells the guard of its eight-byte loop `pos < buf.len - 7`, with the bytes read in
-the loop rather than by a function given `pos`. Its comments point here.
+and advances past `find_any`'s result, an external call, with `pos = pos + k` under
+`k <= buf.len - pos`. Its comments point here.
 
 ## The stdlib has no fast byte search, and no word loads
 
@@ -216,6 +246,55 @@ Expected: a byte search in the stdlib that the backend can vectorize or hand to
 `memchr`, or a word read like `binary`'s `read_u32le` for `u64` that's documented to
 compile to one load.
 
-Workaround: `http::parse` scans header values eight bytes at a time with the word above
-and a SWAR test (`may_end_value`), and finishes a byte at a time. It is the profile's
-largest single change: about 700 fewer instructions per request.
+Workaround, until task 008: `http::parse` scanned header values eight bytes at a time
+with the word above and a SWAR test, and finished a byte at a time. It was the profile's
+largest single change: about 700 fewer instructions per request. Since task 008 it
+calls `find_any`, which saved another 175 user instructions per request; nothing here
+needs a word load now.
+
+## A simd fn parser ran slower than its baseline
+
+Found on `bab8b6f`, task 008. Status: open
+
+`simd` (spec §7.12) on `http::parse` made it slower under clang 21 on a Ryzen 7 5800X3D,
+which runs the AVX2 version. The spec allows this: a `simd fn` suits a function that
+runs a loop, and the header loops are mostly shorter than one vector. It is recorded
+because the cost was there even where `parse` held a vectorized loop, and nothing warns
+of it. Instructions per parse in user code, from `bench/parse.sh`'s programs:
+
+| `parse`'s value scan | Build | wrk's request (170 B) | Chrome's request (1.9 KB) |
+|---|---|---:|---:|
+| A 32-byte block reduced to its first end byte | clang `-DGS_SIMD=0` | 1,321 | 8,032 |
+| The same | clang, AVX2 version | 1,532 | 7,035 |
+| `find_any` | clang `-DGS_SIMD=0` | 1,383 | 7,590 |
+| The same | clang, AVX2 version | 1,633 | 7,615 |
+
+The AVX2 version took fewer instructions only for the block on the long request. In
+time, best of 5 runs of 10 M parses on one CPU, `find_any`'s took 70.6 ns for wrk's
+request against 56.8 ns without versions, and 317 ns against 315 ns for Chrome's. Under
+gcc, which ignores `simd`, the same source was faster than either clang build.
+
+Workaround: `http::parse` isn't a `simd fn`.
+
+## Goose can't express a movemask and count trailing zeros
+
+Found on `bab8b6f`, task 008. Status: open
+
+The fast HTTP parsers find the first byte of a set in a 32-byte block with a compare,
+`movemask`, and a trailing-zero count (httparse's AVX2 path), about six instructions.
+The Goose spelling builds the mask a bit per byte, and neither gcc 15 nor clang 21 turns
+it into `pmovmskb`; `std`'s `ctz` is a loop over the bits. In `http::parse`, this cost
+2,462 instructions per parse of wrk's request under gcc, against 1,356 for a block
+reduced with a minimum and 1,270 for `find_any`:
+
+    var ends: u32 = 0;
+    for c, i in buf[pos..pos + 32] {
+        let bit: u32 = 1;
+        if (c < ' ' && c != '\t') || c == 0x7f { ends |= bit << i; }
+    }
+    if ends != 0 { let k = ctz(ends as u64); ... }
+
+Expected: a `ctz` the C compilers see as one (`__builtin_ctzll`), and a mask-building loop
+the backend writes in a shape the C compilers recognize, or a stdlib function for it.
+
+Workaround: `std`'s `find_any`, whose runtime does the movemask and count in C.

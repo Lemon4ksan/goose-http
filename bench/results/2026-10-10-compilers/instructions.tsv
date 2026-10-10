@@ -1,0 +1,19 @@
+server	run	req/s	instructions/req	user instructions/req	cycles/req
+goose-gcc-swar	1	1644402	2707	1693	2148
+goose-clang-swar	1	1680777	2963	1964	2133
+goose-gcc-native-swar	1	1696335	2731	1724	2126
+goose-gcc	1	1744358	2497	1501	2053
+goose-clang	1	1706384	2713	1706	2110
+goose-gcc-native	1	1739373	2488	1485	2058
+goose-gcc-swar	2	1693415	2686	1681	2121
+goose-clang-swar	2	1690317	3012	1996	2166
+goose-gcc-native-swar	2	1703220	2710	1710	2094
+goose-gcc	2	1707183	2521	1515	2089
+goose-clang	2	1689839	2691	1692	2104
+goose-gcc-native	2	1718743	2488	1485	2067
+goose-gcc-swar	3	1675752	2654	1660	2106
+goose-clang-swar	3	1660448	2963	1964	2145
+goose-gcc-native-swar	3	1717288	2734	1726	2111
+goose-gcc	3	1741844	2505	1506	2061
+goose-clang	3	1734948	2717	1710	2099
+goose-gcc-native	3	1726314	2487	1484	2061
