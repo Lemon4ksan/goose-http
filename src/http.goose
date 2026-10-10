@@ -345,15 +345,15 @@ fn respond<A>(out: A&, req: Request, body: const u8[:], date: const u8[:]) -> bo
     if (plaintext || json || pipeline) && !get || baseline && !get && req.method != "POST" {
         start(out, 405, date, req.keep_alive, req.minor);
         out.append(if baseline { "Allow: GET, HEAD, POST\r\n" } else { "Allow: GET, HEAD\r\n" });
-        finish(out, "", "", false);
+        finish(out, "Content-Length: ", "", false);
     } else if plaintext {
         start(out, 200, date, req.keep_alive, req.minor);
-        finish(out, "text/plain", "Hello, World!", head_only);
+        finish(out, "Content-Type: text/plain\r\nContent-Length: ", "Hello, World!", head_only);
     } else if json {
         var body: u8[..64] = [];
         json_object(body, Message { message: "Hello, World!" });
         start(out, 200, date, req.keep_alive, req.minor);
-        finish(out, "application/json", body, head_only);
+        finish(out, "Content-Type: application/json\r\nContent-Length: ", body, head_only);
     } else if baseline {
         var sum = query_int(req.target, "a") + query_int(req.target, "b");
         if req.method == "POST" {
@@ -363,13 +363,13 @@ fn respond<A>(out: A&, req: Request, body: const u8[:], date: const u8[:]) -> bo
         var text: u8[..24] = [];
         format(text, sum);
         start(out, 200, date, req.keep_alive, req.minor);
-        finish(out, "text/plain", text, head_only);
+        finish(out, "Content-Type: text/plain\r\nContent-Length: ", text, head_only);
     } else if pipeline {
         start(out, 200, date, req.keep_alive, req.minor);
-        finish(out, "text/plain", "ok", head_only);
+        finish(out, "Content-Type: text/plain\r\nContent-Length: ", "ok", head_only);
     } else {
         start(out, 404, date, req.keep_alive, req.minor);
-        finish(out, "", "", head_only);
+        finish(out, "Content-Length: ", "", head_only);
     }
     return req.keep_alive;
 }
@@ -393,45 +393,42 @@ fn query_int(target: const u8[:], key: const u8[:]) -> i64 {
 // closes after it.
 fn refuse<A>(out: A&, status: i32, date: const u8[:]) {
     start(out, status, date, false, 1);
-    finish(out, "", "", false);
+    finish(out, "Content-Length: ", "", false);
 }
 
 // The status line and the fields every response has.
 fn start<A>(out: A&, status: i32, date: const u8[:], keep_alive: bool, minor: i32) {
     out.append(status_line(status));
-    out.append("Server: goose\r\nDate: ");
     out.append(date);
-    out.append("\r\n");
-    if !keep_alive { out.append("Connection: close\r\n"); }
-    else if minor == 0 { out.append("Connection: keep-alive\r\n"); }
+    out.append(if !keep_alive { "\r\nConnection: close\r\n" }
+               else if minor == 0 { "\r\nConnection: keep-alive\r\n" }
+               else { "\r\n" });
 }
 
-// The body's fields, the blank line, and the body unless head_only.
-fn finish<A>(out: A&, ctype: const u8[:], body: const u8[:], head_only: bool) {
-    if ctype.len > 0 {
-        out.append("Content-Type: ");
-        out.append(ctype);
-        out.append("\r\n");
-    }
-    out.append("Content-Length: ");
+// The body's fields, the blank line, and the body unless head_only. fields
+// holds every field before the length's value, ending in "Content-Length: ",
+// so that they take one append.
+fn finish<A>(out: A&, fields: const u8[:], body: const u8[:], head_only: bool) {
+    out.append(fields);
     format(out, body.len);
     out.append("\r\n\r\n");
     if !head_only { out.append(body); }
 }
 
+// The status line and the fields up to the Date field's value.
 fn status_line(status: i32) -> const u8[:] {
     match status {
-        200 => "HTTP/1.1 200 OK\r\n",
-        400 => "HTTP/1.1 400 Bad Request\r\n",
-        404 => "HTTP/1.1 404 Not Found\r\n",
-        405 => "HTTP/1.1 405 Method Not Allowed\r\n",
-        408 => "HTTP/1.1 408 Request Timeout\r\n",
-        413 => "HTTP/1.1 413 Content Too Large\r\n",
-        414 => "HTTP/1.1 414 URI Too Long\r\n",
-        431 => "HTTP/1.1 431 Request Header Fields Too Large\r\n",
-        501 => "HTTP/1.1 501 Not Implemented\r\n",
-        505 => "HTTP/1.1 505 HTTP Version Not Supported\r\n",
-        _ => "HTTP/1.1 500 Internal Server Error\r\n",
+        200 => "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: ",
+        400 => "HTTP/1.1 400 Bad Request\r\nServer: goose\r\nDate: ",
+        404 => "HTTP/1.1 404 Not Found\r\nServer: goose\r\nDate: ",
+        405 => "HTTP/1.1 405 Method Not Allowed\r\nServer: goose\r\nDate: ",
+        408 => "HTTP/1.1 408 Request Timeout\r\nServer: goose\r\nDate: ",
+        413 => "HTTP/1.1 413 Content Too Large\r\nServer: goose\r\nDate: ",
+        414 => "HTTP/1.1 414 URI Too Long\r\nServer: goose\r\nDate: ",
+        431 => "HTTP/1.1 431 Request Header Fields Too Large\r\nServer: goose\r\nDate: ",
+        501 => "HTTP/1.1 501 Not Implemented\r\nServer: goose\r\nDate: ",
+        505 => "HTTP/1.1 505 HTTP Version Not Supported\r\nServer: goose\r\nDate: ",
+        _ => "HTTP/1.1 500 Internal Server Error\r\nServer: goose\r\nDate: ",
     }
 }
 
