@@ -34,6 +34,14 @@ libreactorng) belong to task 005.
 - [ ] Zig's version and install in `docs/development.md`
 - [ ] Task 004's matrix rerun with them, and the results, wins and losses, in this file
 - [ ] vanilla-epoll added too, or the reason it wasn't recorded here
+- [ ] HttpArena's own harness (MIT) run locally with Goose as an entry: its endpoints and
+      a Dockerfile, `scripts/validate.sh` passing, and its `baseline` (mixed GET and POST
+      with query parsing), `limited-conn` (10 requests per connection), and `latency-1m`
+      (CPU per request at a fixed offered load) profiles run for Goose and the servers
+      above, the results recorded here
+- [ ] The parser microbenchmark parses picohttpparser's and httparse's benchmark request
+      (a browser's, with a long cookie) beside wrk's and a Chrome request, so its numbers
+      compare with those parsers' published ones
 - [ ] Where Goose loses a cell by more than the spread of its runs, the winner's source
       and a `perf` profile of both servers say what it does differently, as task 004's
       profile did; each idea is tried here or recorded with why not (a Goose finding, or
