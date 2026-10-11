@@ -13,6 +13,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/event.h>
@@ -118,17 +119,42 @@ static int32_t net_open_listener(int32_t port, int32_t backlog, int32_t flags) {
 
 /* macOS's SO_REUSEPORT doesn't spread connections across listeners: the
    last one bound gets them all. So the workers share one listener per port,
-   which every worker's kqueue watches, and each gets its own fd for it. This
-   table is the only state the shim keeps between calls. */
+   which every worker's kqueue watches, and each gets its own fd for it.
+
+   Left to the kernel, the worker already awake takes nearly every connection
+   (108, 63, 63, and 24 of 256 across 4 workers), whether the listener is
+   edge- or level-triggered. So each worker takes its share instead: it
+   declines to accept while it has accepted more than one past the average,
+   counted in sharers and accepted. Its kqueue watches the listener
+   level-triggered, so a declined connection stays reported to every worker
+   until one under the average takes it. A worker at its connection limit,
+   which stops calling accept, is woken by every wait while connections wait
+   in the backlog.
+
+   This table, and the thread-local fields below that tie a worker to its
+   entry, are the only state the shim keeps between calls. */
 #define NET_MAX_SHARED 16
 static pthread_mutex_t net_shared_lock = PTHREAD_MUTEX_INITIALIZER;
-static struct { int32_t port, fd; } net_shared[NET_MAX_SHARED];
+static struct {
+    int32_t port, fd, sharers;
+    _Atomic int64_t accepted;
+} net_shared[NET_MAX_SHARED];
 static int net_shared_count;
+/* The calling worker's fd for a shared listener, its entry, and how many
+   connections it has accepted. A worker serves one port. */
+static _Thread_local int32_t net_my_lfd = -1;
+static _Thread_local int net_my_entry;
+static _Thread_local int64_t net_my_accepted;
+/* The kqueue and tag the worker watches its listener with, and whether
+   net_accept disabled that watch at the fd limit. */
+static _Thread_local int32_t net_my_kq = -1;
+static _Thread_local uint64_t net_my_tag;
+static _Thread_local int net_my_paused;
 
 /* A TCP listener on every IPv4 address. macOS copies TCP_NODELAY and
    O_NONBLOCK from the listener to each accepted socket. With NET_REUSEPORT,
-   every call on a port returns an fd for the same listener, so its
-   connections are accepted by whichever worker takes them first. */
+   every call on a port returns an fd for the same listener, and the calling
+   worker takes its share of the listener's connections (above). */
 int32_t net_listen(int32_t port, int32_t backlog, int32_t flags) {
     if (!(flags & NET_REUSEPORT)) return net_open_listener(port, backlog, flags);
     pthread_mutex_lock(&net_shared_lock);
@@ -143,25 +169,63 @@ int32_t net_listen(int32_t port, int32_t backlog, int32_t flags) {
     } else {
         r = net_open_listener(port, backlog, flags);
         if (r >= 0) {
-            net_shared[net_shared_count].port = port;
-            net_shared[net_shared_count].fd = r;
+            net_shared[i].port = port;
+            net_shared[i].fd = r;
             net_shared_count++;
         }
+    }
+    if (r >= 0) {
+        net_shared[i].sharers++;
+        net_my_lfd = r;
+        net_my_entry = i;
     }
     pthread_mutex_unlock(&net_shared_lock);
     return r;
 }
 
+/* Changes the calling worker's watch of its shared listener. */
+static void net_watch_listener(uint16_t flags) {
+    struct kevent ch;
+    EV_SET(&ch, net_my_lfd, EVFILT_READ, flags, 0, 0, (void *)net_my_tag);
+    kevent(net_my_kq, &ch, 1, NULL, 0, NULL);
+}
+
 /* macOS drops a connection whose accept fails with EMFILE, where Linux leaves
    it in the backlog. So this first checks that an fd is free, and fails
    without accepting when none is: the client keeps its place in the backlog.
-   Another thread can take the fd between the check and the accept. */
+   Another thread can take the fd between the check and the accept.
+
+   On a shared listener, -EAGAIN also means the worker has taken more than its
+   share. At the fd limit, the level-triggered watch would wake the worker
+   at once on every wait, so it's disabled until the worker's next try. */
 int32_t net_accept(int32_t fd, int32_t flags) {
+    int shared = fd == net_my_lfd;
+    if (shared) {
+        if (net_my_paused) {
+            net_watch_listener(EV_ENABLE);
+            net_my_paused = 0;
+        }
+        int64_t n = net_shared[net_my_entry].sharers;
+        int64_t total = atomic_load_explicit(&net_shared[net_my_entry].accepted,
+                                             memory_order_relaxed);
+        if (net_my_accepted * n > total + n) return -net_err(EAGAIN);
+    }
     int spare = fcntl(fd, F_DUPFD_CLOEXEC, 0);
-    if (spare < 0) return -net_err(errno);
+    if (spare < 0) {
+        int err = errno;
+        if (shared && net_my_kq >= 0) {
+            net_watch_listener(EV_DISABLE);
+            net_my_paused = 1;
+        }
+        return -net_err(err);
+    }
     close(spare);
     int r = accept(fd, NULL, NULL);
     if (r < 0) return -net_err(errno);
+    if (shared) {
+        net_my_accepted++;
+        atomic_fetch_add_explicit(&net_shared[net_my_entry].accepted, 1, memory_order_relaxed);
+    }
     int nb = (flags & NET_NONBLOCK) != 0;
     if (fcntl(r, F_SETFD, FD_CLOEXEC) < 0 || ioctl(r, FIONBIO, &nb) < 0) {
         int err = errno;
@@ -203,11 +267,17 @@ int32_t net_epoll_create(void) {
 }
 
 /* An epoll registration as kevent changes: IN is EVFILT_READ, OUT is
-   EVFILT_WRITE, and ET is EV_CLEAR on both. kqueue reports a peer's close
-   unasked, so RDHUP needs no filter. A filter not asked for is deleted, and
-   deleting one that isn't registered is no error. */
+   EVFILT_WRITE, and ET is EV_CLEAR on both, except on the worker's shared
+   listener, which is always level-triggered (net_listen). kqueue reports a
+   peer's close unasked, so RDHUP needs no filter. A filter not asked for is
+   deleted, and deleting one that isn't registered is no error. */
 int32_t net_epoll_ctl(int32_t ep, int32_t op, int32_t fd, uint32_t events, uint64_t tag) {
-    uint16_t add = EV_ADD | EV_RECEIPT | (events & NET_ET ? EV_CLEAR : 0);
+    int listener = fd == net_my_lfd;
+    if (listener) {
+        net_my_kq = op == NET_CTL_DEL ? -1 : ep;
+        net_my_tag = tag;
+    }
+    uint16_t add = EV_ADD | EV_RECEIPT | (events & NET_ET && !listener ? EV_CLEAR : 0);
     uint16_t del = EV_DELETE | EV_RECEIPT;
     struct kevent ch[2], res[2];
     if (op != NET_CTL_ADD && op != NET_CTL_DEL && op != NET_CTL_MOD) return -net_err(EINVAL);

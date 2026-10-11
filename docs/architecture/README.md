@@ -172,10 +172,12 @@ On macOS:
   freed slot. Without the merge, 3,000 connections at once hung.
 - The workers share one listener per port: macOS's `SO_REUSEPORT` gave every connection
   to the last listener bound. Each worker gets its own fd for the listener and watches it
-  in its own kqueue. The spread across workers is uneven, because the first worker to
-  wake drains the backlog, which costs throughput and not correctness. An acceptor
-  handing out fds would spread them evenly, and is the change to make if macOS becomes a
-  benchmark platform. Task 006's macOS subtask has the measurements.
+  in its own kqueue. Left to the kernel, the worker already awake took most connections,
+  with the listener edge- or level-triggered, and capping accepts per pass didn't change
+  that. So the shim counts each worker's accepts, a worker declines with `EAGAIN` while it
+  has taken more than one past the average, and the listener is level-triggered, so a
+  declined connection stays reported until another worker takes it (2026-10-11, task
+  012 has the measurements).
 - macOS drops a connection whose `accept` fails with `EMFILE`, so the shim checks for a
   free fd first and leaves the client in the backlog when there's none, as Linux does.
 
