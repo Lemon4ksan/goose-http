@@ -1,6 +1,6 @@
 # 007: A lean test suite
 
-Status: todo (asked for by Kait, 2026-10-10)
+Status: todo (asked for 2026-10-10)
 
 One command that runs every test this repository has, so a pin move or a change to the
 server is checked the same way each time. Goose has no unit-test construct; the

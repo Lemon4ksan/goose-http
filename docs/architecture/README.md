@@ -1,14 +1,14 @@
 # Architecture
 
-Decisions for the server. Each says who decided it and when. A proposed decision stands
+Decisions for the server. Each says when it was decided. A proposed decision stands
 until the task named beside it confirms or replaces it.
 
 ## Settled
 
 - **A Goose program, not a Goose feature.** This repository uses Goose as the pinned
-  checkout ships it. Gaps go to `docs/goose-findings.md` (Kait, 2026-10-10).
+  checkout ships it. Gaps go to `docs/goose-findings.md` (2026-10-10).
 - **Simple first, then io_uring.** The first server is an epoll loop per core; io_uring
-  follows once epoll is measured (Kait, 2026-10-10).
+  follows once epoll is measured (2026-10-10).
 - **Linux is the benchmark platform.** The fast paths (`SO_REUSEPORT`, epoll, io_uring)
   are Linux APIs, and that is where the competing servers are compared. Development runs
   on WSL2 Ubuntu.

@@ -82,10 +82,10 @@ it, unpinned. A missing `liburing.h` did that once; a build whose output mention
 ## Set up the Goose compiler
 
 The scripts expect a plain Goose checkout next to this repository, at `../goose`. Leave it
-on the pinned commit and don't edit it (`AGENTS.md`). On Kait's machine, `../goose-fix`
-and `../goose-ngpu` are other Goose checkouts on feature branches: leave them alone.
-`../goose-ngfx` (`kaitk/goose-ngfx`) is Kait's graphics library for Goose, already a
-package that programs import from git; it is the reference for how this repository
+on the pinned commit and don't edit it (`AGENTS.md`). Other Goose checkouts beside it,
+such as `../goose-fix` and `../goose-ngpu`, are on feature branches: leave them alone.
+`../goose-ngfx` (`kaitk/goose-ngfx`) is a graphics library for Goose, already a package
+that programs import from git; it is the reference for how this repository
 becomes one (task 011). Its `docs/development.md`, `docs/goose-findings.md`, and
 `scripts/run_tests.py` record how its package builds, what Goose's package system got
 wrong, and how its tests run. One checkout serves both platforms:
@@ -95,8 +95,8 @@ covers both.
 1. Clone the checkout at the pin. It has no submodules: TinyCC, which lets
    `goose file.goose` compile and run a program in process, is vendored, and graphics,
    audio, and physics are packages the compiler fetches only for a program that imports
-   them. The clone calls `aardappel/goose` `upstream`, as Kait's checkout does, where
-   `origin` is the fork `kaitk/goose`.
+   them. The clone calls `aardappel/goose` `upstream`, which leaves `origin` for a fork
+   such as `kaitk/goose`.
 
    ```sh
    git clone -o upstream https://github.com/aardappel/goose.git ../goose
@@ -313,7 +313,7 @@ What the benchmark has to work around on this machine:
   h2load accepts both spellings and adds `user-agent: h2load nghttp2/1.68.0`. Task 004's
   runs sent only `Host` and `Accept` this way (found in task 008, by tracing the
   server's `recvfrom`); write `-H "Host: tfb-server"`.
-- Cargo under `/mnt/c/Users/kait` reads the Windows `~/.cargo/config`, which sets
+- Cargo under `/mnt/c/Users/<user>` reads the Windows `~/.cargo/config`, which sets
   `-C target-cpu=native` for every build (see [below](#from-a-windows-shell)).
   `bench/build.sh` runs cargo from its cache directory on the Linux file system, and sets
   the flags it wants itself.
@@ -340,8 +340,8 @@ What the benchmark has to work around on this machine:
 
 ### From a Windows shell
 
-The repository lives on the Windows drive, so WSL sees it at
-`/mnt/c/Users/kait/projects/goose/goose-http`. These things break commands passed to WSL
+The repository lives on the Windows drive, so WSL sees it under `/mnt/c`, for example
+at `/mnt/c/Users/<user>/projects/goose/goose-http`. These things break commands passed to WSL
 from Windows:
 
 - `wsl.exe` hands its arguments to a shell that expands `$VARS` before `bash -c` sees
@@ -350,16 +350,16 @@ from Windows:
 - Git Bash rewrites arguments that look like POSIX paths, so `/mnt/c/...` turns into
   `C:/Program Files/Git/mnt/c/...`. Set `MSYS_NO_PATHCONV=1` for the `wsl.exe` call.
   PowerShell doesn't rewrite paths.
-- `GOOSE` isn't set in Kait's WSL profile, and `bash script.sh` wouldn't read the profile
-  anyway. A script that calls `scripts/build.sh` or `scripts/test-unit.sh` exports it
-  first: `export GOOSE=/mnt/c/Users/kait/projects/goose/goose/build-linux/goose`. The
+- `bash script.sh` doesn't read the WSL profile, so a `GOOSE` set there doesn't reach
+  it. A script that calls `scripts/build.sh` or `scripts/test-unit.sh` exports it first:
+  `export GOOSE=/mnt/c/Users/<user>/projects/goose/goose/build-linux/goose`. The
   same goes for `PATH`, which needs `$HOME/.cargo/bin` for oha.
 - A server started in the background survives when its `wsl.exe` call ends early, for
   example when the output is piped into `head`. It keeps its port, and the next run fails
   to bind. Check with `ps aux | grep build/server` before rerunning.
-- `wsl.exe` starts in the Windows working directory, under `/mnt/c/Users/kait`, and cargo
-  reads the config files of every directory above its own. It then picks up the Windows
-  `C:\Users\kait\.cargo\config`. Run cargo with `wsl.exe --cd /root`, or `cd ~` first.
+- `wsl.exe` starts in the Windows working directory, under `/mnt/c/Users/<user>`, and
+  cargo reads the config files of every directory above its own. It then picks up the
+  Windows `C:\Users\<user>\.cargo\config`. Run cargo with `wsl.exe --cd /root`, or `cd ~` first.
 - `pkill -f PATTERN` inside `wsl.exe -- bash -c '...'` matches that `bash -c` too, whose
   command line holds the pattern, and kills it. Kill by PID instead.
 - Killing `strace` doesn't stop the server it started; kill the server's PID.
@@ -413,8 +413,8 @@ cmake --build ../goose/build-macos -j
 export GOOSE=$PWD/../goose/build-macos/goose
 ```
 
-Then `scripts/build.sh` and the test scripts run as on Linux. On Kait's Mac, `../goose` is
-the fork `kaitk/goose` on its `ngfx` branch, and `../goose-tcc-fix` a worktree of it:
+Then `scripts/build.sh` and the test scripts run as on Linux. On the Mac task 006 used,
+`../goose` is a fork on a feature branch, with `../goose-tcc-fix` a worktree of it:
 leave both alone. The plain checkout at the pin is `../goose-upstream`, so there
 `GOOSE=../goose-upstream/build-macos/goose`.
 
@@ -449,6 +449,54 @@ That's 4 server workers and 4 wrk threads, 64 connections pipelining 16 deep, an
 10 s run, with wrk on the same machine and no CPU pinning, at a load average of 2.7.
 The number shows that the build carries load, and nothing more: macOS isn't a benchmark
 platform (`AGENTS.md`).
+
+### Linux in Docker on macOS
+
+Docker Desktop on macOS runs the Linux build and its tests in an arm64 Linux VM, and both
+loops pass there as on WSL. Measured 2026-10-11 on the Mac above, Docker Desktop 29.8.2,
+kernel 7.0.14-linuxkit, 10 CPUs and 8 GB for the VM, in `ubuntu:26.04` with gcc 15.2.0,
+wrk 4.1.0, h2load 1.68.0, and oha 1.16.0 (its `oha-linux-arm64` release binary). The
+image installs what the toolchain table lists for WSL and builds the compiler at the pin:
+
+```dockerfile
+FROM ubuntu:26.04
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+    ca-certificates git cmake ninja-build gcc g++ liburing-dev curl wrk nghttp2-client \
+    netcat-openbsd python3
+RUN curl -sSLf -o /usr/local/bin/oha \
+        https://github.com/hatoo/oha/releases/download/v1.16.0/oha-linux-arm64 && \
+    chmod +x /usr/local/bin/oha
+RUN git init -q /goose && cd /goose && \
+    git fetch -q --depth 1 https://github.com/aardappel/goose.git efe31554dcce698c0749daec36cd5318d28135fb && \
+    git checkout -q FETCH_HEAD && \
+    cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build-linux
+ENV GOOSE=/goose/build-linux/goose
+```
+
+Run it on an export of the commit, so the container's `build/` doesn't land in the
+working tree:
+
+```sh
+git archive HEAD | tar -x -C /tmp/work
+docker run --rm --security-opt seccomp=unconfined --ulimit nofile=1048576:1048576 \
+    -v /tmp/work:/work -w /work goose-http-linux \
+    sh -c 'LOOP=uring scripts/build.sh && scripts/test-http.sh'
+```
+
+- Docker's default seccomp profile blocks io_uring: the uring server exits with
+  "io_uring: Operation not permitted". `--security-opt seccomp=unconfined` lets it run.
+- `scripts/test-unit.sh`, and `scripts/test-echo.sh` and `scripts/test-http.sh` against
+  each loop, passed at commit `090b2e2`, in one full run.
+- Before that commit, `test-echo.sh` failed 2 of 10 runs there with "echo-blocking never
+  saw EPIPE": the loopback is fast enough that the echo often reaches a cut client
+  before its close, which then resets the connection, and the server's send fails with
+  `ECONNRESET` instead. The script now repeats the cut rounds until an `EPIPE`, and passed
+  10 of 10, 3 of them needing a second or third round.
+- `test-http.sh` and `test-unit.sh` weren't executable in Git, which WSL's `/mnt/c`
+  hides by showing every file as executable. Commit `e22a9b8` made them executable,
+  with `bench/build.sh` and `bench/run.sh`.
+- The VM is no benchmark machine: its CPUs are shared with macOS, and the load runs share
+  them with the server.
 
 ## Edit on Windows
 

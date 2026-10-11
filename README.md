@@ -4,7 +4,7 @@ A proof of concept: a small, fast HTTP/1.1 server written in
 [Goose](https://github.com/aardappel/goose), benchmarked against the fastest Rust and Odin
 servers. It starts with an epoll event loop per core and may move to io_uring.
 
-This repository is a Goose program, not an addition to Goose (Kait, 2026-10-10). Gaps found
+This repository is a Goose program, not an addition to Goose (2026-10-10). Gaps found
 in the compiler or the standard library are recorded in
 [docs/goose-findings.md](docs/goose-findings.md), not patched here. It may later grow
 into the HTTP layer of a Goose port of snowtime-native; nothing here depends on that.

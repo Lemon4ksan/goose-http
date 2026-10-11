@@ -90,7 +90,15 @@ for mode in $modes; do
         [ "$reply" = hello ] || { echo "nc: got '$reply'"; exit 1; }
         echo "nc: ok"
     fi
-    $client cut 10
+    # An odd cut round ends in EPIPE only when the client's close sends a FIN,
+    # before the echo reaches it; on a fast loopback the echo often wins, and
+    # the close resets the connection instead (ECONNRESET). So the rounds
+    # repeat until the server has seen its send error, up to 5 times.
+    tries=0
+    until grep -q "$send_error" "$log" || [ $tries -eq 5 ]; do
+        $client cut 10
+        tries=$((tries + 1))
+    done
     if [ "$mode" = echo-blocking ]; then
         # One client at a time: the rest wait in the listen backlog.
         $client many 20 65536
