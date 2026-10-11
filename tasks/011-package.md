@@ -107,6 +107,7 @@ http::serve(cfg) { req, body, out => ... }
       server in `server/` serves TechEmpower's and HttpArena's routes through either,
       picked by `LOOP`
 - [ ] `http::serve` runs on Linux, macOS, and Windows, and on Linux without io_uring
+      (all but macOS done 2026-10-11: macOS builds the emulation over kqueue, untested)
 - [ ] A program outside the repository imports the package from git at a commit, and
       `goose build` and `goose run` both work with it
 - [ ] The tests pass, and the server's rate in `bench/run.sh`'s closest cells matches

@@ -1,9 +1,9 @@
 // The io_uring calls of http::serve's loop, implemented in shim/uring.c over
-// liburing, on Windows in shim/iocp.c over a completion port, and on macOS by
-// shim/ring_none.c, whose ring_create fails with ENOSYS. A ring is the
-// shim's, and owns every buffer the kernel reads or writes after a call
-// returns: receives land in its provided buffers, and a send copies its
-// bytes. Calls that can fail return -errno, as net_*'s do.
+// liburing, on Windows in shim/iocp.c over a completion port, and on macOS in
+// shim/ring_epoll.c over kqueue. A ring is the shim's, and owns every buffer
+// the kernel reads or writes after a call returns: receives land in its
+// provided buffers, and a send copies its bytes. Calls that can fail return
+// -errno, as net_*'s do.
 namespace http;
 
 // One completion. tag is what its request was queued with. For a receive,
@@ -19,8 +19,19 @@ let ENOBUFS = 105;
 let ECANCELED = 125;
 
 // A ring of entries submission entries, with nbufs provided buffers of
-// buflen bytes; nbufs is a power of two. A tag fits in 62 bits.
-extern "ur_create" fn ring_create(entries: i32, nbufs: i32, buflen: i32) -> i64;
+// buflen bytes; nbufs is a power of two. A tag fits in 62 bits. On Linux the
+// ring is shim/ring_epoll.c's emulation over epoll where io_uring_setup
+// fails, or with RING_EMULATE in flags; on macOS it always is, over kqueue.
+extern "ur_create" fn ring_create(entries: i32, nbufs: i32, buflen: i32, flags: i32) -> i64;
+
+// ring_create's flag.
+let RING_EMULATE: i32 = 1;
+
+// Whether ring_create gets the platform's own ring: 0, or -code for why it
+// falls back to the emulation (ENOSYS on macOS, which has no other). A
+// program can call it at startup to say which ring serve runs on.
+extern "ur_probe" fn ring_probe() -> i32;
+
 // Queue requests, which go to the kernel at the next wait.
 extern "ur_accept" fn ring_accept(r: i64, fd: i32, tag: u64);
 extern "ur_recv" fn ring_recv(r: i64, fd: i32, tag: u64);

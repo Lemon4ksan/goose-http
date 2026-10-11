@@ -289,9 +289,10 @@ static struct ur_sock *ur_sock_of(struct ur *u, int32_t fd) {
 }
 
 /* A ring with nbufs buffers of buflen bytes. entries sizes io_uring's
-   submission queue; a completion port has none to size. */
-int64_t ur_create(int32_t entries, int32_t nbufs, int32_t buflen) {
-    (void)entries;
+   submission queue; a completion port has none to size, and Windows has no
+   emulation for flags to ask for. */
+int64_t ur_create(int32_t entries, int32_t nbufs, int32_t buflen, int32_t flags) {
+    (void)entries, (void)flags;
     int32_t r = net_win_init();
     if (r < 0) return r;
     struct ur *u = calloc(1, sizeof *u);
@@ -317,6 +318,9 @@ int64_t ur_create(int32_t entries, int32_t nbufs, int32_t buflen) {
     u->acc.port = u->port;
     return (int64_t)(intptr_t)u;
 }
+
+/* The ring is always a completion port. */
+int32_t ur_probe(void) { return 0; }
 
 /* Posts an AcceptEx on the listener fd, and again after each completion,
    until a cancel or an error. Accepted sockets have TCP_NODELAY and are

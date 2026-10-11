@@ -123,7 +123,9 @@ it:
 - In Docker Desktop's VM on an M1 Pro (task 012), the epoll loop led by 4% to 8% in
   plaintext and tied in JSON, in cells where wrk, not the server, used its CPUs up.
 - Docker's default seccomp profile blocks io_uring, so the HttpArena image builds the
-  epoll loop, and `bench/build.sh` builds both, as `goose` and `goose-uring`.
+  epoll loop, and `bench/build.sh` builds both, as `goose` and `goose-uring`. The
+  io_uring loop runs there too since task 011, over the emulation below, but that's
+  the epoll loop with copies added.
 - Its peak RSS is 4 to 5 times the epoll loop's, about 10 MB against 2.4 MB with 4
   workers.
 
@@ -158,6 +160,20 @@ puts the epoll loop ahead. On Windows the io_uring loop is the only one, over
 - Closing a connection queues a cancel of its requests and, linked after it, the close.
   A queued request holds a reference to the socket, so a `close` alone would leave the
   connection open.
+- Where `io_uring_setup` fails, `ur_create` returns `shim/ring_epoll.c`'s emulation of
+  the ring instead (task 011, 2026-10-11), as libuv falls back from io_uring to epoll:
+  under Docker's default seccomp profile, with `io_uring_disabled` set, or on a kernel
+  before 6.1. The emulation is written against the shim's own `net_epoll_*` calls, so
+  on macOS the same file, over `shim/kqueue.c`, is `http::serve`'s ring. Its multishot
+  accept and receive accept and read until `EAGAIN` at each edge-triggered event, into
+  the same provided buffers; a send's bytes are copied and sent in the next wait, and
+  the rest waits for the socket's writable edge; completions that don't fit in a
+  wait's batch wait for the next. Its handle is its address with the low bit set, and
+  each `ur_*` call in `shim/uring.c` passes such a handle on. `Config.emulate_ring`
+  asks for it where io_uring works, which is how the tests run it. The package writes
+  nothing about the fallback itself; `http::ring_probe()` returns why there's no
+  io_uring, and the benchmark server's startup line says "on an emulated ring" with
+  that reason.
 - At 16,384 connections the worker cancels its accept, and closes any connection
   accepted before the cancel lands. After `EMFILE` or `ENFILE` it queues the accept
   again after a close or at the next sweep, so waiting clients keep their place in the
@@ -170,8 +186,8 @@ no conditional compilation, and the program chooses the loop by calling it (2026
 
 | Platform | `http::serve` | `http::serve_epoll` | Shim |
 |---|---|---|---|
-| Linux | io_uring | epoll | `shim/net.c`, `shim/uring.c` |
-| macOS | fails with `ENOSYS` | kqueue | `shim/kqueue.c`, `shim/ring_none.c` |
+| Linux | io_uring, or emulated over epoll | epoll | `shim/net.c`, `shim/uring.c`, `shim/ring_epoll.c` |
+| macOS | emulated over kqueue | kqueue | `shim/kqueue.c`, `shim/ring_epoll.c` |
 | Windows | IOCP | fails with `ENOSYS` | `shim/net_win.c`, `shim/iocp.c` |
 
 Each loop runs unchanged on every platform it builds for. The benchmark server links

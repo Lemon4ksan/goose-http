@@ -2,7 +2,8 @@
 // worker and nothing shared between workers. A program calls one of two
 // loops from a thread_fn of its own, with its handler:
 //
-//   http::serve(cfg) { req, body, out => ... }        io_uring on Linux, IOCP on Windows
+//   http::serve(cfg) { req, body, out => ... }        io_uring on Linux, IOCP on Windows,
+//                                                      emulated over kqueue on macOS
 //   http::serve_epoll(cfg) { req, body, out => ... }  epoll on Linux, kqueue on macOS
 //
 // The handler gets the parsed request (Request, message.goose), its body, and
@@ -58,6 +59,10 @@ struct Config {
     ring_entries: i32 = 4096,
     ring_buffers: i32 = 256,
     ring_buffer_size: i32 = 4096,
+    // On Linux, serve's ring is the emulation over epoll it falls back to
+    // where io_uring_setup fails, as in Docker's default seccomp profile: for
+    // testing that fallback.
+    emulate_ring: bool = false,
     // The responses a serve connection may have waiting behind its send in
     // flight. Past this, the loop stops reading from it until the client
     // takes what it was sent, as serve_epoll does when a send would block.

@@ -241,6 +241,20 @@ once per loop. It needs curl, wrk, h2load, oha, `nc`, and `python3`
 - Then one worker under `ulimit -n 40` and 60 clients (`emfile`): the clients past the fd
   limit wait in the listen backlog, and are served once earlier ones close.
 
+`LOOP=uring-epoll scripts/test-http.sh`, against the `LOOP=uring` build, tests the
+io_uring loop over its emulation on epoll, which it falls back to where io_uring is
+blocked ([architecture](architecture/README.md#the-io_uring-loop-task-005)). The
+fallback itself was tested (2026-10-11) by running the uring build under Docker's
+default seccomp profile, with WSL's liburing mounted, and `http_client.py`'s modes from
+WSL against it:
+
+```sh
+docker run -d --name ghttp -p 29097:29097 -v "$PWD/build/server:/server:ro" \
+    -v /usr/lib/x86_64-linux-gnu/liburing.so.2.14:/usr/lib/x86_64-linux-gnu/liburing.so.2:ro \
+    -e WORKERS=2 ubuntu:26.04 /server http 29097
+python3 scripts/http_client.py 29097 pipeline
+```
+
 The io_uring loop's listener outlives its process by a moment: the kernel tears a ring
 down after the process exits, and the queued multishot accept holds the listener until
 then. `test-http.sh` waits up to 5 s for the port to free before each start.
@@ -510,8 +524,9 @@ docker run --rm --security-opt seccomp=unconfined --ulimit nofile=1048576:104857
     sh -c 'LOOP=uring scripts/build.sh && scripts/test-http.sh'
 ```
 
-- Docker's default seccomp profile blocks io_uring: the uring server exits with
-  "io_uring: Operation not permitted". `--security-opt seccomp=unconfined` lets it run.
+- Docker's default seccomp profile blocks io_uring: the uring server exited with
+  "io_uring: Operation not permitted" before task 011, and runs over an emulation on
+  epoll since. `--security-opt seccomp=unconfined` lets it use io_uring.
 - `scripts/test-unit.sh`, and `scripts/test-echo.sh` and `scripts/test-http.sh` against
   each loop, passed at commit `090b2e2`, in one full run.
 - Before that commit, `test-echo.sh` failed 2 of 10 runs there with "echo-blocking never

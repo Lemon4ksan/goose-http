@@ -21,8 +21,10 @@ io_uring.
 
 - `LOOP=uring`, over io_uring, the default on Linux: 11% to 21% faster than the epoll
   loop in task 005's matrix, at 4 to 5 times its peak RSS (about 10 MB with 4 workers).
-  It needs Linux 6.1 and liburing, and Docker's default seccomp profile blocks it. On
-  Windows it's the only loop, over I/O completion ports, built as `LOOP=iocp`.
+  It needs Linux 6.1 and liburing. Where `io_uring_setup` fails, as under Docker's
+  default seccomp profile, it runs over an emulation of the ring on epoll. On Windows
+  it's over I/O completion ports, built as `LOOP=iocp`, and on macOS over the same
+  emulation on kqueue.
 - `LOOP=epoll`, the only loop on macOS, over kqueue, and on Linux the loop for kernels
   and containers without io_uring. The results below measure it.
 

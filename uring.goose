@@ -1,5 +1,5 @@
 // serve, the completion loop: each worker has its own ring (io_uring on Linux,
-// a completion port on Windows), and its own SO_REUSEPORT listener on Linux
+// a completion port on Windows, an emulation over epoll or kqueue elsewhere), and its own SO_REUSEPORT listener on Linux
 // (net_listen), and nothing else is shared between workers. A multishot
 // accept takes the listener's connections, and a multishot receive per
 // connection fills the ring's provided buffers. The sends a pass over the
@@ -42,7 +42,8 @@ fn serve<H>(cfg: Config) -> Error {
     guard ok else { return Error { call: "address", code: EINVAL }; }
     let lfd = net_listen(ip, cfg.port, cfg.backlog, NONBLOCK | REUSEPORT);
     guard lfd >= 0 else { return Error { call: "listen", code: -lfd }; }
-    let r = ring_create(cfg.ring_entries, cfg.ring_buffers, cfg.ring_buffer_size);
+    let r = ring_create(cfg.ring_entries, cfg.ring_buffers, cfg.ring_buffer_size,
+                        if cfg.emulate_ring { RING_EMULATE } else { 0 });
     guard r >= 0 else {
         net_close(lfd);
         return Error { call: "io_uring", code: -r };

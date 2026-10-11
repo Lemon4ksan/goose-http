@@ -12,7 +12,12 @@
    a call. So the ring owns every buffer the kernel touches: receives land in
    its provided buffers, which ur_take copies out of, and ur_send copies the
    bytes it's given. A ring is a number to Goose, the address of its struct
-   ur, and belongs to the thread that created it (IORING_SETUP_SINGLE_ISSUER). */
+   ur, and belongs to the thread that created it (IORING_SETUP_SINGLE_ISSUER).
+
+   Where io_uring_setup fails, as under Docker's default seccomp profile, or
+   when asked, a ring is shim/ring_epoll.c's emulation over epoll instead:
+   its address with the low bit set, which a struct ur's never has, and each
+   call here passes it on. */
 #include <errno.h>
 #include <liburing.h>
 #include <stdint.h>
@@ -69,6 +74,45 @@ struct ur {
     uint32_t ngens;
 };
 
+/* shim/ring_epoll.c, built with its functions named urp_*. */
+int64_t urp_create(int32_t entries, int32_t nbufs, int32_t buflen, int32_t flags);
+void urp_accept(int64_t h, int32_t fd, uint64_t tag);
+void urp_recv(int64_t h, int32_t fd, uint64_t tag);
+int32_t urp_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data);
+void urp_cancel(int64_t h, uint64_t tag);
+void urp_close(int64_t h, int32_t fd);
+void urp_take(int64_t h, int32_t buf, int64_t off, ur_bytes dst);
+void urp_give(int64_t h, int32_t buf);
+int32_t urp_wait(int64_t h, ur_completions out, int32_t timeout_ms);
+
+/* ur_create's flag, ring.goose's RING_EMULATE. */
+#define UR_EMULATE 1
+
+/* Whether h is an emulated ring, and the emulation's own handle for it. */
+#define UR_EMULATED(h) (((h) & 1) != 0)
+#define UR_POLL(h) ((h) & ~(int64_t)1)
+
+static int64_t ur_emulate(int32_t entries, int32_t nbufs, int32_t buflen) {
+    int64_t h = urp_create(entries, nbufs, buflen, 0);
+    return h < 0 ? h : h | 1;
+}
+
+/* Whether ur_create gets an io_uring ring here: 0, or the error that makes it
+   fall back to the emulation. Sets up and tears down a small ring as
+   ur_create sets up its own. */
+int32_t ur_probe(void) {
+    struct io_uring ring;
+    struct io_uring_params p;
+    memset(&p, 0, sizeof p);
+    p.flags = IORING_SETUP_SINGLE_ISSUER | IORING_SETUP_DEFER_TASKRUN | IORING_SETUP_SUBMIT_ALL;
+    int r = io_uring_queue_init_params(2, &ring, &p);
+    if (r < 0) return r;
+    struct io_uring_buf_ring *br = io_uring_setup_buf_ring(&ring, 1, 0, 0, &r);
+    if (br) io_uring_free_buf_ring(&ring, br, 1, 0);
+    io_uring_queue_exit(&ring);
+    return br ? 0 : r;
+}
+
 /* An SQE, submitting what's queued first if the submission queue is full. */
 static struct io_uring_sqe *ur_sqe(struct ur *u) {
     struct io_uring_sqe *sqe = io_uring_get_sqe(&u->ring);
@@ -82,7 +126,8 @@ static struct io_uring_sqe *ur_sqe(struct ur *u) {
 /* A ring of entries submission entries and four times as many completions,
    with nbufs provided buffers of buflen bytes in buffer group 0. nbufs must
    be a power of two. */
-int64_t ur_create(int32_t entries, int32_t nbufs, int32_t buflen) {
+int64_t ur_create(int32_t entries, int32_t nbufs, int32_t buflen, int32_t flags) {
+    if (flags & UR_EMULATE) return ur_emulate(entries, nbufs, buflen);
     struct ur *u = calloc(1, sizeof *u);
     if (!u) return -ENOMEM;
     struct io_uring_params p;
@@ -93,7 +138,7 @@ int64_t ur_create(int32_t entries, int32_t nbufs, int32_t buflen) {
     int r = io_uring_queue_init_params((unsigned)entries, &u->ring, &p);
     if (r < 0) {
         free(u);
-        return r;
+        return ur_emulate(entries, nbufs, buflen);
     }
     u->nbufs = (uint32_t)nbufs;
     u->buflen = (uint32_t)buflen;
@@ -104,7 +149,7 @@ int64_t ur_create(int32_t entries, int32_t nbufs, int32_t buflen) {
         io_uring_queue_exit(&u->ring);
         free(u->bufs);
         free(u);
-        return r;
+        return r == -ENOMEM ? r : ur_emulate(entries, nbufs, buflen);
     }
     int mask = io_uring_buf_ring_mask((unsigned)nbufs);
     for (int i = 0; i < nbufs; i++)
@@ -117,6 +162,10 @@ int64_t ur_create(int32_t entries, int32_t nbufs, int32_t buflen) {
 /* Queues a multishot accept on the listener fd. Accepted sockets are
    blocking, which io_uring doesn't need otherwise. */
 void ur_accept(int64_t h, int32_t fd, uint64_t tag) {
+    if (UR_EMULATED(h)) {
+        urp_accept(UR_POLL(h), fd, tag);
+        return;
+    }
     struct ur *u = (struct ur *)(intptr_t)h;
     struct io_uring_sqe *sqe = ur_sqe(u);
     io_uring_prep_multishot_accept(sqe, fd, NULL, NULL, SOCK_CLOEXEC);
@@ -125,6 +174,10 @@ void ur_accept(int64_t h, int32_t fd, uint64_t tag) {
 
 /* Queues a multishot receive into the provided buffers. */
 void ur_recv(int64_t h, int32_t fd, uint64_t tag) {
+    if (UR_EMULATED(h)) {
+        urp_recv(UR_POLL(h), fd, tag);
+        return;
+    }
     struct ur *u = (struct ur *)(intptr_t)h;
     struct io_uring_sqe *sqe = ur_sqe(u);
     io_uring_prep_recv_multishot(sqe, fd, NULL, 0, 0);
@@ -136,6 +189,7 @@ void ur_recv(int64_t h, int32_t fd, uint64_t tag) {
 /* Copies data and queues a send of it, with MSG_NOSIGNAL. A short send is
    queued again for the rest inside ur_wait, which reports the send once. */
 int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
+    if (UR_EMULATED(h)) return urp_send(UR_POLL(h), fd, tag, data);
     struct ur *u = (struct ur *)(intptr_t)h;
     struct ur_send *s;
     if ((uint32_t)fd >= u->ngens) {
@@ -177,6 +231,10 @@ static void ur_send_free(struct ur *u, struct ur_send *s) {
 
 /* Queues a cancel of the request queued with tag. */
 void ur_cancel(int64_t h, uint64_t tag) {
+    if (UR_EMULATED(h)) {
+        urp_cancel(UR_POLL(h), tag);
+        return;
+    }
     struct ur *u = (struct ur *)(intptr_t)h;
     struct io_uring_sqe *sqe = ur_sqe(u);
     io_uring_prep_cancel64(sqe, tag << 2 | UR_TAGGED, 0);
@@ -188,6 +246,10 @@ void ur_cancel(int64_t h, uint64_t tag) {
    holds a reference to the socket, so closing fd alone would leave the
    connection open until its receive ended. */
 void ur_close(int64_t h, int32_t fd) {
+    if (UR_EMULATED(h)) {
+        urp_close(UR_POLL(h), fd);
+        return;
+    }
     struct ur *u = (struct ur *)(intptr_t)h;
     if ((uint32_t)fd < u->ngens) u->gens[fd]++;
     struct io_uring_sqe *sqe = ur_sqe(u);
@@ -208,12 +270,20 @@ void ur_close(int64_t h, int32_t fd) {
 
 /* Copies dst.len bytes of provided buffer buf from off into dst. */
 void ur_take(int64_t h, int32_t buf, int64_t off, ur_bytes dst) {
+    if (UR_EMULATED(h)) {
+        urp_take(UR_POLL(h), buf, off, dst);
+        return;
+    }
     struct ur *u = (struct ur *)(intptr_t)h;
     memcpy(dst.data, u->bufs + (size_t)buf * u->buflen + off, (size_t)dst.len);
 }
 
 /* Gives provided buffer buf back to the kernel, at the next ur_wait. */
 void ur_give(int64_t h, int32_t buf) {
+    if (UR_EMULATED(h)) {
+        urp_give(UR_POLL(h), buf);
+        return;
+    }
     struct ur *u = (struct ur *)(intptr_t)h;
     io_uring_buf_ring_add(u->br, u->bufs + (size_t)buf * u->buflen, u->buflen,
                           (unsigned short)buf, io_uring_buf_ring_mask(u->nbufs), u->given++);
@@ -223,6 +293,7 @@ void ur_give(int64_t h, int32_t buf) {
    one completion, and writes up to out.len of them into out. Leaves any
    others for the next call. */
 int32_t ur_wait(int64_t h, ur_completions out, int32_t timeout_ms) {
+    if (UR_EMULATED(h)) return urp_wait(UR_POLL(h), out, timeout_ms);
     struct ur *u = (struct ur *)(intptr_t)h;
     if (u->given) {
         io_uring_buf_ring_advance(u->br, u->given);
