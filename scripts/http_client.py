@@ -372,7 +372,16 @@ def slow(port):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
-    threads = [threading.Thread(target=f) for f in (slowloris, silent, steady, no_reader)]
+    def counted(f):
+        # A client that dies before its checks is a failure too.
+        def run():
+            try:
+                f()
+            except (Exception, SystemExit) as e:
+                errors.append(f"{f.__name__}: {e!r}")
+        return run
+
+    threads = [threading.Thread(target=counted(f)) for f in (slowloris, silent, steady, no_reader)]
     for t in threads:
         t.start()
     # Others are served meanwhile.

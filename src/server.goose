@@ -242,7 +242,8 @@ fn serve(port: i32) {
     }
 
     // Closes the connections past their deadline. One still waiting for the
-    // rest of a request is sent a 408 first, if its socket takes it.
+    // rest of a request is sent a 408 first, if its socket takes it, and then
+    // shut down and drained as any refusal is.
     fn sweep() {
         for i in conns.len {
             let c .= conns[i];
@@ -250,7 +251,16 @@ fn serve(port: i32) {
             if c.state == OPEN && c.held.len > 0 && c.out.len == 0 {
                 wbuf.clear();
                 http::refuse(wbuf, 408, date);
-                sys::send(c.fd, wbuf);
+                let sent = sys::send(c.fd, wbuf) == wbuf.len;
+                wbuf.clear();
+                if sent {
+                    spill.free_slice(c.held);
+                    c.held = c.held[..0];
+                    sys::shutdown(c.fd, sys::SHUT_WR);
+                    c.state = DRAINING;
+                    c.deadline = now + LINGER_MS;
+                    continue;
+                }
             }
             close_conn(i);
         }

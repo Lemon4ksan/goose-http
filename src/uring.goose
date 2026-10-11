@@ -292,7 +292,9 @@ fn serve(port: i32) {
     }
 
     // Closes the connections past their deadline. One still waiting for the
-    // rest of a request is sent a 408 first, if its socket takes it.
+    // rest of a request is refused with a 408 instead, which closes it as
+    // any refusal does; LINGER_MS bounds the send. A close aborts a send in
+    // flight on Windows, and io_uring's cancels one that hasn't gone out.
     fn sweep() {
         for i in conns.len {
             let c .= conns[i];
@@ -300,8 +302,10 @@ fn serve(port: i32) {
             if c.state == OPEN && c.held.len > 0 && !c.sending {
                 wbuf.clear();
                 http::refuse(wbuf, 408, date);
-                ring::send(r, c.fd, c.tag, wbuf);
-                wbuf.clear();
+                flush(c);
+                c.state = CLOSING;
+                c.deadline = now + LINGER_MS;
+                continue;
             }
             close_conn(i);
         }
