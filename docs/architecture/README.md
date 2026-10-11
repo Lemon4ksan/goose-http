@@ -47,7 +47,7 @@ until the task named beside it confirms or replaces it.
   globals it uses (spec §11.2). The fastest Rust plaintext servers use the same shape
   (proposed for task 003, confirmed by it, 2026-10-10):
   - `main` spawns one worker per `hardware_threads()`, or `WORKERS` if set, and passes
-    each only the port.
+    each a copy of the settings, one flat struct (`Config`, 2026-10-11).
   - Each worker opens its own listener with `SO_REUSEPORT`, so the kernel spreads
     connections across workers, and runs its own edge-triggered epoll loop. On macOS and
     Windows the workers share one listener instead
@@ -93,8 +93,9 @@ until the task named beside it confirms or replaces it.
     `/pipeline` for HttpArena's (`bench/httparena/goose`), and `/bytes?n=N`, N bytes
     up to 16 MB, for testing large responses.
   - Lines end in CRLF only; a bare LF is 400. HTTP/1.1 needs one `Host`.
-  - Limits, in `src/http.goose`: a 4 KB request line (414), an 8 KB head or 100 fields
-    (431), and a 1 MB body (413).
+  - Limits: a 4 KB request line (414), an 8 KB head or 100 fields (431), and a 1 MB
+    body (413). The head and body limits, the timeouts, and the buffer sizes are
+    settings (`Config`); the rest are constants in `src/http.goose`.
   - A refused request closes the connection after the response. The server shuts down
     its side and drops what the client still sends for up to 2 s, so the refusal isn't
     lost to a reset.

@@ -363,3 +363,35 @@ or on Linux. `gs_exit` calls C's `exit()` while another thread is still inside s
 
 The server hits it when every worker fails `listen` at once, for example on a port in
 use. Workaround: none yet.
+
+## `goose build` on Linux never sees a sidecar's C change
+
+Found on `efe3155`, task 011. Status: open (unchanged at `fe6c543`)
+
+`goose build` keeps a program's compiled sidecar C under
+`~/.goose/build/prog/<name>-<hash>/native/`, with a stamp of the newest mtime of the C
+sources and the sidecar. On Linux the mtime in the stamp is always 0, so editing a C
+source never makes the build stale, and the program links the old object. Here the old
+`net_listen(port, backlog, flags)` was called with a new fourth argument, so every
+argument landed one place over and two of four workers failed with `EADDRINUSE`.
+Expected: a changed C source is compiled again.
+
+    // stale.goose, with stale.build: c_sources = ["answer.c"];
+    // and answer.c: int32_t answer(void) { return 1; }
+    extern fn answer() -> i32;
+
+    fn main() { print(answer()); }
+
+    $ goose build stale.goose && ./stale
+    1
+    $ sed -i 's/return 1/return 2/' answer.c
+    $ goose build stale.goose && ./stale
+    1
+
+`NewestMtime` in `src/native.h` keeps `std::max` of 0 and each file's
+`last_write_time(...).time_since_epoch().count()`. libstdc++'s file clock counts from
+2174, so today's times are negative and the maximum stays 0. MSVC's counts from 1601, so
+Windows rebuilds as it should.
+
+Workaround: `scripts/build.sh` deletes the native part's stamp before each build, which
+compiles the shim again, about a second.

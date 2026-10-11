@@ -6,15 +6,17 @@ namespace http;
 import std;
 
 // The longest request head (the request line, the header fields, and the
-// blank line). The server's read buffer is this size, so a head always fits
-// whole; one that doesn't is refused with 431.
+// blank line), unless parse's caller sets another. The server's read buffer
+// is this size, so a head always fits whole; one that doesn't is refused
+// with 431.
 let MAX_HEAD = 8192;
 // Longer request lines are refused with 414, longer methods with 400.
 let MAX_LINE = 4096;
 let MAX_METHOD = 16;
 // More header fields than this are refused with 431.
 let MAX_FIELDS = 100;
-// A Content-Length body longer than this is refused with 413. Bodies are read
+// A Content-Length body longer than this, unless parse's caller sets another
+// limit, is refused with 413. Bodies are read
 // and dropped as they arrive, except for a route that reads its body
 // (reads_body) and a chunked body: those must fit in the read buffer with the
 // head, or they are refused with 413 too.
@@ -55,15 +57,15 @@ struct Request {
     len: i64,                // bytes of the head, the blank line included
 }
 
-// Parses the request head at the start of buf. Returns the request and 200
-// once the whole head is there, INCOMPLETE until then, or the status to
-// refuse it with. Lines end in CRLF only: a bare LF is 400, which
+// Parses the request head at the start of buf, which may hold max_head bytes
+// of it and announce a body of max_body. Returns the request and 200 once the
+// whole head is there, INCOMPLETE until then, or the status to refuse it with. Lines end in CRLF only: a bare LF is 400, which
 // RFC 9112 §2.2 allows.
-fn parse(buf: const u8[:]) -> Request, i32 {
+fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_BODY) -> Request, i32 {
     // Empty lines before the request line are skipped (RFC 9112 §2.2).
     var pos = 0;
     while pos < buf.len && buf[pos] == '\r' {
-        guard pos + 1 < buf.len else { return Request { .. }, short(buf); }
+        guard pos + 1 < buf.len else { return Request { .. }, short(buf, max_head); }
         guard buf[pos + 1] == '\n' else { return Request { .. }, 400; }
         pos += 2;
     }
@@ -72,7 +74,7 @@ fn parse(buf: const u8[:]) -> Request, i32 {
     let m0 = pos;
     while pos < buf.len && is_tchar(buf[pos]) { pos++; }
     guard pos - m0 <= MAX_METHOD else { return Request { .. }, 400; }
-    guard pos < buf.len else { return Request { .. }, short(buf); }
+    guard pos < buf.len else { return Request { .. }, short(buf, max_head); }
     guard pos > m0 && buf[pos] == ' ' else { return Request { .. }, 400; }
     let method = buf[m0..pos];
     pos++;
@@ -83,7 +85,7 @@ fn parse(buf: const u8[:]) -> Request, i32 {
     if kt > 0 && kt <= buf.len - pos { pos = pos + kt; }
     while pos < buf.len && buf[pos] > ' ' && buf[pos] < 0x7f { pos++; }
     guard pos - m0 <= MAX_LINE else { return Request { .. }, 414; }
-    guard pos < buf.len else { return Request { .. }, short(buf); }
+    guard pos < buf.len else { return Request { .. }, short(buf, max_head); }
     guard pos > t0 && buf[pos] == ' ' else { return Request { .. }, 400; }
     let target = buf[t0..pos];
     pos++;
@@ -93,7 +95,7 @@ fn parse(buf: const u8[:]) -> Request, i32 {
     let rest = buf[pos..];
     if rest.len < 10 {
         guard position(rest, '\n') < 0 else { return Request { .. }, 400; }
-        return Request { .. }, short(buf);
+        return Request { .. }, short(buf, max_head);
     }
     guard rest[..5] == "HTTP/" && is_digit(rest[5]) && rest[6] == '.' && is_digit(rest[7]) else {
         return Request { .. }, 400;
@@ -111,9 +113,9 @@ fn parse(buf: const u8[:]) -> Request, i32 {
     var close = false;
     var keep = false;
     loop {
-        guard pos < buf.len else { return Request { .. }, short(buf); }
+        guard pos < buf.len else { return Request { .. }, short(buf, max_head); }
         if buf[pos] == '\r' {
-            guard pos + 1 < buf.len else { return Request { .. }, short(buf); }
+            guard pos + 1 < buf.len else { return Request { .. }, short(buf, max_head); }
             guard buf[pos + 1] == '\n' else { return Request { .. }, 400; }
             pos += 2;
             break;
@@ -127,7 +129,7 @@ fn parse(buf: const u8[:]) -> Request, i32 {
         let kn = find_any(buf[pos..], NAME_END);
         if kn > 0 && kn <= buf.len - pos { pos = pos + kn; }
         while pos < buf.len && is_tchar(buf[pos]) { pos++; }
-        guard pos < buf.len else { return Request { .. }, short(buf); }
+        guard pos < buf.len else { return Request { .. }, short(buf, max_head); }
         guard pos > n0 && buf[pos] == ':' else { return Request { .. }, 400; }
         let name = buf[n0..pos];
         pos++;
@@ -143,9 +145,9 @@ fn parse(buf: const u8[:]) -> Request, i32 {
         let k = find_any(buf[pos..], VALUE_END);
         if k > 0 && k <= buf.len - pos { pos = pos + k; }
         while pos < buf.len && ((buf[pos] >= ' ' && buf[pos] != 0x7f) || buf[pos] == '\t') { pos++; }
-        guard pos < buf.len else { return Request { .. }, short(buf); }
+        guard pos < buf.len else { return Request { .. }, short(buf, max_head); }
         guard buf[pos] == '\r' else { return Request { .. }, 400; }
-        guard pos + 1 < buf.len else { return Request { .. }, short(buf); }
+        guard pos + 1 < buf.len else { return Request { .. }, short(buf, max_head); }
         guard buf[pos + 1] == '\n' else { return Request { .. }, 400; }
         var v1 = pos;
         while v1 > v0 && (buf[v1 - 1] == ' ' || buf[v1 - 1] == '\t') { v1--; }
@@ -160,7 +162,7 @@ fn parse(buf: const u8[:]) -> Request, i32 {
                 n = n * 10 + (c - '0');
             }
             guard !has_length || n == r.body else { return Request { .. }, 400; }
-            guard n <= MAX_BODY else { return Request { .. }, 413; }
+            guard n <= max_body else { return Request { .. }, 413; }
             has_length = true;
             r.body = n;
         } else if eq_fold(name, "transfer-encoding") {
@@ -196,8 +198,8 @@ fn parse(buf: const u8[:]) -> Request, i32 {
 
 // The status for a head that has only partly arrived: wait for the rest,
 // unless it can't fit.
-fn short(buf: const u8[:]) -> i32 {
-    if buf.len >= MAX_HEAD { 431 } else { INCOMPLETE }
+fn short(buf: const u8[:], max_head: i64) -> i32 {
+    if buf.len >= max_head { 431 } else { INCOMPLETE }
 }
 
 fn is_digit(c: u8) -> bool { c >= '0' && c <= '9' }

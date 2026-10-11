@@ -6,7 +6,7 @@ import sys;
 let BUF_SIZE = 16384;
 
 fn echo_blocking(port: i32) {
-    let lfd = sys::check("listen", sys::listen(port, 128, 0));
+    let lfd = sys::check("listen", sys::listen(-1, port, 128, 0));
     print("echo-blocking: listening on ", port);
     var buf: u8[BUF_SIZE] = [0; BUF_SIZE];
     loop {
@@ -47,7 +47,7 @@ fn echo_until_closed(fd: i32, buf: u8[:]) {
 struct EchoConn { off: i64, len: i64, buf: u8[BUF_SIZE] }
 
 fn echo_epoll(port: i32) {
-    let lfd = sys::check("listen", sys::listen(port, 4096, sys::NONBLOCK));
+    let lfd = sys::check("listen", sys::listen(-1, port, 4096, sys::NONBLOCK));
     let ep = sys::check("epoll_create", sys::epoll_create());
     sys::check("epoll_ctl", sys::epoll_ctl(ep, sys::CTL_ADD, lfd, sys::IN | sys::ET, lfd as u64));
     print("echo-epoll: listening on ", port);

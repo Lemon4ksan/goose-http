@@ -10,20 +10,6 @@ import sys;
 import ring;
 import http;
 
-// The ring's size, and its provided buffers, which the kernel fills in
-// turn. A receive that finds none left ends its multishot request, which
-// the loop queues again. The loop gives each buffer back in the pass that
-// takes it, and 256, a wait's batch, served as fast as 1,024, with half
-// the peak RSS (task 005).
-let ENTRIES: i32 = 4096;
-let NBUFS: i32 = 256;
-let BUFLEN: i32 = 4096;
-
-// The responses a connection may have waiting behind its send in flight.
-// Past this, the loop stops reading from it until the client takes what it
-// was sent, as the epoll loop does when a send would block.
-let MAX_QUEUED = 65536;
-
 // A request's tag: the connection's slot in the low 32 bits and a
 // generation above, so a completion that arrives after its connection
 // closed isn't taken for one of the slot's next connection. The listener's
@@ -39,18 +25,26 @@ struct Conn {
     state: u8,
     sending: bool,      // a send is in flight
     reading: bool,      // its multishot receive is queued
-    stalled: bool,      // stopped reading at MAX_QUEUED, with held to answer
+    stalled: bool,      // stopped reading at cfg.max_queued, with held to answer
     deadline: i64,      // the time after which the sweep closes it
     discard: i64,       // request body bytes still to drop
     held: u8[:],        // received and not yet answered
     out: u8[:],         // answered, behind the send in flight
 }
 
-thread_fn worker(port: i32) { serve(port); }
-
-fn serve(port: i32) {
-    let lfd = sys::check("listen", sys::listen(port, BACKLOG, sys::NONBLOCK | sys::REUSEPORT));
-    let r = sys::check("io_uring", ring::create(ENTRIES, NBUFS, BUFLEN));
+// Serves HTTP as cfg says until a call fails, and returns its error, with
+// every socket it opened closed. The ring stays: closing one with requests in
+// flight is task 013's graceful shutdown.
+fn serve(cfg: Config) -> Error {
+    let ip, ok = ipv4(cfg.address);
+    guard ok else { return Error { call: "address", code: sys::EINVAL }; }
+    let lfd = sys::listen(ip, cfg.port, cfg.backlog, sys::NONBLOCK | sys::REUSEPORT);
+    guard lfd >= 0 else { return Error { call: "listen", code: -lfd }; }
+    let r = ring::create(cfg.ring_entries, cfg.ring_buffers, cfg.ring_buffer_size);
+    guard r >= 0 else {
+        sys::close(lfd);
+        return Error { call: "io_uring", code: -r };
+    }
     ring::accept(r, lfd, LISTENER);
 
     reusable[] var spill: u8[>..] = [];
@@ -58,7 +52,7 @@ fn serve(port: i32) {
     var open = 0;
     var generation: u64 = 0;
     // Whether the listener's multishot accept is queued. It ends when the
-    // worker reaches MAX_CONNS, and on an error such as EMFILE. Then it's
+    // worker reaches cfg.max_conns, and on an error such as EMFILE. Then it's
     // queued again once a connection closes, or at the next sweep.
     var accepting = true;
     var accept_failed = false;
@@ -71,7 +65,8 @@ fn serve(port: i32) {
         [ring::Completion { tag: 0, res: 0, buf: -1, more: false, send: false }; 256];
     // The driven connection's bytes: rbuf[..rlen] is received and not yet
     // answered, and wbuf is answered and not yet queued to send.
-    var rbuf: u8[RBUF] = [0; RBUF];
+    var rbuf: u8[>..] = [];
+    rbuf.resize(cfg.max_head, 0);
     var rlen = 0;
     var wbuf: u8[>..] = [];
     // Whether the driven connection answered a request or sent a response.
@@ -87,18 +82,18 @@ fn serve(port: i32) {
             return;
         }
         accept_failed = false;
-        guard open < MAX_CONNS else {
+        guard open < cfg.max_conns else {
             sys::close(fd);
             return;
         }
         // A tag fits in 62 bits, and a free slot's is 0.
         generation = generation % 0x3FFFFFFF + 1;
-        let i = conns.alloc_index(Conn { fd: fd, reading: true, deadline: now + REQUEST_MS, .. });
+        let i = conns.alloc_index(Conn { fd: fd, reading: true, deadline: now + cfg.request_ms, .. });
         let c .= conns[i];
         c.tag = (generation << 32) | (i as u64);
         ring::recv(r, fd, c.tag);
         open++;
-        if open == MAX_CONNS && accepting { ring::cancel(r, LISTENER); }
+        if open == cfg.max_conns && accepting { ring::cancel(r, LISTENER); }
     }
 
     fn close_conn(i: i64) {
@@ -113,7 +108,7 @@ fn serve(port: i32) {
         closed = true;
     }
 
-    fn blocked(c: Conn&) -> bool { c.out.len >= MAX_QUEUED }
+    fn blocked(c: Conn&) -> bool { c.out.len >= cfg.max_queued }
 
     // Queues wbuf to send, or keeps it behind the send in flight: one send
     // at a time keeps a connection's responses in order.
@@ -124,7 +119,8 @@ fn serve(port: i32) {
             c.out = spill.realloc_slice(c.out, m + wbuf.len);
             copy_into(c.out[m..], wbuf);
         } else {
-            sys::check("send", ring::send(r, c.fd, c.tag, wbuf));
+            let e = ring::send(r, c.fd, c.tag, wbuf);
+            guard e >= 0 else { return Error { call: "send", code: -e } from spin; }
             c.sending = true;
         }
         wbuf.clear();
@@ -132,16 +128,16 @@ fn serve(port: i32) {
 
     // Answers n received bytes after rbuf[..rlen]: those of provided buffer
     // buf, or of src when buf is -1. rbuf takes them as it has room. If the
-    // connection reaches MAX_QUEUED, it stops reading and holds the rest.
+    // connection reaches cfg.max_queued, it stops reading and holds the rest.
     fn pump(c: Conn&, buf: i32, src: const u8[:], n: i64) {
         var off: i64 = 0;
         while off < n {
-            let k = min(n - off, RBUF - rlen);
+            let k = min(n - off, rbuf.len - rlen);
             if buf >= 0 { ring::take(r, buf, off, rbuf[rlen..rlen + k]); }
             else { copy_into(rbuf[rlen..rlen + k], src[off..off + k]); }
             rlen += k;
             off += k;
-            let rest, done, full = answer(c, rbuf, rlen, wbuf, date) {
+            let rest, done, full = answer(c, rbuf, rlen, wbuf, date, cfg) {
                 flush(c);
                 true
             };
@@ -206,14 +202,15 @@ fn serve(port: i32) {
         guard res >= 0 else { return false; }   // EPIPE, ECONNRESET: the client left
         progress = true;
         if c.out.len > 0 {
-            sys::check("send", ring::send(r, c.fd, c.tag, c.out));
+            let e = ring::send(r, c.fd, c.tag, c.out);
+            guard e >= 0 else { return Error { call: "send", code: -e } from spin; }
             c.sending = true;
             spill.free_slice(c.out);
             c.out = c.out[..0];
         } else if c.state == CLOSING {
             sys::shutdown(c.fd, sys::SHUT_WR);
             c.state = DRAINING;
-            c.deadline = now + LINGER_MS;
+            c.deadline = now + cfg.linger_ms;
         }
         if c.stalled {
             c.stalled = false;
@@ -236,13 +233,13 @@ fn serve(port: i32) {
     fn touch(c: Conn&) {
         guard c.state != DRAINING else { return; }
         let idle = c.held.len == 0 && c.discard == 0 && !c.sending;
-        if progress { c.deadline = now + (if idle { IDLE_MS } else { REQUEST_MS }); }
-        else if !idle { c.deadline = min(c.deadline, now + REQUEST_MS); }
+        if progress { c.deadline = now + (if idle { cfg.idle_ms } else { cfg.request_ms }); }
+        else if !idle { c.deadline = min(c.deadline, now + cfg.request_ms); }
     }
 
     // Closes the connections past their deadline. One still waiting for the
     // rest of a request is refused with a 408 instead, which closes it as
-    // any refusal does; LINGER_MS bounds the send. A close aborts a send in
+    // any refusal does; cfg.linger_ms bounds the send. A close aborts a send in
     // flight on Windows, and io_uring's cancels one that hasn't gone out.
     fn sweep() {
         for i in conns.len {
@@ -253,51 +250,61 @@ fn serve(port: i32) {
                 http::refuse(wbuf, 408, date);
                 flush(c);
                 c.state = CLOSING;
-                c.deadline = now + LINGER_MS;
+                c.deadline = now + cfg.linger_ms;
                 continue;
             }
             close_conn(i);
         }
     }
 
-    loop {
-        // Open connections need the sweep, and a stopped accept its retry.
-        let timeout: i32 = if open > 0 || !accepting { 1000 } else { -1 };
-        let n = ring::wait(r, done, timeout);
-        if n == -sys::EINTR { continue; }
-        sys::check("io_uring_enter", n);
-        now = sys::clock_ms();
-        let t = sys::time_s();
-        if t != date_s {
-            date.clear();
-            http::format_date(date, t);
-            date_s = t;
-        }
-        closed = false;
-        for cq in done[..n] {
-            if cq.tag == LISTENER {
-                accepted(cq);
-                continue;
+    // The loop, until a call fails: then the error is returned from here.
+    fn spin() -> Error {
+        loop {
+            // Open connections need the sweep, and a stopped accept its retry.
+            let timeout: i32 = if open > 0 || !accepting { 1000 } else { -1 };
+            let n = ring::wait(r, done, timeout);
+            if n == -sys::EINTR { continue; }
+            guard n >= 0 else { return Error { call: "wait", code: -n }; }
+            now = sys::clock_ms();
+            let t = sys::time_s();
+            if t != date_s {
+                date.clear();
+                http::format_date(date, t);
+                date_s = t;
             }
-            let i = (cq.tag & 0xFFFFFFFF) as i64;
-            if i >= conns.len || conns[i].tag != cq.tag {
-                // The connection closed after the request was queued.
-                if cq.buf >= 0 { ring::give(r, cq.buf); }
-                continue;
+            closed = false;
+            for cq in done[..n] {
+                if cq.tag == LISTENER {
+                    accepted(cq);
+                    continue;
+                }
+                let i = (cq.tag & 0xFFFFFFFF) as i64;
+                if i >= conns.len || conns[i].tag != cq.tag {
+                    // The connection closed after the request was queued.
+                    if cq.buf >= 0 { ring::give(r, cq.buf); }
+                    continue;
+                }
+                let c .= conns[i];
+                progress = false;
+                let ok = if cq.send { sent(c, cq.res) } else { received(c, cq) };
+                if ok { touch(c); } else { close_conn(i); }
             }
-            let c .= conns[i];
-            progress = false;
-            let ok = if cq.send { sent(c, cq.res) } else { received(c, cq) };
-            if ok { touch(c); } else { close_conn(i); }
-        }
-        let tick = now >= next_sweep;
-        if tick {
-            sweep();
-            next_sweep = now + 1000;
-        }
-        if !accepting && open < MAX_CONNS && (!accept_failed || closed || tick) {
-            ring::accept(r, lfd, LISTENER);
-            accepting = true;
+            let tick = now >= next_sweep;
+            if tick {
+                sweep();
+                next_sweep = now + 1000;
+            }
+            if !accepting && open < cfg.max_conns && (!accept_failed || closed || tick) {
+                ring::accept(r, lfd, LISTENER);
+                accepting = true;
+            }
         }
     }
+
+    let failed = spin();
+    for c in conns {
+        if c.fd >= 0 { sys::close(c.fd); }
+    }
+    sys::close(lfd);
+    return failed;
 }

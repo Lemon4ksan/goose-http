@@ -26,6 +26,7 @@ let REUSEPORT: i32 = 2;   // listen only
 // shim/net_win.c Winsock's and Win32's errors.
 let EINTR = 4;
 let EAGAIN = 11;
+let EINVAL = 22;
 let ENFILE = 23;
 let EMFILE = 24;
 let EPIPE = 32;
@@ -48,11 +49,13 @@ let CTL_MOD: i32 = 3;
 // shutdown's how, asserted in shim/net.c.
 let SHUT_WR: i32 = 1;
 
-// A TCP listener on every IPv4 address, with SO_REUSEADDR and TCP_NODELAY,
-// which accepted sockets inherit. On Windows it listens on 127.0.0.1 only,
-// with SO_EXCLUSIVEADDRUSE. With REUSEPORT, each worker gets a listener of
-// its own on Linux, and the workers share one on macOS and Windows.
-extern "net_listen" fn listen(port: i32, backlog: i32, flags: i32) -> i32;
+// A TCP listener on IPv4 address ip, in host byte order, with SO_REUSEADDR
+// and TCP_NODELAY, which accepted sockets inherit. An ip of -1 is every
+// address, or 127.0.0.1 on Windows, where the listener has
+// SO_EXCLUSIVEADDRUSE. With REUSEPORT, each worker gets a listener of its own
+// on Linux, and the workers share one on macOS and Windows, which close
+// closes after the last worker closes it.
+extern "net_listen" fn listen(ip: i64, port: i32, backlog: i32, flags: i32) -> i32;
 extern "net_accept" fn accept(fd: i32, flags: i32) -> i32;
 // Writes up to buf.len bytes into buf; 0 means the peer closed.
 extern "net_recv" fn recv(fd: i32, buf: u8[:]) -> i64;

@@ -19,7 +19,8 @@
 /* src/sys.goose spells these out as numbers; this keeps them honest on any
    target the C compiles for. */
 _Static_assert(EINTR == 4 && EAGAIN == 11 && EPIPE == 32 && ECONNABORTED == 103 &&
-               ECONNRESET == 104 && EADDRINUSE == 98 && EMFILE == 24 && ENFILE == 23,
+               ECONNRESET == 104 && EADDRINUSE == 98 && EMFILE == 24 && ENFILE == 23 &&
+               EINVAL == 22,
                "errno values differ from src/sys.goose");
 _Static_assert(EPOLLIN == 0x001 && EPOLLOUT == 0x004 && EPOLLERR == 0x008 &&
                EPOLLHUP == 0x010 && EPOLLRDHUP == 0x2000 && EPOLLET == 1u << 31,
@@ -43,9 +44,10 @@ typedef struct { net_event *data; int64_t len; } net_events;
 /* epoll_wait converts this many kernel events per call at most. */
 #define NET_MAX_EVENTS 1024
 
-/* A TCP listener on every IPv4 address. Linux copies TCP_NODELAY from the
-   listener to each accepted socket, so accept needs no setsockopt. */
-int32_t net_listen(int32_t port, int32_t backlog, int32_t flags) {
+/* A TCP listener on IPv4 address ip, in host byte order, or on every address
+   for -1. Linux copies TCP_NODELAY from the listener to each accepted socket,
+   so accept needs no setsockopt. */
+int32_t net_listen(int64_t ip, int32_t port, int32_t backlog, int32_t flags) {
     int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC |
                     (flags & NET_NONBLOCK ? SOCK_NONBLOCK : 0), 0);
     if (fd < 0) return -errno;
@@ -54,7 +56,7 @@ int32_t net_listen(int32_t port, int32_t backlog, int32_t flags) {
     memset(&addr, 0, sizeof addr);
     addr.sin_family = AF_INET;
     addr.sin_port = htons((uint16_t)port);
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_addr.s_addr = htonl(ip < 0 ? INADDR_ANY : (uint32_t)ip);
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one) < 0 ||
         (flags & NET_REUSEPORT &&
          setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &one, sizeof one) < 0) ||

@@ -130,12 +130,13 @@ int32_t net_win_init(void) {
 
 static SOCKET net_socket(int32_t fd) { return (SOCKET)(intptr_t)fd; }
 
-/* A TCP listener on 127.0.0.1. Windows Defender Firewall asks the user
-   whether to allow each new program that listens on another address, so the
-   server stays on loopback, where the tests run. SO_EXCLUSIVEADDRUSE keeps a
+/* A TCP listener on IPv4 address ip, in host byte order, or on 127.0.0.1
+   for -1. Windows Defender Firewall asks the user whether to allow each new
+   program that listens on another address, so the default is loopback, where
+   the tests run. SO_EXCLUSIVEADDRUSE keeps a
    second server from binding the port, as Linux refuses it without
    SO_REUSEPORT; Windows' SO_REUSEADDR would let it take the port over. */
-static int32_t net_open_listener(int32_t port, int32_t backlog, int32_t flags) {
+static int32_t net_open_listener(int64_t ip, int32_t port, int32_t backlog, int32_t flags) {
     SOCKET s = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0,
                           WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
     if (s == INVALID_SOCKET) return -net_win_err(WSAGetLastError());
@@ -145,7 +146,7 @@ static int32_t net_open_listener(int32_t port, int32_t backlog, int32_t flags) {
     memset(&addr, 0, sizeof addr);
     addr.sin_family = AF_INET;
     addr.sin_port = htons((uint16_t)port);
-    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_addr.s_addr = htonl(ip < 0 ? INADDR_LOOPBACK : (uint32_t)ip);
     /* A backlog above 200 needs SOMAXCONN_HINT; a plain one is cut to 200. */
     if (setsockopt(s, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (const char *)&one, sizeof one) ||
         setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof one) ||
@@ -165,27 +166,31 @@ static int32_t net_open_listener(int32_t port, int32_t backlog, int32_t flags) {
    state the shim keeps between calls. */
 #define NET_MAX_SHARED 16
 static SRWLOCK net_shared_lock = SRWLOCK_INIT;
-static struct { int32_t port, fd; } net_shared[NET_MAX_SHARED];
+static struct { int64_t ip; int32_t port, fd, refs; } net_shared[NET_MAX_SHARED];
 static int net_shared_count;
 
-/* With NET_REUSEPORT, every call on a port returns the same listener, which
-   the callers share and none of them closes. */
-int32_t net_listen(int32_t port, int32_t backlog, int32_t flags) {
+/* With NET_REUSEPORT, every call on an address and port returns the same
+   listener, which the callers share: net_close closes it after the last
+   caller closes it. */
+int32_t net_listen(int64_t ip, int32_t port, int32_t backlog, int32_t flags) {
     int32_t r = net_win_init();
     if (r < 0) return r;
-    if (!(flags & NET_REUSEPORT)) return net_open_listener(port, backlog, flags);
+    if (!(flags & NET_REUSEPORT)) return net_open_listener(ip, port, backlog, flags);
     AcquireSRWLockExclusive(&net_shared_lock);
     int i = 0;
-    while (i < net_shared_count && net_shared[i].port != port) i++;
+    while (i < net_shared_count && (net_shared[i].port != port || net_shared[i].ip != ip)) i++;
     if (i < net_shared_count) {
         r = net_shared[i].fd;
+        net_shared[i].refs++;
     } else if (net_shared_count == NET_MAX_SHARED) {
         r = -net_win_err(WSAENOBUFS);
     } else {
-        r = net_open_listener(port, backlog, flags);
+        r = net_open_listener(ip, port, backlog, flags);
         if (r >= 0) {
+            net_shared[net_shared_count].ip = ip;
             net_shared[net_shared_count].port = port;
             net_shared[net_shared_count].fd = r;
+            net_shared[net_shared_count].refs = 1;
             net_shared_count++;
         }
     }
@@ -224,7 +229,15 @@ int32_t net_shutdown(int32_t fd, int32_t how) {
     return shutdown(net_socket(fd), how) ? -net_win_err(WSAGetLastError()) : 0;
 }
 
+/* A shared listener stays open while another caller of net_listen holds it. */
 int32_t net_close(int32_t fd) {
+    AcquireSRWLockExclusive(&net_shared_lock);
+    int i = 0;
+    while (i < net_shared_count && net_shared[i].fd != fd) i++;
+    int keep = i < net_shared_count && --net_shared[i].refs > 0;
+    if (i < net_shared_count && !keep) net_shared[i] = net_shared[--net_shared_count];
+    ReleaseSRWLockExclusive(&net_shared_lock);
+    if (keep) return 0;
     return closesocket(net_socket(fd)) ? -net_win_err(WSAGetLastError()) : 0;
 }
 

@@ -45,4 +45,7 @@ if [ "$loop" = epoll ] && [ "$os" = Windows ]; then
 fi
 
 mkdir -p "$root/build"
+# goose build on Linux never sees a change to the shim's C (docs/goose-findings.md), so
+# the stamp that says the shim is built goes first.
+rm -f "${GOOSE_HOME:-$HOME/.goose}"/build/prog/"$main"-*/native/*/stamp
 "$goose" build --cc "$cc" --standalone -o "$root/build/server" "$root/src/$main.goose"

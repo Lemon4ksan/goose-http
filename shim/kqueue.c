@@ -94,7 +94,7 @@ typedef struct { net_event *data; int64_t len; } net_events;
 /* net_epoll_wait reads this many kernel events per call at most. */
 #define NET_MAX_EVENTS 1024
 
-static int32_t net_open_listener(int32_t port, int32_t backlog, int32_t flags) {
+static int32_t net_open_listener(int64_t ip, int32_t port, int32_t backlog, int32_t flags) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return -net_err(errno);
     int one = 1;
@@ -102,7 +102,7 @@ static int32_t net_open_listener(int32_t port, int32_t backlog, int32_t flags) {
     memset(&addr, 0, sizeof addr);
     addr.sin_family = AF_INET;
     addr.sin_port = htons((uint16_t)port);
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_addr.s_addr = htonl(ip < 0 ? INADDR_ANY : (uint32_t)ip);
     if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0 ||
         (flags & NET_NONBLOCK && fcntl(fd, F_SETFL, O_NONBLOCK) < 0) ||
         setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one) < 0 ||
@@ -122,27 +122,29 @@ static int32_t net_open_listener(int32_t port, int32_t backlog, int32_t flags) {
    table is the only state the shim keeps between calls. */
 #define NET_MAX_SHARED 16
 static pthread_mutex_t net_shared_lock = PTHREAD_MUTEX_INITIALIZER;
-static struct { int32_t port, fd; } net_shared[NET_MAX_SHARED];
+static struct { int64_t ip; int32_t port, fd; } net_shared[NET_MAX_SHARED];
 static int net_shared_count;
 
-/* A TCP listener on every IPv4 address. macOS copies TCP_NODELAY and
-   O_NONBLOCK from the listener to each accepted socket. With NET_REUSEPORT,
-   every call on a port returns an fd for the same listener, so its
-   connections are accepted by whichever worker takes them first. */
-int32_t net_listen(int32_t port, int32_t backlog, int32_t flags) {
-    if (!(flags & NET_REUSEPORT)) return net_open_listener(port, backlog, flags);
+/* A TCP listener on IPv4 address ip, in host byte order, or on every address
+   for -1. macOS copies TCP_NODELAY and O_NONBLOCK from the listener to each
+   accepted socket. With NET_REUSEPORT, every call on an address and port
+   returns an fd for the same listener, so its connections are accepted by
+   whichever worker takes them first. */
+int32_t net_listen(int64_t ip, int32_t port, int32_t backlog, int32_t flags) {
+    if (!(flags & NET_REUSEPORT)) return net_open_listener(ip, port, backlog, flags);
     pthread_mutex_lock(&net_shared_lock);
     int32_t r = 0;
     int i = 0;
-    while (i < net_shared_count && net_shared[i].port != port) i++;
+    while (i < net_shared_count && (net_shared[i].port != port || net_shared[i].ip != ip)) i++;
     if (i < net_shared_count) {
         int fd = fcntl(net_shared[i].fd, F_DUPFD_CLOEXEC, 0);
         r = fd < 0 ? -net_err(errno) : fd;
     } else if (net_shared_count == NET_MAX_SHARED) {
         r = -net_err(ENOBUFS);
     } else {
-        r = net_open_listener(port, backlog, flags);
+        r = net_open_listener(ip, port, backlog, flags);
         if (r >= 0) {
+            net_shared[net_shared_count].ip = ip;
             net_shared[net_shared_count].port = port;
             net_shared[net_shared_count].fd = r;
             net_shared_count++;

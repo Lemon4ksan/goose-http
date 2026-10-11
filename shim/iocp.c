@@ -35,7 +35,6 @@
 #include <mswsock.h>
 #include <windows.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -129,15 +128,8 @@ struct ur {
     struct ur_accept acc;
     struct ur_map socks;       /* socket -> ur_sock, until it's closed */
     struct ur_map reads;       /* tag -> ur_sock, while its receive goes on */
+    int32_t err;               /* -ENOMEM once the bookkeeping ran out, for ur_wait */
 };
-
-/* The bookkeeping can't report running out of memory through a call that
-   returns nothing, so it ends the process, as sys::check does after a failed
-   ur_send. */
-static void ur_nomem(void) {
-    fputs("iocp: out of memory\n", stderr);
-    exit(1);
-}
 
 static uint32_t ur_hash(uint64_t k) {
     k ^= k >> 33;
@@ -154,14 +146,20 @@ static void *ur_map_get(struct ur_map *m, uint64_t k) {
     }
 }
 
-static void ur_map_put(struct ur_map *m, uint64_t k, void *v) {
+/* Returns 0, or -ENOMEM with m unchanged. */
+static int32_t ur_map_put(struct ur_map *m, uint64_t k, void *v) {
     if ((m->len + 1) * 2 > m->cap) {
         struct ur_map old = *m;
         m->cap = old.cap ? old.cap * 2 : 1024;
         m->len = 0;
         m->keys = calloc(m->cap, sizeof *m->keys);
         m->vals = calloc(m->cap, sizeof *m->vals);
-        if (!m->keys || !m->vals) ur_nomem();
+        if (!m->keys || !m->vals) {
+            free(m->keys);
+            free(m->vals);
+            *m = old;
+            return -UR_ENOMEM;
+        }
         for (uint32_t i = 0; i < old.cap; i++)
             if (old.vals[i]) ur_map_put(m, old.keys[i], old.vals[i]);
         free(old.keys);
@@ -172,6 +170,7 @@ static void ur_map_put(struct ur_map *m, uint64_t k, void *v) {
     if (!m->vals[i]) m->len++;
     m->keys[i] = k;
     m->vals[i] = v;
+    return 0;
 }
 
 /* Removes k, moving back the entries after it that its slot kept from their
@@ -272,16 +271,20 @@ static void ur_send_free(struct ur *u, struct ur_send *s) {
     }
 }
 
-/* The ring's record of socket fd, made on its first request. */
+/* The ring's record of socket fd, made on its first request, or NULL when
+   out of memory. */
 static struct ur_sock *ur_sock_of(struct ur *u, int32_t fd) {
     struct ur_sock *k = ur_map_get(&u->socks, (uint32_t)fd);
     if (k) return k;
     k = calloc(1, sizeof *k);
-    if (!k) ur_nomem();
+    if (!k) return NULL;
     k->rd.kind = UR_RECV;
     k->s = (SOCKET)(intptr_t)fd;
     k->refs = 1;
-    ur_map_put(&u->socks, (uint32_t)fd, k);
+    if (ur_map_put(&u->socks, (uint32_t)fd, k) < 0) {
+        free(k);
+        return NULL;
+    }
     return k;
 }
 
@@ -335,14 +338,18 @@ void ur_accept(int64_t h, int32_t fd, uint64_t tag) {
     ur_post_accept(u);
 }
 
-/* Posts the zero-byte receive that stands for a multishot receive. */
+/* Posts the zero-byte receive that stands for a multishot receive. Out of
+   memory, it posts nothing, and the next ur_wait fails with ENOMEM. */
 void ur_recv(int64_t h, int32_t fd, uint64_t tag) {
     struct ur *u = (struct ur *)(intptr_t)h;
     struct ur_sock *k = ur_sock_of(u, fd);
+    if (!k || ur_map_put(&u->reads, tag, k) < 0) {
+        u->err = -UR_ENOMEM;
+        return;
+    }
     k->tag = tag;
     k->reading = 1;
     k->cancel = 0;
-    ur_map_put(&u->reads, tag, k);
     ur_post_recv(u, k);
 }
 
@@ -362,6 +369,10 @@ int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
     s->sock = ur_sock_of(u, fd);
     s->tag = tag;
     s->len = (uint32_t)data.len;
+    if (!s->sock) {
+        ur_send_free(u, s);
+        return -UR_ENOMEM;
+    }
     s->off = 0;
     memcpy(s->data, data.data, (size_t)data.len);
     ur_post_send(u, s);
@@ -533,6 +544,7 @@ static int ur_finish(struct ur *u, struct ur_req *q, int from_port, ur_completio
    none: a short send posted again, or a receive that found no data. */
 int32_t ur_wait(int64_t h, ur_completions out, int32_t timeout_ms) {
     struct ur *u = (struct ur *)(intptr_t)h;
+    if (u->err) return u->err;
     int32_t n = 0;
     while (n < out.len && u->ready) {
         struct ur_req *q = u->ready;

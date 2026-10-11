@@ -22,17 +22,29 @@ struct Conn {
     out: u8[:],         // still to send
 }
 
-thread_fn worker(port: i32) { serve(port); }
-
-fn serve(port: i32) {
-    let lfd = sys::check("listen", sys::listen(port, BACKLOG, sys::NONBLOCK | sys::REUSEPORT));
-    let ep = sys::check("epoll_create", sys::epoll_create());
-    sys::check("epoll_ctl", sys::epoll_ctl(ep, sys::CTL_ADD, lfd, sys::IN | sys::ET, LISTENER));
+// Serves HTTP as cfg says until a call fails, and returns its error, with
+// every socket it opened closed.
+fn serve(cfg: Config) -> Error {
+    let ip, ok = ipv4(cfg.address);
+    guard ok else { return Error { call: "address", code: sys::EINVAL }; }
+    let lfd = sys::listen(ip, cfg.port, cfg.backlog, sys::NONBLOCK | sys::REUSEPORT);
+    guard lfd >= 0 else { return Error { call: "listen", code: -lfd }; }
+    let ep = sys::epoll_create();
+    guard ep >= 0 else {
+        sys::close(lfd);
+        return Error { call: "epoll_create", code: -ep };
+    }
+    let added = sys::epoll_ctl(ep, sys::CTL_ADD, lfd, sys::IN | sys::ET, LISTENER);
+    guard added >= 0 else {
+        sys::close(ep);
+        sys::close(lfd);
+        return Error { call: "epoll_ctl", code: -added };
+    }
 
     reusable[] var spill: u8[>..] = [];
     reusable var conns: Conn[>..] = [];
     var open = 0;
-    // Set when accepting stopped before the backlog was empty: at MAX_CONNS,
+    // Set when accepting stopped before the backlog was empty: at cfg.max_conns,
     // or at the fd limit (EMFILE). The listener's edge has passed, so the
     // loop retries until the backlog is empty, and the waiting clients keep
     // their place in it.
@@ -44,7 +56,8 @@ fn serve(port: i32) {
     var events: sys::Event[256] = [sys::Event { events: 0, tag: 0 }; 256];
     // The driven connection's bytes: rbuf[..rlen] is received and not yet
     // answered, and wbuf[woff..] is still to send.
-    var rbuf: u8[RBUF] = [0; RBUF];
+    var rbuf: u8[>..] = [];
+    rbuf.resize(cfg.max_head, 0);
     var rlen = 0;
     var wbuf: u8[>..] = [];
     var woff = 0;
@@ -52,7 +65,7 @@ fn serve(port: i32) {
     fn accept_all() {
         let retry = paused;
         paused = true;
-        while open < MAX_CONNS {
+        while open < cfg.max_conns {
             let fd = sys::accept(lfd, sys::NONBLOCK);
             if fd == -sys::EAGAIN {
                 paused = false;
@@ -64,7 +77,7 @@ fn serve(port: i32) {
                 if !retry { sys::report("accept", fd); }
                 return;
             }
-            let i = conns.alloc_index(Conn { fd: fd, deadline: now + REQUEST_MS, .. });
+            let i = conns.alloc_index(Conn { fd: fd, deadline: now + cfg.request_ms, .. });
             let r = sys::epoll_ctl(ep, sys::CTL_ADD, fd, sys::IN | sys::OUT | sys::RDHUP | sys::ET,
                                    i as u64);
             if r < 0 {
@@ -130,7 +143,7 @@ fn serve(port: i32) {
         loop {
             var full = false;
             if c.state == OPEN && rlen > 0 {
-                let rest, done, f = answer(c, rbuf, rlen, wbuf, date) { false };
+                let rest, done, f = answer(c, rbuf, rlen, wbuf, date, cfg) { false };
                 rlen = rest;
                 if done > 0 { progress = true; }
                 full = f;
@@ -148,13 +161,13 @@ fn serve(port: i32) {
             if c.state == CLOSING {
                 sys::shutdown(c.fd, sys::SHUT_WR);
                 c.state = DRAINING;
-                c.deadline = now + LINGER_MS;
+                c.deadline = now + cfg.linger_ms;
             }
             if full { continue; }
             if drained { return wait(c, progress); }
             // answer leaves rbuf full only to refuse the request with 431 or
             // 413, so an OPEN connection always has room to read into.
-            let room = if c.state == DRAINING { RBUF } else { RBUF - rlen };
+            let room = if c.state == DRAINING { rbuf.len } else { rbuf.len - rlen };
             let r = if c.state == DRAINING { sys::recv(c.fd, rbuf) }
                     else { sys::recv(c.fd, rbuf[rlen..]) };
             if r == -sys::EAGAIN { return wait(c, progress); }
@@ -171,8 +184,8 @@ fn serve(port: i32) {
     fn wait(c: Conn&, progress: bool) -> bool {
         guard c.state != DRAINING else { return true; }
         let idle = rlen == 0 && c.discard == 0 && woff == wbuf.len;
-        if progress { c.deadline = now + (if idle { IDLE_MS } else { REQUEST_MS }); }
-        else if !idle { c.deadline = min(c.deadline, now + REQUEST_MS); }
+        if progress { c.deadline = now + (if idle { cfg.idle_ms } else { cfg.request_ms }); }
+        else if !idle { c.deadline = min(c.deadline, now + cfg.request_ms); }
         return true;
     }
 
@@ -193,7 +206,7 @@ fn serve(port: i32) {
                     c.held = c.held[..0];
                     sys::shutdown(c.fd, sys::SHUT_WR);
                     c.state = DRAINING;
-                    c.deadline = now + LINGER_MS;
+                    c.deadline = now + cfg.linger_ms;
                     continue;
                 }
             }
@@ -206,12 +219,16 @@ fn serve(port: i32) {
     // and the worker sleeps only after a poll comes back empty: that skips the
     // wakeup a blocking wait costs each batch.
     var hot = false;
+    var failed = Error { call: "", code: 0 };
     loop {
         // Open connections need the sweep, and a paused accept its retry.
         let timeout: i32 = if hot { 0 } else if open > 0 || paused { 1000 } else { -1 };
         let n = sys::epoll_wait(ep, events, timeout);
         if n == -sys::EINTR { continue; }
-        sys::check("epoll_wait", n);
+        guard n >= 0 else {
+            failed = Error { call: "epoll_wait", code: -n };
+            break;
+        }
         hot = n > 0;
         now = sys::clock_ms();
         let t = sys::time_s();
@@ -234,4 +251,10 @@ fn serve(port: i32) {
         }
         if paused { accept_all(); }
     }
+    for i in conns.len {
+        if conns[i].fd >= 0 { close_conn(i); }
+    }
+    sys::close(ep);
+    sys::close(lfd);
+    return failed;
 }
