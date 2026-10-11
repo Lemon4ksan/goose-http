@@ -128,7 +128,18 @@ $client chunked
 $client keepalive
 $client hostile
 $client many 10000
+
+# The slow clients, against a server with timeouts other than the defaults,
+# which the client reads too: the head's, the body's, and the write's apart.
+kill -0 "$pid" || fail "the server died"
+stop
+export REQUEST_MS=4000 BODY_MS=3000 WRITE_MS=5000
+start
 $client slow
+kill -0 "$pid" || fail "the server died"
+stop
+unset REQUEST_MS BODY_MS WRITE_MS
+start
 
 if [ -n "$windows" ]; then
     kill -0 "$pid" || fail "the server died"

@@ -410,6 +410,25 @@ fn test_read_body() {
     assert(t == 200 && e1 == 2 && r.place == http::NO_BODY);
 }
 
+// Limits set by the caller instead of the defaults.
+fn test_limits() {
+    let line = "GET /0123456789 HTTP/1.1\r\nHost: x\r\nA: b\r\n\r\n";
+    let r1, s1 = http::parse(line, 8192, 100, 15, 100);
+    assert(s1 == 200);
+    let r2, s2 = http::parse(line, 8192, 100, 14, 100);
+    assert(s2 == 414);
+    let r3, s3 = http::parse(line, 8192, 100, 100, 2);
+    assert(s3 == 200);
+    let r4, s4 = http::parse(line, 8192, 100, 100, 1);
+    assert(s4 == 431);
+    // The head's, where a head that the read buffer can't hold doesn't fit,
+    // and the body's.
+    let r5, s5 = http::parse(line[..30], 30);
+    assert(s5 == 431);
+    let r6, s6 = http::parse("POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 101\r\n\r\n", 8192, 100);
+    assert(s6 == 413);
+}
+
 fn test_expect() {
     let r, s = http::parse("POST / HTTP/1.1\r\nHost: x\r\nExpect: 100-Continue\r\nContent-Length: 5\r\n\r\n");
     assert(s == 200 && r.expect);
@@ -571,6 +590,7 @@ fn main() {
     test_chunked();
     test_read_body();
     test_expect();
+    test_limits();
     test_date();
     test_reply();
     test_stream();

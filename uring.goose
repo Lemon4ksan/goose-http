@@ -245,8 +245,8 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     fn touch(c: RingConn<S>&) {
         guard c.state != DRAINING else { return; }
         let idle = idle(c) && !c.sending;
-        if progress { c.deadline = now + (if idle { cfg.idle_ms } else { cfg.request_ms }); }
-        else if !idle { c.deadline = min(c.deadline, now + cfg.request_ms); }
+        if progress { c.deadline = now + (if idle { cfg.idle_ms } else { busy_ms(c, c.sending, cfg) }); }
+        else if !idle { c.deadline = min(c.deadline, now + busy_ms(c, c.sending, cfg)); }
     }
 
     // Closes the connections past their deadline. One still waiting for the

@@ -46,6 +46,10 @@ struct Config {
     max_head: i64 = MAX_HEAD,
     // The longest body a request may have; a longer one is refused with 413.
     max_body: i64 = MAX_BODY,
+    // The longest request line, past which a request is refused with 414,
+    // and the most header fields, past which with 431.
+    max_line: i64 = MAX_LINE,
+    max_fields: i64 = MAX_FIELDS,
     // The most bytes of a body the handler answered without reading that
     // the connection drops to stay open; past them, it closes.
     max_drain: i64 = MAX_BODY,
@@ -54,12 +58,15 @@ struct Config {
     // default takes the responses to a read's worth of pipelined requests, as
     // 16 TechEmpower responses are about 2 KB.
     write_buffer: i64 = 8192,
-    // In milliseconds of the monotonic clock. A request has request_ms from
-    // its first byte to arrive whole, and a response as long to leave once it
-    // stops moving. An idle keep-alive connection closes after idle_ms. A
-    // refused connection has linger_ms for the client to read the refusal and
-    // close.
+    // In milliseconds of the monotonic clock. A request head has request_ms
+    // from its first byte to arrive whole. A body that comes in pieces has
+    // body_ms between them, and a response write_ms to move on once the
+    // client stops taking it. A connection gets 408 or is closed past them.
+    // An idle keep-alive connection closes after idle_ms. A refused
+    // connection has linger_ms for the client to read the refusal and close.
     request_ms: i64 = 10000,
+    body_ms: i64 = 10000,
+    write_ms: i64 = 10000,
     idle_ms: i64 = 60000,
     linger_ms: i64 = 2000,
     // serve's ring: its submission entries, and its provided buffers, which
@@ -296,7 +303,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: co
             full = true;
             break;
         }
-        let req, status = parse(rbuf[off..rlen], rbuf.len, cfg.max_body);
+        let req, status = parse(rbuf[off..rlen], rbuf.len, cfg.max_body, cfg.max_line, cfg.max_fields);
         if status == INCOMPLETE { break; }
         if status != 200 {
             refuse(wbuf, status, date);
@@ -382,6 +389,13 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: co
 fn owes_408(c) -> bool {
     return c.state == OPEN && !c.x.stream.open && c.out.len == 0 &&
         (c.held.len > 0 && c.x.body.place == NO_BODY || c.x.body.place != NO_BODY && !c.x.answered);
+}
+
+// How long connection c may wait without progress, in milliseconds, when it
+// isn't idle: for the client to take a response, which writing says it
+// hasn't yet, for a body's next piece, or for the rest of a request head.
+fn busy_ms(c, writing: bool, cfg: const Config&) -> i64 {
+    return if writing { cfg.write_ms } else if c.x.body.place != NO_BODY { cfg.body_ms } else { cfg.request_ms };
 }
 
 // Whether c is between requests, with nothing of one received or to send.

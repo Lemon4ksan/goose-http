@@ -147,10 +147,22 @@ check in `parse` is about 14, and the server's new routes 10-25; the rest is the
 loop's per-request state (the handler's state, and the checks for a body or a
 response still open).
 
+- Item 10 (2026-10-12): `Config.max_line`, `max_fields`, `body_ms`, and `write_ms`,
+  beside `max_head`, `max_body`, `request_ms`, and `idle_ms`. A connection waits
+  `write_ms` for the client to take a response, `body_ms` for a body's next piece, and
+  `request_ms` for the rest of a head. The benchmark server takes `REQUEST_MS`,
+  `BODY_MS`, and `WRITE_MS` from the environment, and `test-http.sh` runs the slow
+  clients against 4, 3, and 5 s; `test_http.goose`'s `test_limits` parses at limits
+  other than the defaults.
+- Item 12 (2026-10-12): a handler's error response keeps the connection open like any
+  other, and since items 7 and 8, so does one that comes before the body has arrived,
+  which is dropped up to `Config.max_drain`. `refuse`, for what `parse` refuses, still
+  closes: past a malformed head, where the next request starts isn't known.
+
 Next, in order:
 
 1. Split the streaming loop's cost further, and remove what can go.
-2. Items 10, 12, and 11.
+2. Item 11.
 
 ## Streaming design (2026-10-12)
 
@@ -237,7 +249,8 @@ slot. So:
 - [x] A handler sends a 10 MB body, and streams a chunked one, with each connection's
       memory bounded (2026-10-12; `test-http.sh` checks the peak RSS after 100 MB)
 - [x] Decoded path and query, with 400 for an invalid `%` escape (2026-10-11)
-- [ ] Limits and timeouts set by the program, with tests at non-default values
+- [x] Limits and timeouts set by the program, with tests at non-default values
+      (2026-10-12)
 - [ ] `SIGTERM` drains and stops every worker within the grace period, in `serve` and
       `serve_epoll`
 - [ ] Every item above has a check in `scripts/http_client.py` or `src/test_http.goose`

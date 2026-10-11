@@ -107,17 +107,19 @@ until the task named beside it confirms or replaces it.
     in pieces, and `/upload` and `/echo`, which take a body of any size in pieces
     (task 013).
   - Lines end in CRLF only; a bare LF is 400. HTTP/1.1 needs one `Host`.
-  - Limits: a 4 KB request line (414), an 8 KB head or 100 fields (431), and a 1 MB
-    body (413). The head and body limits, the timeouts, and the buffer sizes are
-    settings (`Config`); the rest are constants in `message.goose`.
+  - Limits: an 8,000-byte request line (414), an 8 KB head or 100 fields (431), and a
+    1 MB body (413). They, the timeouts, and the buffer sizes are settings (`Config`,
+    task 013, 2026-10-12); the method's 16 bytes is a constant in `message.goose`.
   - A refused request closes the connection after the response. The server shuts down
     its side and drops what the client still sends for up to 2 s, so the refusal isn't
     lost to a reset.
     The sweep's 408 goes the same way, so no loop closes a socket with that send in
     flight: Windows' `closesocket` aborts it.
-  - Timeouts, against slow clients: a request has 10 s from its first byte to arrive
-    whole (else 408), a response 10 s without progress to leave, and an idle connection
-    60 s. A sweep once a second enforces them.
+  - Timeouts, against slow clients: a request head has 10 s from its first byte to
+    arrive whole (else 408), a body in pieces 10 s between them (else 408, unless the
+    handler answered), a response 10 s without progress to leave, and an idle
+    connection 60 s, each its own setting (2026-10-12). A sweep once a second enforces
+    them.
   - The `Date` header is rendered when the second changes, at most once a second per
     worker, after the worker's `epoll_wait` returns. Responses are literals around the
     date and the length.

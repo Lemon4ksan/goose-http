@@ -27,9 +27,14 @@ fn run(default_loop: const u8[:]) {
         port = p as i32;
     }
     let mode = argv[1];
-    // A body may be as long as /upload's tests send.
     if mode == "http" {
-        serve_http(http::Config { port: port, workers: workers(), max_body: 1 << 30, .. }, default_loop);
+        // A body may be as long as /upload's tests send. The timeouts are
+        // the package's unless the environment names others, for the tests.
+        var cfg = http::Config { port: port, workers: positive("WORKERS", 0), max_body: 1 << 30, .. };
+        cfg.request_ms = positive("REQUEST_MS", cfg.request_ms);
+        cfg.body_ms = positive("BODY_MS", cfg.body_ms);
+        cfg.write_ms = positive("WRITE_MS", cfg.write_ms);
+        serve_http(cfg, default_loop);
     }
     else if mode == "echo-blocking" { echo_blocking(port); }
     else if mode == "echo-epoll" { echo_epoll(port); }
@@ -75,13 +80,13 @@ fn serve_http(given: http::Config, default_loop: const u8[:]) {
     for id in ids { thread_wait(id); }
 }
 
-// WORKERS, or 0 without it.
-fn workers() -> i64 {
+// The environment variable name, a positive number, or otherwise without it.
+fn positive(name: const u8[:], otherwise: i64) -> i64 {
     var v: u8[>..] = [];
-    guard env("WORKERS", v) else { return 0; }
+    guard env(name, v) else { return otherwise; }
     let n, ok = parse_int(v);
     guard ok && n > 0 else {
-        write_stderr("WORKERS must be a positive number\n");
+        write_stderr(str(name, " must be a positive number\n"));
         exit(2);
     }
     return n;

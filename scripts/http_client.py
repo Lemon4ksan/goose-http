@@ -26,8 +26,12 @@ import time
 
 HOST = "127.0.0.1"
 SERVER_NAME = os.environ.get("SERVER_NAME", "goose")
-# The server's request_ms and idle_ms (http::Config, http.goose), in seconds.
-REQUEST_TIMEOUT = 10
+# The server's request_ms, body_ms, and write_ms (http::Config, http.goose), in
+# seconds: the package's defaults, or what test-http.sh gives the server for the
+# slow run.
+REQUEST_TIMEOUT = int(os.environ.get("REQUEST_MS", "10000")) / 1000
+BODY_TIMEOUT = int(os.environ.get("BODY_MS", "10000")) / 1000
+WRITE_TIMEOUT = int(os.environ.get("WRITE_MS", "10000")) / 1000
 # What TechEmpower's load generator sends with each request.
 TFB_HEADERS = (
     b"Host: tfb-server\r\n"
@@ -520,7 +524,7 @@ def slow(port):
         c = Conn(port, timeout=REQUEST_TIMEOUT + 5)
         c.send(b"GET /plaintext HTTP/1.1\r\n")
         for _ in range(3):
-            time.sleep(2)
+            time.sleep(REQUEST_TIMEOUT / 5)
             c.send(b"X: y\r\n")
         r = c.response()
         took = time.time() - t0
@@ -536,6 +540,17 @@ def slow(port):
         if not REQUEST_TIMEOUT - 1 < took < REQUEST_TIMEOUT + 3:
             errors.append(f"silent connection closed after {took:.1f} s")
 
+    def slow_body():
+        # A body that stops arriving: 408 once the body timeout has passed
+        # since its last piece.
+        c = Conn(port, timeout=BODY_TIMEOUT + 5)
+        c.send(request(b"/upload", b"POST", b"Content-Length: 100000\r\n") + b"x" * 20000)
+        t1 = time.time()
+        r = c.response()
+        took = time.time() - t1
+        if r.status != 408 or not c.closed() or not BODY_TIMEOUT - 1 < took < BODY_TIMEOUT + 2:
+            errors.append(f"slow body: {r.status} after {took:.1f} s")
+
     def steady():
         # A slow client that finishes a request every 3 s is never cut off.
         c = Conn(port)
@@ -547,11 +562,12 @@ def slow(port):
 
     def no_reader():
         # Pipelines without reading. The server stops reading once its
-        # buffers and the socket's are full, and closes it after the timeout.
-        c = Conn(port, timeout=REQUEST_TIMEOUT + 5)
+        # buffers and the socket's are full, and closes it after the write
+        # timeout.
+        c = Conn(port, timeout=WRITE_TIMEOUT + 5)
         sent = 0
         try:
-            while time.time() - t0 < REQUEST_TIMEOUT + 4:
+            while time.time() - t0 < WRITE_TIMEOUT + 4:
                 sent += c.sock.send(request(b"/plaintext") * 1000)
             errors.append(f"no-reader still open after {sent} bytes")
         except (socket.timeout, TimeoutError):
@@ -568,7 +584,7 @@ def slow(port):
                 errors.append(f"{f.__name__}: {e!r}")
         return run
 
-    threads = [threading.Thread(target=counted(f)) for f in (slowloris, silent, steady, no_reader)]
+    threads = [threading.Thread(target=counted(f)) for f in (slowloris, silent, slow_body, steady, no_reader)]
     for t in threads:
         t.start()
     # Others are served meanwhile.

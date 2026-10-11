@@ -260,10 +260,13 @@ once per loop. It needs curl, wrk, h2load, oha, `nc`, and `python3`
     413, 414, 431, 501, or 505) and the connection closed, and a refusal after a good
     request in a pipeline.
   - `many 10000`: 10,000 connections open at once, each pipelining 4 requests.
-  - `slow`: at once, a client that trickles a request head (408 after the 10 s request
-    timeout), one that sends nothing (closed after 10 s), one that finishes a request
-    every 3 s (never cut off), and one that pipelines without reading (closed 10 s after
-    the server's buffers fill), while another client is served.
+  - `slow`: against a server started again with a 4 s request timeout, 3 s body
+    timeout, and 5 s write timeout (`REQUEST_MS`, `BODY_MS`, and `WRITE_MS`, which the
+    client reads too), at once: a client that trickles a request head (408 after the
+    request timeout), one that sends nothing (closed after it), one whose body stops
+    (408 after the body timeout), one that finishes a request every 3 s (never cut
+    off), and one that pipelines without reading (closed after the write timeout,
+    once the server's buffers fill), while another client is served.
 - wrk for 3 s on `/plaintext` with 16-deep pipelining (`scripts/pipeline.lua`) and on
   `/json`, h2load `--h1` for 200,000 requests 16 deep, and oha for 500,000 requests. Each
   must see only 200s and no errors.

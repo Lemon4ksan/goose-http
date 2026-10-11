@@ -211,9 +211,10 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     // idle spell shorten it.
     fn wait(c: EpollConn<S>&, progress: bool) -> bool {
         guard c.state != DRAINING else { return true; }
-        let idle = rlen == 0 && c.x.body.place == NO_BODY && !c.x.stream.open && woff == wbuf.len;
-        if progress { c.deadline = now + (if idle { cfg.idle_ms } else { cfg.request_ms }); }
-        else if !idle { c.deadline = min(c.deadline, now + cfg.request_ms); }
+        let writing = woff < wbuf.len;
+        let idle = rlen == 0 && c.x.body.place == NO_BODY && !c.x.stream.open && !writing;
+        if progress { c.deadline = now + (if idle { cfg.idle_ms } else { busy_ms(c, writing, cfg) }); }
+        else if !idle { c.deadline = min(c.deadline, now + busy_ms(c, writing, cfg)); }
         return true;
     }
 

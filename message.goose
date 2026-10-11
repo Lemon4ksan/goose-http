@@ -66,7 +66,8 @@ struct Request {
 // RFC 9112 §2.2 allows. Inline: each loop's answer calls it, and gcc keeps a
 // call to a function this size with several callers, about 90 instructions
 // per request.
-inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_BODY) -> Request, i32 {
+inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_BODY,
+                max_line: i64 = MAX_LINE, max_fields: i64 = MAX_FIELDS) -> Request, i32 {
     // Empty lines before the request line are skipped (RFC 9112 §2.2).
     var pos = 0;
     while pos < buf.len && buf[pos] == '\r' {
@@ -90,7 +91,7 @@ inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_
     if kt > 0 && kt <= buf.len - pos { pos = pos + kt; }
     let escaped = pos < buf.len && buf[pos] == '%';
     while pos < buf.len && buf[pos] > ' ' && buf[pos] < 0x7f { pos++; }
-    guard pos - m0 <= MAX_LINE else { return Request { .. }, 414; }
+    guard pos - m0 <= max_line else { return Request { .. }, 414; }
     guard pos < buf.len else { return Request { .. }, short(buf, max_head); }
     guard pos > t0 && buf[pos] == ' ' else { return Request { .. }, 400; }
     let target = buf[t0..pos];
@@ -132,7 +133,7 @@ inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_
             break;
         }
         fields++;
-        guard fields <= MAX_FIELDS else { return Request { .. }, 431; }
+        guard fields <= max_fields else { return Request { .. }, 431; }
 
         // The name, a token, and a colon right after it. This refuses
         // whitespace before the colon and obsolete line folding (§5.1, §5.2).
