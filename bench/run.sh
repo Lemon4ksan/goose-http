@@ -36,7 +36,9 @@
 #                 connection count; wrk gives each thread conns / threads.
 #   TESTS         plaintext:256 plaintext:1024 plaintext:4096 json:256 json:1024
 #   LATENCY       1; 0 skips step 3, leaving the latency columns empty
-#   RUNS 3, DURATION 15, WARMUP 5, PORT 29280, OUT bench/results/<date>
+#   MACHINE       a short name for the machine (the host name), for OUT
+#   RUNS 3, DURATION 15, WARMUP 5, PORT 29280,
+#   OUT bench/results/<date>-<machine>
 #   REUSE         earlier result directories whose cells this run copies
 #                 instead of measuring again. A cell is copied when the
 #                 earlier run had the same key.txt (METHOD, the settings
@@ -65,7 +67,8 @@ duration=${DURATION:-15}
 warmup=${WARMUP:-5}
 latency=${LATENCY:-1}
 port=${PORT:-29280}
-out=${OUT:-$root/bench/results/$(date -u +%Y-%m-%dT%H%M)}
+machine=${MACHINE:-$(hostname -s)}
+out=${OUT:-$root/bench/results/$(date -u +%Y-%m-%dT%H%M)-$machine}
 url=http://127.0.0.1:$port
 hz=$(getconf CLK_TCK)
 
@@ -90,6 +93,7 @@ trap '[ -z "$pid" ] || kill "$pid" 2>/dev/null; [ -z "$mon" ] || kill "$mon" 2>/
 # What the numbers were measured on.
 {
     echo "date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "machine: $machine"
     echo "kernel: $(uname -r)"
     echo "os: $(. /etc/os-release && echo "$PRETTY_NAME")"
     echo "cpu: $(lscpu | sed -n 's/^Model name: *//p'), $(nproc) logical CPUs"

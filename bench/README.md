@@ -6,16 +6,16 @@ C compilers in task 008's.
 
 ```sh
 bench/build.sh         # the servers into build/bench/, in release mode
-bench/run.sh           # the matrix, into bench/results/<date>/ (about 80 minutes)
+bench/run.sh           # the matrix, into bench/results/<date>-<machine>/ (about 80 minutes)
 bench/compilers.sh     # the Goose server built by gcc and clang, into build/bench/
 bench/instructions.sh  # instructions per request of servers in build/bench/, with perf
 bench/parse.sh         # http::parse alone on the requests in bench/parse/
 bench/httparena.sh     # HttpArena's harness, in Docker, with Goose as an entry
 ```
 
-They run in WSL, need `GOOSE` and `~/.cargo/bin` on `PATH`, and are configured through
-the environment (see the comment at the top of each). `docs/development.md` lists the
-tools and the traps they work around.
+They need Linux (`taskset`, `perf`, `/proc`; on Windows, WSL), `GOOSE`, and
+`~/.cargo/bin` on `PATH`. The environment configures them (see the comment at the top
+of each). `docs/development.md` lists the tools and the traps they work around.
 
 ## Servers
 
@@ -171,7 +171,16 @@ evenly a server treats its connections.
 
 ## Results
 
-`results/<date>/` holds, per cell, `<server>-w<workers>-<test>-c<conns>-r<run>` with
+Each run writes its own directory, `results/<date>-<machine>/` for `bench/run.sh` and
+`results/httparena-<date>-<machine>/` for `bench/httparena.sh`, so runs from several
+machines sit side by side. `MACHINE` names the machine, and defaults to the host name;
+set it inside a container, whose host name is an ID, for example
+`MACHINE=mac-docker`. `env.txt` records the machine in full, and a comparison uses
+directories from one machine only. The directories dated 2026-10-11 and earlier are
+all from the WSL2 machine in [docs/results.md](../docs/results.md#machine), and carry
+a label in place of the machine name.
+
+A directory holds, per cell, `<server>-w<workers>-<test>-c<conns>-r<run>` with
 `.wrk`, `.h2load`, `.lat` (the latency summary), `.steps`, `.times`, and `.log` (the
 server's output); `runs.tsv`, one line per cell; `summary.md`, from `summarize.py`;
 and `env.txt`, the machine and the versions.

@@ -34,7 +34,9 @@
 # Settings, from the environment:
 #   FRAMEWORKS  goose tokio dusty vanilla-epoll
 #   PROFILES    baseline limited-conn latency-1m pipelined
-#   RUNS 3 (the harness keeps the best), DURATION 5s, OUT bench/results/httparena-<date>
+#   MACHINE     a short name for the machine (the host name), for OUT
+#   RUNS 3 (the harness keeps the best), DURATION 5s,
+#   OUT bench/results/httparena-<date>-<machine>
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -43,7 +45,8 @@ arena=$cache/httparena
 frameworks=${FRAMEWORKS:-goose tokio dusty vanilla-epoll}
 profiles=${PROFILES:-baseline limited-conn latency-1m pipelined}
 server_cpus=${SERVER_CPUS:-0-3}
-out=${OUT:-$root/bench/results/httparena-$(date -u +%Y-%m-%dT%H%M)}
+machine=${MACHINE:-$(hostname -s)}
+out=${OUT:-$root/bench/results/httparena-$(date -u +%Y-%m-%dT%H%M)-$machine}
 # The runs happen in the checkout, so a relative OUT is taken from here.
 case $out in /*) ;; *) out=$PWD/$out ;; esac
 
@@ -88,6 +91,7 @@ run)
     mkdir -p "$out"
     {
         echo "date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "machine: $machine"
         echo "kernel: $(uname -r)"
         echo "cpu: $(lscpu | sed -n 's/^Model name: *//p'), $(nproc) logical CPUs"
         echo "httparena: $HTTPARENA_COMMIT, gcannon: $GCANNON_COMMIT"
