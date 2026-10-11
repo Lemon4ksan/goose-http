@@ -255,7 +255,7 @@ needs a word load now.
 
 ## A simd fn parser ran slower than its baseline
 
-Found on `bab8b6f`, task 008. Status: open (unchanged at `e7792d7`)
+Found on `bab8b6f`, task 008. Status: open (unchanged at `752c3ce`)
 
 `simd` (spec §7.12) on `http::parse` made it slower under clang 21 on a Ryzen 7 5800X3D,
 which runs the AVX2 version. The spec allows this: a `simd fn` suits a function that
@@ -274,6 +274,11 @@ The AVX2 version took fewer instructions only for the block on the long request.
 time, best of 5 runs of 10 M parses on one CPU, `find_any`'s took 70.6 ns for wrk's
 request against 56.8 ns without versions, and 317 ns against 315 ns for Chrome's. Under
 gcc, which ignores `simd`, the same source was faster than either clang build.
+
+Timed again at `752c3ce` with clang 21.1.8, on the parser after task 009's changes:
+`simd fn parse` took 63.5 ns and 1,311 instructions per parse of wrk's request, against
+55.8 ns and 1,200 under `-DGS_SIMD=0`, and 279.7 ns against 285.3 ns for Chrome's. gcc
+took 50.6 ns and 222.3 ns without `simd`.
 
 Workaround: `http::parse` isn't a `simd fn`.
 
