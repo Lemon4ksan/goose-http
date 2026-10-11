@@ -1,6 +1,8 @@
-// The kernel calls the server makes, implemented in shim/net.c. Each returns
-// what its syscall returns on success and -errno on failure, so a caller
-// compares against the negated constants below: `if n == -sys::EAGAIN`.
+// The kernel calls the server makes, implemented in shim/net.c on Linux and
+// in shim/kqueue.c on macOS, which gives the epoll calls below over kqueue.
+// Each returns what its syscall returns on success and -code on failure,
+// where code is one of the constants below, Linux's errno values on every
+// platform. A caller compares against them negated: `if n == -sys::EAGAIN`.
 //
 // Spec §7.10 leaves C three obligations: keep the types of what it writes
 // through an argument, keep no argument after the call, and only append to a
@@ -10,14 +12,16 @@ namespace sys;
 
 import os;
 
-// One readiness event, in a layout of the program's own (shim/net.c).
+// One readiness event, in a layout of the program's own (shim/net.c). On
+// macOS it holds every filter kqueue reported for the fd in that wait.
 struct Event { events: u32, tag: u64 }
 
 // Flags of listen and accept.
 let NONBLOCK: i32 = 1;
 let REUSEPORT: i32 = 2;   // listen only
 
-// The errno values the server tells apart. shim/net.c asserts each one.
+// The error codes the server tells apart, Linux's errno values. shim/net.c
+// asserts each one, and shim/kqueue.c translates macOS's errno to them.
 let EINTR = 4;
 let EAGAIN = 11;
 let ENFILE = 23;
@@ -27,7 +31,8 @@ let EADDRINUSE = 98;
 let ECONNABORTED = 103;
 let ECONNRESET = 104;
 
-// epoll event bits and epoll_ctl ops, also asserted in shim/net.c.
+// epoll event bits and epoll_ctl ops, also asserted in shim/net.c, and
+// mapped to kqueue's filters in shim/kqueue.c.
 let IN: u32 = 0x001;
 let OUT: u32 = 0x004;
 let ERR: u32 = 0x008;
@@ -64,7 +69,7 @@ extern "net_epoll_wait" fn epoll_wait(ep: i32, out: Event[:], timeout_ms: i32) -
 extern "net_clock_ms" fn clock_ms() -> i64;
 extern "net_time_s" fn time_s() -> i64;
 
-// Writes the C library's text for an errno value (positive) into out, cut to
+// Writes the C library's text for an error code (positive) into out, cut to
 // fit, and returns its length.
 extern "net_strerror" fn strerror(err: i64, out: u8[:]) -> i64;
 
