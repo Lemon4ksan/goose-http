@@ -3,7 +3,7 @@
 Status: todo (after task 010; asked for by Kait, 2026-10-11)
 
 Goose `efe3155` has packages: a program declares one in its root file,
-`import http from "github.com/kaitk/goose-http@<ref>";`, and the compiler fetches the
+`import http from "github.com/kaitk/goose-http@v0.1.0";`, and the compiler fetches the
 repository, compiles the C its sidecar names, and links it (the pinned checkout's
 `docs/packages.md`). This repository becomes such a package, so a program can serve HTTP
 with its own routes; the benchmark server becomes one program that uses it.
@@ -22,7 +22,7 @@ The design, proposed:
   flat arguments (§11.2), so the program owns the `thread_fn` and calls the loop from it:
 
   ```goose
-  import http from "github.com/kaitk/goose-http@<ref>";
+  import http from "github.com/kaitk/goose-http@v0.1.0";
 
   thread_fn worker(port: i32) {
       http::serve(port) { req, body, out => http::text(out, req, "Hello, World!") }
@@ -50,3 +50,4 @@ The design, proposed:
 - [ ] The tests pass, and the server's rate in `bench/run.sh`'s closest cells matches
       task 010's build within the runs' spread
 - [ ] `README.md` says how to use the package, as goose-ngfx's does
+- [ ] Tagged `v0.1.0`, the ref the README's example imports
