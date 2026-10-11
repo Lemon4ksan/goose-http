@@ -306,6 +306,11 @@ What the benchmark has to work around on this machine:
   `bench/build.sh` copies `bench/dusty` into the Linux cache and builds it there.
 - perf runs on the WSL2 kernel, hardware counters included (`cycles`, `instructions`),
   as root. It can't read `/proc/schedstat`, which `perf record` mentions and survives.
+- vanilla-epoll leaks in JSON (`-gc none`): 6-15 GB of RSS per 15 s cell, in a WSL VM
+  of 16 GB. A full `bench/run.sh` survived it once, and once (2026-10-11) the host ran
+  short of memory in vanilla-epoll's last JSON cell of round 2, and Claude Code stopped
+  its background tasks, the run among them. Start a full matrix from a terminal, or
+  leave vanilla-epoll's JSON cells out of an unattended one.
 
 ### From a Windows shell
 
