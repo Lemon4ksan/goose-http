@@ -127,7 +127,10 @@ static int32_t net_open_listener(int32_t port, int32_t backlog, int32_t flags) {
    declines to accept while it has accepted more than one past the average,
    counted in sharers and accepted. Its kqueue watches the listener
    level-triggered, so a declined connection stays reported to every worker
-   until one under the average takes it. A worker at its connection limit,
+   until one under the average takes it. When no worker takes it for
+   NET_STALL_MS, as at the fd limit, the others stop declining, so they don't
+   spin on the level-triggered watch, and reach the fd check, which disables
+   it (net_accept). A worker at its connection limit,
    which stops calling accept, is woken by every wait while connections wait
    in the backlog.
 
@@ -145,6 +148,9 @@ static int net_shared_count;
 static _Thread_local int32_t net_my_lfd = -1;
 static _Thread_local int net_my_entry;
 static _Thread_local int64_t net_my_accepted;
+/* The accepted count the worker last declined at, and since when. */
+static _Thread_local int64_t net_my_seen, net_my_seen_ms;
+#define NET_STALL_MS 2
 /* The kqueue and tag the worker watches its listener with, and whether
    net_accept disabled that watch at the fd limit. */
 static _Thread_local int32_t net_my_kq = -1;
@@ -183,6 +189,8 @@ int32_t net_listen(int32_t port, int32_t backlog, int32_t flags) {
     return r;
 }
 
+int64_t net_clock_ms(void);
+
 /* Changes the calling worker's watch of its shared listener. */
 static void net_watch_listener(uint16_t flags) {
     struct kevent ch;
@@ -208,7 +216,14 @@ int32_t net_accept(int32_t fd, int32_t flags) {
         int64_t n = net_shared[net_my_entry].sharers;
         int64_t total = atomic_load_explicit(&net_shared[net_my_entry].accepted,
                                              memory_order_relaxed);
-        if (net_my_accepted * n > total + n) return -net_err(EAGAIN);
+        if (net_my_accepted * n > total + n) {
+            int64_t now = net_clock_ms();
+            if (total != net_my_seen) {
+                net_my_seen = total;
+                net_my_seen_ms = now;
+            }
+            if (now - net_my_seen_ms < NET_STALL_MS) return -net_err(EAGAIN);
+        }
     }
     int spare = fcntl(fd, F_DUPFD_CLOEXEC, 0);
     if (spare < 0) {
