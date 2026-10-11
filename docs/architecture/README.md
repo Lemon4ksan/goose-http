@@ -17,7 +17,8 @@ until the task named beside it confirms or replaces it.
   calls must stay on the thread that called `goose_init` (§7.11). So `shim/net.c` only
   wraps calls that return, and returns `-errno` instead of `-1` and `errno`. It covers
   sockets, epoll, coarse clocks, and `strerror`; `shim/uring.c` covers io_uring
-  ([below](#the-io_uring-loop-task-005)).
+  ([below](#the-io_uring-loop-task-005)), and `shim/kqueue.c` is `shim/net.c` for macOS,
+  returning the same Linux codes ([below](#the-platform-and-its-error-codes-task-006)).
   Anything that needs a callback, such as llhttp, libuv, or a C HTTP server, is out
   (confirmed by task 002, 2026-10-10). Details:
   - `goose build` compiles the shim as C files of their own, which each root file's
@@ -42,7 +43,8 @@ until the task named beside it confirms or replaces it.
   - `main` spawns one worker per `hardware_threads()`, or `WORKERS` if set, and passes
     each only the port.
   - Each worker opens its own listener with `SO_REUSEPORT`, so the kernel spreads
-    connections across workers, and runs its own edge-triggered epoll loop.
+    connections across workers, and runs its own edge-triggered epoll loop. On macOS the
+    workers share one listener instead ([below](#the-platform-and-its-error-codes-task-006)).
   - A connection belongs to one worker for its life, in a slot of that worker's
     `reusable` pool; its epoll tag is the slot. A table indexed by fd was rejected: fds
     are numbered across the process, so every worker's table would grow to the highest
@@ -128,3 +130,37 @@ tested either way (2026-10-11):
   accepted before the cancel lands. After `EMFILE` or `ENFILE` it queues the accept
   again after a close or at the next sweep, so waiting clients keep their place in the
   backlog, as with epoll.
+
+### The platform and its error codes (task 006)
+
+The sidecar chooses the platform, because the spec has no conditional compilation:
+`src/main.build` lists `shim/net.c` under `c_sources_linux` and `shim/kqueue.c` under
+`c_sources_macos`. Both platforms compile `src/main.goose`, and the epoll loop runs
+unchanged on either (2026-10-11). `scripts/build.sh` refuses `LOOP=uring` off Linux.
+
+- `shim/kqueue.c` defines the same C functions as `shim/net.c`, so `src/sys.goose` binds
+  either. `IN` and `OUT` become `EVFILT_READ` and `EVFILT_WRITE`, `ET` becomes
+  `EV_CLEAR`, and `EV_EOF` is reported as `RDHUP` on the read filter and `HUP` on the
+  write filter. The events are copied into `sys::Event`, as on Linux, because `struct
+  kevent` is 32 bytes on arm64.
+- The shim merges the events of one fd within a wait into one `sys::Event`, as epoll
+  reports them. kqueue reports each filter apart, and the loop frees a connection's slot on
+  the event that closes it, so a second event for it in the same batch would drive the
+  freed slot. Without the merge, 3,000 connections at once hung.
+- The workers share one listener per port: macOS's `SO_REUSEPORT` gave every connection
+  to the last listener bound. Each worker gets its own fd for the listener and watches it
+  in its own kqueue. The spread across workers is uneven, because the first worker to
+  wake drains the backlog, which costs throughput and not correctness. An acceptor
+  handing out fds would spread them evenly, and is the change to make if macOS becomes a
+  benchmark platform. Task 006's macOS subtask has the measurements.
+- macOS drops a connection whose `accept` fails with `EMFILE`, so the shim checks for a
+  free fd first and leaves the client in the backlog when there's none, as Linux does.
+
+The constants in `src/sys.goose` are the project's own error codes, Linux's errno values
+on every platform, as libuv's are the negated errno on Unix. `shim/net.c` passes errno
+through, and its `_Static_assert`s pin the values. `shim/kqueue.c` translates: codes 1 to
+34 are equal on both systems, a table maps macOS's codes from 35 up to Linux's (`EAGAIN`
+35 to 11, `ECONNABORTED` 53 to 103), and a code with no Linux counterpart becomes 1000
+plus its own. `net_strerror` translates back, for the platform's text. Goose code never
+sees a platform's own numbers. `shim/iocp.c` is to map Winsock's errors onto the same
+codes.

@@ -1,7 +1,9 @@
 # Development
 
 Building, testing, and benchmarking run on Linux (WSL2 Ubuntu). Windows is for editing:
-the native compiler typechecks the program there, but the server only runs on Linux.
+the native compiler typechecks the program there, but the server doesn't run there yet.
+macOS builds the epoll loop over kqueue and passes the tests, but isn't for benchmarks
+([below](#macos)).
 
 ## Toolchain
 
@@ -156,7 +158,7 @@ build directory and ignores them.
 
 ## Build and run
 
-Run these in WSL. They work from any directory.
+Run these in WSL, or on macOS ([below](#macos)). They work from any directory.
 
 | Command | What it does |
 |---|---|
@@ -171,7 +173,8 @@ Run these in WSL. They work from any directory.
 clang (task 008); `CC` picks another. `--standalone` puts the runtime in the program's C
 file, so gcc can inline the runtime's functions into the server, as before task 010. The
 root file's sidecar, `src/main.build` or `src/main_uring.build`, names the C in `shim/`
-to compile and link, and liburing for the io_uring loop, which needs Linux 6.1
+to compile and link for each platform (`shim/net.c` on Linux, `shim/kqueue.c` on macOS),
+and liburing for the io_uring loop, which needs Linux 6.1
 ([architecture](architecture/README.md#the-io_uring-loop-task-005)). `goose build` keeps
 the generated C under `~/.goose/build/prog/`; `goose build -v` prints the commands with
 their paths.
@@ -374,6 +377,78 @@ cp1252, so a `§` it writes becomes the byte `0xA7`, which isn't UTF-8. A script
 rewrites files here opens them with `encoding="utf-8", newline="\n"`.
 `.gitattributes` keeps `*.sh` and `*.py` at LF in the index, but WSL runs the working
 copy, so a CRLF script fails there before Git would fix it.
+
+## macOS
+
+The epoll loop runs on macOS through `shim/kqueue.c`, which `src/main.build` lists under
+`c_sources_macos`
+([architecture](architecture/README.md#the-platform-and-its-error-codes-task-006)), and
+`scripts/test-unit.sh`, `scripts/test-http.sh`, and `scripts/test-echo.sh` pass there.
+The io_uring loop is Linux-only, and `LOOP=uring scripts/build.sh` refuses to build on
+macOS.
+
+| Tool | Where | Version used (2026-10-11) |
+|---|---|---|
+| macOS | MacBook Pro `MacBookPro18,3`, Apple M1 Pro (8 performance and 2 efficiency cores) | 26.3.1, Darwin 25.3.0 |
+| C compiler | Xcode | Apple clang 21.0.0 (`clang-2100.0.123.102`) |
+| CMake | Homebrew | 4.4.4 |
+| Python | Homebrew | 3.14.8 |
+| curl, nc | macOS | curl 8.7.1, Apple's nc |
+| wrk | Homebrew | 4.2.0, built on kqueue |
+| h2load | Homebrew `nghttp2` | 1.70.0 |
+| oha | Homebrew | 1.16.0 |
+
+```sh
+brew install cmake wrk nghttp2 oha
+```
+
+Build the compiler as on Linux, with the Makefile generator CMake picks by default. The
+TinyCC backend finds the SDK's headers through `xcrun --show-sdk-path`, which needs Xcode
+or the Command Line Tools. `goose build --cc gcc` works unchanged, because macOS's `gcc`
+is Apple clang:
+
+```sh
+cmake -S ../goose -B ../goose/build-macos -DCMAKE_BUILD_TYPE=Release
+cmake --build ../goose/build-macos -j
+export GOOSE=$PWD/../goose/build-macos/goose
+```
+
+Then `scripts/build.sh` and the test scripts run as on Linux. On Kait's Mac, `../goose` is
+the fork `kaitk/goose` on its `ngfx` branch, and `../goose-tcc-fix` a worktree of it:
+leave both alone. The plain checkout at the pin is `../goose-upstream`, so there
+`GOOSE=../goose-upstream/build-macos/goose`.
+
+What differs from Linux:
+
+- macOS has 16,384 ephemeral ports (`net.inet.ip.portrange.first` 49152 to `last`
+  65535), against Linux's 28,232, and a closed client socket holds its port in
+  `TIME_WAIT` for 30 s (twice `net.inet.tcp.msl`, 15,000 ms). `test-echo.sh` leaves
+  12,000 such sockets, and `test-http.sh` started within 30 s of it fails its
+  10,000-connection run with `EADDRNOTAVAIL` ("Can't assign requested address"). Wait
+  30 s between them; `netstat -an -p tcp | grep -c TIME_WAIT` counts what's left.
+- `kern.ipc.somaxconn` is 128, and `listen` cuts the server's backlog of 4,096 to it
+  without an error. The tests pass at 128: clients past the backlog retry their `SYN`.
+  `sudo sysctl kern.ipc.somaxconn=4096` raises it until the next boot.
+- The fd limit's hard maximum is unlimited and `kern.maxfilesperproc` is 122,880, so the
+  scripts' `ulimit -n 65536` works without changing a setting.
+- Apple's `nc -N` sets a count of keepalive probes, where OpenBSD's shuts down the socket
+  after the input ends. `test-echo.sh` passes `-N` only to an `nc` whose help describes
+  the shutdown, and relies on `-w 2` otherwise, which makes each echo check 2 s longer.
+- `hardware_threads()` counts the efficiency cores, so `build/server http` without
+  `WORKERS` starts 10 workers on an M1 Pro.
+
+One wrk run of the kqueue build, at commit `ac64ce9`, 2026-10-11, on the machine above:
+563,173 requests per second on `/plaintext`, 0.97 ms mean latency, and no errors.
+
+```sh
+WORKERS=4 build/server http 29084
+wrk -t 4 -c 64 -d 10 -s scripts/pipeline.lua http://127.0.0.1:29084/plaintext -- 16
+```
+
+That's 4 server workers and 4 wrk threads, 64 connections pipelining 16 deep, and one
+10 s run, with wrk on the same machine and no CPU pinning, at a load average of 2.7.
+The number shows that the build carries load, and nothing more: macOS isn't a benchmark
+platform (`AGENTS.md`).
 
 ## Edit on Windows
 
