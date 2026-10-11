@@ -34,8 +34,8 @@ docker run --rm -v "$PROBE:/src" -w /src mcr.microsoft.com/dotnet/sdk:10.0 \
     dotnet run -c Release --project src/Http11Probe.Cli -- --host host.docker.internal --port 8080
 ```
 
-At `782bbb7`, 141 of 159 scored tests passed. At `b73d527`, 150 of 159 did, with 17
-warnings. Each failure:
+At `782bbb7`, 141 of 159 scored tests passed. At `6f367cb`, 155 of 157 did, with 17
+warnings and 2 errors (below). Each failure:
 
 - Fixed in `b73d527`: a `Host` with userinfo, a path, or a comma-separated second host
   is 400 (`COMP-HOST-WITH-USERINFO`, `COMP-HOST-WITH-PATH`, `SMUG-MULTIPLE-HOST-COMMA`);
@@ -45,13 +45,12 @@ warnings. Each failure:
   with an optional value is 400 (`SMUG-CHUNK-BARE-SEMICOLON`,
   `SMUG-CHUNK-EXT-INVALID-TOKEN`); and `http::path_of` gives absolute-form's path
   (`COMP-ABSOLUTE-FORM`, unscored).
-- Open, waiting on a decision: a `Transfer-Encoding` that isn't `chunked` gets 501,
-  where RFC 9112 §6.3 requires 400 when chunked isn't the final coding, and the probe
-  expects 400 for an empty value or element and for chunked twice or not last
-  (`SMUG-TE-DOUBLE-CHUNKED`, `SMUG-TE-NOT-FINAL-CHUNKED`, `SMUG-TE-EMPTY-VALUE`,
-  `SMUG-TE-LEADING-COMMA`, `SMUG-TE-DUPLICATE-HEADERS`, `SMUG-TE-OBS-FOLD`,
-  `SMUG-TE-TRAILING-COMMA`, and `SMUG-CHUNKED-WITH-PARAMS`, unscored). The
-  architecture records 501 for another coding.
+- Fixed in `6f367cb`: a `Transfer-Encoding` whose last coding isn't chunked, with chunked
+  twice, or with an empty value or element is 400, as RFC 9112 §6.3 requires, where
+  any coding but chunked was 501 (`SMUG-TE-DOUBLE-CHUNKED`, `SMUG-TE-NOT-FINAL-CHUNKED`,
+  `SMUG-TE-EMPTY-VALUE`, `SMUG-TE-LEADING-COMMA`, `SMUG-TE-DUPLICATE-HEADERS`,
+  `SMUG-TE-OBS-FOLD`, `SMUG-TE-TRAILING-COMMA`, and `SMUG-CHUNKED-WITH-PARAMS`,
+  unscored). Other codings before chunked are still 501.
 - Refused deliberately:
   - An empty `Host` gets 200 (`COMP-HOST-EMPTY-VALUE`): RFC 9112 §3.2 has a client
     send one for a URI without an authority, and task 013 keeps it.
@@ -61,9 +60,13 @@ warnings. Each failure:
     need a handler that reads request fields, which `v0.1.0` doesn't have (task 013,
     item 6).
 
-One of three full runs had two connect timeouts (`COOK-NUL`, `WS-UPGRADE-HTTP10`), not
-seen again in the other two or when the two ran alone. Another program's GPU testing
-hung the machine's graphics driver around then.
+Two of four full runs had two connects time out after 5 s, each in different tests
+(`COOK-NUL` and `WS-UPGRADE-HTTP10`, then `SMUG-CLTE-SMUGGLED-GET-CL-NON-NUMERIC` and
+`SMUG-DUPLICATE-CL-SMUGGLED-GET`), which passed alone. On the Mac itself, 3,000
+connections in a row to the same server, with 300 more held open mid-request, each
+connected within 3 ms. The timeouts look like Docker Desktop's forwarding of
+`host.docker.internal`, not the server; a run from a native .NET install would settle
+it.
 
 ## Acceptance criteria
 
