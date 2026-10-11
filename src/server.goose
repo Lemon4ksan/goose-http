@@ -21,6 +21,7 @@ let LISTENER: u64 = 0xFFFFFFFFFFFFFFFF;
 struct Conn {
     fd: i32,            // -1 while the slot is free
     state: u8,
+    watch_out: bool,    // OUT is registered: set while out holds bytes
     deadline: i64,      // the time after which the sweep closes it
     discard: i64,       // request body bytes still to drop
     held: u8[:],        // received and not yet answered
@@ -70,8 +71,7 @@ fn serve(port: i32) {
                 return;
             }
             let i = conns.alloc_index(Conn { fd: fd, deadline: now + REQUEST_MS, .. });
-            let r = sys::epoll_ctl(ep, sys::CTL_ADD, fd, sys::IN | sys::OUT | sys::RDHUP | sys::ET,
-                                   i as u64);
+            let r = sys::epoll_ctl(ep, sys::CTL_ADD, fd, sys::IN | sys::RDHUP | sys::ET, i as u64);
             if r < 0 {
                 sys::report("epoll_ctl", r);
                 sys::close(fd);
@@ -183,6 +183,24 @@ fn serve(port: i32) {
         return true;
     }
 
+    // Registers OUT while the connection has bytes the socket didn't take, and
+    // drops it once they're sent, as libuv does: kqueue reports EV_CLEAR's
+    // write filter as each ACK frees buffer space, a wake-up per response.
+    // False if epoll_ctl fails.
+    fn watch(i: i64) -> bool {
+        let c .= conns[i];
+        let want = c.out.len > 0;
+        if want == c.watch_out { return true; }
+        let out: u32 = if want { sys::OUT } else { 0 };
+        let r = sys::epoll_ctl(ep, sys::CTL_MOD, c.fd, sys::IN | out | sys::RDHUP | sys::ET, i as u64);
+        if r < 0 {
+            sys::report("epoll_ctl", r);
+            return false;
+        }
+        c.watch_out = want;
+        return true;
+    }
+
     // Answers what it can, sends the responses in one send, and reads more.
     // Edge-triggered epoll reports a socket again only after its state
     // changes, so this returns only once a send would block, the socket is
@@ -291,7 +309,9 @@ fn serve(port: i32) {
                 continue;
             }
             let i = ev.tag as i64;
-            if !drive(conns[i], ev.events & (sys::RDHUP | sys::HUP | sys::ERR) != 0) { close_conn(i); }
+            if !drive(conns[i], ev.events & (sys::RDHUP | sys::HUP | sys::ERR) != 0) || !watch(i) {
+                close_conn(i);
+            }
         }
         if now >= next_sweep {
             sweep();
