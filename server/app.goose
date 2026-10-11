@@ -76,8 +76,9 @@ fn serve_http(given: http::Config, default_loop: const u8[:]) {
         let k = http::net_strerror(-probe, text);
         format(ring, " on an emulated ring (io_uring_setup: ", text[..k], ")");
     }
-    // RUNS serves again after each stop, for testing a loop called again.
-    for run in positive("RUNS", 1) {
+    // SERVER_RUNS serves again after each stop, for testing a loop called
+    // again. Not RUNS, which the benchmark scripts set for themselves.
+    for run in positive("SERVER_RUNS", 1) {
         print("http: ", n, if n == 1 { " worker" } else { " workers" }, " on port ", cfg.port,
               ", ", name, " loop", ring);
         var ids: i64[>..] = [];

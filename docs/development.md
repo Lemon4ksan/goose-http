@@ -271,7 +271,7 @@ once per loop. It needs curl, wrk, h2load, oha, `nc`, and `python3`
   `/json`, h2load `--h1` for 200,000 requests 16 deep, and oha for 500,000 requests. Each
   must see only 200s and no errors.
 - A graceful stop (`stop`): `SIGTERM` with an idle connection, one partway through a
-  request head, and one partway through a 20 MB response; and then, with `RUNS=2`, a
+  request head, and one partway through a 20 MB response; and then, with `SERVER_RUNS=2`, a
   stop after which the server's loops start again and serve.
 - Then one worker under `ulimit -n 40` and 60 clients (`emfile`): the clients past the fd
   limit wait in the listen backlog, and are served once earlier ones close.

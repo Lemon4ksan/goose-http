@@ -194,9 +194,9 @@ wait "$pid" || fail "the server exited with status $? after the stop"
 pid=
 
 # Loops called again after a stop serve as the first ones did.
-export RUNS=2
+export SERVER_RUNS=2
 start
-unset RUNS
+unset SERVER_RUNS
 kill -TERM "$pid"
 # The server says so as its workers start again, once every one has returned.
 tries=0
