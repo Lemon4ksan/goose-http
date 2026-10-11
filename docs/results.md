@@ -1,7 +1,8 @@
 # Results
 
-The Goose server's latest numbers against the competing servers, all measured on one
-machine. How each number is taken is in [bench/README.md](../bench/README.md#method), and
+The Goose server's latest numbers against the competing servers. Each section's
+numbers come from one machine, which the section names; numbers from different
+machines aren't compared. How each number is taken is in [bench/README.md](../bench/README.md#method), and
 the servers' pins and builds are in its [Servers](../bench/README.md#servers) table. The
 runs behind each section, and the earlier ones, are recorded in task 009
 ([tasks/009-more-competitors.md](../tasks/009-more-competitors.md)); task 004
