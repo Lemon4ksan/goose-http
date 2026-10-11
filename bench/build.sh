@@ -1,21 +1,25 @@
 #!/bin/sh
 # Builds the servers bench/run.sh compares, in release mode, into
-# build/bench/: goose (scripts/build.sh), may-minihttp, hyper, tokio,
-# odin-http, dusty, and vanilla-epoll, the library that gives wrk a monotonic
-# clock (bench/wrk-monotonic.c), and the latency summarizer for h2load's log
-# (bench/latency.c).
+# build/bench/: goose and goose-uring (scripts/build.sh with each loop),
+# may-minihttp, hyper, tokio, odin-http, dusty, and vanilla-epoll; task 005's
+# io_uring servers, xitca-web, zix, zeemo, libreactorng, and vanilla-io_uring,
+# which bench/run.sh runs only when SERVERS names them, as goose-uring; the
+# library that gives wrk a monotonic clock (bench/wrk-monotonic.c); and the
+# latency summarizer for h2load's log (bench/latency.c).
 #
-# Cargo's target directories, the checkouts, V, and the copy of bench/dusty
-# that zig builds go under CACHE (~/.cache/goose-http-bench), on the Linux
-# file system: cargo is slow on /mnt/c, and zig 0.16 fetches packages into
-# zig-pkg/ beside build.zig.zon, with no option to put them elsewhere. Cargo
-# runs from CACHE, so it reads no config file above the repository, such as a
-# Windows ~/.cargo/config under /mnt/c/Users.
+# Cargo's target directories, the checkouts, V, libreactorng, and the copies
+# of the Zig projects that zig builds go under CACHE
+# (~/.cache/goose-http-bench), on the Linux file system: cargo is slow on
+# /mnt/c, and zig 0.16 fetches packages into zig-pkg/ beside build.zig.zon,
+# with no option to put them elsewhere. Cargo runs from CACHE, so it reads no
+# config file above the repository, such as a Windows ~/.cargo/config under
+# /mnt/c/Users.
 #
 # GOOSE names the Goose compiler, as for scripts/build.sh. ODIN names the Odin
 # compiler (default: odin on PATH), which must be ODIN_VERSION, and ZIG the Zig
 # compiler (default: zig on PATH), which must be ZIG_VERSION. V is built here,
 # at the commits of HttpArena's vanilla-epoll image; it needs liburing-dev.
+# libreactorng needs autoconf, automake, libtool, and libltdl-dev.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -35,9 +39,13 @@ VANILLA_COMMIT=091c014a0191afd7e740b84f5599b9b1fc1fd914
 V_COMMIT=b99970bd438a7bdcdfbe38f74d9364db801d5439
 VC_COMMIT=2cbaf6bc2367937cd5f0b4ef923d1ef9aad613b3
 TCCBIN_COMMIT=d6e7ac1b1bcc98aed734a6ecbfa8509f24606c74
+# As HttpArena's libreactorng Dockerfile pins it.
+LIBREACTORNG_COMMIT=7a65f8b108f62f2531db952b0f87cf5f34a24b3c
 
 mkdir -p "$cache" "$out"
 
+LOOP=uring "$root/scripts/build.sh"
+cp "$root/build/server" "$out/goose-uring"
 "$root/scripts/build.sh"
 cp "$root/build/server" "$out/goose"
 
@@ -73,17 +81,26 @@ fetch() {
 }
 
 "$zig" version | grep -qx "$ZIG_VERSION" || {
-    echo "bench/build.sh: dusty needs Zig $ZIG_VERSION, not: $("$zig" version)"
+    echo "bench/build.sh: dusty, zix, and zeemo need Zig $ZIG_VERSION, not: $("$zig" version)"
     exit 1
 }
-rm -rf "$cache/app-dusty"
-mkdir -p "$cache/app-dusty"
-cp -r "$root/bench/dusty/." "$cache/app-dusty/"
-# The target and CPU of HttpArena's dusty image.
-(cd "$cache/app-dusty" && "$zig" build --cache-dir "$cache/zig-cache" \
-    --global-cache-dir "$cache/zig-global" --prefix "$cache/dusty-out" \
-    -Dtarget=x86_64-linux-musl -Dcpu=x86_64_v3+aes+pclmul+adx --release=fast)
-cp "$cache/dusty-out/bin/bench-dusty" "$out/dusty"
+# Builds the Zig project bench/$1 with zig build flags $2..., from a copy in
+# CACHE, into build/bench/$1.
+zig_build() {
+    name=$1
+    shift
+    rm -rf "$cache/app-$name"
+    mkdir -p "$cache/app-$name"
+    cp -r "$root/bench/$name/." "$cache/app-$name/"
+    (cd "$cache/app-$name" && "$zig" build --cache-dir "$cache/zig-cache" \
+        --global-cache-dir "$cache/zig-global" --prefix "$cache/$name-out" "$@")
+    cp "$cache/$name-out/bin/bench-$name" "$out/$name"
+}
+# The targets and CPUs of HttpArena's images. zeemo's names no CPU, so it
+# builds for baseline x86-64.
+zig_build dusty -Dtarget=x86_64-linux-musl -Dcpu=x86_64_v3+aes+pclmul+adx --release=fast
+zig_build zix -Dtarget=x86_64-linux-musl -Dcpu=x86_64_v3+aes+pclmul+adx --release=fast
+zig_build zeemo -Dtarget=x86_64-linux-musl --release=fast
 
 v=$cache/deps/v
 if [ "$(git -C "$v" rev-parse HEAD 2>/dev/null)" != "$V_COMMIT" ] || [ ! -x "$v/v" ]; then
@@ -98,6 +115,31 @@ fetch https://github.com/enghitalo/vanilla "$VANILLA_COMMIT" "$cache/vmodules/va
 # TLS listener needs.
 VMODULES=$cache/vmodules "$v/v" -prod -gc none "$root/bench/vanilla-epoll" \
     -o "$out/vanilla-epoll"
+# HttpArena's vanilla-io_uring flags: V's default GC, and again without
+# -d vanilla_tls.
+VMODULES=$cache/vmodules "$v/v" -prod -d vanilla_io_uring "$root/bench/vanilla-epoll" \
+    -o "$out/vanilla-io_uring"
+
+# The flags of TechEmpower's xitca-web entry (its .cargo/config.toml).
+(cd "$cache" && RUSTFLAGS="-C target-cpu=native --cfg tokio_unstable" cargo build --release \
+    --locked --manifest-path "$root/bench/xitca-web/Cargo.toml" \
+    --target-dir "$cache/target-xitca-web")
+cp "$cache/target-xitca-web/release/bench-xitca-web" "$out/xitca-web"
+
+# libreactorng as HttpArena's image builds it: patched, configured with
+# -O3 -march=native, and installed, here under CACHE. The install is a static
+# library of LTO objects, so gcc links the server.
+fetch https://github.com/fredrikwidlund/libreactorng "$LIBREACTORNG_COMMIT" \
+    "$cache/deps/libreactorng"
+rm -rf "$cache/libreactorng-src" "$cache/libreactorng"
+cp -r "$cache/deps/libreactorng" "$cache/libreactorng-src"
+git -C "$cache/libreactorng-src" apply "$root/bench/libreactorng/connection-close.patch"
+(cd "$cache/libreactorng-src" && ./autogen.sh &&
+    ./configure --prefix="$cache/libreactorng" CFLAGS="-O3 -march=native" &&
+    make && make install)
+gcc -O3 -march=native -Wall -Wextra -pthread "$root/bench/libreactorng/server.c" \
+    -o "$out/libreactorng" \
+    $(PKG_CONFIG_PATH=$cache/libreactorng/lib/pkgconfig pkg-config --libs --cflags libreactor)
 
 ${CC:-cc} -O2 -shared -fPIC "$root/bench/wrk-monotonic.c" -o "$out/wrk-monotonic.so"
 ${CC:-cc} -O2 "$root/bench/latency.c" -o "$out/latency"

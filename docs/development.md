@@ -20,7 +20,7 @@ the native compiler typechecks the program there, but the server only runs on Li
 | oha | WSL, `cargo install oha --locked` | 1.16.0, with cargo 1.99.0 |
 | Rust | WSL, rustup | rustc 1.99.0, cargo 1.99.0, for the Rust servers in `bench/` |
 | Odin | WSL, `/opt/odin-dev-2026-10` | `dev-2026-10` (`dev-2026-10-nightly:84bc3fc`, LLVM 20.1.8), for odin-http |
-| Zig | WSL, `/opt/zig-0.16.0` | 0.16.0, for dusty |
+| Zig | WSL, `/opt/zig-0.16.0` | 0.16.0, for dusty, zix, and zeemo |
 | V | WSL, built by `bench/build.sh` in its cache | 0.5.2 `b99970b`, for vanilla-epoll; needs apt `liburing-dev` (2.14) |
 | liburing | WSL, apt `liburing-dev` | 2.14, for the io_uring loop (`LOOP=uring`) |
 | Docker | WSL, Docker Desktop | 29.8.2, for HttpArena's harness |
@@ -65,6 +65,12 @@ vanilla's io_uring module needs liburing's header even in an epoll build:
 
 ```sh
 sudo apt-get install -y liburing-dev
+```
+
+libreactorng builds with autotools:
+
+```sh
+sudo apt-get install -y autoconf automake libtool libltdl-dev
 ```
 
 When V fails to compile the C it generated, it downloads a V release and retries with

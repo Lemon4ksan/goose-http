@@ -23,7 +23,9 @@
 #                 starting with goose is a build of the Goose server, run with
 #                 its mode. bench/build.sh also builds odin-http, which task
 #                 009 left out: hyper's rate in JSON, 5-8% of Goose's in
-#                 plaintext.
+#                 plaintext. It builds task 005's io_uring servers too,
+#                 xitca-web, zix, zeemo, libreactorng, and vanilla-io_uring,
+#                 which run only when named here.
 #   WORKER_COUNTS 1 and the number of SERVER_CPUS ("1 4")
 #   SERVER_CPUS   0-3: cores 0 and 1 with both SMT threads. One worker gets
 #                 CPU 0 alone.
