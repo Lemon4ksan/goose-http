@@ -41,8 +41,11 @@ has packages, that layer is a package.
 - `http` uses `goose-tls` only from a module of its own, `http.tls`, so only a program
   that imports `http.tls` declares `goose-tls` in its root file. At `efe3155` a library's
   `import` of another package is a requirement the root must declare
-  (`docs/packages.md`); whether an unimported module's requirement is skipped is
-  untested.
+  (`docs/packages.md`). A module the program never imports doesn't count: at `efe3155`
+  and `fe6c543`, a minimal program importing package `lib` builds without declaring
+  `dep`, which only `lib`'s module `lib.tls` requires, and importing `lib.tls` fails
+  with "lib needs the package dep: add `import dep from ...` to main.goose" until the
+  root declares it (2026-10-11).
 - snowtime-native, or any program, owns certificates and configuration and composes the
   two. A repository above this one can't hold h2 or TLS, because both change the loop.
 

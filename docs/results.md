@@ -337,6 +337,13 @@ Memory is the container's, socket buffers included, and inflated by the VM's
 transparent huge pages, so it compares containers on this VM only. The latency-1m p99
 moved by up to 15 times between runs on WSL2, so it ranks the servers only roughly.
 
+The Goose entry at `ac399a3`, in the package layout with Goose `fe6c543` and still the
+epoll loop, measured the same in a run of its own: 629K in baseline, 478K in
+limited-conn, 6.61M in pipelined, and 8.09 µs per request in latency-1m
+([httparena-2026-10-11-m1pro-docker-main](../bench/results/httparena-2026-10-11-m1pro-docker-main)).
+limited-conn moves between sessions: alternated twice each, `1fb0ef3` measured 480K and
+482K and `ac399a3` 474K and 480K.
+
 ## M1 Pro, macOS native
 
 The kqueue build on the same MacBook Pro, natively, against the Rust servers that build on
