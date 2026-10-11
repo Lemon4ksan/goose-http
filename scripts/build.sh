@@ -1,16 +1,17 @@
 #!/bin/sh
-# Builds the server into build/server with goose build.
+# Builds the benchmark server, server/, into build/server with goose build.
 #
 # GOOSE names the compiler (default: goose on PATH). CC picks the C compiler
-# (default gcc, which builds a faster server than clang: task 008). LOOP
-# picks the event loop: uring (src/main_uring.goose, the default on Linux),
-# which needs liburing (apt liburing-dev) and Linux 6.1, or epoll
-# (src/main.goose, the only loop on macOS, over kqueue). Each root file's
-# sidecar (src/main.build, src/main_uring.build) names the C in shim/ it
-# links.
+# (default gcc, which builds a faster server than clang: task 008). The
+# server has both of the package's loops, and LOOP picks the one it serves
+# with when its own LOOP isn't set at run time: uring (server/server.goose,
+# http::serve, the default on Linux), which needs liburing (apt liburing-dev)
+# and Linux 6.1, or epoll (server/server_epoll.goose, http::serve_epoll, the
+# default on macOS, over kqueue). The package's sidecar, http.build, names
+# the C in shim/ it links on each platform.
 #
-# On Windows, in Git Bash, the loop is iocp, src/main_uring.goose's loop over
-# I/O completion ports (shim/iocp.c), and CC defaults to msvc.
+# On Windows, in Git Bash, the loop is iocp, http::serve over I/O completion
+# ports (shim/iocp.c), and CC defaults to msvc.
 #
 # --standalone puts the runtime in the program's C file, as one translation
 # unit, so the C compiler can inline the runtime's functions into the server.
@@ -26,9 +27,8 @@ Linux) loop=${LOOP:-uring} cc=${CC:-gcc} ;;
 *) loop=${LOOP:-epoll} cc=${CC:-gcc} ;;
 esac
 case $loop in
-epoll) main=main ;;
-uring) main=main_uring ;;
-iocp) main=main_uring ;;
+epoll) main=server_epoll ;;
+uring | iocp) main=server ;;
 *) echo "scripts/build.sh: LOOP is epoll, uring, or iocp"; exit 2 ;;
 esac
 if [ "$loop" = uring ] && [ "$os" != Linux ]; then
@@ -46,6 +46,11 @@ fi
 
 mkdir -p "$root/build"
 # goose build on Linux never sees a change to the shim's C (docs/goose-findings.md), so
-# the stamp that says the shim is built goes first.
-rm -f "${GOOSE_HOME:-$HOME/.goose}"/build/prog/"$main"-*/native/*/stamp
-"$goose" build --cc "$cc" --standalone -o "$root/build/server" "$root/src/$main.goose"
+# the stamp that says the shim is built goes first: the stamps of the local packages
+# whose link list has the shim's objects.
+for rsp in "${GOOSE_HOME:-$HOME/.goose}"/build/pkg/local/*/*/link-*.rsp; do
+    if [ -f "$rsp" ] && grep -q -e '/net\.o' -e '/net_win\.obj' -e '/kqueue\.o' "$rsp"; then
+        rm -f "$(dirname "$rsp")/stamp"
+    fi
+done
+"$goose" build --cc "$cc" --standalone -o "$root/build/server" "$root/server/$main.goose"

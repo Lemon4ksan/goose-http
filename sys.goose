@@ -1,27 +1,27 @@
-// The kernel calls the server makes, implemented in shim/net.c on Linux, in
+// The kernel calls the loops make, implemented in shim/net.c on Linux, in
 // shim/kqueue.c on macOS, which gives the epoll calls below over kqueue, and
 // in shim/net_win.c on Windows, where the epoll calls fail with ENOSYS.
 // Each returns what its syscall returns on success and -code on failure,
 // where code is one of the constants below, Linux's errno values on every
-// platform. A caller compares against them negated: `if n == -sys::EAGAIN`.
+// platform. A caller compares against them negated: `if n == -http::EAGAIN`.
 //
 // Spec §7.10 leaves C three obligations: keep the types of what it writes
 // through an argument, keep no argument after the call, and only append to a
 // builder. The shim keeps no argument; where a call writes into an argument,
 // its comment says how much.
-namespace sys;
+namespace http;
 
 import os;
 
-// One readiness event, in a layout of the program's own (shim/net.c). On
+// One readiness event, in a layout of the package's own (shim/net.c). On
 // macOS it holds every filter kqueue reported for the fd in that wait.
 struct Event { events: u32, tag: u64 }
 
-// Flags of listen and accept.
+// Flags of net_listen and net_accept.
 let NONBLOCK: i32 = 1;
-let REUSEPORT: i32 = 2;   // listen only
+let REUSEPORT: i32 = 2;   // net_listen only
 
-// The error codes the server tells apart, Linux's errno values. shim/net.c
+// The error codes the loops tell apart, Linux's errno values. shim/net.c
 // asserts each one, shim/kqueue.c translates macOS's errno to them, and
 // shim/net_win.c Winsock's and Win32's errors.
 let EINTR = 4;
@@ -30,21 +30,22 @@ let EINVAL = 22;
 let ENFILE = 23;
 let EMFILE = 24;
 let EPIPE = 32;
+let ENOSYS = 38;
 let EADDRINUSE = 98;
 let ECONNABORTED = 103;
 let ECONNRESET = 104;
 
 // epoll event bits and epoll_ctl ops, also asserted in shim/net.c, and
 // mapped to kqueue's filters in shim/kqueue.c.
-let IN: u32 = 0x001;
-let OUT: u32 = 0x004;
-let ERR: u32 = 0x008;
-let HUP: u32 = 0x010;
-let RDHUP: u32 = 0x2000;
-let ET: u32 = 0x80000000;
-let CTL_ADD: i32 = 1;
-let CTL_DEL: i32 = 2;
-let CTL_MOD: i32 = 3;
+let EPOLLIN: u32 = 0x001;
+let EPOLLOUT: u32 = 0x004;
+let EPOLLERR: u32 = 0x008;
+let EPOLLHUP: u32 = 0x010;
+let EPOLLRDHUP: u32 = 0x2000;
+let EPOLLET: u32 = 0x80000000;
+let EPOLL_CTL_ADD: i32 = 1;
+let EPOLL_CTL_DEL: i32 = 2;
+let EPOLL_CTL_MOD: i32 = 3;
 
 // shutdown's how, asserted in shim/net.c.
 let SHUT_WR: i32 = 1;
@@ -53,49 +54,40 @@ let SHUT_WR: i32 = 1;
 // and TCP_NODELAY, which accepted sockets inherit. An ip of -1 is every
 // address, or 127.0.0.1 on Windows, where the listener has
 // SO_EXCLUSIVEADDRUSE. With REUSEPORT, each worker gets a listener of its own
-// on Linux, and the workers share one on macOS and Windows, which close
+// on Linux, and the workers share one on macOS and Windows, which net_close
 // closes after the last worker closes it.
-extern "net_listen" fn listen(ip: i64, port: i32, backlog: i32, flags: i32) -> i32;
-extern "net_accept" fn accept(fd: i32, flags: i32) -> i32;
+extern fn net_listen(ip: i64, port: i32, backlog: i32, flags: i32) -> i32;
+extern fn net_accept(fd: i32, flags: i32) -> i32;
 // Writes up to buf.len bytes into buf; 0 means the peer closed.
-extern "net_recv" fn recv(fd: i32, buf: u8[:]) -> i64;
+extern fn net_recv(fd: i32, buf: u8[:]) -> i64;
 // Sends with MSG_NOSIGNAL: a closed peer is -EPIPE, never SIGPIPE.
-extern "net_send" fn send(fd: i32, data: const u8[:]) -> i64;
-extern "net_shutdown" fn shutdown(fd: i32, how: i32) -> i32;
-extern "net_close" fn close(fd: i32) -> i32;
+extern fn net_send(fd: i32, data: const u8[:]) -> i64;
+extern fn net_shutdown(fd: i32, how: i32) -> i32;
+extern fn net_close(fd: i32) -> i32;
 
-extern "net_epoll_create" fn epoll_create() -> i32;
+extern fn net_epoll_create() -> i32;
 // The kernel keeps tag with fd's registration and returns it in Event.tag.
 // It's a number, not a reference into Goose memory.
-extern "net_epoll_ctl" fn epoll_ctl(ep: i32, op: i32, fd: i32, events: u32, tag: u64) -> i32;
+extern fn net_epoll_ctl(ep: i32, op: i32, fd: i32, events: u32, tag: u64) -> i32;
 // Writes the ready events into out[..n], n at most out.len and 1024.
-extern "net_epoll_wait" fn epoll_wait(ep: i32, out: Event[:], timeout_ms: i32) -> i32;
+extern fn net_epoll_wait(ep: i32, out: Event[:], timeout_ms: i32) -> i32;
 
 // Coarse clocks, up to one scheduler tick old: monotonic milliseconds, and
 // wall-clock seconds since the epoch.
-extern "net_clock_ms" fn clock_ms() -> i64;
-extern "net_time_s" fn time_s() -> i64;
+extern fn net_clock_ms() -> i64;
+extern fn net_time_s() -> i64;
 
 // Writes the C library's text for an error code (positive) into out, cut to
 // fit, and returns its length.
-extern "net_strerror" fn strerror(err: i64, out: u8[:]) -> i64;
+extern fn net_strerror(err: i64, out: u8[:]) -> i64;
 
-// Reports a call that failed with -err on stderr.
-fn report(what: const u8[:], err) {
+// Writes "call: text of the error" to stderr.
+fn report(e: Error) {
     var msg: u8[>..] = [];
-    format(msg, what, ": ");
+    format(msg, e.call, ": ");
     var text: u8[128] = [0; 128];
-    let n = strerror(-err, text);
+    let n = net_strerror(e.code, text);
     msg.append(text[..n]);
     msg.push('\n');
     write_stderr(msg);
-}
-
-// Returns r, or reports it and exits if it's an error.
-fn check(what: const u8[:], r) {
-    if r < 0 {
-        report(what, r);
-        exit(1);
-    }
-    r
 }

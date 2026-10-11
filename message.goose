@@ -1,6 +1,6 @@
 // HTTP/1.1 on bytes alone: the request parser, the Date header, and the
-// responses. Nothing here makes a system call, so src/test_http.goose runs it
-// through TinyCC without the shim.
+// responses. Nothing here makes a system call or needs another of the
+// package's files, so bench/parse.sh builds it alone.
 namespace http;
 
 import std;
@@ -323,64 +323,6 @@ fn path_of(target: const u8[:]) -> const u8[:] {
     return if q >= 0 { target[..q] } else { target };
 }
 
-// Writes the response to req, whose body is body, into out, and returns
-// whether the connection stays open after it. body is empty when req.body
-// announced one too long for the read buffer, which the server drops.
-fn respond<A>(out: A&, req: Request, body: const u8[:], date: const u8[:]) -> bool {
-    let path = path_of(req.target);
-    let plaintext = path == "/plaintext";
-    let json = path == "/json";
-    // HttpArena's endpoints (bench/httparena).
-    let baseline = path == "/baseline11";
-    let pipeline = path == "/pipeline";
-    // n bytes, for testing responses larger than the write buffer.
-    let bytes = path == "/bytes";
-    let head_only = req.method == "HEAD";
-    let get = head_only || req.method == "GET";
-    if (plaintext || json || pipeline || bytes) && !get || baseline && !get && req.method != "POST" {
-        start(out, 405, date, req.keep_alive, req.minor);
-        out.append(if baseline { "Allow: GET, HEAD, POST\r\n" } else { "Allow: GET, HEAD\r\n" });
-        finish(out, "Content-Length: ", "", false);
-    } else if plaintext {
-        start(out, 200, date, req.keep_alive, req.minor);
-        finish(out, "Content-Type: text/plain\r\nContent-Length: ", "Hello, World!", head_only);
-    } else if json {
-        var body: u8[..64] = [];
-        json_object(body, Message { message: "Hello, World!" });
-        start(out, 200, date, req.keep_alive, req.minor);
-        finish(out, "Content-Type: application/json\r\nContent-Length: ", body, head_only);
-    } else if baseline {
-        var sum = query_int(req.target, "a") + query_int(req.target, "b");
-        if req.method == "POST" {
-            let n, ok = parse_int(trim(body));
-            if ok { sum += n; }
-        }
-        var text: u8[..24] = [];
-        format(text, sum);
-        start(out, 200, date, req.keep_alive, req.minor);
-        finish(out, "Content-Type: text/plain\r\nContent-Length: ", text, head_only);
-    } else if pipeline {
-        start(out, 200, date, req.keep_alive, req.minor);
-        finish(out, "Content-Type: text/plain\r\nContent-Length: ", "ok", head_only);
-    } else if bytes {
-        let n = min(max(query_int(req.target, "n"), 0), MAX_BYTES);
-        start(out, 200, date, req.keep_alive, req.minor);
-        out.append("Content-Type: application/octet-stream\r\nContent-Length: ");
-        format(out, n);
-        out.append("\r\n\r\n");
-        if !head_only {
-            for i in n { out.push(('0' + i % 10) as! u8); }
-        }
-    } else {
-        start(out, 404, date, req.keep_alive, req.minor);
-        finish(out, "Content-Length: ", "", head_only);
-    }
-    return req.keep_alive;
-}
-
-// The most bytes /bytes sends.
-let MAX_BYTES = 16777216;
-
 // The integer value of key in target's query, or 0.
 fn query_int(target: const u8[:], key: const u8[:]) -> i64 {
     let q = position(target, '?');
@@ -396,59 +338,120 @@ fn query_int(target: const u8[:], key: const u8[:]) -> i64 {
     return v;
 }
 
+// What a handler writes its response into: the worker's write buffer, which
+// grows to take a response of any size, and what the response's framing
+// needs from the request. A handler writes one whole response, with start,
+// field, and finish, or with respond.
+struct Reply {
+    buf: u8[>..]&,
+    date: const u8[:],      // the Date field's value, rendered once a second
+    keep_alive: bool&,      // whether the connection stays open; clear it before start to close
+    minor: i32,             // the request's x of HTTP/1.x
+    head: bool,             // a HEAD request: finish writes the body's fields, not the body
+}
+
+// The status line and the fields every response has: Server, Date, and
+// Connection where HTTP/1.x's default isn't what the connection does.
+fn start(out: Reply, status: i32) {
+    status_fields(out.buf, status, out.date, out.keep_alive, out.minor);
+}
+
+// A field of the handler's own, between start and finish. name and value
+// hold no CR or LF.
+fn field(out: Reply, name: const u8[:], value: const u8[:]) {
+    out.buf.append(name);
+    out.buf.append(": ");
+    out.buf.append(value);
+    out.buf.append("\r\n");
+}
+
+// The body's fields, the blank line, and the body, unless the request was
+// HEAD. fields holds every field before the length's value, ending in
+// "Content-Length: ", so that they take one append.
+fn finish(out: Reply, fields: const u8[:], body: const u8[:]) {
+    write_body(out.buf, fields, body, out.head);
+}
+
+// A whole response: status, a Content-Type, and body.
+fn respond(out: Reply, status: i32, content_type: const u8[:], body: const u8[:]) {
+    start(out, status);
+    out.buf.append("Content-Type: ");
+    out.buf.append(content_type);
+    out.buf.append("\r\n");
+    finish(out, "Content-Length: ", body);
+}
+
 // Writes the response that refuses a request with status. The connection
 // closes after it.
 fn refuse<A>(out: A&, status: i32, date: const u8[:]) {
-    start(out, status, date, false, 1);
-    finish(out, "Content-Length: ", "", false);
+    status_fields(out, status, date, false, 1);
+    write_body(out, "Content-Length: ", "", false);
 }
 
-// The status line and the fields every response has.
-fn start<A>(out: A&, status: i32, date: const u8[:], keep_alive: bool, minor: i32) {
-    out.append(status_line(status));
+fn status_fields<A>(out: A&, status: i32, date: const u8[:], keep_alive: bool, minor: i32) {
+    let line = status_line(status);
+    if line.len > 0 {
+        out.append(line);
+    } else {
+        // A status without a reason phrase here gets an empty one (RFC 9112
+        // §4).
+        out.append("HTTP/1.1 ");
+        format(out, status);
+        out.append(" \r\nServer: goose\r\nDate: ");
+    }
     out.append(date);
     out.append(if !keep_alive { "\r\nConnection: close\r\n" }
                else if minor == 0 { "\r\nConnection: keep-alive\r\n" }
                else { "\r\n" });
 }
 
-// The body's fields, the blank line, and the body unless head_only. fields
-// holds every field before the length's value, ending in "Content-Length: ",
-// so that they take one append.
-fn finish<A>(out: A&, fields: const u8[:], body: const u8[:], head_only: bool) {
+fn write_body<A>(out: A&, fields: const u8[:], body: const u8[:], head_only: bool) {
     out.append(fields);
     format(out, body.len);
     out.append("\r\n\r\n");
     if !head_only { out.append(body); }
 }
 
-// The status line and the fields up to the Date field's value.
+// The status line and the fields up to the Date field's value, or "" for a
+// status not listed here. 1xx, 204, and 304 responses are framed as any
+// other, with a Content-Length, which is task 013's to correct.
 fn status_line(status: i32) -> const u8[:] {
     match status {
         200 => "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: ",
+        201 => "HTTP/1.1 201 Created\r\nServer: goose\r\nDate: ",
+        202 => "HTTP/1.1 202 Accepted\r\nServer: goose\r\nDate: ",
+        204 => "HTTP/1.1 204 No Content\r\nServer: goose\r\nDate: ",
+        301 => "HTTP/1.1 301 Moved Permanently\r\nServer: goose\r\nDate: ",
+        302 => "HTTP/1.1 302 Found\r\nServer: goose\r\nDate: ",
+        303 => "HTTP/1.1 303 See Other\r\nServer: goose\r\nDate: ",
+        304 => "HTTP/1.1 304 Not Modified\r\nServer: goose\r\nDate: ",
+        307 => "HTTP/1.1 307 Temporary Redirect\r\nServer: goose\r\nDate: ",
+        308 => "HTTP/1.1 308 Permanent Redirect\r\nServer: goose\r\nDate: ",
         400 => "HTTP/1.1 400 Bad Request\r\nServer: goose\r\nDate: ",
+        401 => "HTTP/1.1 401 Unauthorized\r\nServer: goose\r\nDate: ",
+        403 => "HTTP/1.1 403 Forbidden\r\nServer: goose\r\nDate: ",
         404 => "HTTP/1.1 404 Not Found\r\nServer: goose\r\nDate: ",
         405 => "HTTP/1.1 405 Method Not Allowed\r\nServer: goose\r\nDate: ",
         408 => "HTTP/1.1 408 Request Timeout\r\nServer: goose\r\nDate: ",
+        409 => "HTTP/1.1 409 Conflict\r\nServer: goose\r\nDate: ",
+        410 => "HTTP/1.1 410 Gone\r\nServer: goose\r\nDate: ",
+        411 => "HTTP/1.1 411 Length Required\r\nServer: goose\r\nDate: ",
         413 => "HTTP/1.1 413 Content Too Large\r\nServer: goose\r\nDate: ",
         414 => "HTTP/1.1 414 URI Too Long\r\nServer: goose\r\nDate: ",
+        415 => "HTTP/1.1 415 Unsupported Media Type\r\nServer: goose\r\nDate: ",
+        422 => "HTTP/1.1 422 Unprocessable Content\r\nServer: goose\r\nDate: ",
+        429 => "HTTP/1.1 429 Too Many Requests\r\nServer: goose\r\nDate: ",
         431 => "HTTP/1.1 431 Request Header Fields Too Large\r\nServer: goose\r\nDate: ",
+        500 => "HTTP/1.1 500 Internal Server Error\r\nServer: goose\r\nDate: ",
         501 => "HTTP/1.1 501 Not Implemented\r\nServer: goose\r\nDate: ",
+        502 => "HTTP/1.1 502 Bad Gateway\r\nServer: goose\r\nDate: ",
+        503 => "HTTP/1.1 503 Service Unavailable\r\nServer: goose\r\nDate: ",
         505 => "HTTP/1.1 505 HTTP Version Not Supported\r\nServer: goose\r\nDate: ",
-        _ => "HTTP/1.1 500 Internal Server Error\r\nServer: goose\r\nDate: ",
+        _ => "",
     }
 }
 
-// The object /json serializes for each request, as TechEmpower's JSON test
-// asks.
-struct Message { message: const u8[:] }
-
-fn json_object<A>(out: A&, m: Message) {
-    out.append("{\"message\":");
-    json_string(out, m.message);
-    out.push('}');
-}
-
+// A JSON string for s, quotes included.
 fn json_string<A>(out: A&, s: const u8[:]) {
     out.push('"');
     for c in s {

@@ -1,7 +1,7 @@
-// Unit tests for src/http.goose: the request parser, the Date header, and
-// the responses. scripts/test-unit.sh runs them through TinyCC.
+// Unit tests for the package's message.goose: the request parser, the Date
+// header, and the responses. scripts/test-unit.sh runs them through TinyCC.
 import std;
-import http;
+import http from "../";
 
 let GET = "GET /plaintext HTTP/1.1\r\nHost: x\r\n\r\n";
 
@@ -226,13 +226,6 @@ fn test_chunked() {
 
 let DATE = "Sat, 10 Oct 2026 12:00:00 GMT";
 
-// The response respond writes for a request, whose body follows its head.
-fn response(text: const u8[:], out: u8[>..]&) -> bool {
-    let r, s = http::parse(text);
-    assert(s == 200);
-    return http::respond(out, r, text[r.len..], DATE);
-}
-
 fn same(got: const u8[:], want: const u8[:]) {
     if got != want {
         print("got:\n", got, "\nwant:\n", want);
@@ -240,51 +233,38 @@ fn same(got: const u8[:], want: const u8[:]) {
     }
 }
 
-fn test_respond() {
+// A handler's writers, into a reply as the loops make one.
+fn test_reply() {
     var out: u8[>..] = [];
-    assert(response(GET, out));
-    same(out, "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Type: text/plain\r\nContent-Length: 13\r\n\r\nHello, World!");
+    var keep = true;
+    http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false },
+                  201, "text/plain", "made");
+    same(out, "HTTP/1.1 201 Created\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Type: text/plain\r\nContent-Length: 4\r\n\r\nmade");
 
+    // A field of the handler's own, a status with no reason phrase, and a
+    // handler that closes the connection.
     out.clear();
-    assert(response("GET /json?x=1 HTTP/1.1\r\nHost: x\r\n\r\n", out));
-    same(out, "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Type: application/json\r\nContent-Length: 27\r\n\r\n{\"message\":\"Hello, World!\"}");
+    keep = false;
+    let r = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false };
+    http::start(r, 299);
+    http::field(r, "X-Thing", "a b");
+    http::finish(r, "Content-Length: ", "hi");
+    same(out, "HTTP/1.1 299 \r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nConnection: close\r\nX-Thing: a b\r\nContent-Length: 2\r\n\r\nhi");
 
+    // HEAD gets the body's fields without the body, and HTTP/1.0 kept alive
+    // says so.
     out.clear();
-    assert(response("HEAD /plaintext HTTP/1.1\r\nHost: x\r\n\r\n", out));
-    same(out, "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Type: text/plain\r\nContent-Length: 13\r\n\r\n");
+    keep = true;
+    http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 0, head: true },
+                  200, "a/b", "body");
+    same(out, "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nConnection: keep-alive\r\nContent-Type: a/b\r\nContent-Length: 4\r\n\r\n");
 
+    // A handler clears keep_alive through its copy of the reply.
+    keep = true;
     out.clear();
-    assert(!response("GET /nope HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n", out));
-    same(out, "HTTP/1.1 404 Not Found\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
-
-    out.clear();
-    assert(response("POST /json HTTP/1.0\r\nConnection: keep-alive\r\nContent-Length: 2\r\n\r\n", out));
-    same(out, "HTTP/1.1 405 Method Not Allowed\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nConnection: keep-alive\r\nAllow: GET, HEAD\r\nContent-Length: 0\r\n\r\n");
-
-    // HttpArena's endpoints.
-    out.clear();
-    assert(response("GET /baseline11?a=13&b=42 HTTP/1.1\r\nHost: x\r\n\r\n", out));
-    same(out, "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\n55");
-    out.clear();
-    assert(response("POST /baseline11?b=-50&x&a=1 HTTP/1.1\r\nHost: x\r\nContent-Length: 4\r\n\r\n 20\n", out));
-    same(out[^3..], "-29");
-    out.clear();
-    assert(response("POST /baseline11 HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\nzz", out));
-    same(out[^1..], "0");
-    out.clear();
-    assert(response("PUT /baseline11 HTTP/1.1\r\nHost: x\r\n\r\n", out));
-    same(out, "HTTP/1.1 405 Method Not Allowed\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nAllow: GET, HEAD, POST\r\nContent-Length: 0\r\n\r\n");
-    out.clear();
-    assert(response("GET /pipeline HTTP/1.1\r\nHost: x\r\n\r\n", out));
-    same(out[^2..], "ok");
-    out.clear();
-    assert(response("GET /bytes?n=12 HTTP/1.1\r\nHost: x\r\n\r\n", out));
-    same(out, "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Type: application/octet-stream\r\nContent-Length: 12\r\n\r\n012345678901");
-    // Larger than the write buffer, which grows to take it.
-    out.clear();
-    assert(response("GET /bytes?n=50000 HTTP/1.1\r\nHost: x\r\n\r\n", out));
-    same(out[^50017..^49997], "Length: 50000\r\n\r\n012");
-    same(out[^10..], "0123456789");
+    let close = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false };
+    close.keep_alive = false;
+    assert(!keep);
 
     // A limited array takes responses as the server's write buffer does.
     var wbuf: u8[..256] = [];
@@ -303,6 +283,6 @@ fn main() {
     test_refused();
     test_chunked();
     test_date();
-    test_respond();
+    test_reply();
     print("test_http: ok");
 }

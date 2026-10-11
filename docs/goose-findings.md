@@ -395,3 +395,26 @@ Windows rebuilds as it should.
 
 Workaround: `scripts/build.sh` deletes the native part's stamp before each build, which
 compiles the shim again, about a second.
+
+## `thread_spawn` doesn't take a function value bound to a `thread_fn`
+
+Found on `efe3155`, task 011. Status: open
+
+A generic function can't spawn the `thread_fn` it was passed. Spec §7.6 lets a function
+value be "a function name (including a bound generic function parameter)", and §11.2's
+`thread_spawn(worker, args…)` takes a `thread_fn`'s name, but the two don't combine:
+
+    thread_fn worker(n: i32) { print("worker ", n); }
+
+    fn spawn<W>(n: i32) -> i64 { thread_spawn(W, n) }
+
+    fn main() { thread_wait(spawn(1, worker)); }
+
+    min.goose:3: error: thread_spawn's first argument names a thread_fn
+
+Expected: `W` is bound to `worker`, a `thread_fn`, so the spawn is the same as
+`thread_spawn(worker, n)`. It's what task 011 planned as `http::spawn_workers(worker,
+cfg)`.
+
+Workaround: the package gives the worker count, `http::worker_count(cfg)`, and the
+program writes the spawn loop itself.

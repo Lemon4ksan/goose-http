@@ -8,8 +8,8 @@ after moving the pin.
 
 ## Where the shim goes
 
-The shim is plain C files that a root file's sidecar names, `c_sources_linux =
-["../shim/net.c"];` in `src/main.build`. `goose build` compiles each with the C compiler
+The shim is plain C files that the package's sidecar names, `c_sources_linux =
+["shim/net.c", "shim/uring.c"];` in `http.build`. `goose build` compiles each with the C compiler
 and links it with the program (the pinned checkout's `docs/packages.md`). Goose emits a
 prototype for each `extern fn`, such as `int64_t net_recv(int32_t, sl_u8);`, from the
 declaration, and the shim defines the function under that name.
@@ -18,13 +18,13 @@ A shim file is its own translation unit, so:
 
 - It sees none of the generated C. It declares the layouts it shares with Goose itself,
   from the table below, such as `typedef struct { uint8_t *data; int64_t len; }
-  net_bytes;` for a `u8[:]`, and a packed struct for `sys::Event`.
+  net_bytes;` for a `u8[:]`, and a packed struct for `http::Event`.
 - It can't reach the runtime, so it can't append to a `u8[>..]&` (`gs_bld_append`).
   `net_strerror` writes into a `u8[:]` and returns the length instead.
 - It sets its own feature-test macros: `shim/net.c` starts with `#define _GNU_SOURCE`.
 - The C compiler doesn't inline its functions into the program's C.
 - MSVC compiles C as C89 with extensions unless asked for more, and the shim uses C11's
-  `_Static_assert`, so `src/main_uring.build` passes `c_flags_msvc = ["/std:c11"]`.
+  `_Static_assert`, so `http.build` passes `c_flags_msvc = ["/std:c11"]`.
   MSVC has no `__attribute__((packed))`: a shim built by it, such as `shim/iocp.c`,
   packs a struct with `#pragma pack(push, 1)`, which gcc and clang accept too, and
   checks the size with `_Static_assert`.

@@ -26,8 +26,9 @@ until the task named beside it confirms or replaces it.
   C calling C, so Goose still never runs on a thread it didn't start.
   Anything that needs a callback, such as llhttp, libuv, or a C HTTP server, is out
   (confirmed by task 002, 2026-10-10). Details:
-  - `goose build` compiles the shim as C files of their own, which each root file's
-    sidecar names (`src/main.build`), and links them (task 010, 2026-10-11). The C sees
+  - `goose build` compiles the shim as C files of their own, which the package's
+    sidecar names (`http.build`), and links them (task 010, 2026-10-11; a package's
+    sidecar since task 011). The C sees
     none of the generated C, so it spells out the layouts it shares with Goose. Headers
     spliced in with `--include` were dropped: they needed `-D_GNU_SOURCE` from the
     command line and an `-o` with a directory, two compiler findings. A sidecar's
@@ -35,7 +36,7 @@ until the task named beside it confirms or replaces it.
     conditional compilation in Goose.
   - The shim owns the kernel structures whose layout varies by architecture.
     `epoll_wait` fills a local `struct epoll_event` array, which is packed on x86-64 and
-    padded on arm64, and copies it into `sys::Event`, a struct of the program's own.
+    padded on arm64, and copies it into `http::Event`, a struct of the package's own.
   - `send` passes `MSG_NOSIGNAL`, so a write to a closed connection is `-EPIPE`, not a
     `SIGPIPE` that ends the process. There is no signal handler to install. Windows has
     no `SIGPIPE`, and such a write is `-ECONNRESET` there.
@@ -96,7 +97,7 @@ until the task named beside it confirms or replaces it.
   - Lines end in CRLF only; a bare LF is 400. HTTP/1.1 needs one `Host`.
   - Limits: a 4 KB request line (414), an 8 KB head or 100 fields (431), and a 1 MB
     body (413). The head and body limits, the timeouts, and the buffer sizes are
-    settings (`Config`); the rest are constants in `src/http.goose`.
+    settings (`Config`); the rest are constants in `message.goose`.
   - A refused request closes the connection after the response. The server shuts down
     its side and drops what the client still sends for up to 2 s, so the refusal isn't
     lost to a reset.
@@ -113,9 +114,9 @@ until the task named beside it confirms or replaces it.
 
 ### The io_uring loop (task 005)
 
-The io_uring loop (`src/uring.goose`) is the default on Linux, and the epoll loop
-stays buildable and tested as `LOOP=epoll` (decided 2026-10-11); `src/app.goose` holds
-what both share. Task 005's matrix on the x86 machine of `docs/results.md` had the
+The io_uring loop (`http::serve`, `uring.goose`) is the default on Linux, and the epoll
+loop (`http::serve_epoll`, `epoll.goose`) stays buildable and tested as `LOOP=epoll`
+(decided 2026-10-11); `http.goose` holds what both share. Task 005's matrix on the x86 machine of `docs/results.md` had the
 io_uring loop 11% to 21% ahead in every cell, with the server's CPUs saturated. Against
 it:
 
@@ -164,26 +165,29 @@ puts the epoll loop ahead. On Windows the io_uring loop is the only one, over
 
 ### The platform and its error codes (task 006)
 
-The sidecar chooses the platform, because the spec has no conditional compilation, and
-`scripts/build.sh` chooses the root file (2026-10-11):
+The package's sidecar, `http.build`, chooses the platform's shim, because the spec has
+no conditional compilation, and the program chooses the loop by calling it (2026-10-11):
 
-| Platform | Root file | Loop | Shim |
+| Platform | `http::serve` | `http::serve_epoll` | Shim |
 |---|---|---|---|
-| Linux | `src/main_uring.goose` (default) or `src/main.goose` | io_uring or epoll | `shim/net.c`, and `shim/uring.c` for io_uring |
-| macOS | `src/main.goose` | epoll | `shim/kqueue.c` |
-| Windows | `src/main_uring.goose` | io_uring | `shim/net_win.c`, `shim/iocp.c` |
+| Linux | io_uring | epoll | `shim/net.c`, `shim/uring.c` |
+| macOS | fails with `ENOSYS` | kqueue | `shim/kqueue.c`, `shim/ring_none.c` |
+| Windows | IOCP | fails with `ENOSYS` | `shim/net_win.c`, `shim/iocp.c` |
 
-Each loop runs unchanged on every platform it builds for. `scripts/build.sh` refuses
-`LOOP=uring` off Linux, `LOOP=iocp` off Windows, and `LOOP=epoll` on Windows.
+Each loop runs unchanged on every platform it builds for. The benchmark server links
+both, and `LOOP` picks one: at run time, or at build time for its default, where
+`scripts/build.sh` builds `server/server.goose` (uring) or `server/server_epoll.goose`
+(epoll), and refuses `LOOP=uring` off Linux, `LOOP=iocp` off Windows, and `LOOP=epoll` on
+Windows.
 
 On macOS:
 
-- `shim/kqueue.c` defines the same C functions as `shim/net.c`, so `src/sys.goose` binds
+- `shim/kqueue.c` defines the same C functions as `shim/net.c`, so `sys.goose` binds
   either. `IN` and `OUT` become `EVFILT_READ` and `EVFILT_WRITE`, `ET` becomes
   `EV_CLEAR`, and `EV_EOF` is reported as `RDHUP` on the read filter and `HUP` on the
-  write filter. The events are copied into `sys::Event`, as on Linux, because `struct
+  write filter. The events are copied into `http::Event`, as on Linux, because `struct
   kevent` is 32 bytes on arm64.
-- The shim merges the events of one fd within a wait into one `sys::Event`, as epoll
+- The shim merges the events of one fd within a wait into one `http::Event`, as epoll
   reports them. kqueue reports each filter apart, and the loop frees a connection's slot on
   the event that closes it, so a second event for it in the same batch would drive the
   freed slot. Without the merge, 3,000 connections at once hung.
@@ -199,7 +203,7 @@ On macOS:
 On Windows ([task 006.02](../../tasks/006-kqueue-iocp/02-iocp-windows.md) has the
 details):
 
-- `shim/iocp.c` implements `src/ring.goose` over a completion port. IOCP completes one
+- `shim/iocp.c` implements `ring.goose` over a completion port. IOCP completes one
   operation per request, so a multishot accept is an `AcceptEx` posted again after each
   completion, and a multishot receive is a zero-byte `WSARecv` kept posted, whose
   completion the shim follows with one non-blocking `recv` into a free ring buffer. So
@@ -217,7 +221,7 @@ details):
   any other address, with `SO_EXCLUSIVEADDRUSE`, so a second server gets `EADDRINUSE`,
   and `SOMAXCONN_HINT`, because a plain backlog stops at 200.
 
-The constants in `src/sys.goose` are the project's own error codes, Linux's errno values
+The constants in `sys.goose` are the project's own error codes, Linux's errno values
 on every platform, as libuv's are the negated errno on Unix. `shim/net.c` passes errno
 through, and its `_Static_assert`s pin the values. `shim/kqueue.c` translates: codes 1 to
 34 are equal on both systems, a table maps macOS's codes from 35 up to Linux's (`EAGAIN`

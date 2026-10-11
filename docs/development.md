@@ -162,8 +162,8 @@ Run these in WSL, or on macOS ([below](#macos)). They work from any directory.
 
 | Command | What it does |
 |---|---|
-| `scripts/build.sh` | Builds the server into `build/server` with `goose build`, at `-O2` for Goose and gcc: on Linux `src/main_uring.goose`, the io_uring loop, or with `LOOP=epoll` `src/main.goose`, the epoll loop. |
-| `scripts/test-unit.sh` | Runs each `src/test_*.goose` through TinyCC ([below](#test-the-http-server)). |
+| `scripts/build.sh` | Builds the benchmark server into `build/server` with `goose build`, at `-O2` for Goose and gcc: on Linux `server/server.goose`, which serves with the io_uring loop, or with `LOOP=epoll` `server/server_epoll.goose`, which serves with the epoll loop. |
+| `scripts/test-unit.sh` | Runs each `test/test_*.goose` and `server/test_*.goose` through TinyCC ([below](#test-the-http-server)). |
 | `scripts/test-http.sh` | Tests the HTTP server of `build/server` ([below](#test-the-http-server)). |
 | `scripts/test-echo.sh [server]` | Tests the echo servers of `build/server`, or of another command ([below](#test-the-echo-servers)). |
 | `bench/build.sh` | Builds the Goose server and the competing servers into `build/bench/` ([below](#benchmark)). |
@@ -172,16 +172,19 @@ Run these in WSL, or on macOS ([below](#macos)). They work from any directory.
 `build.sh` runs `goose build --cc gcc --standalone`. gcc builds a faster server than
 clang (task 008); `CC` picks another. `--standalone` puts the runtime in the program's C
 file, so gcc can inline the runtime's functions into the server, as before task 010. The
-root file's sidecar, `src/main.build` or `src/main_uring.build`, names the C in `shim/`
-to compile and link for each platform (`shim/net.c` on Linux, `shim/kqueue.c` on macOS),
-and liburing for the io_uring loop, which needs Linux 6.1
-([architecture](architecture/README.md#the-io_uring-loop-task-005)). `goose build` keeps
-the generated C under `~/.goose/build/prog/`; `goose build -v` prints the commands with
-their paths.
+server imports the package from `../`, whose sidecar, `http.build`, names the C in
+`shim/` to compile and link for each platform (`shim/net.c` and `shim/uring.c` on Linux,
+`shim/kqueue.c` on macOS), and liburing on Linux, for the io_uring loop, which needs
+Linux 6.1 ([architecture](architecture/README.md#the-io_uring-loop-task-005)). `goose
+build` keeps the generated C under `~/.goose/build/prog/`, and the package's compiled C
+under `~/.goose/build/pkg/local/`; `goose build -v` prints the commands with their
+paths. Before each build, `build.sh` deletes the stamp that marks the package's C as
+built: on Linux, `goose build` doesn't see a change to it
+([findings](goose-findings.md#goose-build-on-linux-never-sees-a-sidecars-c-change)).
 
 TinyCC can't place thread-local storage, so it refuses to run any program that can reach
-`thread_spawn`, even when the spawn isn't taken. `src/main.goose` is one, so the server
-runs only through `build.sh`. The unit tests are root files of their own, which TinyCC
+`thread_spawn`, even when the spawn isn't taken. The server's root files are such
+programs, so the server runs only through `build.sh`. The unit tests are root files of their own, which TinyCC
 runs.
 
 The program takes a mode and a port (default 8080):
@@ -189,14 +192,16 @@ The program takes a mode and a port (default 8080):
 ```sh
 build/server http 8080            # the HTTP server, one worker per hardware thread
 WORKERS=4 build/server http 8080  # with 4 workers
+LOOP=epoll build/server http 8080 # with the epoll loop, whichever root file was built
 build/server echo-blocking 8080   # the echo servers of task 002: one client at a time
 build/server echo-epoll 8080      # one edge-triggered epoll loop
 ```
 
 ### Test the HTTP server
 
-`scripts/test-unit.sh` runs `src/test_http.goose`, which asserts what `src/http.goose`
-does with bytes alone: the parser on good, partial, pipelined, and refused requests, the
+`scripts/test-unit.sh` runs `test/test_http.goose`, which asserts what the package's
+`message.goose` does with bytes alone, and `server/test_routes.goose`, the server's
+routes: the parser on good, partial, pipelined, and refused requests, the
 `Date` header against dates from Python's `email.utils`, and the exact bytes of each
 kind of response.
 
@@ -607,8 +612,8 @@ Traps in Git Bash:
 The Windows compiler typechecks the whole program without running it:
 
 ```powershell
-..\goose\build\Release\goose.exe --check src\main.goose
-..\goose\build\Release\goose.exe --check src\test_http.goose
+..\goose\build\Release\goose.exe --check server\server.goose
+..\goose\build\Release\goose.exe --check test\test_http.goose
 ```
 
 `--check` and `-o out.c` don't compile the generated C, so the Linux-only C in `shim/` is

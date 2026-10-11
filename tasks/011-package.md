@@ -34,7 +34,10 @@ The design, proposed:
 
   A prototype at `efe3155` ran this shape: a package from a directory, with sidecar C,
   whose generic loop a program's `thread_fn` called with a block.
-  `http::spawn_workers` taking a `thread_fn` as a function value is untested.
+  `http::spawn_workers` taking a `thread_fn` as a function value doesn't compile at
+  `efe3155`: `thread_spawn` rejects a function value bound to a `thread_fn`
+  (`docs/goose-findings.md`). So the program spawns its workers itself, with
+  `http::worker_count(cfg)` (2026-10-11), and the loops take a `Config`, not a port.
 - The routes in `http::respond` today, TechEmpower's and HttpArena's, move into the
   benchmark server's handler, a program in `server/` that imports the package from
   `"../"`. The parser, the response helpers, and the date stay in the package.
@@ -99,8 +102,8 @@ http::serve(cfg) { req, body, out => ... }
 
 ## Acceptance criteria
 
-- [ ] `http.goose` and `http.build` at the root, every module in `namespace http`
-- [ ] `http::serve` and `http::serve_epoll` take the program's handler; the benchmark
+- [x] `http.goose` and `http.build` at the root, every module in `namespace http`
+- [x] `http::serve` and `http::serve_epoll` take the program's handler; the benchmark
       server in `server/` serves TechEmpower's and HttpArena's routes through either,
       picked by `LOOP`
 - [ ] `http::serve` runs on Linux, macOS, and Windows, and on Linux without io_uring

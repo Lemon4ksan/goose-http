@@ -1,9 +1,10 @@
 # The Goose server as an HttpArena entry. bench/httparena.sh copies this
-# directory into HttpArena's frameworks/goose/ with the server's src/, shim/,
-# and scripts/build.sh beside it.
+# directory into HttpArena's frameworks/goose/ with the package (*.goose,
+# http.build, shim/), the server's server/, and scripts/build.sh beside it.
 FROM ubuntu:26.04 AS build
 RUN apt-get update -qq && \
-    apt-get install -y -qq --no-install-recommends ca-certificates git cmake ninja-build gcc g++ && \
+    apt-get install -y -qq --no-install-recommends ca-certificates git cmake ninja-build gcc g++ \
+        liburing-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # The Goose pin in README.md.
@@ -14,13 +15,18 @@ RUN git init -q /goose && cd /goose && \
     cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && \
     cmake --build build
 
-COPY src /server/src
+COPY *.goose http.build /server/
 COPY shim /server/shim
+COPY server /server/server
 COPY scripts/build.sh /server/scripts/build.sh
 # The epoll loop: Docker's default seccomp profile blocks io_uring.
 RUN GOOSE=/goose/build/goose LOOP=epoll /server/scripts/build.sh
 
 FROM ubuntu:26.04
+# The package links liburing on Linux, whichever loop the server runs.
+RUN apt-get update -qq && \
+    apt-get install -y -qq --no-install-recommends liburing2 && \
+    rm -rf /var/lib/apt/lists/*
 COPY --from=build /server/build/server /server
 EXPOSE 8080
 # One worker per CPU of the container's cpuset, which nproc reads.

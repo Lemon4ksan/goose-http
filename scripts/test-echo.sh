@@ -1,5 +1,5 @@
 #!/bin/sh
-# Starts each echo server in src/echo.goose and tests it with nc and
+# Starts each echo server in server/echo.goose and tests it with nc and
 # scripts/echo_client.py: a short echo, clients that hang up while the server
 # writes, and many clients at once. Fails on the first error, or if a server
 # died along the way.

@@ -25,7 +25,7 @@ import time
 
 HOST = "127.0.0.1"
 SERVER_NAME = os.environ.get("SERVER_NAME", "goose")
-# The server's request_ms and idle_ms (Config, src/app.goose), in seconds.
+# The server's request_ms and idle_ms (http::Config, http.goose), in seconds.
 REQUEST_TIMEOUT = 10
 # What TechEmpower's load generator sends with each request.
 TFB_HEADERS = (

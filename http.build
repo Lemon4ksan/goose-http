@@ -1,0 +1,10 @@
+// The C the package calls, which goose build compiles and links into every program
+// that imports it: each platform's shim (docs/architecture/README.md).
+c_sources_linux = ["shim/net.c", "shim/uring.c"];
+c_libs_linux = ["uring"];
+c_sources_macos = ["shim/kqueue.c", "shim/ring_none.c"];
+c_sources_windows = ["shim/net_win.c", "shim/iocp.c"];
+c_libs_windows = ["ws2_32", "mswsock"];
+// MSVC compiles C as C89 with extensions unless asked; the shim uses C11's
+// _Static_assert.
+c_flags_msvc = ["/std:c11"];

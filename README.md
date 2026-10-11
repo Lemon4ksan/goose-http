@@ -65,9 +65,15 @@ Windows as a benchmark platform.
 ## Layout
 
 ```text
-src/           the Goose program
-shim/          the C the server calls, linked by goose build: sockets, epoll, io_uring,
+http.goose     the package's entry: the settings, the errors, and what both loops share
+*.goose        its other modules, all namespace http: the parser and the response
+               writers (message.goose), the loops (uring.goose, epoll.goose), and the
+               shim's functions (sys.goose, ring.goose)
+http.build     the package's sidecar: each platform's shim
+shim/          the C the package calls, linked by goose build: sockets, epoll, io_uring,
                and kqueue (macOS) and IOCP (Windows) in their place
+server/        the benchmark server, a program that imports the package from "../"
+test/          the package's unit tests
 bench/         the competing servers, the load scripts, and the recorded results
 scripts/       build and run scripts
 docs/          architecture, development setup, and the Goose findings log
