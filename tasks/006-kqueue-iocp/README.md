@@ -1,6 +1,6 @@
 # 006: kqueue on macOS and BSD, IOCP on Windows
 
-Status: todo (asked for by Kait, 2026-10-10; after task 004)
+Status: todo (asked for 2026-10-10; after task 004)
 
 Run the server on macOS and the BSDs through kqueue, and on Windows through I/O
 completion ports. Linux stays the benchmark platform (`docs/architecture/README.md`), so

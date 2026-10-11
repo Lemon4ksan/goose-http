@@ -72,7 +72,7 @@ Done, at Goose `e7792d7`:
   including all 1,047 split offsets of `validate-frag.py`.
 - `bench/httparena.sh validate` and `run` drive HttpArena's harness at `0720ee5` under
   Docker Desktop; the comment at its top lists what it changes in the checkout.
-- odin-http is out of `bench/run.sh`'s default `SERVERS` (Kait, 2026-10-10): it matches
+- odin-http is out of `bench/run.sh`'s default `SERVERS` (2026-10-10): it matches
   hyper in JSON and reaches 5-8% of Goose in plaintext, as in task 004. `bench/build.sh`
   still builds it.
 - A full matrix of Goose alone, before the change below: `bench/results/2026-10-10-baseline`.

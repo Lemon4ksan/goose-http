@@ -1,6 +1,6 @@
 # 011: goose-http as a Goose package
 
-Status: todo (after task 010; asked for by Kait, 2026-10-11)
+Status: todo (after task 010; asked for 2026-10-11)
 
 Goose `efe3155` has packages: a program declares one in its root file,
 `import http from "github.com/kaitk/goose-http@v0.1.0";`, and the compiler fetches the
