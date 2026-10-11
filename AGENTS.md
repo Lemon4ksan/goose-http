@@ -16,7 +16,9 @@
 Follow the recorded decisions; if a change contradicts one, update the doc in the same
 change or ask first. Record setup facts and environment traps you find (paths, shell
 quirks, ports, encodings) in `docs/development.md`, not in agent memory, so the next
-agent finds them.
+agent finds them. Docs and commits name no people: date a decision or a request
+(`(2026-10-11)`), and describe the setup without anyone's machine, checkouts, or home
+directory.
 
 ## Goose, not an addition to Goose
 
@@ -24,7 +26,7 @@ agent finds them.
   move the pin when it lags (`docs/development.md`, "Move the pin").
 - Don't edit the Goose checkout. When the compiler rejects something it should accept,
   miscompiles, or the stdlib lacks something, reduce it to a minimal program, record it
-  in `docs/goose-findings.md`, and work around it here. Tell Kait about blockers.
+  in `docs/goose-findings.md`, and work around it here. Report blockers to the maintainer.
 - Write Goose the way the pinned checkout's `samples/` and `stdlib/` do: flat data,
   references into growing arrays, `return ... from` for errors, untyped parameters for
   generics.

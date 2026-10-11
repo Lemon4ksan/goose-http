@@ -24,7 +24,7 @@ The spec has no conditional compilation, so a root file's sidecar picks each pla
 shim (`c_sources_linux`, `_macos`, and `_windows`, task 010), and the build script picks
 the root file. Conditional compilation in Goose
 would let one root file serve every platform; that is a stretch goal, and an addition to
-Goose, so it starts as a findings entry and a question to Kait.
+Goose, so it starts as a findings entry and a question for the maintainer.
 
 Open question for the start of the task: whether the Windows build works through the
 native `goose.exe` and MSVC, which `docs/development.md` so far uses only for `--check`.
