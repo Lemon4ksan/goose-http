@@ -333,15 +333,16 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: co
         }
         let blen = if req.chunked && whole { dechunk(rbuf[b0..b0 + wire]) } else { wire };
         off = b0 + wire;
-        var keep = req.keep_alive;
-        var stream = Stream { .. };
-        var st = fresh;
+        // The request's state goes straight into c's slot, whose stream no
+        // response holds open between requests.
+        x.keep_alive = req.keep_alive;
+        x.state = fresh;
         let before = wbuf.len;
-        H(Event { kind: REQUEST, req: req, data: rbuf[b0..b0 + blen], whole: whole }, st,
-          Reply { buf: wbuf, date: date, keep_alive: keep, minor: req.minor, head: req.method == "HEAD",
-                  stream: stream });
+        H(Event { kind: REQUEST, req: req, data: rbuf[b0..b0 + blen], whole: whole }, x.state,
+          Reply { buf: wbuf, date: date, keep_alive: x.keep_alive, minor: req.minor,
+                  head: req.method == "HEAD", stream: x.stream });
         done++;
-        if whole && !stream.open {
+        if whole && !x.stream.open {
             if wbuf.len == before {
                 // The handler didn't answer.
                 refuse(wbuf, 500, date);
@@ -349,7 +350,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: co
                 break;
             }
             if req.expect { x.continued = false; }
-            if !keep {
+            if !x.keep_alive {
                 close();
                 break;
             }
@@ -361,13 +362,10 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: co
                  else { BodyReader { place: LENGTH, left: req.body } };
         x.skip = false;
         x.taken = 0;
-        x.answered = !stream.open && wbuf.len > before;
+        x.answered = !x.stream.open && wbuf.len > before;
         x.expect = req.expect;
-        x.keep_alive = keep;
         x.head = req.method == "HEAD";
         x.minor = req.minor;
-        x.stream = stream;
-        x.state = st;
         if x.expect && !x.answered && !x.stream.open && !x.continued {
             wbuf.append(interim());
             x.continued = true;

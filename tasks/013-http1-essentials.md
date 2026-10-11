@@ -137,12 +137,14 @@ change the per-connection state, in both of task 011's loops, `http::serve` and
     instructions per request until the wrapper's checks went into one inline function
     with a single return.
 
-Open: the streaming loop costs 50-60 user instructions per request on the benchmark
-routes. `bench/instructions.sh`, 2 runs each, as above: 1,531-1,545 (epoll) and
-1,560-1,570 (uring) against 1,461-1,485 and 1,512-1,514 at `1e9dddb`, with cycles per
-request within 1%. Isolating parts of it: the `Expect` field's check in `parse` is
-about 14, and the server's new routes 10-25; the rest is the loop's per-request
-state (the response's `Stream`, the handler's state, the checks for a body or a
+Open: the streaming loop costs about 50 user instructions per request on the
+benchmark routes. `bench/instructions.sh`, 2 runs each, as above, after the request's
+state went straight into the slot: 1,511-1,524 (epoll) and 1,560-1,571 (uring),
+against 1,460-1,484 and 1,513-1,517 at `1e9dddb`, with cycles per request within 1-2%.
+`serve(cfg)`, the wrapper, measured the same as the server's own streaming handler:
+1,526-1,531 and 1,565-1,571. Isolating parts of it before that: the `Expect` field's
+check in `parse` is about 14, and the server's new routes 10-25; the rest is the
+loop's per-request state (the handler's state, and the checks for a body or a
 response still open).
 
 Next, in order:
