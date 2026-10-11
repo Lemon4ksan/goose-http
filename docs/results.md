@@ -143,6 +143,30 @@ tokio 630,304, hyper 818,592, may-minihttp 931,456, and dusty 1,769,856. The Goo
 server is 1,081 lines: `src/server.goose`, `src/http.goose`, `src/sys.goose`,
 `src/main.goose`, and `shim/net.h`.
 
+## The package's build
+
+Task 011 made the server a program over the package, with the routes as its handler.
+On the machine above, on 2026-10-11, at `2d61b55` with Goose `fe6c543`, both loops run
+as fast as `1bea5a0`, the last build before it, built fresh beside it with the same
+compiler. `bench/instructions.sh` (as above, 3 runs):
+
+| Build | Instructions per request | In user code | Cycles per request |
+|---|---:|---:|---:|
+| epoll, `2d61b55` | 2,286-2,311 | 1,349-1,364 | 1,888-1,921 |
+| epoll, `1bea5a0` | 2,344-2,355 | 1,407-1,415 | 1,890-1,895 |
+| io_uring, `2d61b55` | 2,370-2,378 | 1,405-1,410 | 1,694-1,701 |
+| io_uring, `1bea5a0` | 2,417-2,439 | 1,453-1,467 | 1,702-1,725 |
+
+`bench/run.sh` with its defaults, `TESTS="plaintext:256 plaintext:1024 json:256"`, 1
+worker on CPU 0 and 4 on CPUs 0-3, 3 runs of 15 s: each loop's median wrk rate is
+within 3% of `1bea5a0`'s in all 6 cells, inside the runs' spreads but for three cells
+where the package's build is 2-3% faster. The epoll loop served 6.01 M requests per
+second in plaintext at 256 connections with 4 workers, and the io_uring loop 7.45 M.
+The cells, and the regression the first build had before its parser and response
+writers were made `inline fn`, are in task 011
+([tasks/011-package.md](../tasks/011-package.md#speed-2026-10-11)); the runs are in
+`bench/results/2026-10-11-package/` and `bench/results/2026-10-11-package-instructions/`.
+
 ## HttpArena's profiles
 
 [HttpArena](https://www.http-arena.com/)'s own harness at `0720ee5`, run by

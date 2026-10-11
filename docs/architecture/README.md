@@ -121,7 +121,8 @@ until the task named beside it confirms or replaces it.
 The io_uring loop (`http::serve`, `uring.goose`) is the default on Linux, and the epoll
 loop (`http::serve_epoll`, `epoll.goose`) stays buildable and tested as `LOOP=epoll`
 (decided 2026-10-11); `http.goose` holds what both share. Task 005's matrix on the x86 machine of `docs/results.md` had the
-io_uring loop 11% to 21% ahead in every cell, with the server's CPUs saturated. Against
+io_uring loop 11% to 21% ahead in every cell, with the server's CPUs saturated, and
+task 011 found 9% to 24% with every shim compiled afresh (2026-10-11). Against
 it:
 
 - In Docker Desktop's VM on an M1 Pro (task 012), the epoll loop led by 4% to 8% in
@@ -144,7 +145,8 @@ puts the epoll loop ahead. On Windows the io_uring loop is the only one, over
   the last one.
 - A multishot accept takes the listener's connections, and a multishot receive per
   connection fills the ring's provided buffers, 256 of 4 KB per worker, as many as a
-  wait's batch of completions, which served as fast as 1,024 with half the peak RSS. A receive
+  wait's batch of completions, which served as fast as 1,024 with half the peak RSS
+  (task 005, and again in task 011 with the shim compiled afresh). A receive
   that finds no buffer left ends, and the loop queues it again.
 - The ring owns every buffer the kernel touches after a call returns. The kernel reads a
   send's bytes and writes a receive's after the call that queued them, and spec §7.10

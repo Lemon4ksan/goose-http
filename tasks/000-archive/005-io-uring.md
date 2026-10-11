@@ -92,3 +92,19 @@ ratio to the epoll loop, and peak RSS:
   (`docs/development.md`), and task 009's run measured only one of them.
 
 The runs are in `bench/results/2026-10-11-uring-matrix/`.
+
+### Rechecked (2026-10-11, task 011)
+
+`goose build` at the pin never recompiles a sidecar's C once a checkout has built it
+([findings](../../docs/goose-findings.md#goose-build-on-linux-never-sees-a-sidecars-c-change)),
+so the runs above may have linked a shim from before a change, such as the provided
+buffers' count at `9291dd6`. Task 011 ran both again with every shim compiled afresh, on
+the same machine, and both held:
+
+- 256 provided buffers served within 1% of 1,024 in each of the three cells above, at
+  half the peak RSS.
+- The io_uring loop led the epoll loop in every cell of `TESTS="plaintext:256
+  plaintext:1024 json:256"`, 1 and 4 workers: by 9% to 20% at `1bea5a0`, before
+  the package, and by 9% to 24% in the package at `2d61b55`.
+
+The numbers and their setup are in task 011's file.

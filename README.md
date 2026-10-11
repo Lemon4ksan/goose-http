@@ -72,9 +72,9 @@ fixed size: no header lookup, bodies read in pieces, or streamed responses yet (
 The package has two loops, and a program picks one by calling it. Goose compiles a
 generic function only where it's called, so the other isn't in the program:
 
-- `http::serve`, the loop to call everywhere: over io_uring on Linux, 11% to 21% faster
-  than the epoll loop in task 005's matrix, at 4 to 5 times its peak RSS (about 10 MB
-  with 4 workers). It needs Linux 6.1, and where `io_uring_setup` fails, as under
+- `http::serve`, the loop to call everywhere: over io_uring on Linux, 9% to 24% faster
+  than the epoll loop in task 011's recheck of task 005's matrix, at 4 to 5 times its
+  peak RSS (about 10 MB with 4 workers). It needs Linux 6.1, and where `io_uring_setup` fails, as under
   Docker's default seccomp profile, it runs over an emulation of the ring on epoll;
   `http::ring_probe()` says why. On Windows it's over I/O completion ports, and on
   macOS over the same emulation on kqueue.

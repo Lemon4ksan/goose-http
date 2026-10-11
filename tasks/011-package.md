@@ -128,19 +128,110 @@ Steps 1 to 7 of the plan are done, each its own commit, with the unit tests,
    every wait at once, and watches `OUT` only while a send waits, as the epoll loop
    does.
 
+9. Goose moved to `fe6c543`, which fixes neither of the two findings this task
+   recorded.
+10. The speed checks, below: the package's builds run as fast as the last build before
+    this task, once the parser, the response writers, and the benchmark's route are
+    `inline fn`.
+
 Not done:
 
-- The speed checks: step 1's `bench/instructions.sh` before and after, against task
-  009's 2,255-2,371 instructions per request for the epoll loop, and step 8's
-  `bench/run.sh` cells against task 010's build. Both wait for the machine to be free
-  of other work. The bounds checks the compiler keeps per request didn't change in
-  steps 1 to 3.
 - macOS: `http::serve` builds over `shim/ring_epoll.c` there, and nobody has run it.
 - On macOS, `shim/kqueue.c`'s table of shared listeners keeps the first worker's fd
   for the listener and never forgets a worker, so a program that calls a loop again
   after one returned dups a closed fd. Each worker would need to leave the table in
   `net_close`, with the table holding a reference of its own.
 - The `v0.1.0` tag, which waits for the maintainer.
+
+## Speed (2026-10-11)
+
+Measured on the machine of `docs/results.md`: Ryzen 7 5800X3D, WSL2 kernel
+6.18.40.1-microsoft-standard-WSL2, Ubuntu 26.04.1, gcc 15.2.0, Goose `fe6c543`. Every
+Goose binary was built after deleting `~/.goose/build/prog/*/native` and
+`~/.goose/build/pkg/local/*/*/stamp`, so none links a shim compiled before a change
+([findings](../docs/goose-findings.md#goose-build-on-linux-never-sees-a-sidecars-c-change)).
+The comparison builds are `1bea5a0`, the last commit before this task, built in a
+copy of its tree at its own path: `goose-pre011` (`LOOP=epoll`) and `goose-pre011-uring`.
+
+### Instructions per request
+
+`bench/instructions.sh` (1 worker on CPU 0, plaintext pipelined 16 deep, 256
+connections, wrk on CPUs 4-15 with 8 threads, `perf stat` for 10 s), 3 runs, the range
+of the three. The first measurement, at `9eb5c0b`, found a regression:
+
+| Build | Instructions per request | In user code | Cycles per request | Requests per second |
+|---|---:|---:|---:|---:|
+| epoll, `9eb5c0b` | 2,548-2,589 | 1,622-1,648 | 2,028-2,056 | 1.66-1.69 M |
+| epoll, `1bea5a0` | 2,318-2,346 | 1,394-1,412 | 1,890-1,900 | 1.79-1.86 M |
+| uring, `9eb5c0b` | 2,630-2,651 | 1,673-1,687 | 1,809-1,827 | 1.91-1.99 M |
+| uring, `1bea5a0` | 2,418-2,458 | 1,457-1,481 | 1,711-1,725 | 2.01-2.05 M |
+
+All of it was user code, about 230 instructions per request in both loops. The
+generated C showed why. Before, Goose inlined `start` and `finish` into the routes, so
+a constant status picked its status line at compile time, and gcc inlined `parse` into
+the loop's only `answer`. Now the routes are the program's handler, a function of
+their own; `http::start`, `http::finish`, and `http::status_line` were calls taking the
+48-byte `http::Reply` by value, every append reloaded the write buffer's top and
+length through it, and `parse` stayed a call, since the server links three `answer`s,
+one for the epoll loop and two for the uring loop. `inline fn` (spec §7.13) on the
+writers and the route took about 190 of the 230 back, and on `parse` the rest. At
+`2d61b55`, with both:
+
+| Build | Instructions per request | In user code | Cycles per request | Requests per second |
+|---|---:|---:|---:|---:|
+| epoll, `2d61b55` | 2,286-2,311 | 1,349-1,364 | 1,888-1,921 | 1.81-1.84 M |
+| epoll, `1bea5a0` | 2,344-2,355 | 1,407-1,415 | 1,890-1,895 | 1.86-1.90 M |
+| uring, `2d61b55` | 2,370-2,378 | 1,405-1,410 | 1,694-1,701 | 2.07-2.10 M |
+| uring, `1bea5a0` | 2,417-2,439 | 1,453-1,467 | 1,702-1,725 | 2.06-2.07 M |
+
+Both loops run about 55 fewer instructions per request than before this task, and the
+epoll loop is inside task 009's 2,255-2,371. Its rate in this test was 3% below
+`1bea5a0`'s at the same cycles per request; `bench/run.sh` below doesn't show it. The
+runs are in `bench/results/2026-10-11-package-instructions/`.
+
+### `bench/run.sh`'s closest cells
+
+`bench/run.sh` with its defaults (3 runs of 15 s after 5 s of warm-up, interleaved,
+latency step on), `TESTS="plaintext:256 plaintext:1024 json:256"`, 1 worker on CPU 0
+and 4 on CPUs 0-3, wrk and h2load on CPUs 4-15 with 8 threads, at `2d61b55`. Median wrk
+rates, with the spread of the 3 runs:
+
+| Cell | goose (epoll) | goose-pre011 | goose-uring | goose-pre011-uring |
+|---|---:|---:|---:|---:|
+| plaintext 256, 1 w | 1.926 M (1.896-1.945) | 1.874 M (1.863-1.895) | 2.099 M (2.099-2.205) | 2.102 M (2.088-2.169) |
+| plaintext 256, 4 w | 6.013 M (5.912-6.089) | 6.101 M (6.068-6.201) | 7.451 M (7.392-7.470) | 7.290 M (7.185-7.333) |
+| plaintext 1,024, 1 w | 1.966 M (1.956-1.967) | 1.960 M (1.952-1.971) | 2.179 M (2.169-2.183) | 2.134 M (2.122-2.136) |
+| plaintext 1,024, 4 w | 5.944 M (5.898-6.061) | 6.001 M (5.958-6.061) | 7.264 M (7.161-7.328) | 7.197 M (7.039-7.306) |
+| json 256, 1 w | 0.148 M (0.146-0.152) | 0.146 M (0.143-0.153) | 0.169 M (0.167-0.177) | 0.169 M (0.169-0.179) |
+| json 256, 4 w | 0.441 M (0.437-0.441) | 0.442 M (0.441-0.442) | 0.522 M (0.520-0.526) | 0.521 M (0.514-0.523) |
+
+Each loop's rate is within 3% of `1bea5a0`'s in every cell. The spreads overlap in
+all but three: the epoll loop is 3% faster at 256 connections with 1 worker, and the
+uring loop 2% faster at 256 with 4 workers and at 1,024 with 1. Peak RSS is 2.2-2.4 MB
+for the epoll loop, against 2.1-2.4 MB, and 4.7-11.8 MB for the uring loop, against
+4.7-9.5 MB; the 11.8 MB is one cell, at 1,024 connections with 4 workers. may-minihttp, hyper,
+tokio, and dusty were copied from task 009's final run (`REUSE`, the same binaries and
+settings). The runs are in `bench/results/2026-10-11-package/`.
+
+### Task 005's results, rechecked
+
+Task 005's measurements ran in a checkout whose shim `goose build` may not have
+recompiled after a change, so they were run again with clean builds:
+
+- The io_uring loop still leads the epoll loop in every cell above: by 9% to 24% at
+  `2d61b55`, and 9% to 20% between the two `1bea5a0` builds, against task 005's 11% to
+  21%. io_uring stays the default.
+- 256 provided buffers against 1,024, `bench/run.sh` with 4 workers, `RUNS=3
+  DURATION=10 LATENCY=0`, at `2d61b55`, a copy of it with `ring_buffers` set to 1,024:
+
+  | Cell | 256 buffers | 1,024 buffers |
+  |---|---|---|
+  | plaintext, 1,024 conns | 7.266 M (7.257-7.327 M), 12.1 MB | 7.309 M (7.286-7.353 M), 24.1 MB |
+  | plaintext, 4,096 conns | 6.699 M (6.694-6.771 M), 15.0 MB | 6.604 M (6.545-6.608 M), 30.7 MB |
+  | json, 256 conns | 0.519 M (0.506-0.520 M), 9.4 MB | 0.516 M (0.516-0.521 M), 21.4 MB |
+
+  The same rate within 1%, at half the peak RSS, as task 005 found. The runs are in
+  `bench/results/2026-10-11-package-uring-bufs/`.
 
 ## Acceptance criteria
 
@@ -152,8 +243,9 @@ Not done:
       (all but macOS done 2026-10-11: macOS builds the emulation over kqueue, untested)
 - [x] A program outside the repository imports the package from git at a commit, and
       `goose build` and `goose run` both work with it
-- [ ] The tests pass, and the server's rate in `bench/run.sh`'s closest cells matches
-      task 010's build within the runs' spread
+- [x] The tests pass, and the server's rate in `bench/run.sh`'s closest cells matches
+      task 010's build within the runs' spread (2026-10-11, against `1bea5a0`, the
+      last build before this task)
 - [x] `README.md` says how to use the package, as goose-ngfx's does, and which entry
       point to call: `serve` everywhere, `serve_epoll` for the fastest loop on Linux
       and macOS

@@ -1,0 +1,19 @@
+server	workers	test	conns	run	rps	errors	non2xx	server_cpu_s	wrk_cpu_s	peak_rss_kb	steps	h2load_rps	h2load_failed	h2load_non2xx	p50_us	p99_us	p999_us	max_us	from
+goose-uring	4	plaintext	1024	1	7266215.12	0	0	40.28	68.60	9676	1								
+goose-uring	4	plaintext	4096	1	6694057.55	0	0	39.97	66.93	15388	0								
+goose-uring	4	json	256	1	519036.86	0	0	39.89	55.69	9552	1								
+goose-uring-1024	4	plaintext	1024	1	7308541.45	0	0	40.26	68.81	24708	0								
+goose-uring-1024	4	plaintext	4096	1	6545261.58	0	0	39.97	65.35	31396	1								
+goose-uring-1024	4	json	256	1	515600.73	0	0	39.89	55.44	21892	0								
+goose-uring	4	plaintext	1024	2	7257137.71	0	0	40.28	68.51	12052	1								
+goose-uring	4	plaintext	4096	2	6771466.99	0	0	39.98	66.51	15304	0								
+goose-uring	4	json	256	2	520271.18	0	0	39.87	55.53	9488	0								
+goose-uring-1024	4	plaintext	1024	2	7353227.87	0	0	40.30	68.86	24392	0								
+goose-uring-1024	4	plaintext	4096	2	6608392.13	0	0	39.93	65.99	30104	0								
+goose-uring-1024	4	json	256	2	516182.46	0	0	39.87	55.21	21700	0								
+goose-uring	4	plaintext	1024	3	7327206.14	0	0	40.27	68.99	12352	0								
+goose-uring	4	plaintext	4096	3	6699411.75	0	0	39.95	66.44	15292	0								
+goose-uring	4	json	256	3	505840.60	0	0	39.83	55.14	9576	0								
+goose-uring-1024	4	plaintext	1024	3	7286127.33	0	0	40.28	69.04	22544	0								
+goose-uring-1024	4	plaintext	4096	3	6603971.56	0	0	39.94	65.55	28948	0								
+goose-uring-1024	4	json	256	3	521067.38	0	0	39.88	55.87	21904	1								
