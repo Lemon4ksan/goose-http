@@ -20,6 +20,10 @@ epoll) main=main ;;
 uring) main=main_uring ;;
 *) echo "scripts/build.sh: LOOP is epoll or uring"; exit 2 ;;
 esac
+if [ "$main" = main_uring ] && [ "$(uname -s)" != Linux ]; then
+    echo "scripts/build.sh: LOOP=uring needs Linux"
+    exit 2
+fi
 
 mkdir -p "$root/build"
 "$goose" build --cc "${CC:-gcc}" --standalone -o "$root/build/server" "$root/src/$main.goose"
