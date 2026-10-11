@@ -98,6 +98,15 @@ else { http::otherwise(r, out); }
 Parameters are slices of the target, still percent-encoded, and last until the handler
 returns; nothing allocates.
 
+### Conditional requests and ranges
+
+`http::not_modified(req, etag, modified)` says whether a `GET` gets 304, from
+`If-None-Match` against an entity tag, or else `If-Modified-Since` against a time.
+`http::range_of(req, size, etag)` gives the one byte range `Range` asks for, with 206,
+416, or 200 for the whole (as when `If-Range` names another entity tag), and
+`http::content_range(out, start, end, size)` writes its field. `http::end(out,
+trailers)` ends a chunked response with trailer fields.
+
 ### Bodies and responses of any size
 
 On `main`, after 0.1, each loop also takes a handler that it calls again for each part
@@ -196,8 +205,9 @@ In scope: HTTP/1.1 with keep-alive and pipelining, request bodies and responses 
 size, whole or in pieces, a program's handler, and the C shim the loops need for
 syscalls; in the benchmark server, TechEmpower's plaintext and JSON endpoints and
 HttpArena's baseline and pipeline endpoints, and on `main`, configurable limits and
-timeouts, a graceful shutdown, a router, and `Upgrade`. Planned (task 013): trailers
-and response helpers.
+timeouts, a graceful shutdown, a router, `Upgrade`, conditional requests, ranges,
+and response trailers. Planned (task 013): request trailers, a configurable `Server`
+field, and files sent with `sendfile`.
 Out of scope: TLS and HTTP/2 (task 014 plans them), and Windows as a benchmark
 platform.
 

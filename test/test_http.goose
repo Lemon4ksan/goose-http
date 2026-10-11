@@ -501,6 +501,94 @@ fn test_stream() {
     http::end(c);
     same(out[m5..], "HTTP/1.1 204 No Content\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\n\r\n");
     assert(keep);
+
+    // Trailers after a chunked body.
+    let m6 = out.len;
+    http::begin(c, 200, -1);
+    http::send(c, "ab");
+    http::end(c, "Digest: x\r\n");
+    same(out[m6..], "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nab\r\n0\r\nDigest: x\r\n\r\n");
+}
+
+// The request text's head, parsed, with the extra field lines.
+fn get_with(extra: const u8[:], out: u8[>..]&) -> http::Request {
+    out.append("GET /f HTTP/1.1\r\nHost: x\r\n");
+    out.append(extra);
+    out.append("\r\n");
+    let r, s = http::parse(out);
+    assert(s == 200);
+    return r;
+}
+
+// A Range field, and what range_of makes of it for 100 bytes.
+struct Ranged { spec: const u8[:], start: i64, end: i64, status: i32 }
+
+fn test_conditional() {
+    // Dates as format_date writes them come back.
+    for t in [0, 951782400, 1791633600, 4102444799] {
+        var d: u8[>..] = [];
+        http::format_date(d, t);
+        let back, ok = http::parse_date(d);
+        assert(ok && back == t);
+    }
+    let bad, ok = http::parse_date("Sunday, 06-Nov-94 08:49:37 GMT");
+    assert(!ok);
+
+    let etag = "\"v1\"";
+    let modified = 1791633600;   // Sat, 10 Oct 2026 12:00:00 GMT
+    var b1: u8[>..] = [];
+    assert(http::not_modified(get_with("If-None-Match: \"v0\", W/\"v1\"\r\n", b1), etag, modified));
+    var b2: u8[>..] = [];
+    assert(!http::not_modified(get_with("If-None-Match: \"v2\"\r\n", b2), etag, modified));
+    var b3: u8[>..] = [];
+    assert(http::not_modified(get_with("If-None-Match: *\r\n", b3), etag, modified));
+    var b4: u8[>..] = [];
+    assert(http::not_modified(get_with("If-Modified-Since: Sat, 10 Oct 2026 12:00:00 GMT\r\n", b4), etag, modified));
+    var b5: u8[>..] = [];
+    assert(!http::not_modified(get_with("If-Modified-Since: Sat, 10 Oct 2026 11:59:59 GMT\r\n", b5), etag, modified));
+    // If-None-Match decides alone when it's there.
+    var b6: u8[>..] = [];
+    assert(!http::not_modified(get_with("If-None-Match: \"v2\"\r\nIf-Modified-Since: Sat, 10 Oct 2026 12:00:00 GMT\r\n", b6),
+                               etag, modified));
+    var b7: u8[>..] = [];
+    assert(!http::not_modified(get_with("", b7), etag, modified));
+
+    // Ranges of a 100-byte representation.
+    let cases = [Ranged { spec: "bytes=0-9", start: 0, end: 10, status: 206 },
+                 Ranged { spec: "bytes=90-", start: 90, end: 100, status: 206 },
+                 Ranged { spec: "bytes=-5", start: 95, end: 100, status: 206 },
+                 Ranged { spec: "bytes=-500", start: 0, end: 100, status: 206 },
+                 Ranged { spec: "bytes=95-200", start: 95, end: 100, status: 206 },
+                 Ranged { spec: "bytes=100-", start: 0, end: 0, status: 416 },
+                 Ranged { spec: "bytes=-0", start: 0, end: 0, status: 416 },
+                 Ranged { spec: "bytes=0-9,20-29", start: 0, end: 100, status: 200 },
+                 Ranged { spec: "items=0-9", start: 0, end: 100, status: 200 },
+                 Ranged { spec: "bytes=5-2", start: 0, end: 100, status: 200 },
+                 Ranged { spec: "bytes=x-2", start: 0, end: 100, status: 200 }];
+    for c in cases {
+        var line: u8[>..] = [];
+        format(line, "Range: ", c.spec, "\r\n");
+        var b: u8[>..] = [];
+        let a, e, s = http::range_of(get_with(line, b), 100, etag);
+        if a != c.start || e != c.end || s != c.status {
+            print(c.spec, ": ", a, " ", e, " ", s);
+            assert(false);
+        }
+    }
+    var b8: u8[>..] = [];
+    let a8, e8, s8 = http::range_of(get_with("Range: bytes=0-9\r\nIf-Range: \"v1\"\r\n", b8), 100, etag);
+    assert(s8 == 206);
+    var b9: u8[>..] = [];
+    let a9, e9, s9 = http::range_of(get_with("Range: bytes=0-9\r\nIf-Range: \"v0\"\r\n", b9), 100, etag);
+    assert(s9 == 200 && e9 == 100);
+
+    var out: u8[>..] = [];
+    var keep = true;
+    var st = http::Stream { .. };
+    let c = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, stream: st };
+    http::content_range(c, 90, 100, 100);
+    http::content_range(c, 0, 0, 100);
+    same(out, "Content-Range: bytes 90-99/100\r\nContent-Range: bytes */100\r\n");
 }
 
 fn test_upgrade() {
@@ -670,5 +758,6 @@ fn main() {
     test_stream();
     test_router();
     test_upgrade();
+    test_conditional();
     print("test_http: ok");
 }

@@ -794,8 +794,10 @@ fn send(out: Reply, data: const u8[:]) {
     }
 }
 
-// Ends the response begin started, or after an upgrade, the connection.
-fn end(out: Reply) {
+// Ends the response begin started, or after an upgrade, the connection. A
+// chunked response ends with trailers, field lines each ending in CRLF, as
+// "Digest: x\r\n" (RFC 9112 §7.1.2); any other drops them.
+fn end(out: Reply, trailers: const u8[:] = "") {
     let s .= out.stream;
     guard s.open else { return; }
     if s.raw {
@@ -806,8 +808,13 @@ fn end(out: Reply) {
     send(out, "");
     s.open = false;
     guard !s.bodyless && !out.head else { return; }
-    if s.chunked { out.buf.append("0\r\n\r\n"); }
-    else if s.left > 0 { out.keep_alive = false; }
+    if s.chunked {
+        out.buf.append("0\r\n");
+        out.buf.append(trailers);
+        out.buf.append("\r\n");
+    } else if s.left > 0 {
+        out.keep_alive = false;
+    }
 }
 
 // Answers a request that asked to switch to protocol (upgrade_of) with 101,
@@ -983,4 +990,119 @@ fn format_date<A>(out: A&, t: i64) {
 fn two_digits<A>(out: A&, v: i64) {
     out.push(('0' + v / 10) as u8);
     out.push(('0' + v % 10) as u8);
+}
+
+// Whether a GET or HEAD for a representation with entity tag etag (quotes
+// included, as in "\"v1\"", or "" for none) and last modified at modified
+// (seconds since the epoch, or -1 for unknown) is answered with 304 (RFC 9110
+// §13.1.2, §13.1.3, §13.2.2): If-None-Match lists etag, by the weak
+// comparison, or is "*"; or, only without If-None-Match, If-Modified-Since
+// is a date at or after modified.
+fn not_modified(req: Request, etag: const u8[:], modified: i64) -> bool {
+    let tags, has_tags = field_of(req, "if-none-match");
+    if has_tags {
+        guard etag.len > 0 else { return false; }
+        if trim(tags) == "*" { return true; }
+        var hit = false;
+        each_split(tags, ',') {
+            if weak_eq(trim(it), etag) { hit = true; }
+        };
+        return hit;
+    }
+    let since, has_since = field_of(req, "if-modified-since");
+    guard has_since && modified >= 0 else { return false; }
+    let t, ok = parse_date(since);
+    return ok && modified <= t;
+}
+
+// Whether entity tags a and b are the same, ignoring a W/ before either
+// (RFC 9110 §8.8.3.2, the weak comparison).
+fn weak_eq(a: const u8[:], b: const u8[:]) -> bool {
+    let x = if starts_with(a, "W/") { a[2..] } else { a };
+    let y = if starts_with(b, "W/") { b[2..] } else { b };
+    return x.len >= 2 && x == y;
+}
+
+// The bytes of a representation of size bytes that req's Range field asks
+// for, as start and end (exclusive), and the status to answer with: 206 for
+// one satisfiable range, 416 for a range past the end, and 200 for the whole,
+// when there's no Range, it isn't one range of bytes, or If-Range names
+// another entity tag than etag (RFC 9110 §14.2, §14.4, §13.1.5). A 206 gets
+// a Content-Range field: content_range writes it.
+fn range_of(req: Request, size: i64, etag: const u8[:]) -> i64, i64, i32 {
+    let spec, has = field_of(req, "range");
+    guard has && starts_with(spec, "bytes=") else { return 0, size, 200; }
+    let cond, has_cond = field_of(req, "if-range");
+    // The strong comparison, which If-Range asks for: a weak tag never matches.
+    guard !has_cond || (etag.len >= 2 && !starts_with(etag, "W/") && cond == etag) else {
+        return 0, size, 200;
+    }
+    let r = trim(spec[6..]);
+    let dash = position(r, '-');
+    guard dash >= 0 && position(r, ',') < 0 else { return 0, size, 200; }
+    let first = r[..dash];
+    let last = r[dash + 1..];
+    guard digits_only(first) && digits_only(last) && (first.len > 0 || last.len > 0) else {
+        return 0, size, 200;
+    }
+    if first.len == 0 {
+        // The last n bytes.
+        let n, ok = parse_int(last);
+        guard ok && n > 0 && size > 0 else { return 0, 0, 416; }
+        return max(size - n, 0), size, 206;
+    }
+    let a, ok_a = parse_int(first);
+    guard ok_a && a < size else { return 0, 0, 416; }
+    if last.len == 0 { return a, size, 206; }
+    let b, ok_b = parse_int(last);
+    guard ok_b && b >= a else { return 0, size, 200; }
+    return a, min(b + 1, size), 206;
+}
+
+fn digits_only(s: const u8[:]) -> bool {
+    guard s.len <= 18 else { return false; }
+    for c in s { if !is_digit(c) { return false; } }
+    return true;
+}
+
+// The Content-Range field of a 206 for bytes start to end (exclusive) of
+// size, or of a 416 when start == end == 0 (RFC 9110 §14.4).
+fn content_range(out: Reply, start: i64, end: i64, size: i64) {
+    out.buf.append("Content-Range: bytes ");
+    if end > start {
+        format(out.buf, start, "-", end - 1, "/", size);
+    } else {
+        format(out.buf, "*/", size);
+    }
+    out.buf.append("\r\n");
+}
+
+// Seconds since the epoch of an HTTP date in IMF-fixdate form, as
+// format_date writes it ("Sat, 10 Oct 2026 12:00:00 GMT"), and whether it is
+// one. The obsolete RFC 850 and asctime forms, which RFC 9110 §5.6.7 asks a
+// recipient to accept, aren't: a condition with one is ignored.
+fn parse_date(s: const u8[:]) -> i64, bool {
+    guard s.len == 29 && s[3] == ',' && s[4] == ' ' && s[7] == ' ' && s[11] == ' ' &&
+          s[16] == ' ' && s[19] == ':' && s[22] == ':' && s[25..] == " GMT" else { return 0, false; }
+    var month = -1;
+    for i in 12 {
+        if "JanFebMarAprMayJunJulAugSepOctNovDec"[i * 3..i * 3 + 3] == s[8..11] { month = i + 1; }
+    }
+    let day, ok1 = parse_int(s[5..7]);
+    let year, ok2 = parse_int(s[12..16]);
+    let hh, ok3 = parse_int(s[17..19]);
+    let mm, ok4 = parse_int(s[20..22]);
+    let ss, ok5 = parse_int(s[23..25]);
+    guard month > 0 && ok1 && ok2 && ok3 && ok4 && ok5 && day >= 1 && day <= 31 &&
+          hh < 24 && mm < 60 && ss < 61 else { return 0, false; }
+    // Days since the epoch, by Howard Hinnant's days_from_civil, as
+    // format_date inverts it.
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = (if y >= 0 { y } else { y - 399 }) / 400;
+    let yoe = y - era * 400;
+    let mp = if month > 2 { month - 3 } else { month + 9 };
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146097 + doe - 719468;
+    return days * 86400 + hh * 3600 + mm * 60 + ss, true;
 }

@@ -189,11 +189,20 @@ response still open).
   request, an HTTP request line, and 100 KB, and a request without `Upgrade` gets
   426.
 
+- Items 16 and 14, in part (2026-10-12): `http::not_modified`, `http::range_of`, and
+  `http::content_range` for conditional `GET` and one byte range, with
+  `http::parse_date` for IMF-fixdate (not the obsolete forms, which leave a condition
+  ignored), and response trailers through `http::end(out, trailers)`.
+  `test_http.goose`'s `test_conditional` and `test_stream` check them. Not yet:
+  request trailers, which the decoder still checks and skips; a configurable or
+  absent `Server` field, which every status line has as a literal, so that a constant
+  status costs one append; and files through `sendfile`, which needs the shims.
+
 Next, in order:
 
 1. Run the tests on macOS: the kqueue table change, and the stop.
 2. Split the streaming loop's cost further, and remove what can go.
-3. Items 14 and 16.
+3. The rest of items 14 and 16.
 
 ## Streaming design (2026-10-12)
 
