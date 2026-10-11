@@ -463,6 +463,8 @@ let CHUNK_SIZE: u8 = 2;
 let CHUNK_DATA: u8 = 3;
 let CHUNK_END: u8 = 4;
 let CHUNK_TRAILER: u8 = 5;
+// After an upgrade (http::upgrade): every byte, to the end of the connection.
+let RAW: u8 = 6;
 
 // A body that arrives in pieces: where its reader is, and for LENGTH and
 // CHUNK_DATA, the bytes of the body or the chunk still to come.
@@ -474,6 +476,7 @@ struct BodyReader { place: u8 = NO_BODY, left: i64 = 0 }
 // line; or 400. r.place is NO_BODY once the body has ended, chunked bodies
 // at the trailer section's blank line.
 fn read_body(buf: const u8[:], r: BodyReader&) -> i64, i64, i32 {
+    if r.place == RAW { return 0, buf.len, if buf.len > 0 { 200 } else { INCOMPLETE }; }
     if r.place == LENGTH {
         let k = min(r.left, buf.len);
         r.left -= k;
@@ -687,6 +690,7 @@ struct Stream {
     in_head: bool = false,  // begun, without the blank line after the head yet
     chunked: bool = false,
     moved: bool = false,    // send was given bytes, which HEAD and a bodyless status drop
+    raw: bool = false,      // upgraded: send writes bytes as they are
     left: i64 = 0,          // of a Content-Length body, the bytes still to send; -1 for none
 }
 
@@ -770,6 +774,10 @@ fn send(out: Reply, data: const u8[:]) {
     }
     guard data.len > 0 else { return; }
     s.moved = true;
+    if s.raw {
+        out.buf.append(data);
+        return;
+    }
     guard !s.bodyless && !out.head else { return; }
     if s.chunked {
         hex_size(out.buf, data.len);
@@ -786,15 +794,52 @@ fn send(out: Reply, data: const u8[:]) {
     }
 }
 
-// Ends the response begin started.
+// Ends the response begin started, or after an upgrade, the connection.
 fn end(out: Reply) {
     let s .= out.stream;
     guard s.open else { return; }
+    if s.raw {
+        s.open = false;
+        out.keep_alive = false;
+        return;
+    }
     send(out, "");
     s.open = false;
     guard !s.bodyless && !out.head else { return; }
     if s.chunked { out.buf.append("0\r\n\r\n"); }
     else if s.left > 0 { out.keep_alive = false; }
+}
+
+// Answers a request that asked to switch to protocol (upgrade_of) with 101,
+// and switches the connection to it (RFC 9110 §7.8): the bytes after the
+// request go to the handler as BODY, and send writes bytes as they are,
+// until end, which closes the connection, or the client closes it. The
+// connection then waits idle_ms for the client, not body_ms.
+fn upgrade(out: Reply, protocol: const u8[:]) {
+    start(out, 101);
+    field(out, "Connection", "Upgrade");
+    field(out, "Upgrade", protocol);
+    out.buf.append("\r\n");
+    let s .= out.stream;
+    s.bodyless = false;
+    s.open = true;
+    s.raw = true;
+}
+
+// The protocols a request asks to switch to, its Upgrade field's value, when
+// its Connection field lists upgrade, as RFC 9110 §7.8 requires; or "". Only
+// HTTP/1.1 upgrades.
+fn upgrade_of(req: const Request&) -> const u8[:] {
+    guard req.minor > 0 else { return ""; }
+    var asked = false;
+    each_field(req) { name, value =>
+        if same_name(name, "connection") {
+            each_split(value, ',') { if eq_fold(trim(it), "upgrade") { asked = true; } };
+        }
+    };
+    guard asked else { return ""; }
+    let v, ok = field_of(req, "upgrade");
+    return v;
 }
 
 // Appends n, not negative, in hexadecimal.
@@ -844,6 +889,7 @@ inline fn write_body<A>(out: A&, fields: const u8[:], body: const u8[:], head_on
 inline fn status_line(status: i32) -> const u8[:] {
     match status {
         200 => "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: ",
+        101 => "HTTP/1.1 101 Switching Protocols\r\nServer: goose\r\nDate: ",
         201 => "HTTP/1.1 201 Created\r\nServer: goose\r\nDate: ",
         202 => "HTTP/1.1 202 Accepted\r\nServer: goose\r\nDate: ",
         204 => "HTTP/1.1 204 No Content\r\nServer: goose\r\nDate: ",
@@ -867,6 +913,7 @@ inline fn status_line(status: i32) -> const u8[:] {
         415 => "HTTP/1.1 415 Unsupported Media Type\r\nServer: goose\r\nDate: ",
         417 => "HTTP/1.1 417 Expectation Failed\r\nServer: goose\r\nDate: ",
         422 => "HTTP/1.1 422 Unprocessable Content\r\nServer: goose\r\nDate: ",
+        426 => "HTTP/1.1 426 Upgrade Required\r\nServer: goose\r\nDate: ",
         429 => "HTTP/1.1 429 Too Many Requests\r\nServer: goose\r\nDate: ",
         431 => "HTTP/1.1 431 Request Header Fields Too Large\r\nServer: goose\r\nDate: ",
         500 => "HTTP/1.1 500 Internal Server Error\r\nServer: goose\r\nDate: ",

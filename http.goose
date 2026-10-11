@@ -279,8 +279,9 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: co
                 if x.body.place == NO_BODY { guard settle() else { break; } }
                 continue;
             }
-            // A Content-Length beyond cfg.max_body is refused by parse.
-            if x.taken + coming > cfg.max_body {
+            // A Content-Length beyond cfg.max_body is refused by parse, and an
+            // upgraded connection has no body to limit.
+            if x.taken + coming > cfg.max_body && x.body.place != RAW {
                 fail(413);
                 break;
             }
@@ -369,7 +370,8 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: co
             continue;
         }
         // The exchange goes on past this call, in c's slot.
-        x.body = if whole { BodyReader { .. } }
+        x.body = if x.stream.raw { BodyReader { place: RAW, left: 0 } }
+                 else if whole { BodyReader { .. } }
                  else if req.chunked { BodyReader { place: CHUNK_SIZE, left: 0 } }
                  else { BodyReader { place: LENGTH, left: req.body } };
         x.skip = false;
@@ -400,7 +402,10 @@ fn owes_408(c) -> bool {
 // isn't idle: for the client to take a response, which writing says it
 // hasn't yet, for a body's next piece, or for the rest of a request head.
 fn busy_ms(c, writing: bool, cfg: const Config&) -> i64 {
-    return if writing { cfg.write_ms } else if c.x.body.place != NO_BODY { cfg.body_ms } else { cfg.request_ms };
+    return if writing { cfg.write_ms }
+           else if c.x.body.place == RAW { cfg.idle_ms }
+           else if c.x.body.place != NO_BODY { cfg.body_ms }
+           else { cfg.request_ms };
 }
 
 // Whether c is between requests, with nothing of one received or to send.

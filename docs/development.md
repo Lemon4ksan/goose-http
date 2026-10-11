@@ -249,8 +249,8 @@ once per loop. It needs curl, wrk, h2load, oha, `nc`, and `python3`
   - `stream`: bodies and responses in pieces (task 013): 100 MB uploads with a
     `Content-Length` and chunked, bodies the handler doesn't read below and past
     `max_drain`, `Expect: 100-continue`, 10 MB echoed with each framing, 10 MB and
-    100 MB downloads, and a body to HTTP/1.0 that ends at the close. After it, on
-    Linux, the server's peak RSS must be under 64 MB.
+    100 MB downloads, a body to HTTP/1.0 that ends at the close, and an `Upgrade` to
+    an echo. After it, on Linux, the server's peak RSS must be under 64 MB.
   - `chunked`: chunked bodies, with an extension and a trailer field, dropped between
     pipelined requests and sent a byte at a time, and HttpArena's `/baseline11` with no
     body, a `Content-Length` body, and a chunked one.

@@ -180,11 +180,20 @@ response still open).
   the routes' order. `test_http.goose`'s `test_router` checks parameters, a wildcard,
   `HEAD` on a `GET` route, absolute-form targets, 405, `OPTIONS`, and 404.
 
+- Item 13 (2026-10-12): `http::upgrade_of(req)` and `http::upgrade(out, protocol)`,
+  which answers 101 and leaves the response open in a raw mode: the body reader's
+  `RAW` place hands every later byte to the handler as `BODY`, `send` writes bytes
+  unframed, and `end` closes the connection. An upgraded connection waits `idle_ms`
+  for the client, not `body_ms`. The benchmark server's `/upgrade` switches to an
+  echo, which `http_client.py`'s `stream` mode checks with bytes that came with the
+  request, an HTTP request line, and 100 KB, and a request without `Upgrade` gets
+  426.
+
 Next, in order:
 
 1. Run the tests on macOS: the kqueue table change, and the stop.
 2. Split the streaming loop's cost further, and remove what can go.
-3. Items 13 to 16.
+3. Items 14 and 16.
 
 ## Streaming design (2026-10-12)
 

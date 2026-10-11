@@ -425,6 +425,26 @@ def stream(port):
     check(r, 200, digits(50000), "/stream to HTTP/1.0")
     if r.header("connection") != "close":
         fail("/stream to HTTP/1.0 without Connection: close")
+    # An upgrade: 101, and then the connection echoes bytes as they are,
+    # those that came with the request among them, until the client closes.
+    c = Conn(port)
+    c.send(b"GET /upgrade HTTP/1.1\r\nHost: x\r\nConnection: keep-alive, Upgrade\r\n"
+           b"Upgrade: echo\r\n\r\nhello")
+    r = c.response()
+    if r.status != 101 or r.header("upgrade") != "echo" or r.header("connection") != "Upgrade":
+        fail(f"upgrade: {r.status} {r.headers}")
+    if c.take(5) != b"hello":
+        fail("upgrade: the bytes after the request weren't echoed")
+    for data in (b"GET / HTTP/1.1\r\n\r\n", b"x" * 100000):
+        c.send(data)
+        if c.take(len(data)) != data:
+            fail("upgrade: bytes weren't echoed as they are")
+    c.close()
+    c = Conn(port)
+    c.send(request(b"/upgrade"))
+    r = c.response()
+    if r.status != 426 or r.header("upgrade") != "echo":
+        fail(f"a request to /upgrade without Upgrade: {r.status}")
     print("stream: ok")
 
 

@@ -1,7 +1,8 @@
 // The benchmark server's handler: TechEmpower's plaintext and JSON tests,
 // HttpArena's endpoints (bench/httparena), and for the tests, /bytes and
-// /stream, which send a response of any size in pieces, and /upload and
-// /echo, which take a body of any size in pieces.
+// /stream, which send a response of any size in pieces, /upload and /echo,
+// which take a body of any size in pieces, and /upgrade, which switches to a
+// protocol that echoes bytes.
 import std;
 import http;
 
@@ -68,6 +69,8 @@ inline fn route(req: http::Request, body: const u8[:], whole: bool, st: Transfer
     // itself.
     let upload = path == "/upload";
     let echo = path == "/echo";
+    // Upgrade: echo switches the connection to echoing what comes, as it is.
+    let raw = path == "/upgrade";
     let get = out.head || req.method == "GET";
     let post = req.method == "POST";
     // TechEmpower's routes first, where most requests go.
@@ -82,7 +85,7 @@ inline fn route(req: http::Request, body: const u8[:], whole: bool, st: Transfer
     } else if !get && !post && !http::known_method(req.method) {
         http::start(out, 501);
         http::finish(out, "Content-Length: ", "");
-    } else if !get && (plaintext || json || pipeline || bytes || stream || baseline && !post) ||
+    } else if !get && (plaintext || json || pipeline || bytes || stream || raw || baseline && !post) ||
               !post && (upload || echo) {
         http::start(out, 405);
         out.buf.append(if baseline { "Allow: GET, HEAD, POST\r\n" }
@@ -119,6 +122,15 @@ inline fn route(req: http::Request, body: const u8[:], whole: bool, st: Transfer
         http::field(out, "Content-Type", "application/octet-stream");
         http::send(out, body);
         if whole { http::end(out); } else { st.route = ECHO; }
+    } else if raw {
+        if http::upgrade_of(req) == "echo" {
+            http::upgrade(out, "echo");
+            st.route = ECHO;
+        } else {
+            http::start(out, 426);
+            http::field(out, "Upgrade", "echo");
+            http::finish(out, "Content-Length: ", "");
+        }
     } else if req.target == "*" {
         // OPTIONS *, the only method parse lets "*" through with: what the
         // server as a whole allows (RFC 9110 §9.3.7).

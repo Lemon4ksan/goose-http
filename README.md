@@ -135,6 +135,11 @@ thread_fn worker(cfg: http::Config) {
 - A response that comes before the body has all arrived drops the rest, up to
   `Config.max_drain`, past which the connection closes. A client that sends `Expect:
   100-continue` gets `100 Continue` unless the handler answers at `REQUEST`.
+- `http::upgrade_of(req)` is the protocol a request asks to switch to, such as
+  `websocket`, and `http::upgrade(out, protocol)` answers 101 and switches: every byte
+  after the request comes as `BODY`, and `http::send` writes bytes as they are, until
+  `http::end` closes the connection. The protocol itself, WebSocket's framing for one,
+  is the program's.
 
 ## Event loops
 
@@ -191,7 +196,7 @@ In scope: HTTP/1.1 with keep-alive and pipelining, request bodies and responses 
 size, whole or in pieces, a program's handler, and the C shim the loops need for
 syscalls; in the benchmark server, TechEmpower's plaintext and JSON endpoints and
 HttpArena's baseline and pipeline endpoints, and on `main`, configurable limits and
-timeouts, a graceful shutdown, and a router. Planned (task 013): `Upgrade`, trailers,
+timeouts, a graceful shutdown, a router, and `Upgrade`. Planned (task 013): trailers
 and response helpers.
 Out of scope: TLS and HTTP/2 (task 014 plans them), and Windows as a benchmark
 platform.

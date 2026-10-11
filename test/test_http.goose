@@ -503,6 +503,28 @@ fn test_stream() {
     assert(keep);
 }
 
+fn test_upgrade() {
+    let r, s = http::parse("GET /chat HTTP/1.1\r\nHost: x\r\nConnection: keep-alive, Upgrade\r\nUpgrade: websocket\r\n\r\n");
+    assert(s == 200 && http::upgrade_of(r) == "websocket");
+    // Without Connection: upgrade, and in HTTP/1.0, there's none.
+    let r2, s2 = http::parse("GET /chat HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\n\r\n");
+    assert(s2 == 200 && http::upgrade_of(r2) == "");
+    let r3, s3 = http::parse("GET /chat HTTP/1.0\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n");
+    assert(s3 == 200 && http::upgrade_of(r3) == "");
+
+    // 101, then bytes as they are, until end closes the connection.
+    var out: u8[>..] = [];
+    var keep = true;
+    var st = http::Stream { .. };
+    let c = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, stream: st };
+    http::upgrade(c, "websocket");
+    http::send(c, "\x81\x00");
+    same(out, "HTTP/1.1 101 Switching Protocols\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n\x81\x00");
+    assert(st.open && keep);
+    http::end(c);
+    assert(!st.open && !keep);
+}
+
 // A small app's routes on text's request: which route took it and its
 // parameters, or the response the router gave.
 fn app(text: const u8[:], out: u8[>..]&) {
@@ -647,5 +669,6 @@ fn main() {
     test_reply();
     test_stream();
     test_router();
+    test_upgrade();
     print("test_http: ok");
 }
