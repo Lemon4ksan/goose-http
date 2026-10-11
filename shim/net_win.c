@@ -268,6 +268,12 @@ int64_t net_time_s(void) {
     return (int64_t)((t - 116444736000000000ull) / 10000000ull);
 }
 
+void net_worker_start(void) {}
+
+int32_t net_default_workers(void) {
+    return 0;
+}
+
 /* Writes the text for an error code into out, cut to fit, and returns its
    length: glibc's text for a Linux code, and Windows' own, in UTF-8, for an
    error with no Linux number. */

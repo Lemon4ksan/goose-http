@@ -118,6 +118,15 @@ Steps 1 to 7 of the plan are done, each its own commit, with the unit tests,
    `bfd951a53a6c`, built with `goose build` and run with `goose run` on Linux and
    Windows. `goose run` can't run a program that reaches `thread_spawn`, so its
    program calls `http::serve` from `main`.
+8. Task 012's macOS changes, merged into the package: `shim/kqueue.c` spreads a shared
+   listener's connections across workers, with the listener level-triggered, and
+   accepts with fewer syscalls; both loops register `OUT` only while a send waits;
+   `http::worker_count` defaults to one worker per performance core on macOS, and
+   both loops start with `net_worker_start`, which gives the worker the
+   user-interactive QoS class there. `shim/ring_epoll.c` watches the listener only
+   while an accept goes on, since a level-triggered listener left watched would end
+   every wait at once, and watches `OUT` only while a send waits, as the epoll loop
+   does.
 
 Not done:
 
@@ -127,6 +136,10 @@ Not done:
   of other work. The bounds checks the compiler keeps per request didn't change in
   steps 1 to 3.
 - macOS: `http::serve` builds over `shim/ring_epoll.c` there, and nobody has run it.
+- On macOS, `shim/kqueue.c`'s table of shared listeners keeps the first worker's fd
+  for the listener and never forgets a worker, so a program that calls a loop again
+  after one returned dups a closed fd. Each worker would need to leave the table in
+  `net_close`, with the table holding a reference of its own.
 - The `v0.1.0` tag, which waits for the maintainer.
 
 ## Acceptance criteria

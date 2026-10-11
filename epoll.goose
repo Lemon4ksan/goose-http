@@ -18,6 +18,7 @@ let EPOLL_LISTENER: u64 = 0xFFFFFFFFFFFFFFFF;
 struct EpollConn {
     fd: i32,            // -1 while the slot is free
     state: u8,
+    watch_out: bool,    // OUT is registered: set while out holds bytes
     deadline: i64,      // the time after which the sweep closes it
     discard: i64,       // request body bytes still to drop
     held: u8[:],        // received and not yet answered
@@ -28,6 +29,7 @@ struct EpollConn {
 // and returns its error, with every socket it opened closed. On Windows it
 // fails at once with ENOSYS.
 fn serve_epoll<H>(cfg: Config) -> Error {
+    net_worker_start();
     let ip, ok = ipv4(cfg.address);
     guard ok else { return Error { call: "address", code: EINVAL }; }
     let lfd = net_listen(ip, cfg.port, cfg.backlog, NONBLOCK | REUSEPORT);
@@ -81,8 +83,7 @@ fn serve_epoll<H>(cfg: Config) -> Error {
                 return;
             }
             let i = conns.alloc_index(EpollConn { fd: fd, deadline: now + cfg.request_ms, .. });
-            let r = net_epoll_ctl(ep, EPOLL_CTL_ADD, fd,
-                                  EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLET, i as u64);
+            let r = net_epoll_ctl(ep, EPOLL_CTL_ADD, fd, EPOLLIN | EPOLLRDHUP | EPOLLET, i as u64);
             if r < 0 {
                 report(Error { call: "epoll_ctl", code: -r });
                 net_close(fd);
@@ -130,6 +131,24 @@ fn serve_epoll<H>(cfg: Config) -> Error {
             c.out = spill.alloc_slice(wbuf.len - woff);
             copy_into(c.out, wbuf[woff..]);
         }
+        return true;
+    }
+
+    // Registers OUT while the connection has bytes the socket didn't take, and
+    // drops it once they're sent, as libuv does: kqueue reports EV_CLEAR's
+    // write filter as each ACK frees buffer space, a wake-up per response.
+    // False if epoll_ctl fails.
+    fn watch(i: i64) -> bool {
+        let c .= conns[i];
+        let want = c.out.len > 0;
+        if want == c.watch_out { return true; }
+        let out: u32 = if want { EPOLLOUT } else { 0 };
+        let r = net_epoll_ctl(ep, EPOLL_CTL_MOD, c.fd, EPOLLIN | out | EPOLLRDHUP | EPOLLET, i as u64);
+        if r < 0 {
+            report(Error { call: "epoll_ctl", code: -r });
+            return false;
+        }
+        c.watch_out = want;
         return true;
     }
 
@@ -246,7 +265,9 @@ fn serve_epoll<H>(cfg: Config) -> Error {
                 continue;
             }
             let i = ev.tag as i64;
-            if !drive(conns[i], ev.events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR) != 0) { close_conn(i); }
+            if !drive(conns[i], ev.events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR) != 0) || !watch(i) {
+                close_conn(i);
+            }
         }
         if now >= next_sweep {
             sweep();

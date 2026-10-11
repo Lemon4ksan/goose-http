@@ -20,6 +20,10 @@
 # compiler (default: zig on PATH), which must be ZIG_VERSION. V is built here,
 # at the commits of HttpArena's vanilla-epoll image; it needs liburing-dev.
 # libreactorng needs autoconf, automake, libtool, and libltdl-dev.
+#
+# On aarch64 (Docker on Apple Silicon, task 012), the Zig servers build for
+# aarch64-linux-musl and this machine's CPU (apple_m1 on Apple's), and V takes tccbin's arm64
+# branch, for its libgc.a; V's Makefile bootstraps with gcc on arm64.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -39,6 +43,8 @@ VANILLA_COMMIT=091c014a0191afd7e740b84f5599b9b1fc1fd914
 V_COMMIT=b99970bd438a7bdcdfbe38f74d9364db801d5439
 VC_COMMIT=2cbaf6bc2367937cd5f0b4ef923d1ef9aad613b3
 TCCBIN_COMMIT=d6e7ac1b1bcc98aed734a6ecbfa8509f24606c74
+# tccbin's thirdparty-linux-arm64 head (2024-07-08), for its libgc.a.
+TCCBIN_ARM64_COMMIT=125ad2e1153c7cb86f19ac4aa070063d18504462
 # As HttpArena's libreactorng Dockerfile pins it.
 LIBREACTORNG_COMMIT=7a65f8b108f62f2531db952b0f87cf5f34a24b3c
 
@@ -97,16 +103,28 @@ zig_build() {
     cp "$cache/$name-out/bin/bench-$name" "$out/$name"
 }
 # The targets and CPUs of HttpArena's images. zeemo's names no CPU, so it
-# builds for baseline x86-64.
-zig_build dusty -Dtarget=x86_64-linux-musl -Dcpu=x86_64_v3+aes+pclmul+adx --release=fast
-zig_build zix -Dtarget=x86_64-linux-musl -Dcpu=x86_64_v3+aes+pclmul+adx --release=fast
-zig_build zeemo -Dtarget=x86_64-linux-musl --release=fast
+# builds for the baseline CPU.
+# On Apple Silicon under Docker Desktop, the VM hides the CPU's part number,
+# and Zig's native resolves to generic arm64, without the M1's features.
+case $(uname -m) in
+aarch64)
+    target=aarch64-linux-musl cpu=native
+    grep -q '^CPU implementer.*0x61' /proc/cpuinfo && cpu=apple_m1
+    ;;
+*) target=x86_64-linux-musl cpu=x86_64_v3+aes+pclmul+adx ;;
+esac
+zig_build dusty -Dtarget=$target -Dcpu=$cpu --release=fast
+zig_build zix -Dtarget=$target -Dcpu=$cpu --release=fast
+zig_build zeemo -Dtarget=$target --release=fast
 
 v=$cache/deps/v
 if [ "$(git -C "$v" rev-parse HEAD 2>/dev/null)" != "$V_COMMIT" ] || [ ! -x "$v/v" ]; then
     fetch https://github.com/vlang/v "$V_COMMIT" "$v"
     fetch https://github.com/vlang/vc "$VC_COMMIT" "$v/vc"
-    fetch https://github.com/vlang/tccbin "$TCCBIN_COMMIT" "$v/thirdparty/tcc"
+    case $(uname -m) in
+    aarch64) fetch https://github.com/vlang/tccbin "$TCCBIN_ARM64_COMMIT" "$v/thirdparty/tcc" ;;
+    *) fetch https://github.com/vlang/tccbin "$TCCBIN_COMMIT" "$v/thirdparty/tcc" ;;
+    esac
     # local=1 builds with the vc and tcc above instead of pulling their heads.
     make -C "$v" local=1
 fi

@@ -366,15 +366,17 @@ use. Workaround: none yet.
 
 ## `goose build` on Linux never sees a sidecar's C change
 
-Found on `efe3155`, task 011. Status: open (unchanged at `fe6c543`)
+Found on `efe3155`, tasks 011 and 012. Status: open (unchanged at `fe6c543`)
 
-`goose build` keeps a program's compiled sidecar C under
-`~/.goose/build/prog/<name>-<hash>/native/`, with a stamp of the newest mtime of the C
-sources and the sidecar. On Linux the mtime in the stamp is always 0, so editing a C
-source never makes the build stale, and the program links the old object. Here the old
-`net_listen(port, backlog, flags)` was called with a new fourth argument, so every
-argument landed one place over and two of four workers failed with `EADDRINUSE`.
-Expected: a changed C source is compiled again.
+`goose build` keeps the compiled C of a sidecar with a stamp of the newest mtime of its
+C sources and the sidecar: a program's under `~/.goose/build/prog/<name>-<hash>/native/`,
+and a local package's under `~/.goose/build/pkg/local/`. On Linux the mtime in the
+stamp is always 0, so editing a C source never makes the build stale, and the program
+links the old objects: silently when the edit changes only a body, and with an
+undefined reference when it adds a function. Here the old `net_listen(port, backlog,
+flags)` was called with a new fourth argument, so every argument landed one place over
+and two of four workers failed with `EADDRINUSE`. Expected: a changed C source is
+compiled again.
 
     // stale.goose, with stale.build: c_sources = ["answer.c"];
     // and answer.c: int32_t answer(void) { return 1; }
@@ -390,11 +392,14 @@ Expected: a changed C source is compiled again.
 
 `NewestMtime` in `src/native.h` keeps `std::max` of 0 and each file's
 `last_write_time(...).time_since_epoch().count()`. libstdc++'s file clock counts from
-2174, so today's times are negative and the maximum stays 0. MSVC's counts from 1601, so
-Windows rebuilds as it should.
+2174, so today's times are negative and the maximum stays 0. macOS's libc++ counts from
+1970 and MSVC's from 1601, so macOS and Windows rebuild as they should. The cache
+directories are named by a hash of the source's path, so a checkout at a new path, or
+a new `GOOSE_HOME`, builds the objects once.
 
-Workaround: `scripts/build.sh` deletes the native part's stamp before each build, which
-compiles the shim again, about a second.
+Workaround: `scripts/build.sh` deletes the stamp of the local package whose link list
+has the shim's objects before each build, which compiles the shim again, about a
+second.
 
 ## `thread_spawn` doesn't take a function value bound to a `thread_fn`
 

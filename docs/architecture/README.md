@@ -47,8 +47,12 @@ until the task named beside it confirms or replaces it.
   `thread_fn` is compiled as its own program, takes flat arguments, and copies the
   globals it uses (spec §11.2). The fastest Rust plaintext servers use the same shape
   (proposed for task 003, confirmed by it, 2026-10-10):
-  - `main` spawns one worker per `hardware_threads()`, or `WORKERS` if set, and passes
-    each a copy of the settings, one flat struct (`Config`, 2026-10-11).
+  - The program spawns `http::worker_count(cfg)` workers, `Config.workers` or by default
+    one per `hardware_threads()`, and passes each a copy of the settings, one flat
+    struct (`Config`, 2026-10-11); the benchmark server sets `Config.workers` from
+    `WORKERS`. On macOS the default is one worker per performance core, and each loop
+    gives its worker the user-interactive QoS class, which keeps it on those cores:
+    Apple Silicon has no CPU affinity (2026-10-11).
   - Each worker opens its own listener with `SO_REUSEPORT`, so the kernel spreads
     connections across workers, and runs its own edge-triggered epoll loop. On macOS and
     Windows the workers share one listener instead
@@ -167,8 +171,10 @@ puts the epoll loop ahead. On Windows the io_uring loop is the only one, over
   on macOS the same file, over `shim/kqueue.c`, is `http::serve`'s ring. Its multishot
   accept and receive accept and read until `EAGAIN` at each edge-triggered event, into
   the same provided buffers; a send's bytes are copied and sent in the next wait, and
-  the rest waits for the socket's writable edge; completions that don't fit in a
-  wait's batch wait for the next. Its handle is its address with the low bit set, and
+  the rest waits for the socket's writable edge, watched only then; completions that
+  don't fit in a wait's batch wait for the next. The listener is watched only while an
+  accept goes on: on macOS it's level-triggered, and would end every wait at once
+  while the worker isn't accepting. Its handle is its address with the low bit set, and
   each `ur_*` call in `shim/uring.c` passes such a handle on. `Config.emulate_ring`
   asks for it where io_uring works, which is how the tests run it. The package writes
   nothing about the fallback itself; `http::ring_probe()` returns why there's no
@@ -209,12 +215,22 @@ On macOS:
   freed slot. Without the merge, 3,000 connections at once hung.
 - The workers share one listener per port: macOS's `SO_REUSEPORT` gave every connection
   to the last listener bound. Each worker gets its own fd for the listener and watches it
-  in its own kqueue. The spread across workers is uneven, because the first worker to
-  wake drains the backlog, which costs throughput and not correctness. An acceptor
-  handing out fds would spread them evenly, and is the change to make if macOS becomes a
-  benchmark platform. Task 006's macOS subtask has the measurements.
-- macOS drops a connection whose `accept` fails with `EMFILE`, so the shim checks for a
-  free fd first and leaves the client in the backlog when there's none, as Linux does.
+  in its own kqueue. Left to the kernel, the worker already awake took most connections,
+  with the listener edge- or level-triggered, and capping accepts per pass didn't change
+  that. So the shim counts each worker's accepts, a worker declines with `EAGAIN` while it
+  has taken more than one past the average, and the listener is level-triggered, so a
+  declined connection stays reported until another worker takes it (2026-10-11, task
+  012 has the measurements).
+- macOS drops a connection whose `accept` fails with `EMFILE`, so near the fd limit the
+  shim checks for a free fd first and leaves the client in the backlog when there's
+  none, as Linux does. The check and the `accept` hold a lock across workers, so two
+  can't both pass the check for the last free fd; far from the limit there's no check
+  (2026-10-11).
+- A connection's writability is watched only while a send waits for room, as libuv
+  does: kqueue reports `EV_CLEAR`'s write filter as each ACK frees buffer space, a
+  wake-up per response. The epoll loop and the ring's emulation register `OUT` after a
+  send returns `EAGAIN` and drop it once the bytes are out, on Linux too (2026-10-11,
+  task 012).
 
 On Windows ([task 006.02](../../tasks/006-kqueue-iocp/02-iocp-windows.md) has the
 details):

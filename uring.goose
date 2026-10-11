@@ -38,6 +38,7 @@ struct RingConn {
 // and returns its error, with every socket it opened closed. The ring stays:
 // closing one with requests in flight is task 013's graceful shutdown.
 fn serve<H>(cfg: Config) -> Error {
+    net_worker_start();
     let ip, ok = ipv4(cfg.address);
     guard ok else { return Error { call: "address", code: EINVAL }; }
     let lfd = net_listen(ip, cfg.port, cfg.backlog, NONBLOCK | REUSEPORT);

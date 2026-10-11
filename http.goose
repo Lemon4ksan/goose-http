@@ -26,7 +26,8 @@ struct Config {
     // Windows).
     address: u8[..16] = "",
     port: i32 = 8080,
-    // 0 for one per hardware thread (worker_count).
+    // 0 for one per hardware thread, or on macOS one per performance core
+    // (worker_count).
     workers: i64 = 0,
     backlog: i32 = 4096,
     // The most connections one worker holds. The default lets one worker take
@@ -79,7 +80,9 @@ struct Error { call: const u8[:], code: i64 }
 //
 //   for i in http::worker_count(cfg) { ids.push(thread_spawn(worker, cfg)); }
 fn worker_count(cfg: Config) -> i64 {
-    if cfg.workers > 0 { cfg.workers } else { max(1, hardware_threads()) }
+    guard cfg.workers <= 0 else { return cfg.workers; }
+    let n = net_default_workers();
+    return if n > 0 { n } else { max(1, hardware_threads()) };
 }
 
 // An address as net_listen takes it: -1 for none, or an IPv4 address in host

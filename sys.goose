@@ -57,6 +57,9 @@ let SHUT_WR: i32 = 1;
 // on Linux, and the workers share one on macOS and Windows, which net_close
 // closes after the last worker closes it.
 extern fn net_listen(ip: i64, port: i32, backlog: i32, flags: i32) -> i32;
+// flags must be the listener's NONBLOCK: macOS takes it from the listener. On
+// macOS a shared listener's net_accept also fails with EAGAIN while the
+// calling worker has taken more than its share of the connections.
 extern fn net_accept(fd: i32, flags: i32) -> i32;
 // Writes up to buf.len bytes into buf; 0 means the peer closed.
 extern fn net_recv(fd: i32, buf: u8[:]) -> i64;
@@ -76,6 +79,14 @@ extern fn net_epoll_wait(ep: i32, out: Event[:], timeout_ms: i32) -> i32;
 // wall-clock seconds since the epoch.
 extern fn net_clock_ms() -> i64;
 extern fn net_time_s() -> i64;
+
+// Readies the calling thread to run a loop. On macOS it gets the
+// user-interactive QoS class, which keeps it on the performance cores: Apple
+// Silicon has no CPU affinity. Nothing elsewhere.
+extern fn net_worker_start();
+// The worker count when Config.workers is 0: the performance cores on macOS,
+// and 0 elsewhere, for one worker per hardware thread.
+extern fn net_default_workers() -> i32;
 
 // Writes the C library's text for an error code (positive) into out, cut to
 // fit, and returns its length.

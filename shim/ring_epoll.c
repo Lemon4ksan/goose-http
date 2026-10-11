@@ -7,11 +7,15 @@
 
    A multishot accept accepts until the listener's backlog is empty, and a
    multishot receive reads into the provided buffers until the socket is
-   empty, both again at each edge-triggered event. A send's bytes are copied
-   and sent in the next ur_wait, and what the socket doesn't take waits for
-   its writable edge. Completions that don't fit in ur_wait's out wait in a
-   queue for the next call. Every call returns the same Linux errno values
-   as the rest of the shim. */
+   empty, both again at each edge-triggered event. On macOS the listener is
+   level-triggered and net_accept declines past the worker's share
+   (shim/kqueue.c), so the listener is watched only while an accept goes on.
+   A send's bytes are copied and sent in the next ur_wait, and what the
+   socket doesn't take waits for its writable edge, which is watched only
+   then: kqueue reports EV_CLEAR's write filter as each ACK frees buffer
+   space. Completions that don't fit in ur_wait's out wait in a queue for the
+   next call. Every call returns the same Linux errno values as the rest of
+   the shim. */
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,6 +45,8 @@
 #define RP_RDHUP 0x2000u
 #define RP_ET 0x80000000u
 #define RP_CTL_ADD 1
+#define RP_CTL_DEL 2
+#define RP_CTL_MOD 3
 
 /* The listener's epoll tag. A connection's is its fd. */
 #define RP_LISTENER UINT64_MAX
@@ -81,6 +87,7 @@ struct rp_fd {
     uint8_t reading;                /* its multishot receive goes on */
     uint8_t readable;               /* may hold bytes: read until EAGAIN */
     uint8_t writable;               /* may take bytes: send until EAGAIN */
+    uint8_t watch_out;              /* OUT is registered: set while a send waits */
     uint8_t queued;                 /* on the ready list */
 };
 
@@ -173,7 +180,7 @@ static void rp_later(struct rp *u, uint64_t tag, int32_t res) {
 
 static int32_t rp_add(struct rp *u, int32_t fd, struct rp_fd *f) {
     if (f->added) return 0;
-    int32_t r = net_epoll_ctl(u->ep, RP_CTL_ADD, fd, RP_IN | RP_OUT | RP_RDHUP | RP_ET, (uint64_t)fd);
+    int32_t r = net_epoll_ctl(u->ep, RP_CTL_ADD, fd, RP_IN | RP_RDHUP | RP_ET, (uint64_t)fd);
     if (r < 0) return r;
     f->added = 1;
     f->writable = 1;
@@ -265,12 +272,19 @@ int32_t RP(send)(int64_t h, int32_t fd, uint64_t tag, rp_bytes data) {
     return 0;
 }
 
+/* Ends the accept: a level-triggered listener left watched would end every
+   wait at once while clients wait in the backlog. */
+static void rp_stop_accept(struct rp *u) {
+    u->accepting = 0;
+    if (u->ladded && net_epoll_ctl(u->ep, RP_CTL_DEL, u->lfd, 0, 0) >= 0) u->ladded = 0;
+}
+
 /* Ends the accept or the receive started with tag, with an ECANCELED
    completion. */
 void RP(cancel)(int64_t h, uint64_t tag) {
     struct rp *u = (struct rp *)(intptr_t)h;
     if (u->accepting && u->ltag == tag) {
-        u->accepting = 0;
+        rp_stop_accept(u);
         rp_later(u, tag, -RP_ECANCELED);
         return;
     }
@@ -327,7 +341,7 @@ static void rp_work(struct rp *u, rp_completions out, int32_t *n) {
         if (fd == -RP_EINTR || fd == -RP_ECONNABORTED) continue;
         /* EMFILE or ENFILE ends the accept, as io_uring's does, and leaves
            the backlog to the accept queued after it. */
-        if (fd < 0) u->accepting = 0;
+        if (fd < 0) rp_stop_accept(u);
         rp_emit(u, out, n, u->ltag, fd, -1, fd >= 0, 0);
     }
     for (uint32_t i = 0; i < u->nready; i++) {
@@ -349,6 +363,21 @@ static void rp_work(struct rp *u, rp_completions out, int32_t *n) {
             f->sends = s->next;
             if (!f->sends) f->last = NULL;
             free(s);
+        }
+        uint8_t want = f->sends != NULL;
+        if (f->added && want != f->watch_out) {
+            uint32_t ev = RP_IN | RP_RDHUP | RP_ET | (want ? RP_OUT : 0);
+            int32_t r = net_epoll_ctl(u->ep, RP_CTL_MOD, fd, ev, (uint64_t)fd);
+            if (r >= 0) {
+                f->watch_out = want;
+            } else if (want) {
+                /* The send would wait for an edge nobody watches: fail it. */
+                struct rp_send *s = f->sends;
+                rp_emit(u, out, n, s->tag, r, -1, 0, 1);
+                f->sends = s->next;
+                if (!f->sends) f->last = NULL;
+                free(s);
+            }
         }
         while (f->reading && f->readable) {
             if (u->nfree == 0) {
