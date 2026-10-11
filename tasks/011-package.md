@@ -15,8 +15,10 @@ The design, proposed:
   module in `namespace http`: a package has one namespace, and namespaces don't nest
   (`namespace http::sys;` is a parse error at `efe3155`). `sys::` and `ring::` become
   part of `http::`.
-- `http.build` names the shim, `c_sources_linux = ["shim/net.c"];`, and `_macos` and
-  `_windows` sources as task 006 adds them.
+- `http.build` names every platform's shim: `shim/net.c` and `shim/uring.c` with
+  liburing on Linux, `shim/kqueue.c` on macOS, and `shim/net_win.c` and `shim/iocp.c` on
+  Windows, each platform with stubs for the loop it lacks, as `shim/net_win.c` stubs
+  epoll.
 - A program passes its routes to the loop as a function value, which Goose compiles into
   the loop, with no runtime function pointers (spec §7.6). `thread_spawn` copies only
   flat arguments (§11.2), so the program owns the `thread_fn` and calls the loop from it:
@@ -37,8 +39,19 @@ The design, proposed:
 - The routes in `http::respond` today, TechEmpower's and HttpArena's, move into the
   benchmark server's handler, a program in `server/` that imports the package from
   `"../"`. The parser, the response helpers, and the date stay in the package.
-- The io_uring loop stays in the server program until task 005 decides between the
-  loops: as a package module it would make every program link liburing.
+- The package holds both loops, and `http::serve` picks one at run time: io_uring on
+  Linux and Windows (over IOCP), epoll on macOS (decided 2026-10-11). Each loop is the
+  only one on a platform, and a package has one entry and one sidecar, so the root
+  file can no longer pick. The cost: every Linux program that imports `http` links
+  liburing. Task 005 decides whether Linux keeps epoll as a choice or the default.
+- Before the handler can go in, the loops' request handling becomes one function both
+  call: `answer` is nearly the same in `src/server.goose` and `src/uring.goose`, and
+  routes are wired into it (`http::respond`, and `http::reads_body`'s `/baseline11`).
+  A handler's response must not abort the process: today each must fit in
+  `MAX_RESPONSE`, 512 bytes, in a fixed 8 KB write buffer.
+- A library can't end the process: `http::serve` returns errors that `sys::check`
+  and the shims turn into exits today, and takes its settings (address, limits,
+  timeouts, buffer sizes) as one flat struct instead of constants and `WORKERS`.
 
 ## Acceptance criteria
 
