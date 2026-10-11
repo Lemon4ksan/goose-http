@@ -363,3 +363,27 @@ or on Linux. `gs_exit` calls C's `exit()` while another thread is still inside s
 
 The server hits it when every worker fails `listen` at once, for example on a port in
 use. Workaround: none yet.
+
+## On Linux, `goose build` never recompiles a sidecar's C once it's built
+
+Found on `efe3155`, task 012. Status: open
+
+`BuildNativePart` (`src/native.h`) keeps a program's compiled C sources while a stamp
+of their newest modification time is unchanged. It reads the times through
+`std::filesystem::last_write_time(...).time_since_epoch().count()` and takes the
+largest with 0. libstdc++'s file clock counts from the year 2174, so every present-day
+time is negative, the stamp is always 0, and the objects of the first build stay. An
+edit to a C source is ignored, silently when it changes only a body; adding a function
+fails at link time with an undefined reference. macOS's libc++ and MSVC count from 1970
+and 1601, so neither is affected.
+
+    // a.goose, with a.build: c_sources_linux = ["a.c"];
+    extern "rp_f" fn f() -> i64;
+    fn main() { print(f()); }
+    // a.c: long rp_f(void) { return 1; }
+    // goose build a.goose && ./a prints 1; change a.c to return 2, build again: still 1
+
+The objects live in `$GOOSE_HOME/build/prog/<root>-<hash of its path>/native/`, so a
+fresh checkout path or a new `GOOSE_HOME` builds them once. Workaround: on Linux,
+`scripts/build.sh` deletes the `native/` directories of `main` and `main_uring` before
+each build.

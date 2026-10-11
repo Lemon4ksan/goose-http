@@ -42,5 +42,11 @@ if [ "$loop" = epoll ] && [ "$os" = Windows ]; then
     exit 2
 fi
 
+# At the pin, goose build on Linux keeps a program's compiled shim whatever
+# changed in shim/ (docs/goose-findings.md), so the shim is compiled afresh.
+if [ "$os" = Linux ]; then
+    rm -rf "${GOOSE_HOME:-$HOME/.goose}"/build/prog/main-*/native \
+        "${GOOSE_HOME:-$HOME/.goose}"/build/prog/main_uring-*/native
+fi
 mkdir -p "$root/build"
 "$goose" build --cc "$cc" --standalone -o "$root/build/server" "$root/src/$main.goose"
