@@ -3,6 +3,8 @@
 A small, fast HTTP/1.1 server written in [Goose](https://github.com/aardappel/goose), as
 a Goose package that programs import, benchmarked against the fastest Rust, Zig, V, and C
 servers. It runs an event loop per worker, on Linux, macOS, and Windows.
+It's an early work in progress that still lacks essentials: bodies and responses larger
+than its buffers, a router, graceful shutdown, and TLS ([Scope](#scope)).
 
 This repository is a Goose package, not an addition to Goose (2026-10-10). Gaps found
 in the compiler or the standard library are recorded in
