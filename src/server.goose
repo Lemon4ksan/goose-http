@@ -36,7 +36,7 @@ thread_fn worker(port: i32) {
 // The worker count without WORKERS (app.goose).
 fn default_workers() -> i64 {
     let n = sys::default_workers();
-    return if n > 0 { n as i64 } else { hardware_threads() };
+    return if n > 0 { n } else { hardware_threads() };
 }
 
 fn serve(port: i32) {
