@@ -40,6 +40,6 @@ Setup and the build commands are in [docs/development.md](docs/development.md).
 
 | What | Pin | Why |
 |---|---|---|
-| Goose compiler | `aardappel/goose` `752c3ce` (`master`, 2026-10-10) | The language and stdlib change often |
+| Goose compiler | `aardappel/goose` `f084e52` (`master`, 2026-10-10) | The language and stdlib change often |
 
 Move the pin in its own commit, with the build and benchmark results that still hold.

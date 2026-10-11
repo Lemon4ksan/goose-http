@@ -355,8 +355,9 @@ Next:
 
 Settings for the next session:
 
-- The pin is at `752c3ce`. All tests, every finding's minimal program, and the `simd fn`
-  finding's timing give the same results there.
+- The pin is at `f084e52`. All tests, every finding's minimal program, and the `simd fn`
+  finding's timing give the same results there as at `752c3ce`, where everything above
+  before the final run was measured.
 - For a tuning change, build each version as `build/bench/goose-<name>` and run them
   side by side, `SERVERS="goose-o goose-b" RUNS=3 DURATION=3 WARMUP=1 LATENCY=0
   bench/run.sh`, about 5 minutes for two; `RUNS=5 DURATION=10` with `TESTS` for a
