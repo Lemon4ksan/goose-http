@@ -221,9 +221,15 @@ inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_
 // around it, and points into the read buffer, so it lasts until the handler
 // returns.
 fn field_of(req: Request, name: const u8[:]) -> const u8[:], bool {
+    return field_in(req.fields, name);
+}
+
+// The value of field name in fields, field lines that parse or read_body
+// checked, each ending in CRLF, as a request's or its trailers (Event).
+fn field_in(fields: const u8[:], name: const u8[:]) -> const u8[:], bool {
     var pos = 0;
-    while pos < req.fields.len {
-        let n, v, next = field_at(req.fields, pos);
+    while pos < fields.len {
+        let n, v, next = field_at(fields, pos);
         if same_name(n, name) { return v, true; }
         pos = next;
     }
@@ -407,18 +413,9 @@ fn chunked_len(buf: const u8[:], room: i64 = 1 << 62) -> i64, i32 {
         pos = e;
         guard size < room - pos else { return 0, 413; }
         if size == 0 {
-            // Trailer fields, then the blank line.
-            loop {
-                guard pos < buf.len else { return 0, INCOMPLETE; }
-                if buf[pos] == '\r' {
-                    guard pos + 1 < buf.len else { return 0, INCOMPLETE; }
-                    guard buf[pos + 1] == '\n' else { return 0, 400; }
-                    return pos + 2, 200;
-                }
-                let t = line_end(buf, pos);
-                guard t > 0 else { return 0, if t == 0 { INCOMPLETE } else { 400 }; }
-                pos = t;
-            }
+            let e = trailer_end(buf, pos);
+            guard e > 0 else { return 0, if e == 0 { INCOMPLETE } else { 400 }; }
+            return e, 200;
         }
         guard buf.len - pos >= size + 2 else { return 0, INCOMPLETE; }
         pos += size;
@@ -436,9 +433,31 @@ fn line_end(buf: const u8[:], pos: i64) -> i64 {
     return if buf[i] == '\r' && buf[i + 1] == '\n' { i + 2 } else { -1 };
 }
 
+// The index after the blank line that ends the trailer section at pos, 0
+// until it has all arrived, or -1 if a line isn't a field line: a token, a
+// colon, and a value without control bytes but tab.
+fn trailer_end(buf: const u8[:], pos: i64) -> i64 {
+    var p = pos;
+    loop {
+        guard p < buf.len else { return 0; }
+        if buf[p] == '\r' {
+            guard p + 1 < buf.len else { return 0; }
+            return if buf[p + 1] == '\n' { p + 2 } else { -1 };
+        }
+        var q = p;
+        while q < buf.len && is_tchar(buf[q]) { q++; }
+        guard q < buf.len else { return 0; }
+        guard q > p && buf[q] == ':' else { return -1; }
+        let e = line_end(buf, q);
+        guard e > 0 else { return e; }
+        p = e;
+    }
+}
+
 // Decodes, in place, a chunked body that chunked_len accepted: the data moves
-// to the front of buf. Returns its length.
-fn dechunk(buf: u8[:]) -> i64 {
+// to the front of buf. Returns its length, and where its trailer section
+// starts, which ends 2 bytes before buf does.
+fn dechunk(buf: u8[:]) -> i64, i64 {
     var pos = 0;
     var n = 0;
     loop {
@@ -447,7 +466,7 @@ fn dechunk(buf: u8[:]) -> i64 {
         let size, ok = parse_int(buf[s0..pos], 16);
         while buf[pos] != '\n' { pos++; }
         pos++;
-        if size == 0 { return n; }
+        if size == 0 { return n, pos; }
         copy_into(buf[n..n + size], buf[pos..pos + size]);
         n += size;
         pos += size + 2;
@@ -472,9 +491,10 @@ struct BodyReader { place: u8 = NO_BODY, left: i64 = 0 }
 
 // Reads the next bytes of r's body from the start of buf, up to and including
 // one run of data, buf[d0..d1]. Returns d0, d1, and 200, with buf[..d1] used
-// up; INCOMPLETE, with nothing used, until buf holds a whole size or trailer
-// line; or 400. r.place is NO_BODY once the body has ended, chunked bodies
-// at the trailer section's blank line.
+// up; INCOMPLETE, with nothing used, until buf holds a whole size line or
+// trailer section; or 400. r.place is NO_BODY once the body has ended; a
+// chunked body ends with buf[d0..d1] its trailer section, the blank line
+// included, instead of data.
 fn read_body(buf: const u8[:], r: BodyReader&) -> i64, i64, i32 {
     if r.place == RAW { return 0, buf.len, if buf.len > 0 { 200 } else { INCOMPLETE }; }
     if r.place == LENGTH {
@@ -513,17 +533,13 @@ fn read_body(buf: const u8[:], r: BodyReader&) -> i64, i64, i32 {
             r.left = size;
             r.place = if size == 0 { CHUNK_TRAILER } else { CHUNK_DATA };
         } else if r.place == CHUNK_TRAILER {
-            guard pos < buf.len else { break; }
-            if buf[pos] == '\r' {
-                guard pos + 1 < buf.len else { break; }
-                guard buf[pos + 1] == '\n' else { return 0, 0, 400; }
-                r.place = NO_BODY;
-                return pos + 2, pos + 2, 200;
-            }
-            let t = line_end(buf, pos);
-            guard t >= 0 else { return 0, 0, 400; }
-            guard t > 0 else { break; }
-            pos = t;
+            // The trailer section goes to the handler whole, so it waits
+            // until it has all arrived.
+            let e = trailer_end(buf, pos);
+            guard e >= 0 else { return 0, 0, 400; }
+            guard e > 0 else { break; }
+            r.place = NO_BODY;
+            return pos, e, 200;
         } else {
             return 0, 0, 200;
         }

@@ -307,7 +307,7 @@ fn dechunked(text: const u8[:], out: u8[>..]&) -> i32 {
     if s == 200 {
         var buf: u8[>..] = [];
         buf.append(text[..n]);
-        let k = http::dechunk(buf);
+        let k, t = http::dechunk(buf);
         out.append(buf[..k]);
     }
     return s;
@@ -366,7 +366,8 @@ fn read_in_pieces(text: const u8[:], k: i64, out: u8[>..]&) -> i32, i64 {
             continue;
         }
         guard s == 200 else { return s, pos; }
-        out.append(buf[pos + d0..pos + d1]);
+        // The last run is the trailer section, not data.
+        if r.place != http::NO_BODY { out.append(buf[pos + d0..pos + d1]); }
         pos += d1;
     }
     return 200, pos;
@@ -400,6 +401,27 @@ fn test_read_body() {
             let s, n = read_in_pieces(b, k, got);
             assert(s == 400);
         }
+    }
+
+    // The trailer section comes whole, after the data, and so do a whole
+    // body's trailers from dechunk.
+    var rt = http::BodyReader { place: http::CHUNK_SIZE, left: 0 };
+    let tb = "1\r\nx\r\n0\r\nT: v\r\nU: w\r\n\r\nGET";
+    let a0, a1, sa = http::read_body(tb, rt);
+    assert(sa == 200 && tb[a0..a1] == "x");
+    let b0, b1, sb = http::read_body(tb[a1..], rt);
+    assert(sb == 200 && rt.place == http::NO_BODY && tb[a1 + b0..a1 + b1] == "T: v\r\nU: w\r\n\r\n");
+    let tv, found = http::field_in(tb[a1 + b0..a1 + b1 - 2], "u");
+    assert(found && tv == "w");
+    var whole: u8[>..] = [];
+    whole.append(tb[..tb.len - 3]);
+    let wn, wt = http::dechunk(whole);
+    assert(wn == 1 && whole[wt..whole.len - 2] == "T: v\r\nU: w\r\n");
+    for b in ["0\r\nbad\r\n\r\n", "0\r\n: v\r\n\r\n", "0\r\nT: \x01\r\n\r\n"] {
+        var none: u8[>..] = [];
+        let s, n = read_in_pieces(b, b.len, none);
+        assert(s == 400);
+        assert(dechunked(b, none) == 400);
     }
 
     // A Content-Length body ends at its length.

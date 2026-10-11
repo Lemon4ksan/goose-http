@@ -105,7 +105,9 @@ returns; nothing allocates.
 `http::range_of(req, size, etag)` gives the one byte range `Range` asks for, with 206,
 416, or 200 for the whole (as when `If-Range` names another entity tag), and
 `http::content_range(out, start, end, size)` writes its field. `http::end(out,
-trailers)` ends a chunked response with trailer fields.
+trailers)` ends a chunked response with trailer fields, and a chunked request's come in
+`ev.trailers`, at `END` or with a whole body, where `http::field_in(ev.trailers, name)`
+finds one.
 
 ### Bodies and responses of any size
 
@@ -206,8 +208,8 @@ size, whole or in pieces, a program's handler, and the C shim the loops need for
 syscalls; in the benchmark server, TechEmpower's plaintext and JSON endpoints and
 HttpArena's baseline and pipeline endpoints, and on `main`, configurable limits and
 timeouts, a graceful shutdown, a router, `Upgrade`, conditional requests, ranges,
-and response trailers. Planned (task 013): request trailers, a configurable `Server`
-field, and files sent with `sendfile`.
+and trailers. Planned (task 013): a configurable `Server` field, and files sent with
+`sendfile`.
 Out of scope: TLS and HTTP/2 (task 014 plans them), and Windows as a benchmark
 platform.
 

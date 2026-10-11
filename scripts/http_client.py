@@ -57,6 +57,7 @@ class Response:
         self.status = status
         self.headers = headers  # lowercased names, in order
         self.body = body
+        self.trailers = []  # a chunked body's, as headers
 
     def header(self, name):
         values = [v for n, v in self.headers if n == name]
@@ -130,8 +131,9 @@ class Conn:
                 body += self.take(size)
                 if self.take(2) != b"\r\n":
                     fail("a chunk without its CRLF")
-            while self.line():
-                pass
+            while line := self.line():
+                name, value = line.split(b":", 1)
+                r.trailers.append((name.decode().lower(), value.strip().decode()))
             r.body = bytes(body)
         elif "content-length" in names:
             r.body = self.take(int(r.header("content-length")))
@@ -405,13 +407,25 @@ def stream(port):
     for framing, data in ((b"Content-Length: %d\r\n" % len(body), body),
                           (b"Transfer-Encoding: chunked\r\n",
                            b"".join(b"%x\r\n" % len(body[i:i + 65536]) + body[i:i + 65536] + b"\r\n"
-                                    for i in range(0, len(body), 65536)) + b"0\r\n\r\n")):
+                                    for i in range(0, len(body), 65536)) + b"0\r\nX-Check: 42\r\n\r\n")):
         c = Conn(port, timeout=30)
         sender = threading.Thread(target=c.send, args=(request(b"/echo", b"POST", framing) + data,))
         sender.start()
-        check(c.response(), 200, body, f"/echo, {framing!r}")
+        r = c.response()
+        check(r, 200, body, f"/echo, {framing!r}")
         sender.join()
         c.close()
+        # A chunked body's trailers come back as the response's.
+        if r.trailers != ([("x-check", "42")] if b"chunked" in framing else []):
+            fail(f"/echo's trailers: {r.trailers}")
+    # The trailers of a body that comes whole too.
+    c = Conn(port)
+    c.send(request(b"/echo", b"POST", b"Transfer-Encoding: chunked\r\n") + b"2\r\nhi\r\n0\r\nA: b\r\n\r\n")
+    r = c.response()
+    check(r, 200, b"hi", "/echo, a whole chunked body")
+    if r.trailers != [("a", "b")]:
+        fail(f"/echo's trailers for a whole body: {r.trailers}")
+    c.close()
 
     # 10 MB with a Content-Length, 100 MB chunked, and to HTTP/1.0, a body
     # that ends at the close.

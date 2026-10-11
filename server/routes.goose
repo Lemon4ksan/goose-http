@@ -37,13 +37,13 @@ let SEND: u8 = 3;
 // fold into each route.
 inline fn handle(ev: http::Event, st: Transfer&, out: http::Reply) {
     if ev.kind == http::REQUEST {
-        route(ev.req, ev.data, ev.whole, st, out);
+        route(ev.req, ev.data, ev.whole, ev.trailers, st, out);
     } else if st.route == UPLOAD {
         if ev.kind == http::BODY { take(st, ev.data); }
         else if ev.kind == http::END { uploaded(st, out); }
     } else if st.route == ECHO {
         if ev.kind == http::BODY { http::send(out, ev.data); }
-        else if ev.kind == http::END { http::end(out); }
+        else if ev.kind == http::END { http::end(out, ev.trailers); }
     } else if st.route == SEND && ev.kind == http::MORE {
         let k = min(st.left, PIECE);
         let at = st.count % 10;
@@ -54,11 +54,13 @@ inline fn handle(ev: http::Event, st: Transfer&, out: http::Reply) {
     }
 }
 
-// Answers req, or starts to. body is its body when whole is set, or empty.
+// Answers req, or starts to. body is its body, and trailers its trailers,
+// when whole is set, or empty.
 // TechEmpower's routes go first, where most requests go, before the other
 // paths are compared: as lets ahead of the first branch, the comparisons cost
 // about 20 instructions per request.
-inline fn route(req: http::Request, body: const u8[:], whole: bool, st: Transfer&, out: http::Reply) {
+inline fn route(req: http::Request, body: const u8[:], whole: bool, trailers: const u8[:], st: Transfer&,
+                 out: http::Reply) {
     let path = http::path_of(req.target);
     let get = out.head || req.method == "GET";
     if get && path == "/plaintext" {
@@ -70,13 +72,13 @@ inline fn route(req: http::Request, body: const u8[:], whole: bool, st: Transfer
         http::start(out, 200);
         http::finish(out, "Content-Type: application/json\r\nContent-Length: ", text);
     } else {
-        route_rest(req, path, get, body, whole, st, out);
+        route_rest(req, path, get, body, whole, trailers, st, out);
     }
 }
 
 // route's routes past TechEmpower's.
 inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: const u8[:], whole: bool,
-                     st: Transfer&, out: http::Reply) {
+                     trailers: const u8[:], st: Transfer&, out: http::Reply) {
     let plaintext = path == "/plaintext";
     let json = path == "/json";
     let baseline = path == "/baseline11";
@@ -131,7 +133,8 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
         http::begin(out, 200, if req.chunked { -1 } else { req.body });
         http::field(out, "Content-Type", "application/octet-stream");
         http::send(out, body);
-        if whole { http::end(out); } else { st.route = ECHO; }
+        // A chunked body's trailers go back as the response's.
+        if whole { http::end(out, trailers); } else { st.route = ECHO; }
     } else if raw {
         if http::upgrade_of(req) == "echo" {
             http::upgrade(out, "echo");

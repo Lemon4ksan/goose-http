@@ -193,8 +193,11 @@ response still open).
   `http::content_range` for conditional `GET` and one byte range, with
   `http::parse_date` for IMF-fixdate (not the obsolete forms, which leave a condition
   ignored), and response trailers through `http::end(out, trailers)`.
-  `test_http.goose`'s `test_conditional` and `test_stream` check them. Not yet:
-  request trailers, which the decoder still checks and skips; a configurable or
+  `test_http.goose`'s `test_conditional` and `test_stream` check them. Request
+  trailers come in `Event.trailers`, at `END` or with a whole chunked body, as field
+  lines that `http::field_in` searches, checked to be field lines; `/echo` sends a
+  chunked body's back as its response's, which `stream` checks. Not yet: a
+  configurable or
   absent `Server` field, which every status line has as a literal, so that a constant
   status costs one append; and files through `sendfile`, which needs the shims.
 
@@ -202,7 +205,7 @@ Next, in order:
 
 1. Run the tests on macOS: the kqueue table change, and the stop.
 2. Split the streaming loop's cost further, and remove what can go.
-3. The rest of items 14 and 16.
+3. The rest of item 16.
 
 ## Streaming design (2026-10-12)
 

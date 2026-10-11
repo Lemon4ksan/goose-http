@@ -150,6 +150,11 @@ struct Event {
     // REQUEST's data is the whole body, as a body that fits in the read buffer
     // with its head always is, and no BODY or END follows.
     whole: bool,
+    // The trailer fields of a chunked body (RFC 9112 §7.1.2), at END, or at
+    // REQUEST when whole: field lines, each ending in CRLF, that field_in
+    // finds a field in. A handler that reads one lets the sender know it may
+    // send them with its TE field.
+    trailers: const u8[:],
 }
 
 // A request whose exchange outlasts the handler's REQUEST call: what of its
@@ -255,6 +260,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: co
                 full = true;
                 break;
             }
+            let chunked = x.body.place >= CHUNK_SIZE && x.body.place <= CHUNK_TRAILER;
             let d0, d1, s = read_body(rbuf[off..rlen], x.body);
             if s == INCOMPLETE {
                 // A size or trailer line longer than rbuf can't fit.
@@ -265,7 +271,10 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: co
                 fail(400);
                 break;
             }
-            let piece = rbuf[off + d0..off + d1];
+            // A chunked body ends with its trailers, not data.
+            let ended = chunked && x.body.place == NO_BODY;
+            let piece = rbuf[off + d0..if ended { off + d0 } else { off + d1 }];
+            let trailers = rbuf[off + d0..if ended { off + d1 - 2 } else { off + d0 }];
             off += d1;
             x.taken += piece.len;
             // A chunk's size tells, before its data, whether it's too long.
@@ -285,8 +294,8 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: co
                 fail(413);
                 break;
             }
-            if piece.len > 0 { call(Event { kind: BODY, req: gone, data: piece, whole: false }); }
-            if x.body.place == NO_BODY && !x.answered { call(Event { kind: END, req: gone, data: "", whole: false }); }
+            if piece.len > 0 { call(Event { kind: BODY, req: gone, data: piece, whole: false, trailers: "" }); }
+            if x.body.place == NO_BODY && !x.answered { call(Event { kind: END, req: gone, data: "", whole: false, trailers: trailers }); }
             guard settle() else { break; }
             continue;
         }
@@ -297,7 +306,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: co
             }
             // A MORE that neither sends nor ends would be called forever.
             x.stream.moved = false;
-            if !call(Event { kind: MORE, req: gone, data: "", whole: false }) && !x.stream.moved && x.stream.open {
+            if !call(Event { kind: MORE, req: gone, data: "", whole: false, trailers: "" }) && !x.stream.moved && x.stream.open {
                 close();
                 break;
             }
@@ -344,14 +353,24 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: co
                 wire = n;
             }
         }
-        let blen = if req.chunked && whole { dechunk(rbuf[b0..b0 + wire]) } else { wire };
+        // The data and trailers of a chunked body.
+        var blen = wire;
+        var t0 = wire;
+        var t1 = wire;
+        if req.chunked && whole {
+            let n, t = dechunk(rbuf[b0..b0 + wire]);
+            blen = n;
+            t0 = t;
+            t1 = wire - 2;
+        }
         off = b0 + wire;
         // The request's state goes straight into c's slot, whose stream no
         // response holds open between requests.
         x.keep_alive = req.keep_alive && !stopping;
         x.state = fresh;
         let before = wbuf.len;
-        H(Event { kind: REQUEST, req: req, data: rbuf[b0..b0 + blen], whole: whole }, x.state,
+        H(Event { kind: REQUEST, req: req, data: rbuf[b0..b0 + blen], whole: whole,
+                  trailers: rbuf[b0 + t0..b0 + t1] }, x.state,
           Reply { buf: wbuf, date: date, keep_alive: x.keep_alive, minor: req.minor,
                   head: req.method == "HEAD", stream: x.stream });
         done++;

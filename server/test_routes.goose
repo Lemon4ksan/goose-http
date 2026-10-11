@@ -17,8 +17,8 @@ fn response(text: const u8[:], out: u8[>..]&) -> bool {
     var st = Transfer { .. };
     let reply = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: r.minor, head: r.method == "HEAD",
                               stream: stream };
-    handle(http::Event { kind: http::REQUEST, req: r, data: text[r.len..], whole: true }, st, reply);
-    while stream.open { handle(http::Event { kind: http::MORE, req: r, data: "", whole: false }, st, reply); }
+    handle(http::Event { kind: http::REQUEST, req: r, data: text[r.len..], whole: true, trailers: "" }, st, reply);
+    while stream.open { handle(http::Event { kind: http::MORE, req: r, data: "", whole: false, trailers: "" }, st, reply); }
     return keep;
 }
 
