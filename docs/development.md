@@ -643,7 +643,7 @@ docker run --rm --network host -v /var/run/docker.sock:/var/run/docker.sock \
 ## Windows
 
 The io_uring loop runs natively on Windows through `shim/iocp.c` and `shim/net_win.c`,
-which `src/main_uring.build` lists under `c_sources_windows`
+which `http.build` lists under `c_sources_windows`
 ([architecture](architecture/README.md#the-platform-and-its-error-codes-task-006)), and
 `scripts/test-unit.sh`, `scripts/test-http.sh`, and `scripts/test-echo.sh` pass there,
 in Git Bash. The epoll loop doesn't build on Windows. Windows isn't for benchmarks.
@@ -691,6 +691,41 @@ Traps in Git Bash:
   fails in `many 10000` with `OSError: [WinError 52] You were not connected because a
   duplicate name exists on the network`, which is running out of ports (2026-10-11).
   Wait until `netstat -an | grep -c TIME_WAIT` is down to a few thousand.
+- Git Bash's `tar` reads an archive path that starts with a drive letter, such as
+  `C:\Users\...\tree.tar` from `$TEMP`, as a remote host, fails with "Cannot connect
+  to C: resolve failed", and extracts nothing. Pass `--force-local`, or a `/c/...`
+  path.
+
+### Against WSL
+
+A speed check, not a benchmark (2026-10-11): is the IOCP build in the ballpark of the
+same loop on io_uring in WSL2, on the same machine? It is, about 2.2 to 2.8 times
+slower, not an order of magnitude.
+
+- Both sides ran the code of `2d61b55`: the Windows build by MSVC 19.51
+  (`scripts/build.sh`), and the WSL2 build `goose-uring` by gcc 15.2.0
+  (`bench/build.sh`), WSL2 kernel 6.18.40.1.
+- The load generator was oha 1.16.0 on both: its `oha-windows-amd64.exe` release on
+  Windows, and `cargo install oha` in WSL2. `oha -n 2000000 -c 256 --no-tui
+  http://127.0.0.1:29380/plaintext`: 256 connections, 2,000,000 requests, not pipelined,
+  since oha can't pipeline. Nothing was pinned to CPUs, and nothing else ran.
+- `WORKERS=4 build/server.exe http 29380` on Windows, and `LOOP=uring WORKERS=4
+  build/bench/goose-uring http 29380` in WSL2.
+
+| Server | Workers | Runs | Requests per second |
+|---|---:|---:|---:|
+| Windows, IOCP | 4 | 3 | 217,526-231,707 |
+| WSL2, io_uring | 4 | 3 | 629,992-646,977 |
+| WSL2, epoll (`LOOP=epoll`) | 4 | 3 | 543,578-550,226 |
+| Windows, IOCP | 1 | 2 | 78,065-78,079 |
+| WSL2, io_uring | 1 | 2 | 174,910-176,395 |
+
+Every request succeeded. Windows trails by 2.2 times with 1 worker and 2.8 times with
+4: a request costs more there, and 4 workers serve 2.9 times what 1 does, against 3.7
+times in WSL2, as one worker takes most of the connections
+([architecture](architecture/README.md#the-platform-and-its-error-codes-task-006)).
+The client shares the CPUs with the server on both sides, so the numbers bound the
+server only loosely.
 
 ## Edit on Windows
 
