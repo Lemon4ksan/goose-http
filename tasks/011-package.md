@@ -137,6 +137,11 @@ Steps 1 to 7 of the plan are done, each its own commit, with the unit tests,
 Not done:
 
 - macOS: `http::serve` builds over `shim/ring_epoll.c` there, and nobody has run it.
+  On the Mac, on `main`: `scripts/test-unit.sh`; then `LOOP=uring scripts/build.sh`
+  and `LOOP=epoll scripts/build.sh`, each followed by `scripts/test-http.sh` and
+  `scripts/test-echo.sh`, waiting 30 s between runs for `TIME_WAIT`
+  (`docs/development.md`, "macOS"). The uring build tests the emulation's level-triggered
+  listener, which it watches only while accepting, and its `OUT` watch.
 - On macOS, `shim/kqueue.c`'s table of shared listeners keeps the first worker's fd
   for the listener and never forgets a worker, so a program that calls a loop again
   after one returned dups a closed fd. Each worker would need to leave the table in

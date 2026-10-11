@@ -415,8 +415,9 @@ The epoll loop runs on macOS through `shim/kqueue.c`, which `http.build` lists u
 `c_sources_macos`
 ([architecture](architecture/README.md#the-platform-and-its-error-codes-task-006)), and
 `scripts/test-unit.sh`, `scripts/test-http.sh`, and `scripts/test-echo.sh` pass there.
-The io_uring loop is Linux-only, and `LOOP=uring scripts/build.sh` refuses to build on
-macOS.
+`LOOP=uring scripts/build.sh` builds `http::serve` over `shim/ring_epoll.c`, the
+io_uring loop's emulation, on kqueue; both builds hold both loops, and `LOOP` at run
+time picks one. It hasn't run on a Mac yet (task 011).
 
 | Tool | Where | Version used (2026-10-11) |
 |---|---|---|

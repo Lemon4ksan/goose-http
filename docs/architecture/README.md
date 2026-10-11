@@ -201,7 +201,7 @@ no conditional compilation, and the program chooses the loop by calling it (2026
 Each loop runs unchanged on every platform it builds for. The benchmark server links
 both, and `LOOP` picks one: at run time, or at build time for its default, where
 `scripts/build.sh` builds `server/server.goose` (uring) or `server/server_epoll.goose`
-(epoll), and refuses `LOOP=uring` off Linux, `LOOP=iocp` off Windows, and `LOOP=epoll` on
+(epoll), and refuses `LOOP=uring` and `LOOP=epoll` on Windows, and `LOOP=iocp` off
 Windows.
 
 On macOS:

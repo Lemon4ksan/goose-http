@@ -6,8 +6,9 @@
 # server has both of the package's loops, and LOOP picks the one it serves
 # with when its own LOOP isn't set at run time: uring (server/server.goose,
 # http::serve, the default on Linux), which needs liburing (apt liburing-dev)
-# and Linux 6.1, or epoll (server/server_epoll.goose, http::serve_epoll, the
-# default on macOS, over kqueue). The package's sidecar, http.build, names
+# on Linux and runs over an emulation on kqueue on macOS, or epoll
+# (server/server_epoll.goose, http::serve_epoll, the default on macOS, over
+# kqueue). The package's sidecar, http.build, names
 # the C in shim/ it links on each platform.
 #
 # On Windows, in Git Bash, the loop is iocp, http::serve over I/O completion
@@ -31,8 +32,8 @@ epoll) main=server_epoll ;;
 uring | iocp) main=server ;;
 *) echo "scripts/build.sh: LOOP is epoll, uring, or iocp"; exit 2 ;;
 esac
-if [ "$loop" = uring ] && [ "$os" != Linux ]; then
-    echo "scripts/build.sh: LOOP=uring needs Linux"
+if [ "$loop" = uring ] && [ "$os" = Windows ]; then
+    echo "scripts/build.sh: LOOP=uring is LOOP=iocp on Windows"
     exit 2
 fi
 if [ "$loop" = iocp ] && [ "$os" != Windows ]; then
