@@ -20,7 +20,7 @@ Workaround: ...
 
 ## A missing stdlib is reported as a missing file next to the program
 
-Found on `3536810`, task 001. Status: open (unchanged at `efe3155`)
+Found on `3536810`, task 001. Status: open (unchanged at `fe6c543`)
 
 A compiler binary moved out of its checkout, run without `--stdlib` or `GOOSE_STDLIB`,
 can't find the stdlib. It then reports the import as missing beside the root file, the
@@ -42,7 +42,7 @@ binary (`docs/development.md`).
 
 ## An --include path is rewritten wrongly when -o names no directory
 
-Found on `3536810`, task 002. Status: open (unchanged at `efe3155`)
+Found on `3536810`, task 002. Status: open (unchanged at `fe6c543`)
 
 `goose -o out.c --include /abs/net.h` writes `#include "abs/net.h"`, without the leading
 slash, and the C compiler can't find the header; `-o ./out.c` does the same. The compiler
@@ -67,7 +67,7 @@ files that `goose build` compiles on their own, with no `--include`.
 
 ## An --include header can't set feature-test macros
 
-Found on `3536810`, task 002. Status: open (unchanged at `efe3155`)
+Found on `3536810`, task 002. Status: open (unchanged at `fe6c543`)
 
 The generated C includes `<stdio.h>`, `<unistd.h>`, and the runtime's other system
 headers before it includes an `--include` header, so a `#define _GNU_SOURCE` in the
@@ -94,7 +94,7 @@ compiles on their own, and `shim/net.c` defines `_GNU_SOURCE` itself.
 
 ## A long-distance return can't carry a struct holding a slice of a parameter
 
-Found on `3536810`, task 003. Status: open (unchanged at `efe3155`)
+Found on `3536810`, task 003. Status: open (unchanged at `fe6c543`)
 
 `return E from f` accepts a slice of `f`'s own parameter as `E`, but not a struct
 holding that slice: "a long-distance return may only carry references to globals or
@@ -133,7 +133,7 @@ directly instead of through nested helpers.
 ## One unproven change to an index costs every bounds check on it
 
 Found on `3536810`, task 004. Status: open for the `pos + 8` guard (unchanged at
-`efe3155`). The inliner's case no longer loses checks at `bab8b6f`, where the program
+`fe6c543`). The inliner's case no longer loses checks at `bab8b6f`, where the program
 below has 3/3 elided at `-O2`.
 
 The bounds-check analysis proves `0 <= pos <= buf.len` for a whole function at once. A
@@ -227,7 +227,7 @@ and advances past `find_any`'s result, an external call, with `pos = pos + k` un
 
 ## The stdlib has no fast byte search, and no word loads
 
-Found on `3536810`, task 004. Status: open for word loads (unchanged at `efe3155`).
+Found on `3536810`, task 004. Status: open for word loads (unchanged at `fe6c543`).
 `std` has had a byte search since `72b1bc5`: `find_any`, which scans 16 bytes at a time
 on x86-64.
 
@@ -255,7 +255,7 @@ needs a word load now.
 
 ## A simd fn parser ran slower than its baseline
 
-Found on `bab8b6f`, task 008. Status: open (unchanged at `efe3155`)
+Found on `bab8b6f`, task 008. Status: open (unchanged at `fe6c543`)
 
 `simd` (spec §7.12) on `http::parse` made it slower under clang 21 on a Ryzen 7 5800X3D,
 which runs the AVX2 version. The spec allows this: a `simd fn` suits a function that
@@ -286,7 +286,7 @@ Workaround: `http::parse` isn't a `simd fn`.
 
 ## Goose can't express a movemask and count trailing zeros
 
-Found on `bab8b6f`, task 008. Status: open (unchanged at `efe3155`)
+Found on `bab8b6f`, task 008. Status: open (unchanged at `fe6c543`)
 
 The fast HTTP parsers find the first byte of a set in a 32-byte block with a compare,
 `movemask`, and a trailing-zero count (httparse's AVX2 path), about six instructions.
@@ -309,7 +309,7 @@ Workaround: `std`'s `find_any`, whose runtime does the movemask and count in C.
 
 ## A limited array's `..` default writes its whole capacity
 
-Found on `e7792d7`, task 009. Status: open (unchanged at `efe3155`)
+Found on `e7792d7`, task 009. Status: open (unchanged at `fe6c543`)
 
 Spec §4.2 says constructing a limited array writes only its metadata and any provided
 elements, and leaves the rest of its capacity uninitialized; C.2 and C.4 add that its
@@ -332,7 +332,7 @@ Workaround: the server's connection slots hold no buffers (`docs/architecture/RE
 
 ## A struct literal is built in whole temporaries and copied
 
-Found on `e7792d7`, task 009. Status: open (unchanged at `efe3155`)
+Found on `e7792d7`, task 009. Status: open (unchanged at `fe6c543`)
 
 Spec §4.2 says a struct literal is constructed "directly into each field; no temporaries
 or copies are introduced". The C backend builds each field in a temporary, copies it
@@ -349,7 +349,7 @@ without them (task 009).
 
 ## Two threads that exit at once crash on Windows
 
-Found on `efe3155`, task 006. Status: open
+Found on `efe3155`, task 006. Status: open (unchanged at `fe6c543`)
 
 When two threads each print and then call `exit(1)` with their output redirected, the
 program crashes with `0xC0000005` (access violation) instead of exiting with 1. It
@@ -364,26 +364,62 @@ or on Linux. `gs_exit` calls C's `exit()` while another thread is still inside s
 The server hits it when every worker fails `listen` at once, for example on a port in
 use. Workaround: none yet.
 
-## On Linux, `goose build` never recompiles a sidecar's C once it's built
+## `goose build` on Linux never sees a sidecar's C change
 
-Found on `efe3155`, task 012. Status: open
+Found on `efe3155`, tasks 011 and 012. Status: open (unchanged at `fe6c543`)
 
-`BuildNativePart` (`src/native.h`) keeps a program's compiled C sources while a stamp
-of their newest modification time is unchanged. It reads the times through
-`std::filesystem::last_write_time(...).time_since_epoch().count()` and takes the
-largest with 0. libstdc++'s file clock counts from the year 2174, so every present-day
-time is negative, the stamp is always 0, and the objects of the first build stay. An
-edit to a C source is ignored, silently when it changes only a body; adding a function
-fails at link time with an undefined reference. macOS's libc++ and MSVC count from 1970
-and 1601, so neither is affected.
+`goose build` keeps the compiled C of a sidecar with a stamp of the newest mtime of its
+C sources and the sidecar: a program's under `~/.goose/build/prog/<name>-<hash>/native/`,
+and a local package's under `~/.goose/build/pkg/local/`. On Linux the mtime in the
+stamp is always 0, so editing a C source never makes the build stale, and the program
+links the old objects: silently when the edit changes only a body, and with an
+undefined reference when it adds a function. Here the old `net_listen(port, backlog,
+flags)` was called with a new fourth argument, so every argument landed one place over
+and two of four workers failed with `EADDRINUSE`. Expected: a changed C source is
+compiled again.
 
-    // a.goose, with a.build: c_sources_linux = ["a.c"];
-    extern "rp_f" fn f() -> i64;
-    fn main() { print(f()); }
-    // a.c: long rp_f(void) { return 1; }
-    // goose build a.goose && ./a prints 1; change a.c to return 2, build again: still 1
+    // stale.goose, with stale.build: c_sources = ["answer.c"];
+    // and answer.c: int32_t answer(void) { return 1; }
+    extern fn answer() -> i32;
 
-The objects live in `$GOOSE_HOME/build/prog/<root>-<hash of its path>/native/`, so a
-fresh checkout path or a new `GOOSE_HOME` builds them once. Workaround: on Linux,
-`scripts/build.sh` deletes the `native/` directories of `main` and `main_uring` before
-each build.
+    fn main() { print(answer()); }
+
+    $ goose build stale.goose && ./stale
+    1
+    $ sed -i 's/return 1/return 2/' answer.c
+    $ goose build stale.goose && ./stale
+    1
+
+`NewestMtime` in `src/native.h` keeps `std::max` of 0 and each file's
+`last_write_time(...).time_since_epoch().count()`. libstdc++'s file clock counts from
+2174, so today's times are negative and the maximum stays 0. macOS's libc++ counts from
+1970 and MSVC's from 1601, so macOS and Windows rebuild as they should. The cache
+directories are named by a hash of the source's path, so a checkout at a new path, or
+a new `GOOSE_HOME`, builds the objects once.
+
+Workaround: `scripts/build.sh` deletes the stamp of the local package whose link list
+has the shim's objects before each build, which compiles the shim again, about a
+second.
+
+## `thread_spawn` doesn't take a function value bound to a `thread_fn`
+
+Found on `efe3155`, task 011. Status: open (unchanged at `fe6c543`)
+
+A generic function can't spawn the `thread_fn` it was passed. Spec §7.6 lets a function
+value be "a function name (including a bound generic function parameter)", and §11.2's
+`thread_spawn(worker, args…)` takes a `thread_fn`'s name, but the two don't combine:
+
+    thread_fn worker(n: i32) { print("worker ", n); }
+
+    fn spawn<W>(n: i32) -> i64 { thread_spawn(W, n) }
+
+    fn main() { thread_wait(spawn(1, worker)); }
+
+    min.goose:3: error: thread_spawn's first argument names a thread_fn
+
+Expected: `W` is bound to `worker`, a `thread_fn`, so the spawn is the same as
+`thread_spawn(worker, n)`. It's what task 011 planned as `http::spawn_workers(worker,
+cfg)`.
+
+Workaround: the package gives the worker count, `http::worker_count(cfg)`, and the
+program writes the spawn loop itself.

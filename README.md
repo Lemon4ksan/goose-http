@@ -1,32 +1,91 @@
 # goose-http
 
-A proof of concept: a small, fast HTTP/1.1 server written in
-[Goose](https://github.com/aardappel/goose), benchmarked against the fastest Rust and Odin
-servers. It runs an event loop per core, on Linux, macOS, and Windows.
+A small, fast HTTP/1.1 server written in [Goose](https://github.com/aardappel/goose), as
+a Goose package that programs import, benchmarked against the fastest Rust and Odin
+servers. It runs an event loop per worker, on Linux, macOS, and Windows.
 
-This repository is a Goose program, not an addition to Goose (2026-10-10). Gaps found
+This repository is a Goose package, not an addition to Goose (2026-10-10). Gaps found
 in the compiler or the standard library are recorded in
 [docs/goose-findings.md](docs/goose-findings.md), not patched here. It may later grow
 into the HTTP layer of a Goose port of snowtime-native; nothing here depends on that.
+
+## Use it
+
+Declare the package in your program's root file, and call a loop from a `thread_fn` of
+your own, with your handler:
+
+```goose
+import http from "github.com/kaitk/goose-http@bfd951a53a6c149bbe861001abfc7b610202fedd";
+
+thread_fn worker(cfg: http::Config) {
+    let e = http::serve(cfg) { req, body, out =>
+        if http::path_of(req.target) == "/" {
+            http::respond(out, 200, "text/plain", "Hello, World!");
+        } else {
+            http::respond(out, 404, "text/plain", "");
+        }
+    };
+    http::report(e);
+}
+
+fn main() {
+    let cfg = http::Config { port: 8080, .. };
+    var ids: i64[>..] = [];
+    for i in http::worker_count(cfg) { ids.push(thread_spawn(worker, cfg)); }
+    for id in ids { thread_wait(id); }
+}
+```
+
+`goose build hello.goose` makes an executable. The first time, the compiler fetches the
+package into `~/.goose` and compiles its C, the shim in `shim/`; on Linux that needs
+liburing (apt `liburing-dev`), and on Windows the Visual Studio Build Tools. The
+program spawns its workers itself, because `thread_spawn` can't take a `thread_fn` a
+package function was passed
+([findings](docs/goose-findings.md#thread_spawn-doesnt-take-a-function-value-bound-to-a-thread_fn)).
+`goose hello.goose` runs a program in the compiler, which can't run one that reaches
+`thread_spawn`: there, call `http::serve` from `main`, for one worker.
+
+The handler gets:
+
+- `req`, the parsed request head (`http::Request` in `message.goose`): method, target,
+  version, keep-alive, the body's announced length, and slices into the read buffer.
+- `body`, the whole body when it fits in the read buffer with its head, chunked bodies
+  decoded. A longer body is dropped as it arrives, and `body` is empty.
+- `out`, an `http::Reply`, to write one whole response of any size into:
+  `http::respond(out, status, content_type, body)`, or `http::start(out, status)`,
+  `http::field(out, name, value)`, and `http::finish(out, fields, body)`. Clearing
+  `out.keep_alive` before `start` closes the connection after the response.
+
+`http::Config` holds the address, port, worker count, limits, timeouts, and buffer
+sizes, with defaults. A loop returns only when a call fails, with an `http::Error`
+that `http::report` writes to stderr. Version 0.1 serves requests and responses of a
+fixed size: no header lookup, bodies read in pieces, or streamed responses yet (task
+013).
+
+## Event loops
+
+The package has two loops, and a program picks one by calling it. Goose compiles a
+generic function only where it's called, so the other isn't in the program:
+
+- `http::serve`, the loop to call everywhere: over io_uring on Linux, 11% to 21% faster
+  than the epoll loop in task 005's matrix, at 4 to 5 times its peak RSS (about 10 MB
+  with 4 workers). It needs Linux 6.1, and where `io_uring_setup` fails, as under
+  Docker's default seccomp profile, it runs over an emulation of the ring on epoll;
+  `http::ring_probe()` says why. On Windows it's over I/O completion ports, and on
+  macOS over the same emulation on kqueue.
+- `http::serve_epoll`, over epoll on Linux and kqueue on macOS, and failing with
+  `ENOSYS` on Windows: the faster loop on macOS, and on Linux the one with a quarter of
+  the memory. The results below measure it.
+
+The benchmark server in `server/` links both, and `LOOP` picks one: `uring` (`iocp` on
+Windows), `epoll`, or `uring-epoll`, the io_uring loop over its emulation. Both stay
+tested ([architecture](docs/architecture/README.md#the-io_uring-loop-task-005)).
 
 ## The question
 
 Can a Goose HTTP server match the fastest Rust and Odin servers on plaintext and JSON
 benchmarks, in a small amount of code? Task 004 answers it for epoll, and task 005 for
 io_uring.
-
-## Event loops
-
-`scripts/build.sh` builds one of two loops, both in Goose:
-
-- `LOOP=epoll`, the default on Linux, and the only loop on macOS, over kqueue. It's the
-  fastest on Linux so far, and the one the results below measure.
-- `LOOP=uring`, over io_uring on Linux. On Windows it's the only loop, over I/O
-  completion ports, and the default there as `LOOP=iocp`.
-
-Task 005 measures the two against each other on Linux. When the repository becomes a
-Goose package (task 011), both stay: `http::serve` is the portable loop, and
-`http::serve_epoll` the epoll one for Linux and macOS.
 
 ## Results so far
 
@@ -55,17 +114,25 @@ and the losses in full: [docs/results.md](docs/results.md).
 ## Scope
 
 In scope: HTTP/1.1 with keep-alive and pipelining, `Content-Length` request bodies,
-chunked request bodies that fit in the read buffer, TechEmpower's plaintext and JSON
-endpoints and HttpArena's baseline and pipeline endpoints, and the C shim the server
-needs for syscalls. Out of scope: TLS, HTTP/2, routing beyond a few fixed paths, and
-Windows as a benchmark platform.
+chunked request bodies that fit in the read buffer, a program's handler, and the C shim
+the loops need for syscalls; in the benchmark server, TechEmpower's plaintext and JSON
+endpoints and HttpArena's baseline and pipeline endpoints. Planned (task 013): header
+lookup, bodies and responses of any size streamed, a router, and graceful shutdown.
+Out of scope: TLS and HTTP/2 (task 014 plans them), and Windows as a benchmark
+platform.
 
 ## Layout
 
 ```text
-src/           the Goose program
-shim/          the C the server calls, linked by goose build: sockets, epoll, io_uring,
+http.goose     the package's entry: the settings, the errors, and what both loops share
+*.goose        its other modules, all namespace http: the parser and the response
+               writers (message.goose), the loops (uring.goose, epoll.goose), and the
+               shim's functions (sys.goose, ring.goose)
+http.build     the package's sidecar: each platform's shim
+shim/          the C the package calls, linked by goose build: sockets, epoll, io_uring,
                and kqueue (macOS) and IOCP (Windows) in their place
+server/        the benchmark server, a program that imports the package from "../"
+test/          the package's unit tests
 bench/         the competing servers, the load scripts, and the recorded results
 scripts/       build and run scripts
 docs/          architecture, development setup, and the Goose findings log
@@ -78,6 +145,6 @@ Setup and the build commands are in [docs/development.md](docs/development.md).
 
 | What | Pin | Why |
 |---|---|---|
-| Goose compiler | `aardappel/goose` `efe3155` (`master`, 2026-10-10) | The language and stdlib change often |
+| Goose compiler | `aardappel/goose` `fe6c543` (`master`, 2026-10-11) | The language and stdlib change often |
 
 Move the pin in its own commit, with the build and benchmark results that still hold.

@@ -26,8 +26,9 @@ until the task named beside it confirms or replaces it.
   C calling C, so Goose still never runs on a thread it didn't start.
   Anything that needs a callback, such as llhttp, libuv, or a C HTTP server, is out
   (confirmed by task 002, 2026-10-10). Details:
-  - `goose build` compiles the shim as C files of their own, which each root file's
-    sidecar names (`src/main.build`), and links them (task 010, 2026-10-11). The C sees
+  - `goose build` compiles the shim as C files of their own, which the package's
+    sidecar names (`http.build`), and links them (task 010, 2026-10-11; a package's
+    sidecar since task 011). The C sees
     none of the generated C, so it spells out the layouts it shares with Goose. Headers
     spliced in with `--include` were dropped: they needed `-D_GNU_SOURCE` from the
     command line and an `-o` with a directory, two compiler findings. A sidecar's
@@ -35,7 +36,7 @@ until the task named beside it confirms or replaces it.
     conditional compilation in Goose.
   - The shim owns the kernel structures whose layout varies by architecture.
     `epoll_wait` fills a local `struct epoll_event` array, which is packed on x86-64 and
-    padded on arm64, and copies it into `sys::Event`, a struct of the program's own.
+    padded on arm64, and copies it into `http::Event`, a struct of the package's own.
   - `send` passes `MSG_NOSIGNAL`, so a write to a closed connection is `-EPIPE`, not a
     `SIGPIPE` that ends the process. There is no signal handler to install. Windows has
     no `SIGPIPE`, and such a write is `-ECONNRESET` there.
@@ -46,9 +47,11 @@ until the task named beside it confirms or replaces it.
   `thread_fn` is compiled as its own program, takes flat arguments, and copies the
   globals it uses (spec §11.2). The fastest Rust plaintext servers use the same shape
   (proposed for task 003, confirmed by it, 2026-10-10):
-  - `main` spawns one worker per `hardware_threads()`, or `WORKERS` if set, and passes
-    each only the port. On macOS the default is one worker per performance core, and
-    each worker takes the user-interactive QoS class, which keeps it on those cores:
+  - The program spawns `http::worker_count(cfg)` workers, `Config.workers` or by default
+    one per `hardware_threads()`, and passes each a copy of the settings, one flat
+    struct (`Config`, 2026-10-11); the benchmark server sets `Config.workers` from
+    `WORKERS`. On macOS the default is one worker per performance core, and each loop
+    gives its worker the user-interactive QoS class, which keeps it on those cores:
     Apple Silicon has no CPU affinity (2026-10-11).
   - Each worker opens its own listener with `SO_REUSEPORT`, so the kernel spreads
     connections across workers, and runs its own edge-triggered epoll loop. On macOS and
@@ -59,11 +62,14 @@ until the task named beside it confirms or replaces it.
     are numbered across the process, so every worker's table would grow to the highest
     fd of all of them.
   - The buffers belong to the worker, not the connection: an 8 KB read buffer, which
-    holds the longest request head whole, and an 8 KB write buffer, which takes the
-    responses to a read's worth of pipelined requests (16 TechEmpower responses are
-    about 2 KB). The connection being driven uses them. Nothing grows per request: the
-    parser returns slices of the read buffer, and the JSON body is built in a fixed array
-    on the native stack.
+    holds the longest request head whole, and a write buffer that takes 8 KB of
+    responses before the server sends them, a read's worth of pipelined requests (16
+    TechEmpower responses are about 2 KB). The write buffer is a growable array, so a
+    response of any size goes into it whole, and what the socket doesn't take goes to
+    the spill pool, as any response does (2026-10-11). The connection being driven
+    uses them. Nothing grows per request in the benchmarks: the parser returns slices
+    of the read buffer, and the JSON body is built in a fixed array on the native
+    stack. The write buffer keeps the pages its largest response touched.
   - Between events, a slot holds about 50 bytes and two slices into the worker's
     `reusable[]` spill pool: the start of a request not yet whole, and responses the
     socket didn't take, both empty almost always (task 009, 2026-10-10). Slots of 16 KB
@@ -80,19 +86,22 @@ until the task named beside it confirms or replaces it.
   - Keep-alive by default, `Connection: close` honored, and HTTP/1.0 kept alive only
     when it asks.
   - Pipelining: every complete request in the read buffer is answered, and the responses
-    go out in one `send`. When the write buffer fills, the server sends it and answers
+    go out in one `send`. Past 8 KB of responses, the server sends them and answers
     the rest.
-  - `Content-Length` request bodies are read and dropped as they arrive. Chunked bodies
-    are accepted in HTTP/1.1 (task 009, for HttpArena's `baseline` profile, 2026-10-10):
-    the message must fit in the 8 KB read buffer with its head, or it gets 413. So must
-    a `Content-Length` body the route reads, which only `POST /baseline11` does. A
-    chunked body the route reads is decoded in place. Another transfer coding gets 501, and `Transfer-Encoding`
-    with `Content-Length`, or in HTTP/1.0, gets 400.
-  - Routes: `/plaintext` and `/json` for TechEmpower's tests, and `/baseline11` and
-    `/pipeline` for HttpArena's (`bench/httparena/goose`).
+  - A request body that fits in the 8 KB read buffer with its head is answered once
+    it's whole, and the handler gets it; a longer `Content-Length` body is dropped as
+    it arrives, and the handler gets an empty one (task 011, 2026-10-11). Chunked
+    bodies are accepted in HTTP/1.1 (task 009, for HttpArena's `baseline` profile,
+    2026-10-10): the message must fit in the read buffer with its head, or it gets
+    413, and the body is decoded in place. Another transfer coding gets 501, and
+    `Transfer-Encoding` with `Content-Length`, or in HTTP/1.0, gets 400.
+  - Routes: `/plaintext` and `/json` for TechEmpower's tests, `/baseline11` and
+    `/pipeline` for HttpArena's (`bench/httparena/goose`), and `/bytes?n=N`, N bytes
+    up to 16 MB, for testing large responses.
   - Lines end in CRLF only; a bare LF is 400. HTTP/1.1 needs one `Host`.
-  - Limits, in `src/http.goose`: a 4 KB request line (414), an 8 KB head or 100 fields
-    (431), and a 1 MB body (413).
+  - Limits: a 4 KB request line (414), an 8 KB head or 100 fields (431), and a 1 MB
+    body (413). The head and body limits, the timeouts, and the buffer sizes are
+    settings (`Config`); the rest are constants in `message.goose`.
   - A refused request closes the connection after the response. The server shuts down
     its side and drops what the client still sends for up to 2 s, so the refusal isn't
     lost to a reset.
@@ -109,11 +118,24 @@ until the task named beside it confirms or replaces it.
 
 ### The io_uring loop (task 005)
 
-`LOOP=uring scripts/build.sh` builds the server with an io_uring loop
-(`src/uring.goose`) in place of the epoll loop; `src/app.goose` holds what both share.
-The epoll loop stays the default on Linux until task 005 measures both, and stays
-buildable and tested either way (2026-10-11). On Windows the io_uring loop is the only
-one, over `shim/iocp.c` ([below](#the-platform-and-its-error-codes-task-006)):
+The io_uring loop (`http::serve`, `uring.goose`) is the default on Linux, and the epoll
+loop (`http::serve_epoll`, `epoll.goose`) stays buildable and tested as `LOOP=epoll`
+(decided 2026-10-11); `http.goose` holds what both share. Task 005's matrix on the x86 machine of `docs/results.md` had the
+io_uring loop 11% to 21% ahead in every cell, with the server's CPUs saturated. Against
+it:
+
+- In Docker Desktop's VM on an M1 Pro (task 012), the epoll loop led by 4% to 8% in
+  plaintext and tied in JSON, in cells where wrk, not the server, used its CPUs up.
+- Docker's default seccomp profile blocks io_uring, so the HttpArena image builds the
+  epoll loop, and `bench/build.sh` builds both, as `goose` and `goose-uring`. The
+  io_uring loop runs there too since task 011, over the emulation below, but that's
+  the epoll loop with copies added.
+- Its peak RSS is 4 to 5 times the epoll loop's, about 10 MB against 2.4 MB with 4
+  workers.
+
+Going back is one line of `scripts/build.sh`, if a server-bound run on another machine
+puts the epoll loop ahead. On Windows the io_uring loop is the only one, over
+`shim/iocp.c` ([below](#the-platform-and-its-error-codes-task-006)):
 
 - `shim/uring.c` wraps liburing 2.14, whose helpers are static inline functions that
   `extern fn` can't bind, and needs Linux 6.1. Each worker owns a ring, created with
@@ -142,6 +164,22 @@ one, over `shim/iocp.c` ([below](#the-platform-and-its-error-codes-task-006)):
 - Closing a connection queues a cancel of its requests and, linked after it, the close.
   A queued request holds a reference to the socket, so a `close` alone would leave the
   connection open.
+- Where `io_uring_setup` fails, `ur_create` returns `shim/ring_epoll.c`'s emulation of
+  the ring instead (task 011, 2026-10-11), as libuv falls back from io_uring to epoll:
+  under Docker's default seccomp profile, with `io_uring_disabled` set, or on a kernel
+  before 6.1. The emulation is written against the shim's own `net_epoll_*` calls, so
+  on macOS the same file, over `shim/kqueue.c`, is `http::serve`'s ring. Its multishot
+  accept and receive accept and read until `EAGAIN` at each edge-triggered event, into
+  the same provided buffers; a send's bytes are copied and sent in the next wait, and
+  the rest waits for the socket's writable edge, watched only then; completions that
+  don't fit in a wait's batch wait for the next. The listener is watched only while an
+  accept goes on: on macOS it's level-triggered, and would end every wait at once
+  while the worker isn't accepting. Its handle is its address with the low bit set, and
+  each `ur_*` call in `shim/uring.c` passes such a handle on. `Config.emulate_ring`
+  asks for it where io_uring works, which is how the tests run it. The package writes
+  nothing about the fallback itself; `http::ring_probe()` returns why there's no
+  io_uring, and the benchmark server's startup line says "on an emulated ring" with
+  that reason.
 - At 16,384 connections the worker cancels its accept, and closes any connection
   accepted before the cancel lands. After `EMFILE` or `ENFILE` it queues the accept
   again after a close or at the next sweep, so waiting clients keep their place in the
@@ -149,26 +187,29 @@ one, over `shim/iocp.c` ([below](#the-platform-and-its-error-codes-task-006)):
 
 ### The platform and its error codes (task 006)
 
-The sidecar chooses the platform, because the spec has no conditional compilation, and
-`scripts/build.sh` chooses the root file (2026-10-11):
+The package's sidecar, `http.build`, chooses the platform's shim, because the spec has
+no conditional compilation, and the program chooses the loop by calling it (2026-10-11):
 
-| Platform | Root file | Loop | Shim |
+| Platform | `http::serve` | `http::serve_epoll` | Shim |
 |---|---|---|---|
-| Linux | `src/main.goose` (default) or `src/main_uring.goose` | epoll or io_uring | `shim/net.c`, and `shim/uring.c` for io_uring |
-| macOS | `src/main.goose` | epoll | `shim/kqueue.c` |
-| Windows | `src/main_uring.goose` | io_uring | `shim/net_win.c`, `shim/iocp.c` |
+| Linux | io_uring, or emulated over epoll | epoll | `shim/net.c`, `shim/uring.c`, `shim/ring_epoll.c` |
+| macOS | emulated over kqueue | kqueue | `shim/kqueue.c`, `shim/ring_epoll.c` |
+| Windows | IOCP | fails with `ENOSYS` | `shim/net_win.c`, `shim/iocp.c` |
 
-Each loop runs unchanged on every platform it builds for. `scripts/build.sh` refuses
-`LOOP=uring` off Linux, `LOOP=iocp` off Windows, and `LOOP=epoll` on Windows.
+Each loop runs unchanged on every platform it builds for. The benchmark server links
+both, and `LOOP` picks one: at run time, or at build time for its default, where
+`scripts/build.sh` builds `server/server.goose` (uring) or `server/server_epoll.goose`
+(epoll), and refuses `LOOP=uring` off Linux, `LOOP=iocp` off Windows, and `LOOP=epoll` on
+Windows.
 
 On macOS:
 
-- `shim/kqueue.c` defines the same C functions as `shim/net.c`, so `src/sys.goose` binds
+- `shim/kqueue.c` defines the same C functions as `shim/net.c`, so `sys.goose` binds
   either. `IN` and `OUT` become `EVFILT_READ` and `EVFILT_WRITE`, `ET` becomes
   `EV_CLEAR`, and `EV_EOF` is reported as `RDHUP` on the read filter and `HUP` on the
-  write filter. The events are copied into `sys::Event`, as on Linux, because `struct
+  write filter. The events are copied into `http::Event`, as on Linux, because `struct
   kevent` is 32 bytes on arm64.
-- The shim merges the events of one fd within a wait into one `sys::Event`, as epoll
+- The shim merges the events of one fd within a wait into one `http::Event`, as epoll
   reports them. kqueue reports each filter apart, and the loop frees a connection's slot on
   the event that closes it, so a second event for it in the same batch would drive the
   freed slot. Without the merge, 3,000 connections at once hung.
@@ -185,11 +226,16 @@ On macOS:
   none, as Linux does. The check and the `accept` hold a lock across workers, so two
   can't both pass the check for the last free fd; far from the limit there's no check
   (2026-10-11).
+- A connection's writability is watched only while a send waits for room, as libuv
+  does: kqueue reports `EV_CLEAR`'s write filter as each ACK frees buffer space, a
+  wake-up per response. The epoll loop and the ring's emulation register `OUT` after a
+  send returns `EAGAIN` and drop it once the bytes are out, on Linux too (2026-10-11,
+  task 012).
 
 On Windows ([task 006.02](../../tasks/006-kqueue-iocp/02-iocp-windows.md) has the
 details):
 
-- `shim/iocp.c` implements `src/ring.goose` over a completion port. IOCP completes one
+- `shim/iocp.c` implements `ring.goose` over a completion port. IOCP completes one
   operation per request, so a multishot accept is an `AcceptEx` posted again after each
   completion, and a multishot receive is a zero-byte `WSARecv` kept posted, whose
   completion the shim follows with one non-blocking `recv` into a free ring buffer. So
@@ -207,7 +253,7 @@ details):
   any other address, with `SO_EXCLUSIVEADDRUSE`, so a second server gets `EADDRINUSE`,
   and `SOMAXCONN_HINT`, because a plain backlog stops at 200.
 
-The constants in `src/sys.goose` are the project's own error codes, Linux's errno values
+The constants in `sys.goose` are the project's own error codes, Linux's errno values
 on every platform, as libuv's are the negated errno on Unix. `shim/net.c` passes errno
 through, and its `_Static_assert`s pin the values. `shim/kqueue.c` translates: codes 1 to
 34 are equal on both systems, a table maps macOS's codes from 35 up to Linux's (`EAGAIN`

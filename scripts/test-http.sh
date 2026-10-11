@@ -115,6 +115,7 @@ echo "curl: ok"
 
 $client tfb
 $client pipeline
+$client large
 $client chunked
 $client keepalive
 $client hostile

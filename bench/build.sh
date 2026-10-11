@@ -52,7 +52,7 @@ mkdir -p "$cache" "$out"
 
 LOOP=uring "$root/scripts/build.sh"
 cp "$root/build/server" "$out/goose-uring"
-"$root/scripts/build.sh"
+LOOP=epoll "$root/scripts/build.sh"
 cp "$root/build/server" "$out/goose"
 
 # TechEmpower builds its Rust entries for the machine they run on, and

@@ -77,7 +77,7 @@ git -C "$arena" clean -q -fdx frameworks/goose scripts
 
 rm -rf "$arena/frameworks/goose"
 cp -r "$root/bench/httparena/goose" "$arena/frameworks/goose"
-cp -r "$root/src" "$root/shim" "$arena/frameworks/goose/"
+cp -r "$root"/*.goose "$root/http.build" "$root/shim" "$root/server" "$arena/frameworks/goose/"
 mkdir -p "$arena/frameworks/goose/scripts"
 cp "$root/scripts/build.sh" "$arena/frameworks/goose/scripts/"
 sed -i "s/0-31,64-95/$server_cpus/g" "$arena/scripts/lib/profiles.sh"

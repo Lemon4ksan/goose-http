@@ -16,8 +16,9 @@ write backpressure, 10 s head and body timeouts that trickled bytes don't extend
 idle close, and a cap of 16,384 connections per worker.
 
 Items 6, 7, and 8 decide the shape of task 011's handler: a handler called once with
-`(req, body, out)` can't stream. Settle that shape before tagging `v0.1.0`, or tag
-`v0.1.0` as serving fixed-size requests and responses only. Items 3, 7, 8, 11, and 13
+`(req, body, out)` can't stream. Decided (2026-10-11, task 011): `v0.1.0` serves
+fixed-size requests and responses only, and items 7 and 8 come as another entry point
+later; task 011's file has the reasons. Items 3, 7, 8, 11, and 13
 change the per-connection state, in both of task 011's loops, `http::serve` and
 `http::serve_epoll`, unless task 011's shared request handling carries them.
 
@@ -46,8 +47,9 @@ change the per-connection state, in both of task 011's loops, `http::serve` and
    (`src/http.goose:209-228`) or gets 413. The handler reads `Content-Length` and chunked
    bodies in buffer-sized pieces, up to a configurable limit; a body it ignores is still
    drained. This is the largest change to the io_uring loop.
-8. Large and streamed responses. A response is at most 512 bytes (`MAX_RESPONSE`,
-   `src/http.goose:23`). The handler can send a body of any size, and stream one with
+8. Large and streamed responses. A response of any size goes whole into the worker's
+   growable write buffer (task 011), so the handler can send one, but not stream one.
+   The handler can send a body of any size without holding it whole, and stream one with
    chunked encoding, while backpressure pauses the handler instead of buffering
    without bound. Check what shape spec §7.6's compile-time function values allow for a
    handler that resumes.

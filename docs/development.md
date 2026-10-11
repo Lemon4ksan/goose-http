@@ -9,7 +9,7 @@ neither is for benchmarks.
 
 | Tool | Where | Version used (2026-10-10) |
 |---|---|---|
-| Goose compiler | `../goose`, at the pin in `README.md` | `efe3155` |
+| Goose compiler | `../goose`, at the pin in `README.md` | `fe6c543` (2026-10-11) |
 | WSL2 Ubuntu | | 26.04.1 LTS, kernel 6.18.40.1-microsoft-standard-WSL2 |
 | C compilers | WSL | gcc 15.2.0, clang 21.1.8 |
 | CMake, Ninja | WSL, apt | 4.2.3, 1.13.2 |
@@ -100,7 +100,7 @@ covers both.
 
    ```sh
    git clone -o upstream https://github.com/aardappel/goose.git ../goose
-   git -C ../goose checkout efe3155
+   git -C ../goose checkout fe6c543
    ```
 
 2. Build the Linux compiler, in WSL:
@@ -162,8 +162,8 @@ Run these in WSL, or on macOS ([below](#macos)). They work from any directory.
 
 | Command | What it does |
 |---|---|
-| `scripts/build.sh` | Builds `src/main.goose` into `build/server` with `goose build`, at `-O2` for Goose and gcc. `LOOP=uring` builds `src/main_uring.goose`, the io_uring loop, instead. |
-| `scripts/test-unit.sh` | Runs each `src/test_*.goose` through TinyCC ([below](#test-the-http-server)). |
+| `scripts/build.sh` | Builds the benchmark server into `build/server` with `goose build`, at `-O2` for Goose and gcc: on Linux `server/server.goose`, which serves with the io_uring loop, or with `LOOP=epoll` `server/server_epoll.goose`, which serves with the epoll loop. |
+| `scripts/test-unit.sh` | Runs each `test/test_*.goose` and `server/test_*.goose` through TinyCC ([below](#test-the-http-server)). |
 | `scripts/test-http.sh` | Tests the HTTP server of `build/server` ([below](#test-the-http-server)). |
 | `scripts/test-echo.sh [server]` | Tests the echo servers of `build/server`, or of another command ([below](#test-the-echo-servers)). |
 | `bench/build.sh` | Builds the Goose server and the competing servers into `build/bench/` ([below](#benchmark)). |
@@ -172,16 +172,19 @@ Run these in WSL, or on macOS ([below](#macos)). They work from any directory.
 `build.sh` runs `goose build --cc gcc --standalone`. gcc builds a faster server than
 clang (task 008); `CC` picks another. `--standalone` puts the runtime in the program's C
 file, so gcc can inline the runtime's functions into the server, as before task 010. The
-root file's sidecar, `src/main.build` or `src/main_uring.build`, names the C in `shim/`
-to compile and link for each platform (`shim/net.c` on Linux, `shim/kqueue.c` on macOS),
-and liburing for the io_uring loop, which needs Linux 6.1
-([architecture](architecture/README.md#the-io_uring-loop-task-005)). `goose build` keeps
-the generated C under `~/.goose/build/prog/`; `goose build -v` prints the commands with
-their paths.
+server imports the package from `../`, whose sidecar, `http.build`, names the C in
+`shim/` to compile and link for each platform (`shim/net.c` and `shim/uring.c` on Linux,
+`shim/kqueue.c` on macOS), and liburing on Linux, for the io_uring loop, which needs
+Linux 6.1 ([architecture](architecture/README.md#the-io_uring-loop-task-005)). `goose
+build` keeps the generated C under `~/.goose/build/prog/`, and the package's compiled C
+under `~/.goose/build/pkg/local/`; `goose build -v` prints the commands with their
+paths. Before each build, `build.sh` deletes the stamp that marks the package's C as
+built: on Linux, `goose build` doesn't see a change to it
+([findings](goose-findings.md#goose-build-on-linux-never-sees-a-sidecars-c-change)).
 
 TinyCC can't place thread-local storage, so it refuses to run any program that can reach
-`thread_spawn`, even when the spawn isn't taken. `src/main.goose` is one, so the server
-runs only through `build.sh`. The unit tests are root files of their own, which TinyCC
+`thread_spawn`, even when the spawn isn't taken. The server's root files are such
+programs, so the server runs only through `build.sh`. The unit tests are root files of their own, which TinyCC
 runs.
 
 The program takes a mode and a port (default 8080):
@@ -189,14 +192,16 @@ The program takes a mode and a port (default 8080):
 ```sh
 build/server http 8080            # the HTTP server, one worker per hardware thread
 WORKERS=4 build/server http 8080  # with 4 workers
+LOOP=epoll build/server http 8080 # with the epoll loop, whichever root file was built
 build/server echo-blocking 8080   # the echo servers of task 002: one client at a time
 build/server echo-epoll 8080      # one edge-triggered epoll loop
 ```
 
 ### Test the HTTP server
 
-`scripts/test-unit.sh` runs `src/test_http.goose`, which asserts what `src/http.goose`
-does with bytes alone: the parser on good, partial, pipelined, and refused requests, the
+`scripts/test-unit.sh` runs `test/test_http.goose`, which asserts what the package's
+`message.goose` does with bytes alone, and `server/test_routes.goose`, the server's
+routes: the parser on good, partial, pipelined, and refused requests, the
 `Date` header against dates from Python's `email.utils`, and the exact bytes of each
 kind of response.
 
@@ -214,6 +219,9 @@ once per loop. It needs curl, wrk, h2load, oha, `nc`, and `python3`
   - `pipeline`: 16 requests in one write, answered in order; a request sent a byte at a
     time; 5-byte and 512 KB bodies dropped between pipelined requests; and 500
     pipelined requests, more than the write buffer holds.
+  - `large`: responses of 5 KB to 300 KB from `/bytes`, alone and pipelined between
+    small ones, and 4 MB to a client that reads only after the server's send has
+    blocked.
   - `chunked`: chunked bodies, with an extension and a trailer field, dropped between
     pipelined requests and sent a byte at a time, and HttpArena's `/baseline11` with no
     body, a `Content-Length` body, and a chunked one.
@@ -233,6 +241,20 @@ once per loop. It needs curl, wrk, h2load, oha, `nc`, and `python3`
 - Then one worker under `ulimit -n 40` and 60 clients (`emfile`): the clients past the fd
   limit wait in the listen backlog, and are served once earlier ones close.
 
+`LOOP=uring-epoll scripts/test-http.sh`, against the `LOOP=uring` build, tests the
+io_uring loop over its emulation on epoll, which it falls back to where io_uring is
+blocked ([architecture](architecture/README.md#the-io_uring-loop-task-005)). The
+fallback itself was tested (2026-10-11) by running the uring build under Docker's
+default seccomp profile, with WSL's liburing mounted, and `http_client.py`'s modes from
+WSL against it:
+
+```sh
+docker run -d --name ghttp -p 29097:29097 -v "$PWD/build/server:/server:ro" \
+    -v /usr/lib/x86_64-linux-gnu/liburing.so.2.14:/usr/lib/x86_64-linux-gnu/liburing.so.2:ro \
+    -e WORKERS=2 ubuntu:26.04 /server http 29097
+python3 scripts/http_client.py 29097 pipeline
+```
+
 The io_uring loop's listener outlives its process by a moment: the kernel tears a ring
 down after the process exits, and the queued multishot accept holds the listener until
 then. `test-http.sh` waits up to 5 s for the port to free before each start.
@@ -246,6 +268,15 @@ h2load and oha, which use a monotonic clock; `bench/run.sh` gives wrk a monotoni
 instead ([below](#benchmark)). And oha with `-z`
 aborts the requests in flight at the deadline and lists them as errors, so the test gives
 it a request count instead.
+
+### Use the package from git
+
+A program outside the repository imports the package as a user's does, at a pushed
+commit, by its full hash: `import http from
+"github.com/kaitk/goose-http@<40-hex hash>";`. Git can't fetch an abbreviated hash.
+The compiler fetches it into `~/.goose/pkg/github.com/kaitk/goose-http/<12-hex
+hash>/`. Check both `goose build` and `goose run`, the second with a program that calls
+`http::serve` from `main`: TinyCC can't run one that reaches `thread_spawn`.
 
 ### Test the echo servers
 
@@ -503,8 +534,9 @@ docker run --rm --security-opt seccomp=unconfined --ulimit nofile=1048576:104857
     sh -c 'LOOP=uring scripts/build.sh && scripts/test-http.sh'
 ```
 
-- Docker's default seccomp profile blocks io_uring: the uring server exits with
-  "io_uring: Operation not permitted". `--security-opt seccomp=unconfined` lets it run.
+- Docker's default seccomp profile blocks io_uring: the uring server exited with
+  "io_uring: Operation not permitted" before task 011, and runs over an emulation on
+  epoll since. `--security-opt seccomp=unconfined` lets it use io_uring.
 - `scripts/test-unit.sh`, and `scripts/test-echo.sh` and `scripts/test-http.sh` against
   each loop, passed at commit `090b2e2`, in one full run.
 - Before that commit, `test-echo.sh` failed 2 of 10 runs there with "echo-blocking never
@@ -654,14 +686,19 @@ Traps in Git Bash:
   (`MSYS_NO_PATHCONV=1`) passes `//c` through, and leaves `cmd` waiting for input.
 - The server listens on 127.0.0.1 only. Any other address raises a Windows Defender
   Firewall prompt.
+- Windows has 16,384 ephemeral ports (49152 to 65535), and `test-http.sh` leaves about
+  11,000 client sockets in `TIME_WAIT`. A second run started within a couple of minutes
+  fails in `many 10000` with `OSError: [WinError 52] You were not connected because a
+  duplicate name exists on the network`, which is running out of ports (2026-10-11).
+  Wait until `netstat -an | grep -c TIME_WAIT` is down to a few thousand.
 
 ## Edit on Windows
 
 The Windows compiler typechecks the whole program without running it:
 
 ```powershell
-..\goose\build\Release\goose.exe --check src\main.goose
-..\goose\build\Release\goose.exe --check src\test_http.goose
+..\goose\build\Release\goose.exe --check server\server.goose
+..\goose\build\Release\goose.exe --check test\test_http.goose
 ```
 
 `--check` and `-o out.c` don't compile the generated C, so the Linux-only C in `shim/` is

@@ -1,7 +1,6 @@
 # 011: goose-http as a Goose package
 
-Status: todo (after task 005, whose Linux numbers settle the loops; asked for
-2026-10-11)
+Status: in-progress (asked for 2026-10-11)
 
 Goose `efe3155` has packages: a program declares one in its root file,
 `import http from "github.com/kaitk/goose-http@v0.1.0";`, and the compiler fetches the
@@ -35,7 +34,10 @@ The design, proposed:
 
   A prototype at `efe3155` ran this shape: a package from a directory, with sidecar C,
   whose generic loop a program's `thread_fn` called with a block.
-  `http::spawn_workers` taking a `thread_fn` as a function value is untested.
+  `http::spawn_workers` taking a `thread_fn` as a function value doesn't compile at
+  `efe3155`: `thread_spawn` rejects a function value bound to a `thread_fn`
+  (`docs/goose-findings.md`). So the program spawns its workers itself, with
+  `http::worker_count(cfg)` (2026-10-11), and the loops take a `Config`, not a port.
 - The routes in `http::respond` today, TechEmpower's and HttpArena's, move into the
   benchmark server's handler, a program in `server/` that imports the package from
   `"../"`. The parser, the response helpers, and the date stay in the package.
@@ -49,34 +51,110 @@ The design, proposed:
     Linux, `ur_create` falls back to the same emulation over epoll when
     `io_uring_setup` fails, as in a container whose seccomp profile blocks io_uring.
   - `http::serve_epoll` is today's readiness loop, `src/server.goose`, on Linux (epoll)
-    and macOS (kqueue). It's the fastest loop on Linux as of task 009, and on macOS it
-    skips the emulation's copies. On Windows it fails at startup with `ENOSYS`.
+    and macOS (kqueue). On Linux it uses a quarter of the io_uring loop's memory and runs
+    where io_uring is blocked, and on macOS it skips the emulation's copies. On Windows it fails at startup with `ENOSYS`.
   The benchmark server reads `LOOP=epoll|uring` at startup and calls one of them,
-  epoll on Linux until task 005 says otherwise. A runtime pick inside the package was
+  uring by default on Linux, as task 005 decided. A runtime pick inside the package was
   rejected: no event-loop library we looked at does it, except as a fallback from
   io_uring to epoll. The cost of one sidecar: every Linux program that imports `http`
   links liburing, even one that calls only `serve_epoll`.
 - Before the handler can go in, the loops' request handling becomes one function both
-  call: `answer` is nearly the same in `src/server.goose` and `src/uring.goose`, and
-  routes are wired into it (`http::respond`, and `http::reads_body`'s `/baseline11`).
-  A handler's response must not abort the process: today each must fit in
-  `MAX_RESPONSE`, 512 bytes, in a fixed 8 KB write buffer.
+  call: `answer` was nearly the same in `src/server.goose` and `src/uring.goose`, with
+  routes wired into it (`http::respond`, and `http::reads_body`'s `/baseline11`).
+  A handler's response must not abort the process. Done (2026-10-11): `answer` in
+  `src/app.goose` serves both loops, and the write buffer grows to take a response of
+  any size whole.
 - A library can't end the process: `http::serve` returns errors that `sys::check`
-  and the shims turn into exits today, and takes its settings (address, limits,
-  timeouts, buffer sizes) as one flat struct instead of constants and `WORKERS`.
+  and the shims turned into exits, and takes its settings (address, limits,
+  timeouts, buffer sizes, workers) as one flat struct instead of constants and
+  `WORKERS`. Done (2026-10-11): `Config` and `Error` in `src/app.goose`. The loops
+  still write two notes to stderr, `accept` at the fd limit and an `epoll_ctl` that
+  failed for one connection, as they go on serving.
+
+## The handler (decided 2026-10-11)
+
+Task 013's items 6, 7, and 8 decide the handler's shape: a handler called once per
+request can't read a body in pieces or stream a response. `v0.1.0` serves requests and
+responses of a fixed size, the second of task 013's options, and the handler is:
+
+```goose
+http::serve(cfg) { req, body, out => ... }
+```
+
+- `req` is `http::Request`, the parsed head, with slices into the read buffer: method,
+  target, version, keep-alive, the announced body length, and chunked framing.
+- `body` is the whole request body when it fits in the read buffer (`max_head`) with its
+  head, chunked bodies decoded. A longer `Content-Length` body is dropped as it arrives,
+  and `body` is empty while `req.body` gives its length, so the handler can refuse it.
+  This replaces the routes' `reads_body`: the loop needs no second function value to
+  ask whether to keep a body. Implemented in this step.
+- `out` is a reply: the worker's growable write buffer, with what the response's
+  framing needs from the request (keep-alive, version, `HEAD`) and the cached `Date`.
+  The handler writes one whole response of any size through helpers that write the
+  status line and the fields every response has, the handler's own fields, and the
+  body with its `Content-Length`. Status codes are a table the helpers look up, any
+  code the handler names.
+- Why not more now: header lookup (013 item 6) adds functions over `req`, and a
+  `Request` field for the whole head, without changing the handler. Bodies read in
+  pieces (item 7) and streamed responses (item 8) need a handler that resumes, which
+  spec §7.6 rules out as a stored function value; they would come as another entry
+  point, with per-connection state for the body or the stream, after `v0.1.0`.
+
+## Where it stands (2026-10-11)
+
+Steps 1 to 7 of the plan are done, each its own commit, with the unit tests,
+`test-http.sh`, and `test-echo.sh` passing on Linux (the uring and epoll builds, and
+`LOOP=uring-epoll`) and on Windows (iocp):
+
+1. One `answer` in `http.goose` serves both loops.
+2. A response of any size goes out through the growable write buffer and the spill
+   pool (`/bytes`, `http_client.py large`).
+3. The loops take `http::Config` and return `http::Error`.
+4. The handler's shape, above.
+5. The package layout, with the server in `server/`.
+6. The fallback to a ring emulated over epoll, tested under Docker's default seccomp
+   profile.
+7. A program outside the repository, importing the package from GitHub at
+   `bfd951a53a6c`, built with `goose build` and run with `goose run` on Linux and
+   Windows. `goose run` can't run a program that reaches `thread_spawn`, so its
+   program calls `http::serve` from `main`.
+8. Task 012's macOS changes, merged into the package: `shim/kqueue.c` spreads a shared
+   listener's connections across workers, with the listener level-triggered, and
+   accepts with fewer syscalls; both loops register `OUT` only while a send waits;
+   `http::worker_count` defaults to one worker per performance core on macOS, and
+   both loops start with `net_worker_start`, which gives the worker the
+   user-interactive QoS class there. `shim/ring_epoll.c` watches the listener only
+   while an accept goes on, since a level-triggered listener left watched would end
+   every wait at once, and watches `OUT` only while a send waits, as the epoll loop
+   does.
+
+Not done:
+
+- The speed checks: step 1's `bench/instructions.sh` before and after, against task
+  009's 2,255-2,371 instructions per request for the epoll loop, and step 8's
+  `bench/run.sh` cells against task 010's build. Both wait for the machine to be free
+  of other work. The bounds checks the compiler keeps per request didn't change in
+  steps 1 to 3.
+- macOS: `http::serve` builds over `shim/ring_epoll.c` there, and nobody has run it.
+- On macOS, `shim/kqueue.c`'s table of shared listeners keeps the first worker's fd
+  for the listener and never forgets a worker, so a program that calls a loop again
+  after one returned dups a closed fd. Each worker would need to leave the table in
+  `net_close`, with the table holding a reference of its own.
+- The `v0.1.0` tag, which waits for the maintainer.
 
 ## Acceptance criteria
 
-- [ ] `http.goose` and `http.build` at the root, every module in `namespace http`
-- [ ] `http::serve` and `http::serve_epoll` take the program's handler; the benchmark
+- [x] `http.goose` and `http.build` at the root, every module in `namespace http`
+- [x] `http::serve` and `http::serve_epoll` take the program's handler; the benchmark
       server in `server/` serves TechEmpower's and HttpArena's routes through either,
       picked by `LOOP`
 - [ ] `http::serve` runs on Linux, macOS, and Windows, and on Linux without io_uring
-- [ ] A program outside the repository imports the package from git at a commit, and
+      (all but macOS done 2026-10-11: macOS builds the emulation over kqueue, untested)
+- [x] A program outside the repository imports the package from git at a commit, and
       `goose build` and `goose run` both work with it
 - [ ] The tests pass, and the server's rate in `bench/run.sh`'s closest cells matches
       task 010's build within the runs' spread
-- [ ] `README.md` says how to use the package, as goose-ngfx's does, and which entry
+- [x] `README.md` says how to use the package, as goose-ngfx's does, and which entry
       point to call: `serve` everywhere, `serve_epoll` for the fastest loop on Linux
       and macOS
 - [ ] Tagged `v0.1.0`, the ref the README's example imports

@@ -33,7 +33,7 @@ five, task 005's io_uring competitors, run only when `SERVERS` names them.
 
 | Server | Pin | Build | Workers |
 |---|---|---|---|
-| goose | this repository, Goose at the pin in `README.md` | `scripts/build.sh`: `goose build`, `-O2` for Goose and gcc 15.2.0 | one thread per worker, each with its own `SO_REUSEPORT` listener and epoll loop |
+| goose | this repository, Goose at the pin in `README.md` | `LOOP=epoll scripts/build.sh`: `goose build`, `-O2` for Goose and gcc 15.2.0 | one thread per worker, each with its own `SO_REUSEPORT` listener and epoll loop |
 | goose-uring | the same | `LOOP=uring scripts/build.sh`, liburing 2.14 | one thread per worker, each with its own `SO_REUSEPORT` listener and io_uring ring ([architecture](../docs/architecture/README.md#the-io_uring-loop-task-005)) |
 | may-minihttp | `may_minihttp` 0.1.11, `may` 0.3.51 (`Cargo.lock`) | TechEmpower's: `opt-level = 3`, `codegen-units = 1`, thin LTO, `panic = "abort"`, `-C target-cpu=native`, mimalloc | `may` worker threads; one listener, a coroutine per connection |
 | hyper | `hyper` 1.12.0, `tokio` 1.53.2 (`Cargo.lock`) | TechEmpower's: `opt-level = 3`, `codegen-units = 1`, fat LTO, plus `panic = "abort"`, `-C target-cpu=native` | Tokio's multi-threaded runtime with `WORKERS` worker threads; one listener, a task per connection, `pipeline_flush` |

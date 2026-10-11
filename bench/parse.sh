@@ -1,6 +1,6 @@
 #!/bin/sh
 # Times http::parse alone: each bench/parse/*.goose parses one request 10 M
-# times, built with src/http.goose by goose -O2 and CC (default cc) with
+# times, built with message.goose by goose -O2 and CC (default cc) with
 # CFLAGS (default -O2). Prints instructions per parse (perf stat, user code)
 # and the best of 5 runs in ns per parse, on CPU 2.
 #
@@ -15,8 +15,10 @@ cpu=${CPU:-2}
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-# Imports resolve from the root file's directory.
-cp "$root/src/http.goose" "$root"/bench/parse/*.goose "$tmp"
+# Imports resolve from the root file's directory. message.goose is namespace
+# http, and needs none of the package's other files.
+cp "$root/message.goose" "$tmp/http.goose"
+cp "$root"/bench/parse/*.goose "$tmp"
 printf 'request\tinstructions/parse\tns/parse\n'
 for f in "$root"/bench/parse/*.goose; do
     p=$(basename "$f" .goose)

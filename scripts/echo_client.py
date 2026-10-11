@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test client for the echo servers in src/echo.goose.
+"""Test client for the echo servers in server/echo.goose.
 
     echo_client.py PORT ping            one short line, echoed back
     echo_client.py PORT cut [ROUNDS]    clients that hang up while the server writes

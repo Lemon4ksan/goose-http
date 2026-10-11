@@ -1,8 +1,0 @@
-// The C the server calls, which goose build compiles and links beside it.
-c_sources_linux = ["../shim/net.c", "../shim/uring.c"];
-c_libs_linux = ["uring"];
-c_sources_windows = ["../shim/net_win.c", "../shim/iocp.c"];
-c_libs_windows = ["ws2_32", "mswsock"];
-// MSVC compiles C as C89 with extensions unless asked; the shim uses C11's
-// _Static_assert.
-c_flags_msvc = ["/std:c11"];
