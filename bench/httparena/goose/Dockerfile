@@ -8,7 +8,7 @@ RUN apt-get update -qq && \
     rm -rf /var/lib/apt/lists/*
 
 # The Goose pin in README.md.
-ARG GOOSE_COMMIT=efe31554dcce698c0749daec36cd5318d28135fb
+ARG GOOSE_COMMIT=fe6c5435edfa886d494c29b89efa31b9f2d245a1
 RUN git init -q /goose && cd /goose && \
     git fetch -q --depth 1 https://github.com/aardappel/goose.git "$GOOSE_COMMIT" && \
     git checkout -q FETCH_HEAD && \
