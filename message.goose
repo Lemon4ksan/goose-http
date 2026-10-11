@@ -10,8 +10,9 @@ import std;
 // is this size, so a head always fits whole; one that doesn't is refused
 // with 431.
 let MAX_HEAD = 8192;
-// Longer request lines are refused with 414, longer methods with 400.
-let MAX_LINE = 4096;
+// Longer request lines are refused with 414, longer methods with 400. RFC
+// 9112 §3 recommends taking request lines of 8000 octets.
+let MAX_LINE = 8000;
 let MAX_METHOD = 16;
 // More header fields than this are refused with 431.
 let MAX_FIELDS = 100;
@@ -105,6 +106,7 @@ inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_
     guard rest[8] == '\r' && rest[9] == '\n' else { return Request { .. }, 400; }
     let minor: i32 = rest[7] - '0';
     pos += 10;
+    guard target[0] == '/' || other_form(method, target) else { return Request { .. }, 400; }
 
     // The header fields, up to the blank line.
     var r = Request { method: method, target: target, minor: minor, .. };
@@ -184,6 +186,7 @@ inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_
                 };
             }
         } else if eq_fold(name, "host") {
+            guard is_host(value) else { return Request { .. }, 400; }
             hosts++;
         }
     }
@@ -195,6 +198,76 @@ inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_
     r.keep_alive = !close && (minor > 0 || keep);
     r.len = pos;
     return r, 200;
+}
+
+// Whether target, which doesn't start with '/', is a form other than
+// origin-form that method may take (RFC 9112 §3.2): absolute-form, or "*"
+// for OPTIONS. Authority-form, for CONNECT, is refused, as is any other.
+fn other_form(method: const u8[:], target: const u8[:]) -> bool {
+    if target == "*" { return method == "OPTIONS"; }
+    let s = position(target, ':');
+    guard s > 0 && target[s..].len > 3 && target[s..s + 3] == "://" else { return false; }
+    for c in target[..s] {
+        guard c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || is_digit(c) || c == '+' || c == '-' || c == '.' else {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Whether value is a Host field's: uri-host and an optional port (RFC 9110
+// §7.2), with uri-host's bytes (RFC 3986 §3.2.2) and nothing that would end
+// it as a URI's authority, such as '@' or '/'. Brackets enclose an IP
+// literal, which starts the value. Empty is allowed: a client sends that for
+// a URI without an authority (RFC 9112 §3.2).
+fn is_host(value: const u8[:]) -> bool {
+    for c in value {
+        guard c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || is_digit(c) || position("-._~%!$&'()*+,;=:[]", c) >= 0 else {
+            return false;
+        }
+    }
+    let close = position(value, ']');
+    if value.len > 0 && value[0] == '[' {
+        return close > 0 && position(value[1..], '[') < 0 && position(value[close + 1..], ']') < 0 &&
+            (close + 1 == value.len || value[close + 1] == ':');
+    }
+    return close < 0 && position(value, '[') < 0;
+}
+
+// Whether ext is a chunk's extensions, the bytes between its size and the
+// line's end (RFC 9112 §7.1.1): each a ';', a token, and an optional '=' and
+// a token or a quoted string, with optional whitespace around ';' and '='.
+fn is_chunk_ext(ext: const u8[:]) -> bool {
+    var i = 0;
+    while i < ext.len {
+        while i < ext.len && (ext[i] == ' ' || ext[i] == '\t') { i++; }
+        guard i < ext.len && ext[i] == ';' else { return false; }
+        i++;
+        while i < ext.len && (ext[i] == ' ' || ext[i] == '\t') { i++; }
+        let n0 = i;
+        while i < ext.len && is_tchar(ext[i]) { i++; }
+        guard i > n0 else { return false; }
+        var j = i;
+        while j < ext.len && (ext[j] == ' ' || ext[j] == '\t') { j++; }
+        if j < ext.len && ext[j] == '=' {
+            i = j + 1;
+            while i < ext.len && (ext[i] == ' ' || ext[i] == '\t') { i++; }
+            if i < ext.len && ext[i] == '"' {
+                i++;
+                while i < ext.len && ext[i] != '"' {
+                    if ext[i] == '\\' { i++; }
+                    i++;
+                }
+                guard i < ext.len else { return false; }
+                i++;
+            } else {
+                let v0 = i;
+                while i < ext.len && is_tchar(ext[i]) { i++; }
+                guard i > v0 else { return false; }
+            }
+        }
+    }
+    return true;
 }
 
 // The status for a head that has only partly arrived: wait for the rest,
@@ -224,7 +297,7 @@ fn frame_body(rest: const u8[:], req: Request, room: i64) -> i64, i32 {
 
 // Measures the chunked body at the start of buf (RFC 9112 §7.1): its length on
 // the wire and 200, INCOMPLETE, or 400. Chunk extensions and trailer fields
-// are allowed and skipped.
+// are allowed and skipped, once their syntax is checked.
 fn chunked_len(buf: const u8[:]) -> i64, i32 {
     var pos = 0;
     loop {
@@ -236,6 +309,7 @@ fn chunked_len(buf: const u8[:]) -> i64, i32 {
         let size, ok = parse_int(buf[s0..pos], 16);
         let e = line_end(buf, pos);
         guard e > 0 else { return 0, if e == 0 { INCOMPLETE } else { 400 }; }
+        guard is_chunk_ext(buf[pos..e - 2]) else { return 0, 400; }
         pos = e;
         if size == 0 {
             // Trailer fields, then the blank line.
@@ -319,10 +393,21 @@ inline fn eq_fold(a: const u8[:], lower: const u8[:]) -> bool {
 // limited array is a fixed-size value, so an untyped parameter would get a
 // copy of it.
 
-// The target without its query.
+// The target's path, without its query, and in absolute-form without its
+// scheme and authority, or "/" when it has no path (RFC 9112 §3.2.2).
 fn path_of(target: const u8[:]) -> const u8[:] {
-    let q = position(target, '?');
-    return if q >= 0 { target[..q] } else { target };
+    var t = target;
+    if t.len > 0 && t[0] != '/' {
+        let s = position(t, ':');
+        guard s >= 0 && t.len - s >= 3 else { return t; }
+        t = t[s + 3..];
+        var p = 0;
+        while p < t.len && t[p] != '/' && t[p] != '?' { p++; }
+        t = t[p..];
+        guard t.len > 0 && t[0] == '/' else { return "/"; }
+    }
+    let q = position(t, '?');
+    return if q >= 0 { t[..q] } else { t };
 }
 
 // The integer value of key in target's query, or 0.

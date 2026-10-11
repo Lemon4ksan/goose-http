@@ -129,6 +129,29 @@ fn test_refused() {
     expect("POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 1048577\r\n\r\n", 413);
     expect("POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 1048576\r\n\r\n", 200);
     expect("ABCDEFGHIJKLMNOPQ / HTTP/1.1\r\nHost: x\r\n\r\n", 400);
+    // A Host that isn't a uri-host and port; an empty one is allowed.
+    expect("GET / HTTP/1.1\r\nHost: x:8080\r\n\r\n", 200);
+    expect("GET / HTTP/1.1\r\nHost: [::1]:80\r\n\r\n", 200);
+    expect("GET / HTTP/1.1\r\nHost: \r\n\r\n", 200);
+    expect("GET / HTTP/1.1\r\nHost: u@x\r\n\r\n", 400);
+    expect("GET / HTTP/1.1\r\nHost: x/a\r\n\r\n", 400);
+    expect("GET / HTTP/1.1\r\nHost: x, y\r\n\r\n", 400);
+    expect("GET / HTTP/1.1\r\nHost: a b\r\n\r\n", 400);
+    expect("GET / HTTP/1.1\r\nHost: [::1\r\n\r\n", 400);
+    expect("GET / HTTP/1.1\r\nHost: [::1]x\r\n\r\n", 400);
+    expect("GET / HTTP/1.1\r\nHost: x]\r\n\r\n", 400);
+    expect("GET / HTTP/1.1\r\nHost: [::1]\r\n\r\n", 200);
+    // Targets other than origin-form: absolute-form, and * for OPTIONS only.
+    expect("GET http://x/a HTTP/1.1\r\nHost: x\r\n\r\n", 200);
+    expect("OPTIONS * HTTP/1.1\r\nHost: x\r\n\r\n", 200);
+    expect("GET * HTTP/1.1\r\nHost: x\r\n\r\n", 400);
+    expect("CONNECT x:443 HTTP/1.1\r\nHost: x:443\r\n\r\n", 400);
+    expect("GET a/b HTTP/1.1\r\nHost: x\r\n\r\n", 400);
+    expect("GET :// HTTP/1.1\r\nHost: x\r\n\r\n", 400);
+    assert(http::path_of("/a?b=1") == "/a");
+    assert(http::path_of("http://x:80/a/b?c") == "/a/b");
+    assert(http::path_of("http://x?c") == "/");
+    assert(http::path_of("*") == "*");
 
     var line: u8[>..] = [];
     line.append("GET /");
@@ -136,6 +159,12 @@ fn test_refused() {
     expect(line, 414);       // before the line has ended
     line.append(" HTTP/1.1\r\nHost: x\r\n\r\n");
     expect(line, 414);
+    // A request line of 8000 octets fits.
+    var long: u8[>..] = [];
+    long.append("GET /");
+    while long.len < http::MAX_LINE - 9 { long.push('a'); }
+    long.append(" HTTP/1.1\r\nHost: x\r\n\r\n");
+    expect(long, 200);
 
     var many: u8[>..] = [];
     many.append("GET / HTTP/1.1\r\nHost: x\r\n");
@@ -221,6 +250,13 @@ fn test_chunked() {
     assert(dechunked("2\r\nabc\r\n0\r\n\r\n", out) == 400);
     assert(dechunked("2\nab\r\n0\r\n\r\n", out) == 400);
     assert(dechunked("0;a\x01\r\n\r\n", out) == 400);
+    // Extensions: a token, an optional value, a token or a quoted string.
+    assert(dechunked("1;a=\"b;\\\"c\" ; d = e\r\nx\r\n0;z\r\n\r\n", out) == 200);
+    assert(dechunked("5;\r\nhello\r\n0\r\n\r\n", out) == 400);
+    assert(dechunked("5;bad[=x\r\nhello\r\n0\r\n\r\n", out) == 400);
+    assert(dechunked("5;a=\r\nhello\r\n0\r\n\r\n", out) == 400);
+    assert(dechunked("5;a=\"b\r\nhello\r\n0\r\n\r\n", out) == 400);
+    assert(dechunked("0;a \r\n\r\n", out) == 400);
     assert(dechunked("0\r\n\n", out) == 400);
 }
 
