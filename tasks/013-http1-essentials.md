@@ -172,6 +172,14 @@ response still open).
   after a stop, and `test-http.sh` checks that the loops started again serve
   (`keepalive`) and stop.
 
+- Item 15 (2026-10-12): `router.goose`. `http::router(req)`, `http::on(r, method,
+  pattern)` in an `if` chain, `http::param(r, name)`, and `http::otherwise(r, out)`,
+  which answers 405 with `Allow` from the routes whose path matched, 204 with it for
+  `OPTIONS`, and otherwise 404. A route is tried by matching its pattern against the
+  path, segment by segment, with no table and no allocation: the handler's order is
+  the routes' order. `test_http.goose`'s `test_router` checks parameters, a wildcard,
+  `HEAD` on a `GET` route, absolute-form targets, 405, `OPTIONS`, and 404.
+
 Next, in order:
 
 1. Run the tests on macOS: the kqueue table change, and the stop.

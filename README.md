@@ -3,7 +3,7 @@
 A small, fast HTTP/1.1 server written in [Goose](https://github.com/aardappel/goose), as
 a Goose package that programs import, benchmarked against the fastest Rust, Zig, V, and C
 servers. It runs an event loop per worker, on Linux, macOS, and Windows.
-It's an early work in progress that still lacks essentials: a router and TLS
+It's an early work in progress that still lacks essentials, such as TLS
 ([Scope](#scope)).
 
 This repository is a Goose package, not an addition to Goose (2026-10-10). Gaps found
@@ -79,6 +79,24 @@ on each other connection with `Connection: close`, and returns once they have cl
 or after `Config.grace_ms`; `http::stop_on_signals()` makes `SIGTERM` and `SIGINT`
 stop the loops (on `main`, after 0.1). Version 0.1 serves requests and responses of a
 fixed size; `main` adds header lookup, and bodies and responses of any size (task 013).
+
+### Routes
+
+`http::router(req)` routes a request through an `if` chain, with method and path
+patterns: a literal segment, `:name` for one segment, and `*name` last for the rest
+of the path. A `GET` route takes `HEAD` too, and a request no route takes gets 405
+with the `Allow` of the routes whose path matched, 204 with it for `OPTIONS`, or 404:
+
+```goose
+var r = http::router(req);
+if http::on(r, "GET", "/users/:id") { show(http::param(r, "id"), out); }
+else if http::on(r, "PUT", "/users/:id") { update(http::param(r, "id"), body, out); }
+else if http::on(r, "GET", "/files/*path") { file(http::param(r, "path"), out); }
+else { http::otherwise(r, out); }
+```
+
+Parameters are slices of the target, still percent-encoded, and last until the handler
+returns; nothing allocates.
 
 ### Bodies and responses of any size
 
@@ -173,8 +191,8 @@ In scope: HTTP/1.1 with keep-alive and pipelining, request bodies and responses 
 size, whole or in pieces, a program's handler, and the C shim the loops need for
 syscalls; in the benchmark server, TechEmpower's plaintext and JSON endpoints and
 HttpArena's baseline and pipeline endpoints, and on `main`, configurable limits and
-timeouts and a graceful shutdown. Planned (task 013): a router, `Upgrade`, and
-trailers.
+timeouts, a graceful shutdown, and a router. Planned (task 013): `Upgrade`, trailers,
+and response helpers.
 Out of scope: TLS and HTTP/2 (task 014 plans them), and Windows as a benchmark
 platform.
 

@@ -25,6 +25,7 @@ import sys;
 import ring;
 import epoll;
 import uring;
+import router;
 
 // The server's settings. Each worker gets a copy, as thread_spawn copies
 // flat values.
