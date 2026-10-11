@@ -168,8 +168,9 @@ response still open).
   20 MB response in progress finished, and the process gone. Not tested: the stop on
   Windows, where nothing in the test scripts can send Ctrl+Break to the server, and
   on macOS, where `shim/kqueue.c`'s table change passed only a syntax check (clang,
-  with stub macOS headers, in WSL); and a loop called again after a stop, which no
-  test does yet.
+  with stub macOS headers, in WSL). With `RUNS=2`, the benchmark server serves again
+  after a stop, and `test-http.sh` checks that the loops started again serve
+  (`keepalive`) and stop.
 
 Next, in order:
 

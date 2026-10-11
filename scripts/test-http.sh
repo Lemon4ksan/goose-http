@@ -193,6 +193,24 @@ done
 wait "$pid" || fail "the server exited with status $? after the stop"
 pid=
 
+# Loops called again after a stop serve as the first ones did.
+export RUNS=2
+start
+unset RUNS
+kill -TERM "$pid"
+# The server says so as its workers start again, once every one has returned.
+tries=0
+until [ "$(grep -c '^http: ' "$log")" = 2 ] && listening; do
+    tries=$((tries + 1))
+    [ $tries -lt 100 ] || fail "the server didn't serve again 10 s after a stop"
+    sleep 0.1
+done
+$client keepalive
+kill -TERM "$pid"
+wait "$pid" || fail "the server exited with status $? after its second stop"
+pid=
+echo "restart: ok"
+
 # One worker with 40 fds: accepting pauses at the limit, and resumes as
 # connections close.
 WORKERS=1

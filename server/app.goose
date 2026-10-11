@@ -76,13 +76,16 @@ fn serve_http(given: http::Config, default_loop: const u8[:]) {
         let k = http::net_strerror(-probe, text);
         format(ring, " on an emulated ring (io_uring_setup: ", text[..k], ")");
     }
-    print("http: ", n, if n == 1 { " worker" } else { " workers" }, " on port ", cfg.port,
-          ", ", name, " loop", ring);
-    var ids: i64[>..] = [];
-    for i in n {
-        ids.push(if epoll { thread_spawn(worker_epoll, cfg) } else { thread_spawn(worker, cfg) });
+    // RUNS serves again after each stop, for testing a loop called again.
+    for run in positive("RUNS", 1) {
+        print("http: ", n, if n == 1 { " worker" } else { " workers" }, " on port ", cfg.port,
+              ", ", name, " loop", ring);
+        var ids: i64[>..] = [];
+        for i in n {
+            ids.push(if epoll { thread_spawn(worker_epoll, cfg) } else { thread_spawn(worker, cfg) });
+        }
+        for id in ids { thread_wait(id); }
     }
-    for id in ids { thread_wait(id); }
 }
 
 // The environment variable name, a positive number, or otherwise without it.
