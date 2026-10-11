@@ -133,6 +133,9 @@ one, over `shim/iocp.c` ([below](#the-platform-and-its-error-codes-task-006)):
   loop stops reading when a send would block.
 - A request's tag is the connection's slot and a generation, so a completion that
   arrives after its connection closed isn't taken for the slot's next connection.
+  The shim queues the rest of a short send itself, so it keeps a generation per fd as
+  well, which `ur_close` advances: a rest left over from a closed connection is
+  reported cancelled, never sent to a later connection that got the same fd.
 - Closing a connection queues a cancel of its requests and, linked after it, the close.
   A queued request holds a reference to the socket, so a `close` alone would leave the
   connection open.

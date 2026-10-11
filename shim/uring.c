@@ -50,6 +50,7 @@ struct ur_send {
     struct ur_send *next;
     uint64_t tag;
     int32_t fd;
+    uint32_t gen;           /* fd's generation when the send was queued */
     uint32_t len, off;
     unsigned char data[];
 };
@@ -61,6 +62,11 @@ struct ur {
     uint32_t nbufs, buflen;
     int given;              /* buffers given back since the last ur_wait */
     struct ur_send *free;
+    /* Per fd, the number of times this ring closed it. A short send's rest
+       goes out only while its fd's generation is the send's: once the ring
+       closes fd, the next accept, on any ring, may reuse the number. */
+    uint32_t *gens;
+    uint32_t ngens;
 };
 
 /* An SQE, submitting what's queued first if the submission queue is full. */
@@ -132,6 +138,15 @@ void ur_recv(int64_t h, int32_t fd, uint64_t tag) {
 int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
     struct ur *u = (struct ur *)(intptr_t)h;
     struct ur_send *s;
+    if ((uint32_t)fd >= u->ngens) {
+        uint32_t n = u->ngens ? u->ngens : 1024;
+        while (n <= (uint32_t)fd) n *= 2;
+        uint32_t *g = realloc(u->gens, n * sizeof *g);
+        if (!g) return -ENOMEM;
+        memset(g + u->ngens, 0, (n - u->ngens) * sizeof *g);
+        u->gens = g;
+        u->ngens = n;
+    }
     if (data.len <= UR_SMALL && u->free) {
         s = u->free;
         u->free = s->next;
@@ -141,6 +156,7 @@ int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
     }
     s->tag = tag;
     s->fd = fd;
+    s->gen = u->gens[fd];
     s->len = (uint32_t)data.len;
     s->off = 0;
     memcpy(s->data, data.data, (size_t)data.len);
@@ -173,6 +189,7 @@ void ur_cancel(int64_t h, uint64_t tag) {
    connection open until its receive ended. */
 void ur_close(int64_t h, int32_t fd) {
     struct ur *u = (struct ur *)(intptr_t)h;
+    if ((uint32_t)fd < u->ngens) u->gens[fd]++;
     struct io_uring_sqe *sqe = ur_sqe(u);
     io_uring_prep_cancel_fd(sqe, fd, IORING_ASYNC_CANCEL_ALL);
     io_uring_sqe_set_data64(sqe, UR_QUIET);
@@ -230,7 +247,8 @@ int32_t ur_wait(int64_t h, ur_completions out, int32_t timeout_ms) {
         ur_completion *c = &out.data[n];
         if ((ud & 3) == UR_SEND) {
             struct ur_send *s = (struct ur_send *)(uintptr_t)(ud & ~(uint64_t)3);
-            if (cqe->res > 0 && s->off + (uint32_t)cqe->res < s->len) {
+            int rest = cqe->res > 0 && s->off + (uint32_t)cqe->res < s->len;
+            if (rest && s->gen == u->gens[s->fd]) {
                 s->off += (uint32_t)cqe->res;
                 struct io_uring_sqe *sqe = ur_sqe(u);
                 io_uring_prep_send(sqe, s->fd, s->data + s->off, s->len - s->off, MSG_NOSIGNAL);
@@ -238,7 +256,7 @@ int32_t ur_wait(int64_t h, ur_completions out, int32_t timeout_ms) {
                 continue;
             }
             c->tag = s->tag;
-            c->res = cqe->res < 0 ? cqe->res : (int32_t)s->len;
+            c->res = rest ? -ECANCELED : cqe->res < 0 ? cqe->res : (int32_t)s->len;
             c->buf = -1;
             c->more = 0;
             c->send = 1;
