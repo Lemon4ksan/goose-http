@@ -15,7 +15,6 @@ set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 port=${PORT:-29080}
-[ $# -gt 0 ] || set -- "$root/build/server"
 client="python3 $root/scripts/echo_client.py $port"
 log=$(mktemp)
 pid=
@@ -23,6 +22,8 @@ case $(uname -s) in
 MINGW* | MSYS*) windows=1 ;;
 *) windows= ;;
 esac
+# Named in full on Windows, as in test-http.sh.
+[ $# -gt 0 ] || set -- "$root/build/server${windows:+.exe}"
 
 # Ends the server. Git Bash's kill doesn't always end a native program, so
 # on Windows it goes by the Windows process id.

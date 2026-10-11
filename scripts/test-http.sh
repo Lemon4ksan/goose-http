@@ -26,6 +26,9 @@ case $(uname -s) in
 MINGW* | MSYS*) windows=1 ;;
 *) windows= ;;
 esac
+# Named in full on Windows: Git Bash runs build/server before build/server.exe,
+# and a Linux build in the same tree leaves one.
+server=$root/build/server${windows:+.exe}
 
 # Ends the server. Git Bash's kill doesn't always end a native program, so
 # on Windows it goes by the Windows process id.
@@ -78,7 +81,7 @@ start() {
         [ $tries -lt 50 ] || fail "port $port is taken; set PORT"
         sleep 0.1
     done
-    (limit_fds "${1:-65536}" && exec "$root/build/server" http "$port") >"$log" 2>&1 &
+    (limit_fds "${1:-65536}" && exec "$server" http "$port") >"$log" 2>&1 &
     pid=$!
     tries=0
     until listening; do
