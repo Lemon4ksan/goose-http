@@ -13,7 +13,7 @@ builds them in phases, each measured against the competitors as tasks 004 and 00
 |---|---|---|
 | hyper (Rust) | One crate, with features; framing and HPACK in the separate `h2` crate | Outside, in `tokio-rustls` or `hyper-rustls` |
 | xitca-web (Rust) | `xitca-http`: h1, h2, and h3 behind features | `xitca-tls`, over rustls or OpenSSL |
-| Go `net/http` | h2 written in `x/net/http2`, bundled into `net/http` | `crypto/tls`, in the standard library |
+| Go `net/http` | Through Go 1.26, `x/net/http2` bundled into `net/http` as `h2_bundle.go`; from 1.27, the internal package `net/http/internal/http2` | `crypto/tls`, in the standard library |
 | nginx, h2o (C) | One repository; h2 is a module | OpenSSL or BoringSSL, linked in |
 | zzz (Zig) | HTTP/1.1 | `secsock`, its own package |
 | odin-http | HTTP/1.1 only | OpenSSL, for its client only |
@@ -83,10 +83,16 @@ the `Upgrade: h2c` handshake, gRPC, and WebSocket over h2.
 
 ## Open questions
 
-- Which TLS library. OpenSSL 3 is everywhere and supports kTLS; BoringSSL is what h2o
-  and many fast servers use; rustls-ffi needs a Rust toolchain in the build; BearSSL's
-  callback-free engine fits Goose best but has no TLS 1.3. Check each claim before
-  recording it.
+- Which TLS library. OpenSSL 3 is everywhere, and from 3.0 hands the record layer to the
+  kernel on Linux when built with `enable-ktls` and the program sets
+  `SSL_OP_ENABLE_KTLS`, for the ciphers the kernel supports (TLS 1.3 receive from 3.2;
+  `include/openssl/ssl.h.in`, `CHANGES.md`). BoringSSL is what h2o and many fast servers
+  use; rustls-ffi needs a Rust toolchain in the build. BearSSL's engine does no I/O of
+  its own, the caller moving bytes through its four buffers (`inc/bearssl_ssl.h`), which
+  fits Goose best, though its certificate, X.509, and cipher policies are vtables; it
+  supports TLS 1.0 to 1.2 only (`BR_TLS12` is the highest version), and its last release
+  is 0.6, from 2018. Checked against the sources 2026-10-11; BoringSSL's and rustls-ffi's
+  claims aren't checked yet.
 - Whether h2 lands in `http::serve`, `http::serve_epoll`, or both (task 011).
 - What snowtime-native needs first: TLS alone covers browsers over HTTP/1.1.
 

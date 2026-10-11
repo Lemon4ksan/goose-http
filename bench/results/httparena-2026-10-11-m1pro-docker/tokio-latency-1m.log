@@ -1,0 +1,154 @@
+[info] available CPUs: 10
+[info] load generators: docker mode
+[info] framework: tokio (tokio, Rust)
+[info] subscribed tests: baseline,pipelined,limited-conn,async,latency-1m,latency-10k
+[info] building image: httparena-tokio
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 467B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/debian:bookworm-slim
+#2 ...
+
+#3 [internal] load metadata for docker.io/library/rust:1.95
+#3 DONE 0.2s
+
+#2 [internal] load metadata for docker.io/library/debian:bookworm-slim
+#2 DONE 0.2s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 52B done
+#4 DONE 0.0s
+
+#5 [stage-1 1/2] FROM docker.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+#5 resolve docker.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 done
+#5 DONE 0.0s
+
+#6 [build 1/6] FROM docker.io/library/rust:1.95@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3
+#6 resolve docker.io/library/rust:1.95@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 done
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 116B done
+#7 DONE 0.0s
+
+#8 [build 6/6] RUN RUSTFLAGS="-C target-cpu=native" cargo build --release
+#8 CACHED
+
+#9 [build 2/6] WORKDIR /app
+#9 CACHED
+
+#10 [build 3/6] COPY Cargo.toml Cargo.lock ./
+#10 CACHED
+
+#11 [build 4/6] RUN mkdir src && echo "fn main() {}" > src/main.rs     && cargo build --release     && rm -rf src target/release/httparena-tokio target/release/deps/httparena_tokio*
+#11 CACHED
+
+#12 [build 5/6] COPY src ./src
+#12 CACHED
+
+#13 [stage-1 2/2] COPY --from=build /app/target/release/httparena-tokio /server
+#13 CACHED
+
+#14 exporting to image
+#14 exporting layers done
+#14 exporting manifest sha256:0431ee449b014421b65f35acbad49d0bbe2ec3f7d1e930624283abe4b03fe5ea done
+#14 exporting config sha256:75e302451b15c6f3e849f096e35f205988d79613dabd258e28577d1034534f53 done
+#14 exporting attestation manifest sha256:9a44fa45bf404415952d7ce2935b560b7792a2af91eed797925049ed1bbc949c done
+#14 exporting manifest list sha256:c40038cf96f30c821dffd2ec095d3dce707c79adc9a7623d50f59b23d4221809 done
+#14 naming to docker.io/library/httparena-tokio:latest done
+#14 unpacking to docker.io/library/httparena-tokio:latest done
+#14 DONE 0.0s
+[info] skipping system tuning as requested (SKIP_TUNE=true)
+
+==============================================
+=== tokio / latency-1m / 1024c (tool=zrk) ===
+==============================================
+[info] waiting for server...
+[info] server ready
+
+[run 1/3]
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://localhost:8080/baseline11?a=1&b=2", "method": "GET" },
+  "config": { "connections": 1024, "launched": 1024, "duration_s": 20.000, "closed": false, "target_rate": 200000, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 20.004,
+  "requests": 3993873,
+  "bytes": 259601745,
+  "achieved_rate": 199650.02,
+  "target_rate": 200000,
+  "target_rate_end": 200000,
+  "rate_ratio": 0.9983,
+  "bytes_per_sec": 12977251.01,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 45974,
+  "latency_us": {
+    "min": 10, "mean": 102.1, "stdev": 749.9, "max": 51103,
+    "p50": 66, "p75": 86, "p90": 110, "p99": 275, "p99_9": 12188, "p99_99": 31912
+  },
+  "status_codes": { "1xx": 0, "2xx": 3993873, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "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"
+}
+[info] CPU 179.2% | Mem 35MiB
+
+[run 2/3]
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://localhost:8080/baseline11?a=1&b=2", "method": "GET" },
+  "config": { "connections": 1024, "launched": 1024, "duration_s": 20.000, "closed": false, "target_rate": 200000, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 20.004,
+  "requests": 3993897,
+  "bytes": 259603305,
+  "achieved_rate": 199656.46,
+  "target_rate": 200000,
+  "target_rate_end": 200000,
+  "rate_ratio": 0.9983,
+  "bytes_per_sec": 12977670.15,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 12553,
+  "latency_us": {
+    "min": 11, "mean": 74.6, "stdev": 142.1, "max": 17679,
+    "p50": 65, "p75": 83, "p90": 105, "p99": 200, "p99_9": 1038, "p99_99": 7086
+  },
+  "status_codes": { "1xx": 0, "2xx": 3993897, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "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"
+}
+[info] CPU 179.6% | Mem 43MiB
+
+[run 3/3]
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://localhost:8080/baseline11?a=1&b=2", "method": "GET" },
+  "config": { "connections": 1024, "launched": 1024, "duration_s": 20.000, "closed": false, "target_rate": 200000, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 20.004,
+  "requests": 3994018,
+  "bytes": 259611170,
+  "achieved_rate": 199657.99,
+  "target_rate": 200000,
+  "target_rate_end": 200000,
+  "rate_ratio": 0.9983,
+  "bytes_per_sec": 12977769.38,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 8692,
+  "latency_us": {
+    "min": 10, "mean": 75.5, "stdev": 162.0, "max": 13815,
+    "p50": 66, "p75": 84, "p90": 105, "p99": 195, "p99_9": 871, "p99_99": 9076
+  },
+  "status_codes": { "1xx": 0, "2xx": 3994018, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "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"
+}
+[info] CPU 180.6% | Mem 48MiB
+[info] run 2 wins on score
+
+=== Best: 199656 req/s (CPU: 179.6%, Mem: 43MiB) ===
+[info] exact CPU: 33.34 core-seconds | 8.348 us/req
+=== Fixed-rate: cpu/req 8.35us | p99 200.0us | p99.9 1038.0us | rate_ratio 0.9983 ===
+[info] dry-run — not saving (use --save to persist)
+httparena-bench-tokio
+httparena-bench-tokio
+[info] done

@@ -1,0 +1,163 @@
+[info] available CPUs: 10
+[info] load generators: docker mode
+[info] framework: vanilla-epoll (vanilla-epoll, V)
+[info] subscribed tests: baseline,async,latency-1m,latency-10k,latency-500k-8cpu,pipelined,limited-conn,json-comp,json-tls,static-tls,8gbit,async-db,fortunes
+[info] building image: httparena-vanilla-epoll
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 7.68kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/debian:stable-slim
+#2 DONE 0.5s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [build 1/9] FROM docker.io/library/debian:stable-slim@sha256:eb593cf2c358cacef45ca0a424bbc7d30cfa3466265fc2662b9466a0ca6ba1c5
+#4 resolve docker.io/library/debian:stable-slim@sha256:eb593cf2c358cacef45ca0a424bbc7d30cfa3466265fc2662b9466a0ca6ba1c5 0.0s done
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 194B done
+#5 DONE 0.0s
+
+#6 [build 3/9] RUN git init -q /opt/v && cd /opt/v &&     git fetch -q --depth 1 https://github.com/vlang/v b99970bd438a7bdcdfbe38f74d9364db801d5439 &&     git checkout -q FETCH_HEAD &&     git init -q vc &&     git -C vc fetch -q --depth 1 https://github.com/vlang/vc 2cbaf6bc2367937cd5f0b4ef923d1ef9aad613b3 &&     git -C vc checkout -q FETCH_HEAD &&     git init -q thirdparty/tcc &&     git -C thirdparty/tcc fetch -q --depth 1 https://github.com/vlang/tccbin 125ad2e1153c7cb86f19ac4aa070063d18504462 &&     git -C thirdparty/tcc checkout -q FETCH_HEAD &&     make local=1 && ln -s /opt/v/v /usr/local/bin/v
+#6 CACHED
+
+#7 [build 2/9] RUN apt-get -qq update &&     apt-get -qy install --no-install-recommends         ca-certificates build-essential git libpq-dev liburing-dev         cmake curl bzip2 python3 &&     rm -rf /var/lib/apt/lists/*
+#7 CACHED
+
+#8 [build 7/9] WORKDIR /app
+#8 CACHED
+
+#9 [stage-1 4/5] RUN ldconfig
+#9 CACHED
+
+#10 [build 6/9] RUN curl -fsSL -o /tmp/mbedtls.tar.bz2         "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.0/mbedtls-4.1.0.tar.bz2" &&     tar -xf /tmp/mbedtls.tar.bz2 -C /tmp &&     cd "/tmp/mbedtls-4.1.0" &&     patch -p1 < /tmp/mbedtls-rsa-sign-cache.patch &&     python3 tf-psa-crypto/scripts/config.py set MBEDTLS_THREADING_C &&     python3 tf-psa-crypto/scripts/config.py set MBEDTLS_THREADING_PTHREAD &&     cmake -S "/tmp/mbedtls-4.1.0" -B /tmp/mbedtls-build         -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS_RELEASE="-O3 -march=native -DNDEBUG"         -DUSE_SHARED_MBEDTLS_LIBRARY=On -DUSE_STATIC_MBEDTLS_LIBRARY=Off         -DENABLE_TESTING=Off -DENABLE_PROGRAMS=Off         -DCMAKE_INSTALL_PREFIX=/usr/local &&     cmake --build /tmp/mbedtls-build -j"$(nproc)" &&     cmake --install /tmp/mbedtls-build && ldconfig &&     rm -rf /tmp/mbedtls.tar.bz2 "/tmp/mbedtls-4.1.0" /tmp/mbedtls-build
+#10 CACHED
+
+#11 [build 8/9] COPY . .
+#11 CACHED
+
+#12 [build 9/9] RUN v -prod -gc none -d vanilla_tls . -o server
+#12 CACHED
+
+#13 [stage-1 2/5] RUN apt-get -qq update &&     apt-get -qy install --no-install-recommends libpq5 liburing2 &&     rm -rf /var/lib/apt/lists/*
+#13 CACHED
+
+#14 [build 5/9] COPY mbedtls-rsa-sign-cache.patch /tmp/
+#14 CACHED
+
+#15 [build 4/9] RUN git init -q /root/.vmodules/vanilla &&     git -C /root/.vmodules/vanilla fetch -q --depth 1 https://github.com/enghitalo/vanilla         091c014a0191afd7e740b84f5599b9b1fc1fd914 &&     git -C /root/.vmodules/vanilla checkout -q FETCH_HEAD
+#15 CACHED
+
+#16 [stage-1 3/5] COPY --from=build /usr/local/lib/libmbedcrypto.so* /usr/local/lib/libmbedx509.so* /usr/local/lib/libmbedtls.so* /usr/local/lib/libtfpsacrypto.so* /usr/local/lib/
+#16 CACHED
+
+#17 [stage-1 5/5] COPY --from=build /app/server /server
+#17 CACHED
+
+#18 exporting to image
+#18 exporting layers done
+#18 exporting manifest sha256:c6dadf806ad44722f9bea12629f04ed12c65b274e1dbb27dd3a8681cc24861e8 done
+#18 exporting config sha256:a95c9d9b13d1813c6cbb4ff6553c747bb33969cd83ae298c9ef8f15d63432555 done
+#18 exporting attestation manifest sha256:0f44b4dfffe94457fc10ba0545393c31b7acdba86bba22bf1d38d2865b0f3527 done
+#18 exporting manifest list sha256:69fd29db0ccc4c4efe3e9d9e09f682641ff919588d2c31bf1e370b8b154e5025 done
+#18 naming to docker.io/library/httparena-vanilla-epoll:latest done
+#18 unpacking to docker.io/library/httparena-vanilla-epoll:latest done
+#18 DONE 0.0s
+[info] skipping system tuning as requested (SKIP_TUNE=true)
+[info] starting postgres sidecar
+[info] postgres ready (seeded)
+
+==============================================
+=== vanilla-epoll / limited-conn / 4096c (tool=gcannon) ===
+==============================================
+[info] waiting for server...
+[info] server ready
+
+[run 1/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  1
+  Req/conn:  10
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   9.35ms    710us   27.50ms   28.80ms   38.50ms
+
+  2192860 requests in 5.00s, 2192867 responses
+  Throughput: 438.41K req/s
+  Bandwidth:  44.74MB/s
+  Status codes: 2xx=2192867, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 2192867 / 2192867 responses (100.0%)
+  Reconnects: 218236
+  Per-template: 730977,730924,730966
+  Per-template-ok: 730977,730924,730966
+[info] CPU 256.9% | Mem 100MiB
+
+[run 2/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  1
+  Req/conn:  10
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   9.67ms   6.34ms   27.60ms   29.10ms   34.80ms
+
+  2110412 requests in 5.00s, 2110414 responses
+  Throughput: 421.97K req/s
+  Bandwidth:  43.06MB/s
+  Status codes: 2xx=2110414, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 2110414 / 2110414 responses (100.0%)
+  Reconnects: 211503
+  Per-template: 703722,703517,703175
+  Per-template-ok: 703722,703517,703175
+[info] CPU 280.7% | Mem 118MiB
+
+[run 3/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  1
+  Req/conn:  10
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   9.81ms   7.53ms   22.90ms   26.60ms   29.40ms
+
+  2079924 requests in 5.00s, 2079930 responses
+  Throughput: 415.91K req/s
+  Bandwidth:  42.44MB/s
+  Status codes: 2xx=2079930, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 2079930 / 2079930 responses (100.0%)
+  Reconnects: 208921
+  Per-template: 693347,693242,693341
+  Per-template-ok: 693347,693242,693341
+[info] CPU 298.7% | Mem 133MiB
+
+=== Best: 438573 req/s (CPU: 256.9%, Mem: 100MiB) ===
+[info] input BW: 33.88MB/s (avg template: 81 bytes)
+[info] dry-run — not saving (use --save to persist)
+httparena-bench-vanilla-epoll
+httparena-bench-vanilla-epoll
+[info] done
+httparena-postgres

@@ -518,35 +518,95 @@ docker run --rm --security-opt seccomp=unconfined --ulimit nofile=1048576:104857
 - The VM is no benchmark machine: its CPUs are shared with macOS, and the load runs share
   them with the server.
 
-To run `bench/run.sh` there (task 012), the image also needs Rust, for the Rust servers,
-and `util-linux` and `procps`, for `taskset`, `lscpu`, and `/proc`:
+To run `bench/run.sh` there (task 012), the image also needs Rust, Zig 0.16.0, and Odin
+`dev-2026-10` for the servers, the tools libreactorng's build uses, `util-linux` and
+`procps` for `taskset`, `lscpu`, and `/proc`, and oha for `test-http.sh`. On 2026-10-11:
 
 ```dockerfile
-RUN apt-get install -y -qq --no-install-recommends util-linux procps pkg-config make && \
-    curl -sSf https://sh.rustup.rs | sh -s -- -y -q --profile minimal --default-toolchain 1.99.0
-ENV PATH=/root/.cargo/bin:$PATH
+FROM ubuntu:26.04
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+    ca-certificates git cmake ninja-build gcc g++ liburing-dev curl wrk nghttp2-client \
+    netcat-openbsd python3 util-linux procps pkg-config make xz-utils \
+    autoconf automake libtool libltdl-dev clang lld llvm
+RUN curl -sSLf -o /usr/local/bin/oha \
+        https://github.com/hatoo/oha/releases/download/v1.16.0/oha-linux-arm64 && \
+    chmod +x /usr/local/bin/oha
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y -q --profile minimal --default-toolchain 1.99.0
+ENV PATH=/root/.cargo/bin:/opt/zig:/opt/odin:$PATH
+RUN mkdir -p /opt/zig && curl -sSLf https://ziglang.org/download/0.16.0/zig-aarch64-linux-0.16.0.tar.xz | \
+    tar -xJ -C /opt/zig --strip-components 1
+RUN mkdir -p /opt/odin && \
+    curl -sSLf https://github.com/odin-lang/Odin/releases/download/dev-2026-10/odin-linux-arm64-dev-2026-10.tar.gz | \
+    tar -xz -C /opt/odin --strip-components 1
+RUN git init -q /goose && cd /goose && \
+    git fetch -q --depth 1 https://github.com/aardappel/goose.git efe31554dcce698c0749daec36cd5318d28135fb && \
+    git checkout -q FETCH_HEAD && \
+    cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build-linux
+ENV GOOSE=/goose/build-linux/goose
 ```
 
-In the container, build the servers as `bench/build.sh` does, without the parts that
-don't build for arm64 (Odin, V, and the Zig servers' `x86_64-linux-musl` targets):
-`scripts/build.sh` with each loop, `cargo build --release --locked` with
-`RUSTFLAGS="-C target-cpu=native"` for may-minihttp, hyper, tokio, and xitca-web (which
-adds `--cfg tokio_unstable`), and `wrk-monotonic.so` and `latency` from `bench/`. Keep
-cargo's target directories in a Docker volume so the next container reuses them. Then:
+Odin's linux-arm64 release links with clang. In the container, `CACHE=/cache
+bench/build.sh` builds the whole field for arm64, with a Docker volume at `/cache` so the
+next container reuses cargo's target directories, V, and the checkouts; `bench/README.md`
+lists what differs from the x86-64 builds. Then, with the layout of task 012's runs:
 
 ```sh
-MACHINE=m1pro-docker SERVERS="goose goose-uring may-minihttp hyper tokio xitca-web" \
-    WORKER_COUNTS=4 SERVER_CPUS=0-3 CLIENT_CPUS=4-9 CLIENT_THREADS=8 bench/run.sh
+MACHINE=m1pro-docker SERVERS="goose goose-uring tokio vanilla-epoll vanilla-io_uring \
+    may-minihttp hyper xitca-web odin-http dusty zix zeemo libreactorng" \
+    WORKER_COUNTS=3 SERVER_CPUS=0-2 CLIENT_CPUS=3-9 CLIENT_THREADS=8 CACHE=/cache bench/run.sh
 ```
 
-- Mount the working tree to write results into `bench/results/`, and run from a `git
-  archive` copy in the container. `env.txt` then shows the commit as "(modified)": record
-  it by hand.
+- Mount the working tree to write results into `bench/results/`, and run from a copy of
+  its tracked files in the container. `env.txt` then shows the commit as "(modified)":
+  record it by hand.
 - The VM runs transparent huge pages set to `always`. An idle Goose server with 4 workers
   holds 22 MB, 20 MB of it in `AnonHugePages`, so peak RSS there doesn't compare with
   WSL2's.
-- With wrk on 6 of the 10 CPUs, wrk used 51-58 of its 60 CPU seconds per 10 s run in the
-  fastest servers' cells: the client bounds them.
+- With 4 workers and wrk on 6 of the 10 CPUs, wrk used 51-58 of its 60 CPU seconds per
+  10 s run in the fastest servers' cells. With 3 workers and wrk on 7 CPUs, wrk used
+  60-65 of 70 in plaintext and 49-53 in JSON, where the servers used all of theirs.
+- The VM hides the CPU's part number (`CPU part : 0x000` in `/proc/cpuinfo`), so Zig's
+  `-Dcpu=native` builds for generic arm64; `bench/build.sh` names `apple_m1` instead.
+- vanilla-epoll's JSON cells grow its memory by 6-15 GB each, past the VM's 8 GB: run
+  JSON without it, in its own result directory.
+- `goose build` on Linux reuses a program's compiled shim after the first build
+  (`docs/goose-findings.md`). `scripts/build.sh` works around it; a hand-run `goose
+  build` of `src/main.goose` needs `~/.goose/build/prog/main-*/native` deleted first.
+
+### HttpArena under Docker on macOS
+
+`bench/httparena.sh` drives HttpArena's harness, which needs bash 4, GNU `stat` and
+`timeout`, and `nproc`; macOS has bash 3.2 and none of the rest. Run it in a Linux
+container that talks to Docker Desktop through its socket, with the cache and the working
+tree mounted at the same paths as on the Mac, so the paths the harness passes to `docker
+run -v` resolve on the Mac. `--network host` puts the container on the VM's host network,
+where the servers listen, and its `nproc` is the VM's 10 CPUs, which the harness reads
+for its CPU limits. The image, 2026-10-11:
+
+```dockerfile
+FROM docker:29.8.2-cli AS cli
+FROM ubuntu:26.04
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+    bash ca-certificates curl git jq python3 openssl util-linux procps bc
+COPY --from=cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=cli /usr/local/libexec/docker/cli-plugins /usr/local/libexec/docker/cli-plugins
+```
+
+```sh
+docker run --rm --network host -v /var/run/docker.sock:/var/run/docker.sock \
+    -v "$HOME/.cache/goose-http-bench:$HOME/.cache/goose-http-bench" -v "$PWD:$PWD" \
+    -e HOME="$HOME" -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory \
+    -e GIT_CONFIG_VALUE_0='*' -e SERVER_CPUS=0-2 -e LOAD_CPUS=3-9 -e MACHINE=m1pro-docker \
+    -w "$PWD" goose-http-arena bench/httparena.sh run
+```
+
+- The buildx plugin is needed: without it, `docker build` doesn't set `TARGETARCH`,
+  and dusty's Dockerfile then builds for x86-64.
+- The safe.directory setting lets the container's git read a working tree owned by
+  another user.
+- HttpArena's zrk image downloads an x86-64 binary, and its vanilla-epoll image pins
+  tccbin's x86-64 branch, whose `libgc.a` V's bootstrap links. On an arm64 Docker host,
+  `bench/httparena.sh` swaps in zrk's aarch64 release and tccbin's arm64 branch.
 
 ## Windows
 

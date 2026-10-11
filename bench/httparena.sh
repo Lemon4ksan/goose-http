@@ -27,13 +27,22 @@
 #
 # - Under Docker Desktop, the readiness probe and the cgroup CPU reads run in
 #   helper containers (bench/httparena/docker-desktop.sh).
+# - On an arm64 Docker host (Docker Desktop on Apple Silicon), zrk's image
+#   takes zrk's aarch64-linux release of the same version, where HttpArena's
+#   downloads the x86-64 one, and vanilla-epoll's takes tccbin's arm64 branch
+#   for V's bootstrap.
 #
 # SKIP_TUNE leaves the host as bench/run.sh measures it: the harness's
 # system_tune changes sysctls and restarts Docker.
 #
+# The harness needs bash 4 and GNU tools. On macOS, run this script in a Linux
+# container that drives Docker Desktop through its socket
+# (docs/development.md, "HttpArena under Docker on macOS").
+#
 # Settings, from the environment:
 #   FRAMEWORKS  goose tokio dusty vanilla-epoll
 #   PROFILES    baseline limited-conn latency-1m pipelined
+#   SERVER_CPUS 0-3, LOAD_CPUS 4-15, and THREADS 4, as above
 #   MACHINE     a short name for the machine (the host name), for OUT
 #   RUNS 3 (the harness keeps the best), DURATION 5s,
 #   OUT bench/results/httparena-<date>-<machine>
@@ -52,6 +61,12 @@ case $out in /*) ;; *) out=$PWD/$out ;; esac
 
 HTTPARENA_COMMIT=0720ee57dc20424cc3fa3fc1735946a1abaf1a59
 GCANNON_COMMIT=11c802b2bdfe9af2fac4ac2571ae2de4c530cc62
+# zrk-2.3.0-aarch64-linux.tar.gz's SHA-256, from the release's SHA256SUMS.txt.
+ZRK_ARM64_SHA256=361f2632e3cee672cf6a8676438c9fa93e8a5702a0007bacc266861767bab213
+# The tccbin vanilla-epoll's Dockerfile pins, and the head of tccbin's
+# thirdparty-linux-arm64 branch (2024-07-08), as in bench/build.sh.
+TCCBIN_COMMIT=d6e7ac1b1bcc98aed734a6ecbfa8509f24606c74
+TCCBIN_ARM64_COMMIT=125ad2e1153c7cb86f19ac4aa070063d18504462
 
 if [ ! -d "$arena/.git" ]; then
     git clone -q https://github.com/MDA2AV/HttpArena.git "$arena"
@@ -72,6 +87,11 @@ if docker info --format '{{.OperatingSystem}}' | grep -q 'Docker Desktop'; then
     sed -i 's|if curl -sk -o /dev/null --max-time 2 |if docker run --rm --network host curlimages/curl:8.11.1 -sk -o /dev/null --max-time 2 |' \
         "$arena/scripts/lib/framework.sh"
     cat "$root/bench/httparena/docker-desktop.sh" >>"$arena/scripts/lib/stats.sh"
+fi
+if [ "$(docker info --format '{{.Architecture}}')" = aarch64 ]; then
+    sed -i -e 's/x86_64-linux\.tar\.gz/aarch64-linux.tar.gz/' \
+        -e "s/^ARG ZRK_SHA256=.*/ARG ZRK_SHA256=$ZRK_ARM64_SHA256/" "$arena/docker/zrk.Dockerfile"
+    sed -i "s/$TCCBIN_COMMIT/$TCCBIN_ARM64_COMMIT/" "$arena/frameworks/vanilla-epoll/Dockerfile"
 fi
 
 export LOADGEN_DOCKER=true SKIP_TUNE=true

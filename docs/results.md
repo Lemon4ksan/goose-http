@@ -252,6 +252,90 @@ plaintext and even in JSON. In JSON, hyper's and xitca-web's p99 is 1.2-1.7 ms a
 - The VM's CPUs are macOS threads, shared with macOS's own load (a load average of 4-10
   during the session, from other work on the machine).
 
+### The full field, 3 workers
+
+The same VM and image with Zig 0.16.0 and Odin `dev-2026-10` added, every server built for
+arm64 by `bench/build.sh` (its notes in [bench/README.md](../bench/README.md#servers)),
+on 2026-10-11. The Goose server is at `b2e0337`, built by Goose `efe3155`; `env.txt`
+shows "(modified)" because the runs used a copy of the working tree:
+
+```sh
+MACHINE=m1pro-docker SERVERS="goose goose-uring tokio vanilla-epoll vanilla-io_uring \
+    may-minihttp hyper xitca-web odin-http dusty zix zeemo libreactorng" \
+    WORKER_COUNTS=3 SERVER_CPUS=0-2 CLIENT_CPUS=3-9 CLIENT_THREADS=8 \
+    RUNS=3 DURATION=10 WARMUP=3 TESTS="plaintext:256 plaintext:1024" bench/run.sh
+```
+
+JSON ran the same way, with `TESTS=json:256` and without vanilla-epoll, whose JSON cells
+grow its memory past the VM's 8 GB. That's 3 workers on VM CPUs 0-2 and wrk and h2load
+with 8 threads on CPUs 3-9: a pilot with 4 workers left wrk at 50 of its 60 CPU seconds,
+and with 2 workers the server was the limit. Medians of 3 interleaved runs of 10 s, from
+[3w-plaintext](../bench/results/2026-10-11-m1pro-docker-3w-plaintext/summary.md) and
+[3w-json](../bench/results/2026-10-11-m1pro-docker-3w-json/summary.md):
+
+| Server | plaintext, 256 | plaintext, 1,024 | JSON, 256 | JSON p99 (h2load) |
+|---|---:|---:|---:|---:|
+| goose-uring | 6.65 M | 7.00 M | 0.826 M | 1.64 ms |
+| goose | 6.90 M | 7.09 M | 0.749 M | 1.67 ms |
+| zix | 4.65 M | 4.34 M | 0.742 M | 1.01 ms |
+| zeemo | 2.74 M | 2.72 M | 0.737 M | 0.99 ms |
+| libreactorng | 4.60 M | 5.17 M | 0.721 M | 0.99 ms |
+| tokio | 5.26 M | 5.22 M | 0.624 M | 1.06 ms |
+| may-minihttp | 2.92 M | 5.48 M | 0.579 M | 0.84 ms |
+| vanilla-io_uring | 6.20 M | 6.16 M | 0.539 M | 2.56 ms |
+| xitca-web | 1.88 M | 1.71 M | 0.504 M | 0.96 ms |
+| dusty | 0.41 M | 0.28 M | 0.474 M | 0.86 ms |
+| odin-http | 0.37 M | 0.35 M | 0.335 M | 1.76 ms |
+| hyper | 2.24 M | 2.15 M | 0.334 M | 1.20 ms |
+| vanilla-epoll | 6.03 M | 6.03 M | not run | |
+
+- The two Goose loops lead plaintext, and goose-uring leads JSON, 10% ahead of the epoll
+  loop, which ties zix, zeemo, and libreactorng within 4%. JSON is the cell that ranks
+  the servers here: every server used all 30 of its CPU seconds, and wrk used 26-53 of its
+  70.
+- In plaintext both ends are near their limits in the top cells: the servers used 26-29
+  of 30 CPU seconds, wrk 60-65 of 70. The plaintext order of Goose, goose-uring, and the
+  vanilla servers is within run-to-run spreads of up to 20%.
+- Rows other than the Goose builds, dusty, and zix were measured in a first pass and
+  copied by `REUSE` (the summaries' From column). Goose drifted between the passes: 6.11 M
+  against 6.90 M at 256 connections, and 0.717 M against 0.749 M in JSON, so the copied
+  rows' gaps to Goose carry up to 13% of session drift. The first pass is in
+  [field-plaintext](../bench/results/2026-10-11-m1pro-docker-field-plaintext/summary.md)
+  and [field-json](../bench/results/2026-10-11-m1pro-docker-field-json/summary.md).
+- dusty and zix were measured again because the first pass built them with Zig's
+  `native`, which resolves to generic arm64 in the VM. With `apple_m1`, zix lost 10% in
+  plaintext (5.19 M to 4.65 M) and held JSON; dusty gained 7% in JSON.
+- dusty and odin-http serve pipelined plaintext at 0.3-0.5 M, below their JSON rate, as
+  dusty did under HttpArena on WSL2 (0.60 M).
+
+### HttpArena's profiles
+
+HttpArena's harness at `0720ee5`, run by `bench/httparena.sh run` from a Linux container
+on Docker Desktop (`docs/development.md`, "HttpArena under Docker on macOS"), on
+2026-10-11 at `16528ea` with Goose `efe3155`, so the Goose entry is the epoll loop: each
+server's container on VM CPUs 0-2, gcannon `11c802b` on CPUs 3-9 with 4 threads, the best
+of 3 runs of 5 s per profile, and latency-1m at 200,000 requests per second. On arm64 the
+script takes zrk's aarch64 release and tccbin's arm64 branch for vanilla-epoll; every
+entry passed `validate`. Results in
+[bench/results/httparena-2026-10-11-m1pro-docker](../bench/results/httparena-2026-10-11-m1pro-docker).
+
+| Profile | Goose | tokio | vanilla-epoll | dusty |
+|---|---:|---:|---:|---:|
+| baseline (mixed GET and POST), req/s | 631K | 526K | 518K | 390K |
+| limited-conn (10 requests per connection), req/s | 503K | 389K | 439K | 444K |
+| pipelined, req/s | 6.59M | 6.26M | 6.58M | 0.55M |
+| latency-1m, CPU per request | 8.05 µs | 8.35 µs | 8.42 µs | 10.84 µs |
+| latency-1m, p99 | 210 µs | 200 µs | 323 µs | 332 µs |
+| baseline, container memory | 53 MiB | 136 MiB | 77 MiB | 148 MiB |
+
+Goose leads baseline by 20% and limited-conn by 13%, ties vanilla-epoll in pipelined, and
+spends the least CPU per request at the fixed rate, 4% under tokio. On WSL2, dusty led
+limited-conn; here it's third. The servers used 243-292% of their 300% CPU in baseline,
+limited-conn, and pipelined, so those profiles measure gcannon as much as the servers.
+Memory is the container's, socket buffers included, and inflated by the VM's
+transparent huge pages, so it compares containers on this VM only. The latency-1m p99
+moved by up to 15 times between runs on WSL2, so it ranks the servers only roughly.
+
 ## M1 Pro, macOS native
 
 The kqueue build on the same MacBook Pro, natively, against the Rust servers that build on
