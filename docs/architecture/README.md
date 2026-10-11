@@ -119,7 +119,8 @@ one, over `shim/iocp.c` ([below](#the-platform-and-its-error-codes-task-006)):
   requests only while the worker waits, and each wait submits everything queued since
   the last one.
 - A multishot accept takes the listener's connections, and a multishot receive per
-  connection fills the ring's provided buffers, 1,024 of 4 KB per worker. A receive
+  connection fills the ring's provided buffers, 256 of 4 KB per worker, as many as a
+  wait's batch of completions. A receive
   that finds no buffer left ends, and the loop queues it again.
 - The ring owns every buffer the kernel touches after a call returns. The kernel reads a
   send's bytes and writes a receive's after the call that queued them, and spec §7.10
