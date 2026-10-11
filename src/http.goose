@@ -16,10 +16,9 @@ let MAX_METHOD = 16;
 // More header fields than this are refused with 431.
 let MAX_FIELDS = 100;
 // A Content-Length body longer than this, unless parse's caller sets another
-// limit, is refused with 413. Bodies are read
-// and dropped as they arrive, except for a route that reads its body
-// (reads_body) and a chunked body: those must fit in the read buffer with the
-// head, or they are refused with 413 too.
+// limit, is refused with 413. The server answers a body that fits in its read
+// buffer with the head once it's whole, and drops a longer one as it arrives.
+// A chunked body must fit, or it's refused with 413 too.
 let MAX_BODY = 1048576;
 
 // parse's status for a buffer that holds only the start of a request.
@@ -206,12 +205,6 @@ fn is_digit(c: u8) -> bool { c >= '0' && c <= '9' }
 
 fn is_hex(c: u8) -> bool { is_digit(c) || (c | 32) >= 'a' && (c | 32) <= 'f' }
 
-// Whether the route reads the request's body, which the server then holds
-// whole in its buffer before answering.
-fn reads_body(req: Request) -> bool {
-    req.method == "POST" && path_of(req.target) == "/baseline11"
-}
-
 // Frames the body of req at the start of rest, the bytes after its head,
 // where a buffer of room bytes after the head must hold it whole. Returns the
 // body's length on the wire and 200 once it has all arrived, INCOMPLETE until
@@ -331,8 +324,8 @@ fn path_of(target: const u8[:]) -> const u8[:] {
 }
 
 // Writes the response to req, whose body is body, into out, and returns
-// whether the connection stays open after it. body is empty unless
-// reads_body(req).
+// whether the connection stays open after it. body is empty when req.body
+// announced one too long for the read buffer, which the server drops.
 fn respond<A>(out: A&, req: Request, body: const u8[:], date: const u8[:]) -> bool {
     let path = path_of(req.target);
     let plaintext = path == "/plaintext";

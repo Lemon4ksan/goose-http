@@ -269,6 +269,10 @@ def chunked(port):
         (request(b"/baseline11?a=13&b=42", b"POST", b"Content-Length: 2\r\n") + b"20", b"75"),
         (request(b"/baseline11?a=13&b=42", b"POST", b"Transfer-Encoding: chunked\r\n") +
          b"1\r\n2\r\n1\r\n0\r\n0\r\n\r\n", b"75"),
+        # Too long for the read buffer: dropped as it arrives, and answered as
+        # an empty body.
+        (request(b"/baseline11?a=13&b=42", b"POST", b"Content-Length: 20000\r\n") +
+         b"1" * 20000, b"55"),
     ):
         c.send(req)
         r = c.response()

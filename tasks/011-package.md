@@ -1,6 +1,6 @@
 # 011: goose-http as a Goose package
 
-Status: todo (asked for 2026-10-11)
+Status: in-progress (asked for 2026-10-11)
 
 Goose `efe3155` has packages: a program declares one in its root file,
 `import http from "github.com/kaitk/goose-http@v0.1.0";`, and the compiler fetches the
@@ -56,14 +56,46 @@ The design, proposed:
   io_uring to epoll. The cost of one sidecar: every Linux program that imports `http`
   links liburing, even one that calls only `serve_epoll`.
 - Before the handler can go in, the loops' request handling becomes one function both
-  call: `answer` is nearly the same in `src/server.goose` and `src/uring.goose`, and
-  routes are wired into it (`http::respond`, and `http::reads_body`'s `/baseline11`).
+  call: `answer` was nearly the same in `src/server.goose` and `src/uring.goose`, with
+  routes wired into it (`http::respond`, and `http::reads_body`'s `/baseline11`).
   A handler's response must not abort the process. Done (2026-10-11): `answer` in
   `src/app.goose` serves both loops, and the write buffer grows to take a response of
   any size whole.
 - A library can't end the process: `http::serve` returns errors that `sys::check`
-  and the shims turn into exits today, and takes its settings (address, limits,
-  timeouts, buffer sizes) as one flat struct instead of constants and `WORKERS`.
+  and the shims turned into exits, and takes its settings (address, limits,
+  timeouts, buffer sizes, workers) as one flat struct instead of constants and
+  `WORKERS`. Done (2026-10-11): `Config` and `Error` in `src/app.goose`. The loops
+  still write two notes to stderr, `accept` at the fd limit and an `epoll_ctl` that
+  failed for one connection, as they go on serving.
+
+## The handler (decided 2026-10-11)
+
+Task 013's items 6, 7, and 8 decide the handler's shape: a handler called once per
+request can't read a body in pieces or stream a response. `v0.1.0` serves requests and
+responses of a fixed size, the second of task 013's options, and the handler is:
+
+```goose
+http::serve(cfg) { req, body, out => ... }
+```
+
+- `req` is `http::Request`, the parsed head, with slices into the read buffer: method,
+  target, version, keep-alive, the announced body length, and chunked framing.
+- `body` is the whole request body when it fits in the read buffer (`max_head`) with its
+  head, chunked bodies decoded. A longer `Content-Length` body is dropped as it arrives,
+  and `body` is empty while `req.body` gives its length, so the handler can refuse it.
+  This replaces the routes' `reads_body`: the loop needs no second function value to
+  ask whether to keep a body. Implemented in this step.
+- `out` is a reply: the worker's growable write buffer, with what the response's
+  framing needs from the request (keep-alive, version, `HEAD`) and the cached `Date`.
+  The handler writes one whole response of any size through helpers that write the
+  status line and the fields every response has, the handler's own fields, and the
+  body with its `Content-Length`. Status codes are a table the helpers look up, any
+  code the handler names.
+- Why not more now: header lookup (013 item 6) adds functions over `req`, and a
+  `Request` field for the whole head, without changing the handler. Bodies read in
+  pieces (item 7) and streamed responses (item 8) need a handler that resumes, which
+  spec §7.6 rules out as a stored function value; they would come as another entry
+  point, with per-connection state for the body or the stream, after `v0.1.0`.
 
 ## Acceptance criteria
 

@@ -83,12 +83,13 @@ until the task named beside it confirms or replaces it.
   - Pipelining: every complete request in the read buffer is answered, and the responses
     go out in one `send`. Past 8 KB of responses, the server sends them and answers
     the rest.
-  - `Content-Length` request bodies are read and dropped as they arrive. Chunked bodies
-    are accepted in HTTP/1.1 (task 009, for HttpArena's `baseline` profile, 2026-10-10):
-    the message must fit in the 8 KB read buffer with its head, or it gets 413. So must
-    a `Content-Length` body the route reads, which only `POST /baseline11` does. A
-    chunked body the route reads is decoded in place. Another transfer coding gets 501, and `Transfer-Encoding`
-    with `Content-Length`, or in HTTP/1.0, gets 400.
+  - A request body that fits in the 8 KB read buffer with its head is answered once
+    it's whole, and the handler gets it; a longer `Content-Length` body is dropped as
+    it arrives, and the handler gets an empty one (task 011, 2026-10-11). Chunked
+    bodies are accepted in HTTP/1.1 (task 009, for HttpArena's `baseline` profile,
+    2026-10-10): the message must fit in the read buffer with its head, or it gets
+    413, and the body is decoded in place. Another transfer coding gets 501, and
+    `Transfer-Encoding` with `Content-Length`, or in HTTP/1.0, gets 400.
   - Routes: `/plaintext` and `/json` for TechEmpower's tests, `/baseline11` and
     `/pipeline` for HttpArena's (`bench/httparena/goose`), and `/bytes?n=N`, N bytes
     up to 16 MB, for testing large responses.

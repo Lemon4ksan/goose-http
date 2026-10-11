@@ -285,10 +285,6 @@ fn test_respond() {
     assert(response("GET /bytes?n=50000 HTTP/1.1\r\nHost: x\r\n\r\n", out));
     same(out[^50017..^49997], "Length: 50000\r\n\r\n012");
     same(out[^10..], "0123456789");
-    let b, sb = http::parse("POST /baseline11?a=1 HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\n");
-    assert(sb == 200 && http::reads_body(b));
-    let p, sp = http::parse("POST /json HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\n");
-    assert(sp == 200 && !http::reads_body(p));
 
     // A limited array takes responses as the server's write buffer does.
     var wbuf: u8[..256] = [];

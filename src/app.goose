@@ -112,14 +112,15 @@ fn answer<ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: const u8
             off = rlen;
             break;
         }
-        // A body the route reads, and a chunked one, are answered once they
-        // are whole in rbuf; any other body is dropped as it comes.
+        // A body that fits in rbuf with its head is answered once it's whole,
+        // and so is a chunked one, which must fit. A longer Content-Length
+        // body is dropped as it comes, and answered as an empty one.
         let b0 = off + req.len;
-        let reads = http::reads_body(req);
-        let whole = req.chunked || (req.body > 0 && reads);
+        let room = rbuf.len - req.len;
+        let whole = req.chunked || (req.body > 0 && req.body <= room);
         var wire = 0;
         if whole {
-            let n, s = http::frame_body(rbuf[b0..rlen], req, rbuf.len - req.len);
+            let n, s = http::frame_body(rbuf[b0..rlen], req, room);
             if s == http::INCOMPLETE { break; }
             if s != 200 {
                 http::refuse(wbuf, s, date);
@@ -129,9 +130,7 @@ fn answer<ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: const u8
             }
             wire = n;
         }
-        let blen = if !reads { 0 }
-                   else if req.chunked { http::dechunk(rbuf[b0..b0 + wire]) }
-                   else { wire };
+        let blen = if req.chunked { http::dechunk(rbuf[b0..b0 + wire]) } else { wire };
         done++;
         off = b0 + wire;
         if !whole { c.discard = req.body; }

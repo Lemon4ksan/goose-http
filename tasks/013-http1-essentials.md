@@ -16,8 +16,9 @@ write backpressure, 10 s head and body timeouts that trickled bytes don't extend
 idle close, and a cap of 16,384 connections per worker.
 
 Items 6, 7, and 8 decide the shape of task 011's handler: a handler called once with
-`(req, body, out)` can't stream. Settle that shape before tagging `v0.1.0`, or tag
-`v0.1.0` as serving fixed-size requests and responses only. Items 3, 7, 8, 11, and 13
+`(req, body, out)` can't stream. Decided (2026-10-11, task 011): `v0.1.0` serves
+fixed-size requests and responses only, and items 7 and 8 come as another entry point
+later; task 011's file has the reasons. Items 3, 7, 8, 11, and 13
 change the per-connection state, in both of task 011's loops, `http::serve` and
 `http::serve_epoll`, unless task 011's shared request handling carries them.
 
