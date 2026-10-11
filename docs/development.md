@@ -450,6 +450,25 @@ That's 4 server workers and 4 wrk threads, 64 connections pipelining 16 deep, an
 The number shows that the build carries load, and nothing more: macOS isn't a benchmark
 platform (`AGENTS.md`).
 
+`bench/run-macos.sh` runs a short native matrix against the Rust servers that build on
+macOS (task 012). Traps found running it, 2026-10-11:
+
+- macOS's loopback carries about 35,000-40,000 request-response exchanges a second in
+  all, whatever the server and the client: two independent server and wrk pairs ran at
+  36 K alone and 18 K each together, while the machine sat 70% idle and `kernel_task`
+  took one core. Every server measures the same there.
+- `SO_REUSEPORT` listeners don't spread on macOS, so a competitor that binds one per
+  worker, such as the tokio entry, runs on one thread: under load, one of its 4 threads
+  used CPU.
+- xitca-web enables `io-uring` in `bench/xitca-web/Cargo.toml` and doesn't build on
+  macOS; Odin and V aren't installed on the Mac, and Homebrew's Zig is 0.17.0, not the
+  0.16.0 `bench/build.sh` requires.
+- Other projects' benchmarks and macOS's own indexing (`mediaanalysisd`, `mdworker`)
+  share the machine: the load average was 4-10 through the session. `env.txt` records
+  it before and after.
+- `sample PID 5` profiles a running server without `sudo`. Its counts include time
+  blocked in `kevent`; read the rest for where a request's time goes.
+
 ### Linux in Docker on macOS
 
 Docker Desktop on macOS runs the Linux build and its tests in an arm64 Linux VM, and both
@@ -497,6 +516,36 @@ docker run --rm --security-opt seccomp=unconfined --ulimit nofile=1048576:104857
   with `bench/build.sh` and `bench/run.sh`.
 - The VM is no benchmark machine: its CPUs are shared with macOS, and the load runs share
   them with the server.
+
+To run `bench/run.sh` there (task 012), the image also needs Rust, for the Rust servers,
+and `util-linux` and `procps`, for `taskset`, `lscpu`, and `/proc`:
+
+```dockerfile
+RUN apt-get install -y -qq --no-install-recommends util-linux procps pkg-config make && \
+    curl -sSf https://sh.rustup.rs | sh -s -- -y -q --profile minimal --default-toolchain 1.99.0
+ENV PATH=/root/.cargo/bin:$PATH
+```
+
+In the container, build the servers as `bench/build.sh` does, without the parts that
+don't build for arm64 (Odin, V, and the Zig servers' `x86_64-linux-musl` targets):
+`scripts/build.sh` with each loop, `cargo build --release --locked` with
+`RUSTFLAGS="-C target-cpu=native"` for may-minihttp, hyper, tokio, and xitca-web (which
+adds `--cfg tokio_unstable`), and `wrk-monotonic.so` and `latency` from `bench/`. Keep
+cargo's target directories in a Docker volume so the next container reuses them. Then:
+
+```sh
+MACHINE=m1pro-docker SERVERS="goose goose-uring may-minihttp hyper tokio xitca-web" \
+    WORKER_COUNTS=4 SERVER_CPUS=0-3 CLIENT_CPUS=4-9 CLIENT_THREADS=8 bench/run.sh
+```
+
+- Mount the working tree to write results into `bench/results/`, and run from a `git
+  archive` copy in the container. `env.txt` then shows the commit as "(modified)": record
+  it by hand.
+- The VM runs transparent huge pages set to `always`. An idle Goose server with 4 workers
+  holds 22 MB, 20 MB of it in `AnonHugePages`, so peak RSS there doesn't compare with
+  WSL2's.
+- With wrk on 6 of the 10 CPUs, wrk used 51-58 of its 60 CPU seconds per 10 s run in the
+  fastest servers' cells: the client bounds them.
 
 ## Edit on Windows
 

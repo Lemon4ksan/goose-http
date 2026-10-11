@@ -210,3 +210,79 @@ Goose's `parse` also checks `Host`, `Content-Length`, `Transfer-Encoding`, and
   same syscalls per request but two: Goose calls `epoll_wait` 0.30 times per request,
   tokio 0.11, and Goose calls `recv` once more per connection.
 - **HttpArena's latency-1m CPU per request**: even with tokio, 10.91 µs against 10.90 µs.
+
+## M1 Pro, Linux in Docker
+
+The same matrix, shortened, in Docker Desktop's Linux VM on a MacBook Pro
+(`MacBookPro18,3`, Apple M1 Pro, 8 performance and 2 efficiency cores, macOS 26.3.1).
+The VM had 10 CPUs and 8 GB, kernel 7.0.14-linuxkit, and ran `ubuntu:26.04` with gcc
+15.2.0, rustc 1.99.0, wrk 4.1.0, and h2load 1.68.0. The Goose server is at `9623c6a`,
+built by Goose `efe3155`. On 2026-10-11:
+
+```sh
+MACHINE=m1pro-docker SERVERS="goose goose-uring may-minihttp hyper tokio xitca-web" \
+    WORKER_COUNTS=4 SERVER_CPUS=0-3 CLIENT_CPUS=4-9 CLIENT_THREADS=8 \
+    RUNS=3 DURATION=10 WARMUP=3 TESTS="plaintext:256 plaintext:1024 json:256" bench/run.sh
+```
+
+That's 4 workers on VM CPUs 0-3 and wrk and h2load with 8 threads on CPUs 4-9, 3
+interleaved runs of 10 s after 3 s of warm-up. Medians, from
+[2026-10-11-m1pro-docker](../bench/results/2026-10-11-m1pro-docker/summary.md):
+
+| | Goose | goose-uring | tokio | may-minihttp | hyper | xitca-web |
+|---|---:|---:|---:|---:|---:|---:|
+| plaintext, 256 conns, req/s | 6.96 M | 6.42 M | 6.10 M | 2.98 M | 3.31 M | 2.44 M |
+| plaintext, 1,024 conns, req/s | 6.89 M | 6.60 M | 5.89 M | 5.90 M | 3.21 M | 2.37 M |
+| JSON, 256 conns, req/s | 0.870 M | 0.870 M | 0.828 M | 0.816 M | 0.580 M | 0.643 M |
+| p99 (h2load), JSON | 3.01 ms | 3.08 ms | 3.02 ms | 2.90 ms | 1.20 ms | 1.72 ms |
+
+Goose leads every cell. The epoll loop runs 4-8% ahead of the io_uring loop in
+plaintext and even in JSON. In JSON, hyper's and xitca-web's p99 is 1.2-1.7 ms against
+2.9-3.1 ms for the four faster servers, at two thirds of their rate.
+
+- The field is partial: vanilla-epoll, odin-http, and the Zig servers didn't build here.
+  `bench/build.sh` builds the Zig servers for `x86_64-linux-musl`, and V's bootstrap is
+  pinned for x86-64.
+- wrk used 51-58 s of the 60 CPU seconds its 6 CPUs had, in every Goose, goose-uring,
+  and tokio cell, so the client bounds those cells and the gaps among the three are
+  likely smaller than the servers' own.
+- The VM runs transparent huge pages set to `always`, so peak RSS (30-36 MB for Goose)
+  is mostly 2 MB pages: an idle Goose server with 4 workers held 22 MB, 20 MB of it in
+  `AnonHugePages`. RSS doesn't compare with the WSL2 machine's here.
+- The VM's CPUs are macOS threads, shared with macOS's own load (a load average of 4-10
+  during the session, from other work on the machine).
+
+## M1 Pro, macOS native
+
+The kqueue build on the same MacBook Pro, natively, against the Rust servers that build on
+macOS, with `bench/run-macos.sh` on 2026-10-11: 4 workers per server and wrk 4.2.0 with
+4 threads, on the same machine with nothing pinned; plaintext pipelined 16 deep and JSON,
+with TechEmpower's headers; 3 interleaved runs of 10 s after 3 s of warm-up; on AC
+power, under `caffeinate -i`, with `kern.ipc.somaxconn` at its default of 128. Medians,
+from [2026-10-11-m1pro-native](../bench/results/2026-10-11-m1pro-native/runs.tsv):
+
+| | Goose | hyper | tokio | may-minihttp |
+|---|---:|---:|---:|---:|
+| plaintext, 256 conns, req/s | 558 K | 560 K | 587 K | 538 K |
+| plaintext, 1,024 conns, req/s | 537 K | 536 K | 554 K | 513 K |
+| JSON, 256 conns, req/s | 35.9 K | 35.8 K | 37.2 K | 35.0 K |
+| peak RSS, any cell | 1.9 MB | 7-23 MB | 15-56 MB | 56-194 MB |
+
+These numbers rank the kernel, not the servers. Every server lands within 5% of Goose,
+and the limit is one exchange per round trip that macOS's loopback carries, about
+35,000-40,000 a second:
+
+- Goose with 1 worker serves JSON at the same 36 K as with 4. wrk, h2load, and oha all
+  reach 35-38 K, and 16 connections reach 40 K.
+- Two independent pairs, two Goose servers each loaded by its own wrk, ran 36.0 K alone
+  and 17.9 K each together.
+- Under load the machine is 70% idle: Goose's 4 workers take one core between them, wrk
+  one, and `kernel_task` one.
+- Plaintext reaches 550 K because wrk sends 16 requests per write: about 34,000 writes a
+  second, as in JSON.
+
+tokio leads by 3-5%, with its `SO_REUSEPORT` listeners, which macOS doesn't balance:
+the last one bound takes every connection (task 006); under load, one of its 4 threads
+used CPU and the other three none.
+With the kernel as the limit, fewer threads waking is an advantage. Goose's rank here
+says nothing about its code; task 012 has the profile.
