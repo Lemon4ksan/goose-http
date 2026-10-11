@@ -23,6 +23,11 @@ A shim file is its own translation unit, so:
   `net_strerror` writes into a `u8[:]` and returns the length instead.
 - It sets its own feature-test macros: `shim/net.c` starts with `#define _GNU_SOURCE`.
 - The C compiler doesn't inline its functions into the program's C.
+- MSVC compiles C as C89 with extensions unless asked for more, and the shim uses C11's
+  `_Static_assert`, so `src/main_uring.build` passes `c_flags_msvc = ["/std:c11"]`.
+  MSVC has no `__attribute__((packed))`: a shim built by it, such as `shim/iocp.c`,
+  packs a struct with `#pragma pack(push, 1)`, which gcc and clang accept too, and
+  checks the size with `_Static_assert`.
 
 `goose --include header.h` still splices a header into the generated C, after the type
 declarations and before the `extern fn` prototypes, where it can use the generated types.

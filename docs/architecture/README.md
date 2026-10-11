@@ -19,6 +19,11 @@ until the task named beside it confirms or replaces it.
   sockets, epoll, coarse clocks, and `strerror`; `shim/uring.c` covers io_uring
   ([below](#the-io_uring-loop-task-005)), and `shim/kqueue.c` is `shim/net.c` for macOS,
   returning the same Linux codes ([below](#the-platform-and-its-error-codes-task-006)).
+  On Windows, `shim/net_win.c` is `shim/net.c` over Winsock, and `shim/iocp.c` is
+  `shim/uring.c` over a completion port. `shim/iocp.c` is the one shim that isn't thin:
+  it emulates io_uring's multishot requests with reference-counted records, and a
+  callback on a system wait thread hands accepts to each worker's port. The callback is
+  C calling C, so Goose still never runs on a thread it didn't start.
   Anything that needs a callback, such as llhttp, libuv, or a C HTTP server, is out
   (confirmed by task 002, 2026-10-10). Details:
   - `goose build` compiles the shim as C files of their own, which each root file's
@@ -32,7 +37,8 @@ until the task named beside it confirms or replaces it.
     `epoll_wait` fills a local `struct epoll_event` array, which is packed on x86-64 and
     padded on arm64, and copies it into `sys::Event`, a struct of the program's own.
   - `send` passes `MSG_NOSIGNAL`, so a write to a closed connection is `-EPIPE`, not a
-    `SIGPIPE` that ends the process. There is no signal handler to install.
+    `SIGPIPE` that ends the process. There is no signal handler to install. Windows has
+    no `SIGPIPE`, and such a write is `-ECONNRESET` there.
   - There is no `writev`: spec §7.10 doesn't let a list of slices cross to C. Responses
     are built into one buffer and sent with one `send`.
 
@@ -43,8 +49,9 @@ until the task named beside it confirms or replaces it.
   - `main` spawns one worker per `hardware_threads()`, or `WORKERS` if set, and passes
     each only the port.
   - Each worker opens its own listener with `SO_REUSEPORT`, so the kernel spreads
-    connections across workers, and runs its own edge-triggered epoll loop. On macOS the
-    workers share one listener instead ([below](#the-platform-and-its-error-codes-task-006)).
+    connections across workers, and runs its own edge-triggered epoll loop. On macOS and
+    Windows the workers share one listener instead
+    ([below](#the-platform-and-its-error-codes-task-006)).
   - A connection belongs to one worker for its life, in a slot of that worker's
     `reusable` pool; its epoll tag is the slot. A table indexed by fd was rejected: fds
     are numbered across the process, so every worker's table would grow to the highest
@@ -102,8 +109,9 @@ until the task named beside it confirms or replaces it.
 
 `LOOP=uring scripts/build.sh` builds the server with an io_uring loop
 (`src/uring.goose`) in place of the epoll loop; `src/app.goose` holds what both share.
-The epoll loop stays the default until task 005 measures both, and stays buildable and
-tested either way (2026-10-11):
+The epoll loop stays the default on Linux until task 005 measures both, and stays
+buildable and tested either way (2026-10-11). On Windows the io_uring loop is the only
+one, over `shim/iocp.c` ([below](#the-platform-and-its-error-codes-task-006)):
 
 - `shim/uring.c` wraps liburing 2.14, whose helpers are static inline functions that
   `extern fn` can't bind, and needs Linux 6.1. Each worker owns a ring, created with
@@ -111,7 +119,8 @@ tested either way (2026-10-11):
   requests only while the worker waits, and each wait submits everything queued since
   the last one.
 - A multishot accept takes the listener's connections, and a multishot receive per
-  connection fills the ring's provided buffers, 1,024 of 4 KB per worker. A receive
+  connection fills the ring's provided buffers, 256 of 4 KB per worker, as many as a
+  wait's batch of completions, which served as fast as 1,024 with half the peak RSS. A receive
   that finds no buffer left ends, and the loop queues it again.
 - The ring owns every buffer the kernel touches after a call returns. The kernel reads a
   send's bytes and writes a receive's after the call that queued them, and spec §7.10
@@ -125,6 +134,9 @@ tested either way (2026-10-11):
   loop stops reading when a send would block.
 - A request's tag is the connection's slot and a generation, so a completion that
   arrives after its connection closed isn't taken for the slot's next connection.
+  The shim queues the rest of a short send itself, so it keeps a generation per fd as
+  well, which `ur_close` advances: a rest left over from a closed connection is
+  reported cancelled, never sent to a later connection that got the same fd.
 - Closing a connection queues a cancel of its requests and, linked after it, the close.
   A queued request holds a reference to the socket, so a `close` alone would leave the
   connection open.
@@ -135,10 +147,19 @@ tested either way (2026-10-11):
 
 ### The platform and its error codes (task 006)
 
-The sidecar chooses the platform, because the spec has no conditional compilation:
-`src/main.build` lists `shim/net.c` under `c_sources_linux` and `shim/kqueue.c` under
-`c_sources_macos`. Both platforms compile `src/main.goose`, and the epoll loop runs
-unchanged on either (2026-10-11). `scripts/build.sh` refuses `LOOP=uring` off Linux.
+The sidecar chooses the platform, because the spec has no conditional compilation, and
+`scripts/build.sh` chooses the root file (2026-10-11):
+
+| Platform | Root file | Loop | Shim |
+|---|---|---|---|
+| Linux | `src/main.goose` (default) or `src/main_uring.goose` | epoll or io_uring | `shim/net.c`, and `shim/uring.c` for io_uring |
+| macOS | `src/main.goose` | epoll | `shim/kqueue.c` |
+| Windows | `src/main_uring.goose` | io_uring | `shim/net_win.c`, `shim/iocp.c` |
+
+Each loop runs unchanged on every platform it builds for. `scripts/build.sh` refuses
+`LOOP=uring` off Linux, `LOOP=iocp` off Windows, and `LOOP=epoll` on Windows.
+
+On macOS:
 
 - `shim/kqueue.c` defines the same C functions as `shim/net.c`, so `src/sys.goose` binds
   either. `IN` and `OUT` become `EVFILT_READ` and `EVFILT_WRITE`, `ET` becomes
@@ -158,11 +179,33 @@ unchanged on either (2026-10-11). `scripts/build.sh` refuses `LOOP=uring` off Li
 - macOS drops a connection whose `accept` fails with `EMFILE`, so the shim checks for a
   free fd first and leaves the client in the backlog when there's none, as Linux does.
 
+On Windows ([task 006.02](../../tasks/006-kqueue-iocp/02-iocp-windows.md) has the
+details):
+
+- `shim/iocp.c` implements `src/ring.goose` over a completion port. IOCP completes one
+  operation per request, so a multishot accept is an `AcceptEx` posted again after each
+  completion, and a multishot receive is a zero-byte `WSARecv` kept posted, whose
+  completion the shim follows with one non-blocking `recv` into a free ring buffer. So
+  an idle connection holds no buffer, as with io_uring's provided buffers; a buffer
+  posted per connection deadlocked 10,000 connections.
+- The workers share one listener, which belongs to no completion port, because a
+  socket can belong to only one. Each ring's `AcceptEx` signals an event, and a wait
+  registered on it posts the completion to that ring's port, as libuv does. Windows
+  serves the most recently posted `AcceptEx` first, so one worker takes most
+  connections. That costs throughput, not correctness.
+- `closesocket` ends every request on the socket and aborts a send still pending. Each
+  pending request holds a reference to its socket's record, so a late completion never
+  touches a reused handle.
+- The server listens on 127.0.0.1 only, because Windows Defender Firewall prompts for
+  any other address, with `SO_EXCLUSIVEADDRUSE`, so a second server gets `EADDRINUSE`,
+  and `SOMAXCONN_HINT`, because a plain backlog stops at 200.
+
 The constants in `src/sys.goose` are the project's own error codes, Linux's errno values
 on every platform, as libuv's are the negated errno on Unix. `shim/net.c` passes errno
 through, and its `_Static_assert`s pin the values. `shim/kqueue.c` translates: codes 1 to
 34 are equal on both systems, a table maps macOS's codes from 35 up to Linux's (`EAGAIN`
 35 to 11, `ECONNABORTED` 53 to 103), and a code with no Linux counterpart becomes 1000
 plus its own. `net_strerror` translates back, for the platform's text. Goose code never
-sees a platform's own numbers. `shim/iocp.c` is to map Winsock's errors onto the same
-codes.
+sees a platform's own numbers. `shim/net_win.c` maps Winsock's and Win32's errors onto
+the same codes (`net_win_err`), as libuv's `uv_translate_sys_error` does, with 1000
+plus the Windows code for any it doesn't map; `shim/iocp.c` uses the same mapping.

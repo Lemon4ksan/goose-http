@@ -346,3 +346,20 @@ connection. Expected: each field written once, in the destination.
 Workaround: as above. Measured with HttpArena's `limited-conn` (a new connection every
 10 requests), the copies cost nothing visible: 307K to 314K requests per second with and
 without them (task 009).
+
+## Two threads that exit at once crash on Windows
+
+Found on `efe3155`, task 006. Status: open
+
+When two threads each print and then call `exit(1)` with their output redirected, the
+program crashes with `0xC0000005` (access violation) instead of exiting with 1. It
+crashes every time from Git Bash, or from .NET with pipes, and 3 times in 5 with the
+output going to a file. It never crashes with one such thread, from a PowerShell console,
+or on Linux. `gs_exit` calls C's `exit()` while another thread is still inside stdio.
+
+    import os;
+    thread_fn w(i: i32) { write_stderr("bye\n"); exit(1); }
+    fn main() { var ids: i64[>..] = []; for i in 2 { ids.push(thread_spawn(w, i as i32)); } for id in ids { thread_wait(id); } }
+
+The server hits it when every worker fails `listen` at once, for example on a port in
+use. Workaround: none yet.

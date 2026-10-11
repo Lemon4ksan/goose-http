@@ -1,0 +1,284 @@
+/* The kernel calls the server makes on Windows, for src/sys.goose: the
+   functions of shim/net.c, with the same arguments and results, over
+   Winsock. goose build compiles this beside the program (the root file's
+   sidecar), so it sees none of the generated C: it spells out the layouts it
+   shares with Goose, per spec C.2.
+
+   Every function returns what its call returns on success and -code on
+   failure, where code is the Winsock or Win32 error translated to its Linux
+   errno (net_win_err), the values src/sys.goose names. None of them keeps a
+   pointer into Goose memory after it returns.
+
+   A socket is a SOCKET handle, passed to Goose as an i32: 64-bit Windows
+   keeps handle values within 32 bits, for 32-bit code, and a process holds
+   at most 2^24 handles, so they fit.
+
+   Windows has no epoll, so the net_epoll_* calls fail with ENOSYS, and the
+   echo-epoll mode doesn't run here. The HTTP server's loop on Windows is the
+   completion loop, over shim/iocp.c, which uses net_win_err and
+   net_win_init too. */
+#define WIN32_LEAN_AND_MEAN
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#include <limits.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+/* Linux's errno values for the Winsock and Win32 errors that have one, as
+   libuv's uv_translate_sys_error maps them. WSAESHUTDOWN, a send after
+   shutdown, is EPIPE, as on Linux. */
+static const struct { int32_t win, linux_errno; } net_win_errnos[] = {
+    { WSAEINTR, 4 }, { WSAEBADF, 9 }, { WSAEACCES, 13 }, { WSAEFAULT, 14 },
+    { WSAEINVAL, 22 }, { WSAEMFILE, 24 }, { WSAEWOULDBLOCK, 11 },
+    { WSAEINPROGRESS, 115 }, { WSAEALREADY, 114 }, { WSAENOTSOCK, 88 },
+    { WSAEDESTADDRREQ, 89 }, { WSAEMSGSIZE, 90 }, { WSAEPROTOTYPE, 91 },
+    { WSAENOPROTOOPT, 92 }, { WSAEPROTONOSUPPORT, 93 }, { WSAESOCKTNOSUPPORT, 94 },
+    { WSAEOPNOTSUPP, 95 }, { WSAEPFNOSUPPORT, 96 }, { WSAEAFNOSUPPORT, 97 },
+    { WSAEADDRINUSE, 98 }, { WSAEADDRNOTAVAIL, 99 }, { WSAENETDOWN, 100 },
+    { WSAENETUNREACH, 101 }, { WSAENETRESET, 102 }, { WSAECONNABORTED, 103 },
+    { WSAECONNRESET, 104 }, { WSAENOBUFS, 105 }, { WSAEISCONN, 106 },
+    { WSAENOTCONN, 107 }, { WSAESHUTDOWN, 32 }, { WSAETOOMANYREFS, 109 },
+    { WSAETIMEDOUT, 110 }, { WSAECONNREFUSED, 111 }, { WSAELOOP, 40 },
+    { WSAENAMETOOLONG, 36 }, { WSAEHOSTDOWN, 112 }, { WSAEHOSTUNREACH, 113 },
+    { WSAENOTEMPTY, 39 }, { WSAEUSERS, 87 }, { WSAEDQUOT, 122 }, { WSAESTALE, 116 },
+    { WSAEREMOTE, 66 }, { WSAECANCELLED, 125 }, { WSA_OPERATION_ABORTED, 125 },
+    { WSA_NOT_ENOUGH_MEMORY, 12 }, { ERROR_OUTOFMEMORY, 12 },
+    { ERROR_TOO_MANY_OPEN_FILES, 24 }, { ERROR_INVALID_HANDLE, 9 },
+    { ERROR_ACCESS_DENIED, 13 }, { ERROR_INVALID_PARAMETER, 22 },
+    { ERROR_NOT_SUPPORTED, 95 }, { ERROR_NETNAME_DELETED, 104 },
+    { ERROR_CONNECTION_ABORTED, 103 }, { ERROR_CONNECTION_REFUSED, 111 },
+    { ERROR_BROKEN_PIPE, 32 }, { ERROR_NO_DATA, 32 }, { ERROR_CALL_NOT_IMPLEMENTED, 38 },
+};
+#define NET_WIN_ERRNO_COUNT (int)(sizeof net_win_errnos / sizeof net_win_errnos[0])
+/* A Windows error with no Linux number becomes this plus its own, clear of
+   Linux's, as in shim/kqueue.c. */
+#define NET_UNMAPPED 1000
+
+/* The Linux errno for a Winsock or Win32 error. */
+int32_t net_win_err(int err) {
+    for (int i = 0; i < NET_WIN_ERRNO_COUNT; i++)
+        if (net_win_errnos[i].win == err) return net_win_errnos[i].linux_errno;
+    return NET_UNMAPPED + err;
+}
+
+/* glibc's texts for the Linux codes net_win_err gives, so that sys::report
+   prints what it prints on Linux. */
+static const struct { int32_t code; const char *text; } net_texts[] = {
+    { 4, "Interrupted system call" }, { 9, "Bad file descriptor" },
+    { 11, "Resource temporarily unavailable" }, { 12, "Cannot allocate memory" },
+    { 13, "Permission denied" }, { 14, "Bad address" }, { 22, "Invalid argument" },
+    { 23, "Too many open files in system" }, { 24, "Too many open files" },
+    { 32, "Broken pipe" }, { 36, "File name too long" }, { 38, "Function not implemented" },
+    { 39, "Directory not empty" }, { 40, "Too many levels of symbolic links" },
+    { 66, "Object is remote" }, { 87, "Too many users" },
+    { 88, "Socket operation on non-socket" }, { 89, "Destination address required" },
+    { 90, "Message too long" }, { 91, "Protocol wrong type for socket" },
+    { 92, "Protocol not available" }, { 93, "Protocol not supported" },
+    { 94, "Socket type not supported" }, { 95, "Operation not supported" },
+    { 96, "Protocol family not supported" },
+    { 97, "Address family not supported by protocol" }, { 98, "Address already in use" },
+    { 99, "Cannot assign requested address" }, { 100, "Network is down" },
+    { 101, "Network is unreachable" }, { 102, "Network dropped connection on reset" },
+    { 103, "Software caused connection abort" }, { 104, "Connection reset by peer" },
+    { 105, "No buffer space available" }, { 106, "Transport endpoint is already connected" },
+    { 107, "Transport endpoint is not connected" },
+    { 108, "Cannot send after transport endpoint shutdown" },
+    { 109, "Too many references: cannot splice" }, { 110, "Connection timed out" },
+    { 111, "Connection refused" }, { 112, "Host is down" }, { 113, "No route to host" },
+    { 114, "Operation already in progress" }, { 115, "Operation now in progress" },
+    { 116, "Stale file handle" }, { 122, "Disk quota exceeded" },
+    { 125, "Operation canceled" },
+};
+#define NET_TEXT_COUNT (int)(sizeof net_texts / sizeof net_texts[0])
+
+/* sys::Event, packed as Goose packs a struct, and a slice of it. */
+#pragma pack(push, 1)
+typedef struct { uint32_t events; uint64_t tag; } net_event;
+#pragma pack(pop)
+_Static_assert(sizeof(net_event) == 12, "net_event is not packed");
+typedef struct { net_event *data; int64_t len; } net_events;
+
+/* A u8[:]: a pointer and a length, passed by value. */
+typedef struct { uint8_t *data; int64_t len; } net_bytes;
+
+/* Flags of net_listen and net_accept; sys::NONBLOCK and sys::REUSEPORT. */
+#define NET_NONBLOCK 1
+#define NET_REUSEPORT 2
+
+/* src/sys.goose spells SHUT_WR out as Linux's 1, which is SD_SEND. */
+_Static_assert(SD_SEND == 1, "shutdown's how differs from src/sys.goose");
+
+#define NET_ENOSYS 38
+
+static INIT_ONCE net_wsa_once = INIT_ONCE_STATIC_INIT;
+static int net_wsa_error;
+
+static BOOL CALLBACK net_wsa_start(PINIT_ONCE once, PVOID arg, PVOID *ctx) {
+    (void)once, (void)arg, (void)ctx;
+    WSADATA wsa;
+    net_wsa_error = WSAStartup(MAKEWORD(2, 2), &wsa);
+    return TRUE;
+}
+
+/* Starts Winsock once per process: 0, or -code if it failed. */
+int32_t net_win_init(void) {
+    InitOnceExecuteOnce(&net_wsa_once, net_wsa_start, NULL, NULL);
+    return net_wsa_error ? -net_win_err(net_wsa_error) : 0;
+}
+
+static SOCKET net_socket(int32_t fd) { return (SOCKET)(intptr_t)fd; }
+
+/* A TCP listener on 127.0.0.1. Windows Defender Firewall asks the user
+   whether to allow each new program that listens on another address, so the
+   server stays on loopback, where the tests run. SO_EXCLUSIVEADDRUSE keeps a
+   second server from binding the port, as Linux refuses it without
+   SO_REUSEPORT; Windows' SO_REUSEADDR would let it take the port over. */
+static int32_t net_open_listener(int32_t port, int32_t backlog, int32_t flags) {
+    SOCKET s = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0,
+                          WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
+    if (s == INVALID_SOCKET) return -net_win_err(WSAGetLastError());
+    BOOL one = TRUE;
+    u_long nb = (flags & NET_NONBLOCK) != 0;
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof addr);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    /* A backlog above 200 needs SOMAXCONN_HINT; a plain one is cut to 200. */
+    if (setsockopt(s, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (const char *)&one, sizeof one) ||
+        setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof one) ||
+        ioctlsocket(s, FIONBIO, &nb) ||
+        bind(s, (struct sockaddr *)&addr, sizeof addr) ||
+        listen(s, SOMAXCONN_HINT(backlog))) {
+        int err = WSAGetLastError();
+        closesocket(s);
+        return -net_win_err(err);
+    }
+    return (int32_t)s;
+}
+
+/* Windows has no SO_REUSEPORT, so the workers share one listener per port.
+   Each worker's completion loop keeps an AcceptEx posted on it, and Windows
+   hands each connection to one of them (shim/iocp.c). This table is the only
+   state the shim keeps between calls. */
+#define NET_MAX_SHARED 16
+static SRWLOCK net_shared_lock = SRWLOCK_INIT;
+static struct { int32_t port, fd; } net_shared[NET_MAX_SHARED];
+static int net_shared_count;
+
+/* With NET_REUSEPORT, every call on a port returns the same listener, which
+   the callers share and none of them closes. */
+int32_t net_listen(int32_t port, int32_t backlog, int32_t flags) {
+    int32_t r = net_win_init();
+    if (r < 0) return r;
+    if (!(flags & NET_REUSEPORT)) return net_open_listener(port, backlog, flags);
+    AcquireSRWLockExclusive(&net_shared_lock);
+    int i = 0;
+    while (i < net_shared_count && net_shared[i].port != port) i++;
+    if (i < net_shared_count) {
+        r = net_shared[i].fd;
+    } else if (net_shared_count == NET_MAX_SHARED) {
+        r = -net_win_err(WSAENOBUFS);
+    } else {
+        r = net_open_listener(port, backlog, flags);
+        if (r >= 0) {
+            net_shared[net_shared_count].port = port;
+            net_shared[net_shared_count].fd = r;
+            net_shared_count++;
+        }
+    }
+    ReleaseSRWLockExclusive(&net_shared_lock);
+    return r;
+}
+
+/* An accepted socket inherits TCP_NODELAY and the blocking mode from the
+   listener; the mode asked for is set on it. */
+int32_t net_accept(int32_t fd, int32_t flags) {
+    SOCKET s = accept(net_socket(fd), NULL, NULL);
+    if (s == INVALID_SOCKET) return -net_win_err(WSAGetLastError());
+    u_long nb = (flags & NET_NONBLOCK) != 0;
+    if (ioctlsocket(s, FIONBIO, &nb)) {
+        int err = WSAGetLastError();
+        closesocket(s);
+        return -net_win_err(err);
+    }
+    return (int32_t)s;
+}
+
+int64_t net_recv(int32_t fd, net_bytes buf) {
+    int n = buf.len > INT_MAX ? INT_MAX : (int)buf.len;
+    int r = recv(net_socket(fd), (char *)buf.data, n, 0);
+    return r == SOCKET_ERROR ? -net_win_err(WSAGetLastError()) : r;
+}
+
+/* Windows raises no signal for a send to a closed connection. */
+int64_t net_send(int32_t fd, net_bytes data) {
+    int n = data.len > INT_MAX ? INT_MAX : (int)data.len;
+    int r = send(net_socket(fd), (const char *)data.data, n, 0);
+    return r == SOCKET_ERROR ? -net_win_err(WSAGetLastError()) : r;
+}
+
+int32_t net_shutdown(int32_t fd, int32_t how) {
+    return shutdown(net_socket(fd), how) ? -net_win_err(WSAGetLastError()) : 0;
+}
+
+int32_t net_close(int32_t fd) {
+    return closesocket(net_socket(fd)) ? -net_win_err(WSAGetLastError()) : 0;
+}
+
+int32_t net_epoll_create(void) { return -NET_ENOSYS; }
+
+int32_t net_epoll_ctl(int32_t ep, int32_t op, int32_t fd, uint32_t events, uint64_t tag) {
+    (void)ep, (void)op, (void)fd, (void)events, (void)tag;
+    return -NET_ENOSYS;
+}
+
+int32_t net_epoll_wait(int32_t ep, net_events out, int32_t timeout_ms) {
+    (void)ep, (void)out, (void)timeout_ms;
+    return -NET_ENOSYS;
+}
+
+/* GetTickCount64 advances with the timer interrupt, every 15.6 ms by
+   default, without reading the hardware counter, as Linux's coarse clocks
+   do. std's clock_ns and time_ns are the precise ones. */
+int64_t net_clock_ms(void) {
+    return (int64_t)GetTickCount64();
+}
+
+/* FILETIME counts 100 ns intervals since 1601. */
+int64_t net_time_s(void) {
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    uint64_t t = (uint64_t)ft.dwHighDateTime << 32 | ft.dwLowDateTime;
+    return (int64_t)((t - 116444736000000000ull) / 10000000ull);
+}
+
+/* Writes the text for an error code into out, cut to fit, and returns its
+   length: glibc's text for a Linux code, and Windows' own, in UTF-8, for an
+   error with no Linux number. */
+int64_t net_strerror(int64_t err, net_bytes out) {
+    char buf[512];
+    const char *s = NULL;
+    for (int i = 0; i < NET_TEXT_COUNT; i++)
+        if (net_texts[i].code == err) s = net_texts[i].text;
+    if (!s) {
+        WCHAR w[256];
+        DWORD n = err >= NET_UNMAPPED
+            ? FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL,
+                             (DWORD)(err - NET_UNMAPPED), 0, w, 256, NULL)
+            : 0;
+        while (n > 0 && (w[n - 1] == L'\r' || w[n - 1] == L'\n' || w[n - 1] == L' ' ||
+                         w[n - 1] == L'.'))
+            n--;
+        int k = n ? WideCharToMultiByte(CP_UTF8, 0, w, (int)n, buf, sizeof buf - 1, NULL, NULL) : 0;
+        if (k <= 0) k = snprintf(buf, sizeof buf, "Unknown error %d", (int)err);
+        buf[k] = 0;
+        s = buf;
+    }
+    size_t n = strlen(s);
+    if (n > (size_t)out.len) n = (size_t)out.len;
+    memcpy(out.data, s, n);
+    return (int64_t)n;
+}

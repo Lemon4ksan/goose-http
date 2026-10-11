@@ -1,6 +1,6 @@
 # 010: Build with goose build and sidecar C
 
-Status: in progress
+Status: done
 
 Goose `efe3155` builds a program in one command, `goose build`, and compiles the C a
 root file's sidecar names beside it, per platform (`c_sources_linux`, `_macos`,
@@ -20,7 +20,7 @@ of in a build script. The servers it builds must run as fast as before.
 - [x] The epoll build beside the last `scripts/build.sh` one, in `bench/run.sh`'s cells
       where Goose and vanilla-epoll are closest: the same rate within the runs' spread,
       or the difference recorded
-- [ ] HttpArena's Goose image built and run once with `goose build`
+- [x] HttpArena's Goose image built and run once with `goose build`
 - [x] `docs/development.md`, `docs/c-interop.md`, `docs/architecture/README.md`, and
       the two findings' workarounds updated
 
@@ -51,3 +51,21 @@ rates, with the spread over the runs:
 Every `goose-gb` median is inside `goose-o`'s spread, so the lost inlining of the shim
 calls doesn't show. Peak RSS (2.1 to 2.4 MB) and server CPU time are the same. The runs
 are in `bench/results/2026-10-11-goose-build/`.
+
+HttpArena's Goose image builds with `goose build` and passes `bench/httparena.sh
+validate` (24 of 24). One `FRAMEWORKS=goose bench/httparena.sh run` at `93c7bc8`, on the
+same machine with Docker 29.8.2, beside the Goose entry of task 009's final HttpArena run
+(`httparena-2026-10-11-final2`, `scripts/build.sh` before this task). Each number is the
+harness's best of 3 runs of 5 s:
+
+| Profile | Before | `goose build` | Ratio |
+|---|---:|---:|---:|
+| baseline | 544,621 req/s | 520,410 req/s | 0.96 |
+| limited-conn | 307,688 req/s | 309,822 req/s | 1.01 |
+| latency-1m, CPU per request (lower is better) | 10.91 µs | 10.62 µs | 0.97 |
+| pipelined | 7,070,060 req/s | 6,900,681 req/s | 0.98 |
+
+The runs were hours apart, and a best of 3 has no spread to compare against. The
+differences are within the 5% that sessions drift by (task 009), and `bench/run.sh`'s
+interleaved runs above found no slowdown. The run is in
+`bench/results/httparena-2026-10-11-goose-build/`.

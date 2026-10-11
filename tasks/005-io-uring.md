@@ -44,3 +44,18 @@ zix and zeemo (Zig), first and fifth in its pipelined test, and libreactorng (C)
 pinned to that one CPU beside the benchmark, its EPIPE check failed for both builds. The design follows from spec §7.10: the ring owns every
 buffer the kernel touches after a call, so each receive and each send is copied once more
 than in the epoll loop. Not yet measured: task 009's final run had the machine.
+
+The io_uring loop's provided buffers went from 1,024 to 256 of 4 KB per worker: the
+same rate, with half the peak RSS. `bench/run.sh` with 4 workers, `RUNS=3 DURATION=10
+LATENCY=0`, on the machine of `docs/results.md`, at `07f43ff`; medians and spreads of
+wrk's rate, and peak RSS:
+
+| Cell | 1,024 buffers | 256 buffers |
+|---|---|---|
+| plaintext, 1,024 conns | 6.934 M (6.923–6.984 M), 21.9 MB | 6.934 M (6.823–7.005 M), 9.5 MB |
+| plaintext, 4,096 conns | 6.354 M (6.270–6.499 M), 32.9 MB | 6.454 M (6.347–6.544 M), 15.3 MB |
+| json, 256 conns | 0.479 M (0.479–0.495 M), 21.5 MB | 0.489 M (0.488–0.496 M), 9.4 MB |
+
+The loop gives each buffer back in the pass that takes it, and running out only ends a
+receive, which the loop queues again. The runs are in
+`bench/results/2026-10-11-uring-bufs/`.

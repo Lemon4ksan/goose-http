@@ -1,13 +1,14 @@
-// The kernel calls the server makes, implemented in shim/net.c on Linux and
-// in shim/kqueue.c on macOS, which gives the epoll calls below over kqueue.
+// The kernel calls the server makes, implemented in shim/net.c on Linux, in
+// shim/kqueue.c on macOS, which gives the epoll calls below over kqueue, and
+// in shim/net_win.c on Windows, where the epoll calls fail with ENOSYS.
 // Each returns what its syscall returns on success and -code on failure,
 // where code is one of the constants below, Linux's errno values on every
 // platform. A caller compares against them negated: `if n == -sys::EAGAIN`.
 //
 // Spec §7.10 leaves C three obligations: keep the types of what it writes
 // through an argument, keep no argument after the call, and only append to a
-// builder. The shim keeps nothing; where a call writes into an argument, its
-// comment says how much.
+// builder. The shim keeps no argument; where a call writes into an argument,
+// its comment says how much.
 namespace sys;
 
 import os;
@@ -21,7 +22,8 @@ let NONBLOCK: i32 = 1;
 let REUSEPORT: i32 = 2;   // listen only
 
 // The error codes the server tells apart, Linux's errno values. shim/net.c
-// asserts each one, and shim/kqueue.c translates macOS's errno to them.
+// asserts each one, shim/kqueue.c translates macOS's errno to them, and
+// shim/net_win.c Winsock's and Win32's errors.
 let EINTR = 4;
 let EAGAIN = 11;
 let ENFILE = 23;
@@ -47,7 +49,9 @@ let CTL_MOD: i32 = 3;
 let SHUT_WR: i32 = 1;
 
 // A TCP listener on every IPv4 address, with SO_REUSEADDR and TCP_NODELAY,
-// which accepted sockets inherit.
+// which accepted sockets inherit. On Windows it listens on 127.0.0.1 only,
+// with SO_EXCLUSIVEADDRUSE. With REUSEPORT, each worker gets a listener of
+// its own on Linux, and the workers share one on macOS and Windows.
 extern "net_listen" fn listen(port: i32, backlog: i32, flags: i32) -> i32;
 extern "net_accept" fn accept(fd: i32, flags: i32) -> i32;
 // Writes up to buf.len bytes into buf; 0 means the peer closed.

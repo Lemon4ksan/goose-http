@@ -1,8 +1,9 @@
-// The HTTP server's io_uring loop: each worker has its own SO_REUSEPORT
-// listener and its own ring, and nothing is shared between workers. A
-// multishot accept takes the listener's connections, and a multishot
-// receive per connection fills the ring's provided buffers. The sends a pass
-// over the completions queues go to the kernel together, in the next wait.
+// The HTTP server's io_uring loop: each worker has its own ring, and its own
+// SO_REUSEPORT listener on Linux (sys::listen), and nothing else is shared
+// between workers. A multishot accept takes the listener's connections, and
+// a multishot receive per connection fills the ring's provided buffers. The
+// sends a pass over the completions queues go to the kernel together, in the
+// next wait.
 import std;
 import os;
 import sys;
@@ -16,9 +17,11 @@ let DRAINING: u8 = 2;   // shut down, and dropping what arrives until the client
 
 // The ring's size, and its provided buffers, which the kernel fills in
 // turn. A receive that finds none left ends its multishot request, which
-// the loop queues again.
+// the loop queues again. The loop gives each buffer back in the pass that
+// takes it, and 256, a wait's batch, served as fast as 1,024, with half
+// the peak RSS (task 005).
 let ENTRIES: i32 = 4096;
-let NBUFS: i32 = 1024;
+let NBUFS: i32 = 256;
 let BUFLEN: i32 = 4096;
 
 // The responses a connection may have waiting behind its send in flight.

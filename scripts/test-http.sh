@@ -8,6 +8,9 @@
 # PORT picks the port (29080): keep it below the kernel's ephemeral range
 # (32768 and up), as for test-echo.sh. WORKERS sets the server's worker
 # count (4). oha is looked for on PATH and in ~/.cargo/bin.
+#
+# On Windows, in Git Bash, it tests the IOCP build and leaves out the load
+# runs and the fd limit run (docs/development.md, "Windows").
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -19,15 +22,49 @@ oha=$(command -v oha || echo "$HOME/.cargo/bin/oha")
 log=$(mktemp)
 out=$(mktemp)
 pid=
+case $(uname -s) in
+MINGW* | MSYS*) windows=1 ;;
+*) windows= ;;
+esac
+# Named in full on Windows: Git Bash runs build/server before build/server.exe,
+# and a Linux build in the same tree leaves one.
+server=$root/build/server${windows:+.exe}
+
+# Ends the server. Git Bash's kill doesn't always end a native program, so
+# on Windows it goes by the Windows process id.
+end_server() {
+    if [ -n "$windows" ]; then
+        taskkill //F //PID "$(cat "/proc/$pid/winpid")" >/dev/null
+    else
+        kill "$pid"
+    fi
+}
+
 # On any failure, show what the server said and don't leave it running.
 trap 'status=$?
 if [ -n "$pid" ]; then
     [ $status -eq 0 ] || { echo "server output:"; cat "$log"; }
-    kill "$pid" 2>/dev/null || true
+    end_server 2>/dev/null || true
 fi
 rm -f "$log" "$out"' EXIT
+
+# Sets the fd limit, which Windows has none of for native programs.
+limit_fds() {
+    [ -n "$windows" ] || ulimit -n "$1"
+}
+
+# Whether the server listens. Windows has no nc.
+probe='import socket, sys; socket.create_connection(("127.0.0.1", int(sys.argv[1])), 1)'
+listening() {
+    if [ -n "$windows" ]; then
+        python3 -c "$probe" "$port" 2>/dev/null
+    else
+        nc -z 127.0.0.1 "$port" 2>/dev/null
+    fi
+}
+
 # The many-client run holds 10000 connections open on each side.
-ulimit -n 65536
+limit_fds 65536
 
 fail() {
     echo "FAIL: $*"
@@ -39,15 +76,15 @@ start() {
     # The io_uring loop's listener outlives the process by a moment: the
     # kernel tears a ring down after its process exits.
     tries=0
-    while nc -z 127.0.0.1 "$port" 2>/dev/null; do
+    while listening; do
         tries=$((tries + 1))
         [ $tries -lt 50 ] || fail "port $port is taken; set PORT"
         sleep 0.1
     done
-    (ulimit -n "${1:-65536}" && exec "$root/build/server" http "$port") >"$log" 2>&1 &
+    (limit_fds "${1:-65536}" && exec "$server" http "$port") >"$log" 2>&1 &
     pid=$!
     tries=0
-    until nc -z 127.0.0.1 "$port" 2>/dev/null; do
+    until listening; do
         kill -0 "$pid" 2>/dev/null || fail "the server exited at start"
         tries=$((tries + 1))
         [ $tries -lt 100 ] || fail "the server isn't listening after 10 s"
@@ -56,7 +93,7 @@ start() {
 }
 
 stop() {
-    kill "$pid"
+    end_server
     wait "$pid" 2>/dev/null || true
     pid=
 }
@@ -83,6 +120,14 @@ $client keepalive
 $client hostile
 $client many 10000
 $client slow
+
+if [ -n "$windows" ]; then
+    kill -0 "$pid" || fail "the server died"
+    stop
+    echo "test-http passed, without the load runs and the fd limit run on Windows. The server's output:"
+    sed 's/^/    /' "$log"
+    exit 0
+fi
 
 # Load generators, briefly: every response a 200, and no errors. wrk times
 # requests with the wall clock, which WSL2 steps back now and then, and

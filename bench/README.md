@@ -78,8 +78,9 @@ says so in a comment:
   the request starts `GET /pipeline `, before parsing it. The app does the same for
   `GET /plaintext `.
 - vanilla reads its worker count from `VANILLA_WORKERS` before `main` runs, so the app
-  sets it from `WORKERS` and re-executes itself. vanilla-io_uring is the same app built
-  with `-d vanilla_io_uring`: HttpArena's two entries differ only in the backend.
+  sets it from `WORKERS` and re-executes itself. vanilla-io_uring is the same app on the io_uring
+  backend, in `bench/vanilla-io_uring`, built with `-d vanilla_io_uring`: HttpArena's two
+  entries differ only in the backend.
 - zeemo and libreactorng fork a process per worker. Their apps run a thread per worker
   instead, so `bench/run.sh`'s CPU time and peak RSS, read from one process, cover every
   worker, and stopping that process stops them all. Both keep per-worker state
