@@ -132,10 +132,10 @@ change the per-connection state, in both of task 011's loops, `http::serve` and
   (epoll), 8.5 MB (uring), and 7.8 MB (uring over epoll) in WSL2.
   - `serve(cfg)` is a wrapper over `serve(cfg, fresh)`. The handler's call takes the
     request by reference (`Event.req`): copying it cost nothing measurable.
-  - Goose inlines neither a function with an early return nor one that takes a
-    function value, and gcc kept such a wrapper out of line, which cost 60-120
-    instructions per request until the wrapper's checks went into one inline function
-    with a single return.
+  - Goose doesn't inline a function that takes a function value
+    ([findings](../docs/goose-findings.md#an-inline-fn-that-takes-a-function-value-stays-a-call)),
+    and gcc kept the wrapper's out of line, which cost 60-120 instructions per request
+    until the loops called the program's handler themselves.
 
 Open: the streaming loop costs about 50 user instructions per request on the
 benchmark routes. `bench/instructions.sh`, 2 runs each, as above, after the request's

@@ -423,3 +423,47 @@ cfg)`.
 
 Workaround: the package gives the worker count, `http::worker_count(cfg)`, and the
 program writes the spawn loop itself.
+
+## An `inline fn` that takes a function value stays a call
+
+Found on `fee060c`, task 013. Status: open
+
+Goose inlines an `inline fn` itself, early returns and all, unless it takes a function
+value: then it emits a C function and leaves the inlining to the C compiler, which may
+not do it. Spec §7.13 says `inline` asks for inlining "however big it is and however
+many calls there are", and names only functions returning several values as ones Goose
+can't inline itself. Here `only` stays a C function, `only_g`, called from both of
+`loop2`'s calls of the block:
+
+    import std;
+
+    struct Ev { kind: u8, x: i64 }
+
+    inline fn only<H>(ev: Ev, out: i64[>..]&) {
+        if ev.kind == 0 { H(ev.x, out); }
+    }
+
+    fn loop2<H>(n: i64, out: i64[>..]&) {
+        for i in n {
+            H(Ev { kind: 0, x: i }, out);
+            if i % 7 == 0 { H(Ev { kind: 1, x: i }, out); }
+        }
+    }
+
+    fn serve<H>(n: i64, out: i64[>..]&) {
+        loop2(n, out) { ev, o => only(ev, o, H); };
+    }
+
+    fn main() {
+        var out: i64[>..] = [];
+        serve(100, out) { x, o => o.push(x * 2); };
+        print(out.len);
+    }
+
+`goose -o fv.c fv.goose` writes `static void only_g(Ev_g p0, ...)` and two calls of it.
+The same `only` without `H`, returning whether to call it, is inlined, early return
+included. In the benchmark server, gcc kept such a function out of line, with the
+handler inlined into it: 60-120 more instructions per request.
+
+Workaround: `http::whole_only` takes no function value and returns whether the loop
+should call the handler, and the loops' wrappers call it themselves.

@@ -411,16 +411,17 @@ fn idle(c) -> bool {
 // their H: whether H answers it, with the body when it came whole and an
 // empty one otherwise, which is dropped as it arrives. H can't tell an empty
 // chunked body from one dropped, so a chunked body that doesn't come whole
-// is refused with 413. The loops call H themselves, and this returns only at
-// its end: Goose inlines neither a function with an early return nor one
-// that takes a function value, and as a call, gcc keeps it, and H, out of
-// line, which cost 60-120 instructions per request.
+// is refused with 413. The loops call H themselves: Goose doesn't inline a
+// function that takes a function value (docs/goose-findings.md), and as a
+// call, gcc kept this one, and H with it, out of line, which cost 60-120
+// instructions per request.
 inline fn whole_only(ev: Event, out: Reply) -> bool {
-    let refused = ev.kind == REQUEST && ev.req.chunked && !ev.whole;
-    if refused {
+    if ev.kind != REQUEST { return false; }
+    if ev.req.chunked && !ev.whole {
         out.keep_alive = false;
         start(out, 413);
         finish(out, "Content-Length: ", "");
+        return false;
     }
-    return ev.kind == REQUEST && !refused;
+    return true;
 }
