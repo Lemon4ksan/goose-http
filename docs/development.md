@@ -82,10 +82,10 @@ it, unpinned. A missing `liburing.h` did that once; a build whose output mention
 ## Set up the Goose compiler
 
 The scripts expect a plain Goose checkout next to this repository, at `../goose`. Leave it
-on the pinned commit and don't edit it (`AGENTS.md`). On Kait's machine, `../goose-fix`
-and `../goose-ngpu` are other Goose checkouts on feature branches: leave them alone.
-`../goose-ngfx` (`kaitk/goose-ngfx`) is Kait's graphics library for Goose, already a
-package that programs import from git; it is the reference for how this repository
+on the pinned commit and don't edit it (`AGENTS.md`). Other Goose checkouts beside it,
+such as `../goose-fix` and `../goose-ngpu`, are on feature branches: leave them alone.
+`../goose-ngfx` (`kaitk/goose-ngfx`) is a graphics library for Goose, already a package
+that programs import from git; it is the reference for how this repository
 becomes one (task 011). Its `docs/development.md`, `docs/goose-findings.md`, and
 `scripts/run_tests.py` record how its package builds, what Goose's package system got
 wrong, and how its tests run. One checkout serves both platforms:
@@ -95,8 +95,8 @@ covers both.
 1. Clone the checkout at the pin. It has no submodules: TinyCC, which lets
    `goose file.goose` compile and run a program in process, is vendored, and graphics,
    audio, and physics are packages the compiler fetches only for a program that imports
-   them. The clone calls `aardappel/goose` `upstream`, as Kait's checkout does, where
-   `origin` is the fork `kaitk/goose`.
+   them. The clone calls `aardappel/goose` `upstream`, which leaves `origin` for a fork
+   such as `kaitk/goose`.
 
    ```sh
    git clone -o upstream https://github.com/aardappel/goose.git ../goose
@@ -313,7 +313,7 @@ What the benchmark has to work around on this machine:
   h2load accepts both spellings and adds `user-agent: h2load nghttp2/1.68.0`. Task 004's
   runs sent only `Host` and `Accept` this way (found in task 008, by tracing the
   server's `recvfrom`); write `-H "Host: tfb-server"`.
-- Cargo under `/mnt/c/Users/kait` reads the Windows `~/.cargo/config`, which sets
+- Cargo under `/mnt/c/Users/<user>` reads the Windows `~/.cargo/config`, which sets
   `-C target-cpu=native` for every build (see [below](#from-a-windows-shell)).
   `bench/build.sh` runs cargo from its cache directory on the Linux file system, and sets
   the flags it wants itself.
@@ -340,8 +340,8 @@ What the benchmark has to work around on this machine:
 
 ### From a Windows shell
 
-The repository lives on the Windows drive, so WSL sees it at
-`/mnt/c/Users/kait/projects/goose/goose-http`. These things break commands passed to WSL
+The repository lives on the Windows drive, so WSL sees it under `/mnt/c`, for example
+at `/mnt/c/Users/<user>/projects/goose/goose-http`. These things break commands passed to WSL
 from Windows:
 
 - `wsl.exe` hands its arguments to a shell that expands `$VARS` before `bash -c` sees
@@ -350,16 +350,16 @@ from Windows:
 - Git Bash rewrites arguments that look like POSIX paths, so `/mnt/c/...` turns into
   `C:/Program Files/Git/mnt/c/...`. Set `MSYS_NO_PATHCONV=1` for the `wsl.exe` call.
   PowerShell doesn't rewrite paths.
-- `GOOSE` isn't set in Kait's WSL profile, and `bash script.sh` wouldn't read the profile
-  anyway. A script that calls `scripts/build.sh` or `scripts/test-unit.sh` exports it
-  first: `export GOOSE=/mnt/c/Users/kait/projects/goose/goose/build-linux/goose`. The
+- `bash script.sh` doesn't read the WSL profile, so a `GOOSE` set there doesn't reach
+  it. A script that calls `scripts/build.sh` or `scripts/test-unit.sh` exports it first:
+  `export GOOSE=/mnt/c/Users/<user>/projects/goose/goose/build-linux/goose`. The
   same goes for `PATH`, which needs `$HOME/.cargo/bin` for oha.
 - A server started in the background survives when its `wsl.exe` call ends early, for
   example when the output is piped into `head`. It keeps its port, and the next run fails
   to bind. Check with `ps aux | grep build/server` before rerunning.
-- `wsl.exe` starts in the Windows working directory, under `/mnt/c/Users/kait`, and cargo
-  reads the config files of every directory above its own. It then picks up the Windows
-  `C:\Users\kait\.cargo\config`. Run cargo with `wsl.exe --cd /root`, or `cd ~` first.
+- `wsl.exe` starts in the Windows working directory, under `/mnt/c/Users/<user>`, and
+  cargo reads the config files of every directory above its own. It then picks up the
+  Windows `C:\Users\<user>\.cargo\config`. Run cargo with `wsl.exe --cd /root`, or `cd ~` first.
 - `pkill -f PATTERN` inside `wsl.exe -- bash -c '...'` matches that `bash -c` too, whose
   command line holds the pattern, and kills it. Kill by PID instead.
 - Killing `strace` doesn't stop the server it started; kill the server's PID.
@@ -413,8 +413,8 @@ cmake --build ../goose/build-macos -j
 export GOOSE=$PWD/../goose/build-macos/goose
 ```
 
-Then `scripts/build.sh` and the test scripts run as on Linux. On Kait's Mac, `../goose` is
-the fork `kaitk/goose` on its `ngfx` branch, and `../goose-tcc-fix` a worktree of it:
+Then `scripts/build.sh` and the test scripts run as on Linux. On the Mac task 006 used,
+`../goose` is a fork on a feature branch, with `../goose-tcc-fix` a worktree of it:
 leave both alone. The plain checkout at the pin is `../goose-upstream`, so there
 `GOOSE=../goose-upstream/build-macos/goose`.
 
