@@ -1,0 +1,145 @@
+[info] available CPUs: 16
+[info] load generators: docker mode
+[info] framework: vanilla-epoll (vanilla-epoll, V)
+[info] subscribed tests: baseline,async,latency-1m,latency-10k,latency-500k-8cpu,pipelined,limited-conn,json-comp,json-tls,static-tls,8gbit,async-db,fortunes
+[info] building image: httparena-vanilla-epoll
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 7.68kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/debian:stable-slim
+#2 DONE 2.6s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [build 1/9] FROM docker.io/library/debian:stable-slim@sha256:eb593cf2c358cacef45ca0a424bbc7d30cfa3466265fc2662b9466a0ca6ba1c5
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 194B done
+#5 DONE 0.0s
+
+#6 [build 4/9] RUN git init -q /root/.vmodules/vanilla &&     git -C /root/.vmodules/vanilla fetch -q --depth 1 https://github.com/enghitalo/vanilla         091c014a0191afd7e740b84f5599b9b1fc1fd914 &&     git -C /root/.vmodules/vanilla checkout -q FETCH_HEAD
+#6 CACHED
+
+#7 [build 8/9] COPY . .
+#7 CACHED
+
+#8 [build 7/9] WORKDIR /app
+#8 CACHED
+
+#9 [build 3/9] RUN git init -q /opt/v && cd /opt/v &&     git fetch -q --depth 1 https://github.com/vlang/v b99970bd438a7bdcdfbe38f74d9364db801d5439 &&     git checkout -q FETCH_HEAD &&     git init -q vc &&     git -C vc fetch -q --depth 1 https://github.com/vlang/vc 2cbaf6bc2367937cd5f0b4ef923d1ef9aad613b3 &&     git -C vc checkout -q FETCH_HEAD &&     git init -q thirdparty/tcc &&     git -C thirdparty/tcc fetch -q --depth 1 https://github.com/vlang/tccbin d6e7ac1b1bcc98aed734a6ecbfa8509f24606c74 &&     git -C thirdparty/tcc checkout -q FETCH_HEAD &&     make local=1 && ln -s /opt/v/v /usr/local/bin/v
+#9 CACHED
+
+#10 [stage-1 3/5] COPY --from=build /usr/local/lib/libmbedcrypto.so* /usr/local/lib/libmbedx509.so* /usr/local/lib/libmbedtls.so* /usr/local/lib/libtfpsacrypto.so* /usr/local/lib/
+#10 CACHED
+
+#11 [stage-1 4/5] RUN ldconfig
+#11 CACHED
+
+#12 [build 9/9] RUN v -prod -gc none -d vanilla_tls . -o server
+#12 CACHED
+
+#13 [build 2/9] RUN apt-get -qq update &&     apt-get -qy install --no-install-recommends         ca-certificates build-essential git libpq-dev liburing-dev         cmake curl bzip2 python3 &&     rm -rf /var/lib/apt/lists/*
+#13 CACHED
+
+#14 [build 5/9] COPY mbedtls-rsa-sign-cache.patch /tmp/
+#14 CACHED
+
+#15 [stage-1 2/5] RUN apt-get -qq update &&     apt-get -qy install --no-install-recommends libpq5 liburing2 &&     rm -rf /var/lib/apt/lists/*
+#15 CACHED
+
+#16 [build 6/9] RUN curl -fsSL -o /tmp/mbedtls.tar.bz2         "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.0/mbedtls-4.1.0.tar.bz2" &&     tar -xf /tmp/mbedtls.tar.bz2 -C /tmp &&     cd "/tmp/mbedtls-4.1.0" &&     patch -p1 < /tmp/mbedtls-rsa-sign-cache.patch &&     python3 tf-psa-crypto/scripts/config.py set MBEDTLS_THREADING_C &&     python3 tf-psa-crypto/scripts/config.py set MBEDTLS_THREADING_PTHREAD &&     cmake -S "/tmp/mbedtls-4.1.0" -B /tmp/mbedtls-build         -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS_RELEASE="-O3 -march=native -DNDEBUG"         -DUSE_SHARED_MBEDTLS_LIBRARY=On -DUSE_STATIC_MBEDTLS_LIBRARY=Off         -DENABLE_TESTING=Off -DENABLE_PROGRAMS=Off         -DCMAKE_INSTALL_PREFIX=/usr/local &&     cmake --build /tmp/mbedtls-build -j"$(nproc)" &&     cmake --install /tmp/mbedtls-build && ldconfig &&     rm -rf /tmp/mbedtls.tar.bz2 "/tmp/mbedtls-4.1.0" /tmp/mbedtls-build
+#16 CACHED
+
+#17 [stage-1 5/5] COPY --from=build /app/server /server
+#17 CACHED
+
+#18 exporting to image
+#18 exporting layers done
+#18 writing image sha256:2547db8a1acc45185b57bccea34aaddf57083ce53928a4d698b0d245a5d444d3 done
+#18 naming to docker.io/library/httparena-vanilla-epoll done
+#18 DONE 0.0s
+[info] skipping system tuning as requested (SKIP_TUNE=true)
+[info] starting postgres sidecar
+[info] postgres ready (seeded)
+
+==============================================
+=== vanilla-epoll / pipelined / 4096c (tool=gcannon) ===
+==============================================
+[info] waiting for server...
+[info] server ready
+
+[run 1/3]
+gcannon v0.6.1
+  Target:    localhost:8080/pipeline
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  16
+  Req/conn:  unlimited (keep-alive)
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   9.50ms   9.41ms   12.00ms   13.50ms   131.00ms
+
+  34508272 requests in 5.00s, 34442736 responses
+  Throughput: 6.89M req/s
+  Bandwidth:  702.84MB/s
+  Status codes: 2xx=34442736, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 34442736 / 34442736 responses (100.0%)
+[info] CPU 281.1% | Mem 84MiB
+
+[run 2/3]
+gcannon v0.6.1
+  Target:    localhost:8080/pipeline
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  16
+  Req/conn:  unlimited (keep-alive)
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   9.35ms   9.31ms   11.90ms   13.30ms   14.20ms
+
+  35134096 requests in 5.00s, 35068560 responses
+  Throughput: 7.01M req/s
+  Bandwidth:  715.61MB/s
+  Status codes: 2xx=35068560, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 35068560 / 35068560 responses (100.0%)
+[info] CPU 280.6% | Mem 84MiB
+
+[run 3/3]
+gcannon v0.6.1
+  Target:    localhost:8080/pipeline
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  16
+  Req/conn:  unlimited (keep-alive)
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   9.47ms   9.49ms   11.80ms   13.30ms   14.10ms
+
+  34560832 requests in 5.00s, 34495296 responses
+  Throughput: 6.90M req/s
+  Bandwidth:  703.90MB/s
+  Status codes: 2xx=34495296, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 34495296 / 34495296 responses (100.0%)
+[info] CPU 286.7% | Mem 84MiB
+
+=== Best: 7013712 req/s (CPU: 280.6%, Mem: 84MiB) ===
+[info] dry-run — not saving (use --save to persist)
+httparena-bench-vanilla-epoll
+httparena-bench-vanilla-epoll
+[info] done
+httparena-postgres

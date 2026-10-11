@@ -87,6 +87,8 @@ until the task named beside it confirms or replaces it.
   - A refused request closes the connection after the response. The server shuts down
     its side and drops what the client still sends for up to 2 s, so the refusal isn't
     lost to a reset.
+    The sweep's 408 goes the same way, so no loop closes a socket with that send in
+    flight: Windows' `closesocket` aborts it.
   - Timeouts, against slow clients: a request has 10 s from its first byte to arrive
     whole (else 408), a response 10 s without progress to leave, and an idle connection
     60 s. A sweep once a second enforces them.
