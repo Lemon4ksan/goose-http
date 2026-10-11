@@ -218,7 +218,8 @@ GOOSE=../goose/build-linux/goose scripts/test.sh
 `GOOSE`, `CC`, `PORT`, and `WORKERS` pass through to the scripts it runs. On macOS it
 waits for `TIME_WAIT` to drain before each run ([below](#macos)). On Windows, in Git
 Bash, its first step is the Windows typecheck that [Edit on Windows](#edit-on-windows)
-describes. It took 2 min 48 s on the Mac of [macOS](#macos) (2026-10-11).
+describes. It took 2 min 48 s on the Mac of [macOS](#macos), 1 min 37 s in WSL2, and 34 s
+in Git Bash, where the load runs are left out (2026-10-11).
 
 ### Test the HTTP server
 

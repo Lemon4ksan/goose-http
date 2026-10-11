@@ -1,6 +1,6 @@
 # 007: A lean test suite
 
-Status: in-progress (asked for 2026-10-10)
+Status: done (asked for 2026-10-10, done 2026-10-11)
 
 One command that runs every test this repository has, so a pin move or a change to the
 server is checked the same way each time. Goose has no unit-test construct; the
@@ -68,13 +68,31 @@ connected within 3 ms. The timeouts look like Docker Desktop's forwarding of
 `host.docker.internal`, not the server; a run from a native .NET install would settle
 it.
 
+The checks cost instructions per request. `bench/instructions.sh` (1 worker on CPU 0,
+plaintext pipelined 16 deep, 256 connections, `Host: tfb-server`, 3 runs) in WSL2 on the
+machine of `docs/results.md`, against `bcac9ed`, the build before them:
+
+| Build | Instructions per request | In user code | Requests per second |
+|---|---:|---:|---:|
+| epoll, `c3a9611` | 2,487-2,534 | 1,560-1,591 | 1.65-1.73 M |
+| epoll, with `HOST_STOP` | 2,356-2,374 | 1,424-1,436 | 1.69-1.78 M |
+| epoll, `bcac9ed` | 2,253-2,312 | 1,332-1,367 | 1.76-1.84 M |
+| uring, `c3a9611` | 2,578-2,623 | 1,624-1,653 | 1.88-1.92 M |
+| uring, with `HOST_STOP` | 2,430-2,452 | 1,476-1,490 | 1.97-2.00 M |
+| uring, `bcac9ed` | 2,351-2,387 | 1,397-1,418 | 2.01-2.03 M |
+
+At `c3a9611`, `is_host` searched a string of punctuation for each byte, about 165
+instructions per request. A `find_any` over the value with `HOST_STOP` took most of it
+back. The checks still cost about 85, 3.5% of a request: about 50 in the runtime's
+nibble-table search, since uri-host's bytes aren't one range, and the rest in `parse`.
+
 ## Acceptance criteria
 
 - [x] `scripts/test.sh` builds the server, runs each `src/test_*.goose` through TinyCC,
       and runs the integration scripts against the gcc build; it fails on the first
-      failure (2026-10-11, run on macOS; not yet on Linux)
-- [ ] The Windows `--check` of every root file, so the Windows typecheck stays green
-      (`scripts/test.sh` runs it in Git Bash, 2026-10-11; not yet run on Windows)
+      failure (2026-10-11, run on macOS, Linux, and Windows)
+- [x] The Windows `--check` of every root file, so the Windows typecheck stays green
+      (`scripts/test.sh` runs it in Git Bash, 2026-10-11)
 - [x] Unit tests for the parts of task 003 that work on bytes alone: the request parser,
       the `Date` header, and the response builder (`src/test_http.goose`, run by
       `scripts/test-unit.sh`; task 003 also added `scripts/test-http.sh`)

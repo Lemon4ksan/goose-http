@@ -220,19 +220,28 @@ fn other_form(method: const u8[:], target: const u8[:]) -> bool {
 // §7.2), with uri-host's bytes (RFC 3986 §3.2.2) and nothing that would end
 // it as a URI's authority, such as '@' or '/'. Brackets enclose an IP
 // literal, which starts the value. Empty is allowed: a client sends that for
-// a URI without an authority (RFC 9112 §3.2).
+// a URI without an authority (RFC 9112 §3.2). Each request has a Host, so
+// a value without brackets is settled by one search.
 fn is_host(value: const u8[:]) -> bool {
-    for c in value {
-        guard c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || is_digit(c) || position("-._~%!$&'()*+,;=:[]", c) >= 0 else {
-            return false;
-        }
-    }
+    guard find_any(value, HOST_STOP) >= 0 else { return true; }
+    guard value.len > 0 && value[0] == '[' else { return false; }
     let close = position(value, ']');
-    if value.len > 0 && value[0] == '[' {
-        return close > 0 && position(value[1..], '[') < 0 && position(value[close + 1..], ']') < 0 &&
-            (close + 1 == value.len || value[close + 1] == ':');
+    return close > 0 && find_any(value[1..close], HOST_STOP) < 0 &&
+        find_any(value[close + 1..], HOST_STOP) < 0 &&
+        (close + 1 == value.len || value[close + 1] == ':');
+}
+
+// Where find_any stops a Host value: a bracket, or a byte that's neither
+// uri-host's nor a port's.
+let HOST_STOP = host_stop_set();
+
+fn host_stop_set() -> ByteSet {
+    var m = [false; 256];
+    for i in 256 {
+        let c = i as u8;
+        m[i] = !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || is_digit(c) || position("-._~%!$&'()*+,;=:", c) >= 0);
     }
-    return close < 0 && position(value, '[') < 0;
+    return byte_set(m);
 }
 
 // The status for a Transfer-Encoding value other than chunked: 501 for a
