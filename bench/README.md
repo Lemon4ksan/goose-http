@@ -96,6 +96,19 @@ says so in a comment:
   libreactorng's and xitca-web's routes take only `GET`, so the three answer `HEAD`
   with 405.
 
+On arm64 Linux (Docker Desktop on Apple Silicon, task 012), `bench/build.sh` differs from
+the x86-64 builds above in three places, and every server builds:
+
+- dusty, zix, and zeemo build for `aarch64-linux-musl`. dusty and zix take
+  `-Dcpu=apple_m1` on Apple's CPUs, `native` on others: the VM hides the CPU's part
+  number, and Zig's `native` there resolves to generic arm64 without the M1's features.
+  zeemo names no CPU, as on x86-64, so it builds for baseline arm64.
+- V bootstraps with gcc, which V's Makefile picks on arm64, and takes `libgc.a` from
+  tccbin's `thirdparty-linux-arm64` branch head (`125ad2e`, 2024-07-08), where the
+  x86-64 build takes tccbin `d6e7ac1` from the `thirdparty-linux-amd64` branch.
+- libreactorng's and the Rust servers' `-march=native` and `-C target-cpu=native` are
+  arm64's: gcc and LLVM read the CPU's features from `/proc/cpuinfo`.
+
 ### What each passes of `scripts/http_client.py`
 
 Every server passed `tfb` (TechEmpower's checks, with `SERVER_NAME` set to its `Server`
