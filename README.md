@@ -15,6 +15,30 @@ Can a Goose HTTP server match the fastest Rust and Odin servers on plaintext and
 benchmarks, in a small amount of code? Task 004 answers it for epoll, and task 005 for
 io_uring.
 
+## Results so far
+
+On one machine (Ryzen 7 5800X3D, WSL2 kernel 6.18), with `bench/run.sh`'s defaults on
+2026-10-11: TechEmpower's plaintext (pipelined 16 deep) and JSON, 1 and 4 workers on
+CPUs 0-3, wrk on CPUs 4-15, medians of 3 runs of 15 s per cell. The epoll server at
+`b6a26c5`, against the strongest servers of [HttpArena](https://www.http-arena.com/) and
+TechEmpower that run on this machine:
+
+| | Goose | vanilla-epoll (V) | tokio (Rust) | may-minihttp (Rust) |
+|---|---:|---:|---:|---:|
+| plaintext, 256 conns, 4 workers, req/s | 5.47 M | 5.53 M | 3.55 M | 2.39 M |
+| plaintext, 4,096 conns, 4 workers, req/s | 5.12 M | 5.06 M | 3.35 M | 3.69 M |
+| JSON, 256 conns, 4 workers, req/s | 0.408 M | 0.216 M | 0.377 M | 0.342 M |
+| instructions per request (plaintext, 1 worker) | 2,255-2,371 | 1,756-1,765 | 4,330-4,375 | 2,983-3,011 |
+| peak RSS, any cell | 2.1-2.6 MB | 5.6-57 MB, 15 GB in JSON | 12-184 MB | 40-639 MB |
+
+Goose leads every JSON cell and four of six plaintext cells. It loses plaintext with 4
+workers at 256 and 1,024 connections to vanilla-epoll by 1%, inside both servers' run
+spreads; vanilla-epoll answers `GET /plaintext` from its first bytes without parsing the
+request, so it runs about 700 fewer instructions per request. Goose's p99 latency trails
+the best in six of ten cells, by 0.05-0.53 ms, and in HttpArena's `limited-conn` profile (a new
+connection every 10 requests) it runs 2% behind tokio. Every number, how it was taken,
+and the losses in full: [docs/results.md](docs/results.md).
+
 ## Scope
 
 In scope: HTTP/1.1 with keep-alive and pipelining, `Content-Length` request bodies,

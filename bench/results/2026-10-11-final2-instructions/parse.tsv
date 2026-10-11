@@ -1,0 +1,6 @@
+request	instructions/parse	ns/parse
+chrome	5022	222.64
+httparse	2814	123.67
+pico	2802	124.02
+wrk-noconn	813	35.16
+wrk	1179	50.90

@@ -1,0 +1,51 @@
+Requests/sec: 5199093.93
+== dso
+    78.61%  [kernel.kallsyms]
+            |          
+            |--5.34%--__pv_queued_spin_lock_slowpath
+            |          |          
+            |           --5.12%--_raw_spin_lock_irqsave
+            |                     |          
+            |                      --5.12%--ep_poll_callback
+            |                                __wake_up_common
+== sym
+    10.13%  [.] answer_g.constprop.0
+     5.34%  [k] __pv_queued_spin_lock_slowpath
+     3.83%  [.] gs_scan_any
+     2.13%  [k] tcp_ack
+     1.78%  [.] gs_scan_any_tables
+     1.56%  [.] answer_g.constprop.0
+     1.50%  [k] _copy_to_iter
+     1.43%  [k] srso_alias_safe_ret
+     1.38%  [k] tcp_sendmsg_locked
+     1.23%  [k] __tcp_transmit_skb
+     1.16%  [k] fdget
+     1.04%  [k] mod_memcg_state
+     0.97%  [k] 0x00007fffc0003003
+     0.92%  [k] tcp_write_xmit
+     0.91%  [k] tcp_v4_rcv
+     0.90%  [k] tcp_rcv_established
+     0.90%  [k] read_tsc
+     0.87%  [k] _copy_from_iter
+     0.84%  [k] net_rx_action
+     0.83%  [k] __check_object_size
+     0.83%  [k] tcp_recvmsg_locked
+     0.79%  [k] ep_poll_callback
+     0.78%  [k] __dev_queue_xmit
+     0.77%  [k] __virt_addr_valid
+     0.74%  [k] tcp_data_queue
+     0.72%  [k] __ip_queue_xmit
+     0.71%  [.] gs_memcpy
+     0.69%  [.] serve_g.constprop.0
+     0.69%  [k] __local_bh_enable_ip
+     0.68%  [k] ip_finish_output2
+     0.67%  [k] clear_page_erms
+     0.67%  [k] kmem_cache_alloc_node_noprof
+     0.66%  [k] skb_defer_free_flush
+     0.65%  [k] do_syscall_64
+     0.65%  [k] skb_release_data
+     0.64%  [k] entry_SYSCALL_64
+     0.61%  [k] skb_attempt_defer_free
+     0.61%  [k] _raw_spin_lock_irqsave
+     0.59%  [k] __rcu_read_unlock
+     0.56%  [k] __inet_lookup_established

@@ -1,0 +1,51 @@
+Requests/sec: 1750568.55
+== dso
+    85.49%  [kernel.kallsyms]
+            |          
+            |--2.58%--tcp_ack
+            |          |          
+            |           --2.57%--tcp_rcv_established
+            |                     tcp_v4_do_rcv
+            |                     tcp_v4_rcv
+            |                     ip_protocol_deliver_rcu
+== sym
+     2.58%  [k] tcp_ack
+     2.36%  [.] request_parser__frame_request_length_lim_idx.isra.0
+     1.96%  [.] backend_epoll__drain_requests.isra.0
+     1.91%  [k] _copy_to_iter
+     1.62%  [k] fdget
+     1.48%  [k] 0x00007fffc0003003
+     1.48%  [k] srso_alias_safe_ret
+     1.48%  [.] handle
+     1.33%  [k] __tcp_transmit_skb
+     1.27%  [k] read_tsc
+     1.27%  [k] tcp_sendmsg_locked
+     1.23%  [k] mod_memcg_state
+     1.12%  [k] __local_bh_enable_ip
+     1.08%  [k] tcp_recvmsg_locked
+     1.07%  [.] backend_epoll__process_events_plain.isra.0
+     1.06%  [.] array__push_many.part.0
+     1.06%  [k] __sys_recvfrom
+     1.04%  [k] tcp_write_xmit
+     1.02%  [.] 0x0000000000197034
+     1.00%  [k] do_syscall_64
+     0.97%  [k] _copy_from_iter
+     0.96%  [k] net_rx_action
+     0.95%  [k] tcp_v4_rcv
+     0.94%  [k] __virt_addr_valid
+     0.91%  [k] tcp_rcv_established
+     0.90%  [k] __ip_queue_xmit
+     0.89%  [k] __rcu_read_unlock
+     0.88%  [k] entry_SYSCALL_64
+     0.87%  [k] clear_page_erms
+     0.82%  [k] ep_poll_callback
+     0.81%  [k] __dev_queue_xmit
+     0.79%  [k] release_sock
+     0.76%  [k] tcp_data_queue
+     0.75%  [k] fput
+     0.72%  [.] backend_epoll__serve_conn.isra.0
+     0.72%  [k] ip_finish_output2
+     0.68%  [k] __check_object_size
+     0.67%  [k] kmem_cache_alloc_node_noprof
+     0.66%  [k] lock_sock_nested
+     0.64%  [k] _raw_spin_lock_irqsave

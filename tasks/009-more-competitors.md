@@ -1,6 +1,6 @@
 # 009: More competitors from HttpArena
 
-Status: in-progress
+Status: done
 
 Add the strongest epoll-era servers from [HttpArena](https://www.http-arena.com/) to
 `bench/` and run them against Goose in task 004's matrix. may-minihttp, the fastest Rust
@@ -32,9 +32,9 @@ libreactorng) belong to task 005.
 - [x] Each passes `scripts/http_client.py tfb` and `many 4096`, with what else it passes
       recorded as in `bench/README.md`
 - [x] Zig's version and install in `docs/development.md`
-- [ ] Task 004's matrix rerun with them, and the results, wins and losses, in this file
+- [x] Task 004's matrix rerun with them, and the results, wins and losses, in this file
 - [x] vanilla-epoll added too, or the reason it wasn't recorded here
-- [ ] HttpArena's own harness (MIT) run locally with Goose as an entry: its endpoints and
+- [x] HttpArena's own harness (MIT) run locally with Goose as an entry: its endpoints and
       a Dockerfile, `scripts/validate.sh` passing, and its `baseline` (mixed GET and POST
       with query parsing), `limited-conn` (10 requests per connection), and `latency-1m`
       (CPU per request at a fixed offered load) profiles run for Goose and the servers
@@ -42,17 +42,17 @@ libreactorng) belong to task 005.
 - [x] The parser microbenchmark parses picohttpparser's and httparse's benchmark request
       (a browser's, with a long cookie) beside wrk's and a Chrome request, so its numbers
       compare with those parsers' published ones
-- [ ] Where Goose loses a cell by more than the spread of its runs, the winner's source
+- [x] Where Goose loses a cell by more than the spread of its runs, the winner's source
       and a `perf` profile of both servers say what it does differently, as task 004's
       profile did; each idea is tried here or recorded with why not (a Goose finding, or
       a behavior the tests require)
-- [ ] `bench/instructions.sh` run for every server too, with peak RSS added to what it
+- [x] `bench/instructions.sh` run for every server too, with peak RSS added to what it
       records
-- [ ] A results page, `docs/results.md`: the latest matrix for every server, with requests
+- [x] A results page, `docs/results.md`: the latest matrix for every server, with requests
       per second, p50 and p99 latency, instructions and cycles per request, peak RSS, server
       CPU time, and binary size, the machine and commands, and links to the task files
       that hold the runs behind it
-- [ ] `README.md` gives a few headline numbers against the strongest competitors
+- [x] `README.md` gives a few headline numbers against the strongest competitors
       (requests per second, instructions per request, and peak RSS), losses included, and
       links `docs/results.md`
 
@@ -337,21 +337,37 @@ connected. The run before tuning (above) had none of that in three rounds. Goose
 first round: 2,332 instructions per request, 1,403 in user code, 1,909 cycles, and
 2.2 MB.
 
-Next:
+### The final run
 
-1. Rerun the matrix at `823d5f6`, from a terminal or without vanilla-epoll's JSON cells
-   (`docs/development.md`), then `bench/instructions.sh` for every server and
-   `bench/httparena.sh run`. `bench/results/2026-10-11-matrix` (`7cb3e27`) and
-   `bench/results/httparena-2026-10-11-r5` are complete, if round 6 is to wait.
-2. `docs/results.md` is drafted from the `7cb3e27` matrix and HttpArena runs, with two
-   sections still open: instructions per request, and where Goose loses. Fill it from the
-   rerun, then the README summary.
-3. The plaintext loss to vanilla-epoll at 256 connections and four workers: a `perf`
-   profile of both (`perf record` on one worker), for the criterion. vanilla-epoll
-   answers `GET /plaintext ` from fixed bytes, and Goose's `parse` is about 1,180 of its
-   1,400 user instructions per request there; 43% of `parse`'s cycles on wrk's request
-   are in `find_any` (`gs_scan_any`, `gs_scan_any_tables`), which costs more per call
-   than the 4- to 10-byte names it scans.
+Everything again at `b6a26c5` (round 6, Goose `f084e52`), from 07:26 to 09:38: the matrix
+split in two, plaintext for all six servers and JSON for all but vanilla-epoll; then
+`bench/instructions.sh`, `bench/parse.sh`, `perf` profiles of Goose and vanilla-epoll in
+the plaintext cells, HttpArena's four profiles, and last vanilla-epoll's JSON cells under
+a memory watchdog. The watchdog stopped vanilla-epoll in its first JSON cell, when the
+host's free memory fell below 3 GB. Results in `bench/results/2026-10-11-final2-*` and
+`bench/results/httparena-2026-10-11-final2`, and as tables in `docs/results.md`, which
+also lists every loss. Builds and tests ran pinned to CPU 15 beside it.
+
+- Plaintext: Goose leads four of six cells. vanilla-epoll leads with 4 workers at 256 and
+  1,024 connections by 1%, inside both servers' spreads, where the `7cb3e27` matrix had
+  it ahead by 7% and 5%.
+- JSON: Goose leads all four cells, 1.03-1.08 times tokio, the next.
+- Instructions per request with one worker: Goose 2,255-2,371, vanilla-epoll
+  1,756-1,765, may-minihttp 2,983-3,011, tokio 4,330-4,375.
+- The `perf` profiles with 4 workers (`*.prof`, `*.stat` beside the instruction counts):
+  Goose and vanilla-epoll spend the same cycles per request, 2,819 against
+  2,787-2,819, and the same kernel instructions, about 1,000. Goose runs about 740 more
+  in user code, 1,464-1,520 against 780-791, most of them in `parse`.
+- HttpArena: Goose leads baseline (545K against tokio's 496K) and pipelined (7.07M
+  against vanilla-epoll's 7.01M), ties tokio on latency-1m's CPU per request (10.91 µs
+  against 10.90 µs), and trails tokio (314K) and dusty (348K) in limited-conn at 308K.
+
+vanilla-epoll's idea, answering `GET /plaintext ` from its first bytes, isn't taken here:
+the server then skips the checks the tests require of every request, such as a 400 for an
+HTTP/1.1 request without `Host` (`scripts/http_client.py hostile`). What remains of the
+gap is `parse`'s cost; 43% of its cycles on wrk's request are in `find_any`, which costs
+more per call than the 4- to 10-byte names it scans (task 004's profile and
+`docs/goose-findings.md`, "The stdlib has no fast byte search, and no word loads").
 
 Settings for the next session:
 
