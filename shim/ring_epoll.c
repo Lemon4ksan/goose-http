@@ -439,3 +439,23 @@ int32_t RP(wait)(int64_t h, rp_completions out, int32_t timeout_ms) {
     rp_work(u, out, &n);
     return u->err ? u->err : n;
 }
+
+/* Tears the ring down, with the sends still queued on it. */
+void RP(destroy)(int64_t h) {
+    struct rp *u = (struct rp *)(intptr_t)h;
+    for (uint32_t fd = 0; fd < u->nfds; fd++) {
+        struct rp_send *s = u->fds[fd].sends;
+        while (s) {
+            struct rp_send *next = s->next;
+            free(s);
+            s = next;
+        }
+    }
+    net_close(u->ep);
+    free(u->bufs);
+    free(u->free);
+    free(u->fds);
+    free(u->ready);
+    free(u->done);
+    free(u);
+}

@@ -42,6 +42,10 @@ extern "ur_close" fn ring_close(r: i64, fd: i32);
 // Writes dst.len bytes of provided buffer buf, from off, into dst.
 extern "ur_take" fn ring_take(r: i64, buf: i32, off: i64, dst: u8[:]);
 extern "ur_give" fn ring_give(r: i64, buf: i32);
+// Tears the ring down, with whatever is still queued on it. Windows keeps a
+// completion port's memory: it completes the cancels of closed sockets'
+// requests later (shim/iocp.c).
+extern "ur_destroy" fn ring_destroy(r: i64);
 // Submits what's queued, waits up to timeout_ms (-1: no limit) for a
 // completion, and writes up to out.len completions into out.
 extern "ur_wait" fn ring_wait(r: i64, out: Completion[:], timeout_ms: i32) -> i32;

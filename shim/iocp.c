@@ -624,3 +624,12 @@ int32_t ur_wait(int64_t h, ur_completions out, int32_t timeout_ms) {
         n += ur_finish(u, (struct ur_req *)ents[i].lpOverlapped, 1, &out.data[n]);
     return n;
 }
+
+/* Releases nothing. Closing the listener and the sockets cancels their
+   requests, and Windows completes the cancels later, into the port, the
+   accept's event, and the ring's buffers, which must outlive them; only
+   draining the port would tell when. A loop that runs again makes a ring of
+   its own, so a stopped one's stays allocated. */
+void ur_destroy(int64_t h) {
+    (void)h;
+}

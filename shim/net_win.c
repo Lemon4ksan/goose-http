@@ -301,3 +301,29 @@ int64_t net_strerror(int64_t err, net_bytes out) {
     memcpy(out.data, s, n);
     return (int64_t)n;
 }
+
+/* How many times net_stop has run in the process. A loop reads it at its
+   start, and stops once it has moved on. A counter, and not a flag, so that a
+   loop started after a stop runs. */
+static volatile LONG64 net_stop_count;
+
+void net_stop(void) {
+    InterlockedIncrement64(&net_stop_count);
+}
+
+int64_t net_stops(void) {
+    return InterlockedCompareExchange64(&net_stop_count, 0, 0);
+}
+
+/* Windows calls this on a thread of its own, not in a signal's context. */
+static BOOL WINAPI net_on_console(DWORD event) {
+    if (event != CTRL_C_EVENT && event != CTRL_BREAK_EVENT) return FALSE;
+    net_stop();
+    return TRUE;
+}
+
+/* Makes Ctrl+C and Ctrl+Break, Windows' console signals, call net_stop
+   instead of ending the process. */
+int32_t net_stop_on_signals(void) {
+    return SetConsoleCtrlHandler(net_on_console, TRUE) ? 0 : -net_win_err((int)GetLastError());
+}

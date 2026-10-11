@@ -72,8 +72,12 @@ keeps `http::start` from folding a constant status, which cost the benchmark ser
 about 190 instructions per request.
 
 `http::Config` holds the address, port, worker count, limits, timeouts, and buffer
-sizes, with defaults. A loop returns only when a call fails, with an `http::Error`
-that `http::report` writes to stderr. Version 0.1 serves requests and responses of a
+sizes, with defaults. A loop returns when a call fails, with an `http::Error` that
+`http::report` writes to stderr, or after `http::stop()`, with an error whose code is
+0. A stopped loop closes its listener and idle connections, answers the next request
+on each other connection with `Connection: close`, and returns once they have closed,
+or after `Config.grace_ms`; `http::stop_on_signals()` makes `SIGTERM` and `SIGINT`
+stop the loops (on `main`, after 0.1). Version 0.1 serves requests and responses of a
 fixed size; `main` adds header lookup, and bodies and responses of any size (task 013).
 
 ### Bodies and responses of any size
@@ -168,8 +172,9 @@ and the losses in full: [docs/results.md](docs/results.md).
 In scope: HTTP/1.1 with keep-alive and pipelining, request bodies and responses of any
 size, whole or in pieces, a program's handler, and the C shim the loops need for
 syscalls; in the benchmark server, TechEmpower's plaintext and JSON endpoints and
-HttpArena's baseline and pipeline endpoints. Planned (task 013): configurable limits
-and timeouts, a router, and graceful shutdown.
+HttpArena's baseline and pipeline endpoints, and on `main`, configurable limits and
+timeouts and a graceful shutdown. Planned (task 013): a router, `Upgrade`, and
+trailers.
 Out of scope: TLS and HTTP/2 (task 014 plans them), and Windows as a benchmark
 platform.
 

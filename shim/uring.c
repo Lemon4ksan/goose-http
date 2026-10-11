@@ -84,6 +84,7 @@ void urp_close(int64_t h, int32_t fd);
 void urp_take(int64_t h, int32_t buf, int64_t off, ur_bytes dst);
 void urp_give(int64_t h, int32_t buf);
 int32_t urp_wait(int64_t h, ur_completions out, int32_t timeout_ms);
+void urp_destroy(int64_t h);
 
 /* ur_create's flag, ring.goose's RING_EMULATE. */
 #define UR_EMULATE 1
@@ -343,4 +344,25 @@ int32_t ur_wait(int64_t h, ur_completions out, int32_t timeout_ms) {
     }
     io_uring_cq_advance(&u->ring, seen);
     return n;
+}
+
+/* Tears the ring down, with whatever is still queued on it. The records of
+   sends still in flight aren't freed: only a completion says when the kernel
+   is done with one. */
+void ur_destroy(int64_t h) {
+    if (UR_EMULATED(h)) {
+        urp_destroy(UR_POLL(h));
+        return;
+    }
+    struct ur *u = (struct ur *)(intptr_t)h;
+    io_uring_free_buf_ring(&u->ring, u->br, u->nbufs, 0);
+    io_uring_queue_exit(&u->ring);
+    while (u->free) {
+        struct ur_send *s = u->free;
+        u->free = s->next;
+        free(s);
+    }
+    free(u->bufs);
+    free(u->gens);
+    free(u);
 }

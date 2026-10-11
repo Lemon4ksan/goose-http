@@ -9,6 +9,8 @@
 #include <errno.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <signal.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/epoll.h>
@@ -152,4 +154,33 @@ int64_t net_strerror(int64_t err, net_bytes out) {
     if (n > (size_t)out.len) n = (size_t)out.len;
     memcpy(out.data, s, n);
     return (int64_t)n;
+}
+
+/* How many times net_stop has run in the process. A loop reads it at its
+   start, and stops once it has moved on. An atomic counter, and not a flag, so
+   that a loop started after a stop runs. A signal handler may call net_stop:
+   a lock-free atomic add is async-signal-safe. */
+static _Atomic int64_t net_stop_count;
+
+void net_stop(void) {
+    atomic_fetch_add_explicit(&net_stop_count, 1, memory_order_relaxed);
+}
+
+int64_t net_stops(void) {
+    return atomic_load_explicit(&net_stop_count, memory_order_relaxed);
+}
+
+static void net_on_signal(int sig) {
+    (void)sig;
+    net_stop();
+}
+
+/* Makes SIGTERM and SIGINT call net_stop instead of ending the process. */
+int32_t net_stop_on_signals(void) {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof sa);
+    sa.sa_handler = net_on_signal;
+    sigemptyset(&sa.sa_mask);
+    if (sigaction(SIGTERM, &sa, NULL) < 0 || sigaction(SIGINT, &sa, NULL) < 0) return -errno;
+    return 0;
 }

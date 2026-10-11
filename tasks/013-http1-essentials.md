@@ -159,10 +159,23 @@ response still open).
   which is dropped up to `Config.max_drain`. `refuse`, for what `parse` refuses, still
   closes: past a malformed head, where the next request starts isn't known.
 
+- Item 11 (2026-10-12): `http::stop()` and `http::stop_on_signals()`, with
+  `Config.grace_ms`, as the architecture records, where a counter that each loop checks
+  after a wait of at most a second replaced a wakeup in each shim's wait. The
+  benchmark server stops on `SIGTERM` and exits 0, and `http_client.py`'s `stop`
+  mode checks it on Linux: an idle connection closed within 2.5 s, the listener
+  refusing within 3 s, a request in progress answered with `Connection: close`, a
+  20 MB response in progress finished, and the process gone. Not tested: the stop on
+  Windows, where nothing in the test scripts can send Ctrl+Break to the server, and
+  on macOS, where `shim/kqueue.c`'s table change passed only a syntax check (clang,
+  with stub macOS headers, in WSL); and a loop called again after a stop, which no
+  test does yet.
+
 Next, in order:
 
-1. Split the streaming loop's cost further, and remove what can go.
-2. Item 11.
+1. Run the tests on macOS: the kqueue table change, and the stop.
+2. Split the streaming loop's cost further, and remove what can go.
+3. Items 13 to 16.
 
 ## Streaming design (2026-10-12)
 
@@ -251,8 +264,8 @@ slot. So:
 - [x] Decoded path and query, with 400 for an invalid `%` escape (2026-10-11)
 - [x] Limits and timeouts set by the program, with tests at non-default values
       (2026-10-12)
-- [ ] `SIGTERM` drains and stops every worker within the grace period, in `serve` and
-      `serve_epoll`
+- [x] `SIGTERM` drains and stops every worker within the grace period, in `serve` and
+      `serve_epoll` (2026-10-12, Linux; Windows and macOS untested)
 - [ ] Every item above has a check in `scripts/http_client.py` or `src/test_http.goose`
 - [ ] The benchmark routes, served through the handler, keep their rate in
       `bench/run.sh`'s closest cells within the runs' spread

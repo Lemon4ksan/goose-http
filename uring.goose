@@ -34,9 +34,9 @@ struct RingConn<S> {
     out: u8[:],         // answered, behind the send in flight
 }
 
-// Serves HTTP as cfg says, answering each request with H, until a call fails,
-// and returns its error, with every socket it opened closed. The ring stays:
-// closing one with requests in flight is task 013's graceful shutdown.
+// Serves HTTP as cfg says, answering each request with H, until a call fails
+// or stop ends it, and returns its error, with every socket it opened
+// closed.
 fn serve<H>(cfg: Config) -> Error {
     return serve(cfg, false) { ev, st, out => if whole_only(ev, out) { H(ev.req, ev.data, out); } };
 }
@@ -47,7 +47,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     net_worker_start();
     let ip, ok = ipv4(cfg.address);
     guard ok else { return Error { call: "address", code: EINVAL }; }
-    let lfd = net_listen(ip, cfg.port, cfg.backlog, NONBLOCK | REUSEPORT);
+    var lfd = net_listen(ip, cfg.port, cfg.backlog, NONBLOCK | REUSEPORT);
     guard lfd >= 0 else { return Error { call: "listen", code: -lfd }; }
     let r = ring_create(cfg.ring_entries, cfg.ring_buffers, cfg.ring_buffer_size,
                         if cfg.emulate_ring { RING_EMULATE } else { 0 });
@@ -57,6 +57,9 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     }
     ring_accept(r, lfd, RING_LISTENER);
 
+    let started = stops();
+    var stopping = false;
+    var stop_by: i64 = 0;
     reusable[] var spill: u8[>..] = [];
     reusable var conns: RingConn<S>[>..] = [];
     var open = 0;
@@ -92,7 +95,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
             return;
         }
         accept_failed = false;
-        guard open < cfg.max_conns else {
+        guard open < cfg.max_conns && !stopping else {
             net_close(fd);
             return;
         }
@@ -148,7 +151,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
             else { copy_into(rbuf[rlen..rlen + k], src[off..off + k]); }
             rlen += k;
             off += k;
-            let rest, done, full = answer(c, rbuf, rlen, wbuf, date, cfg, fresh, H) {
+            let rest, done, full = answer(c, rbuf, rlen, wbuf, date, cfg, fresh, stopping, H) {
                 flush(c);
                 !blocked(c)
             };
@@ -269,12 +272,28 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         }
     }
 
-    // The loop, until a call fails: then the error is returned from here.
+    // Closes the listener and the connections between requests, and gives
+    // the rest cfg.grace_ms to finish. The listener's accept holds it open
+    // until the accept is cancelled.
+    fn begin_stop() {
+        stopping = true;
+        stop_by = now + cfg.grace_ms;
+        if accepting { ring_cancel(r, RING_LISTENER); }
+        net_close(lfd);
+        lfd = -1;
+        for i in conns.len {
+            let c .= conns[i];
+            if c.fd >= 0 && c.state == OPEN && idle(c) && !c.sending && c.out.len == 0 { close_conn(i); }
+        }
+    }
+
+    // The loop, until a call fails or a stop ends it: then the error, or one
+    // with code 0, is returned from here.
     fn spin() -> Error {
         loop {
-            // Open connections need the sweep, and a stopped accept its retry.
-            let timeout: i32 = if open > 0 || !accepting { 1000 } else { -1 };
-            let n = ring_wait(r, done, timeout);
+            // A wait ends within a second, for a stop, the sweep, and a
+            // stopped accept's retry.
+            let n = ring_wait(r, done, 1000);
             if n == -EINTR { continue; }
             guard n >= 0 else { return Error { call: "wait", code: -n }; }
             now = net_clock_ms();
@@ -306,10 +325,12 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
                 sweep();
                 next_sweep = now + 1000;
             }
-            if !accepting && open < cfg.max_conns && (!accept_failed || closed || tick) {
+            if !accepting && !stopping && open < cfg.max_conns && (!accept_failed || closed || tick) {
                 ring_accept(r, lfd, RING_LISTENER);
                 accepting = true;
             }
+            if !stopping && stops() != started { begin_stop(); }
+            if stopping && (open == 0 || now >= stop_by) { return Error { call: "", code: 0 }; }
         }
     }
 
@@ -317,6 +338,9 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     for c in conns {
         if c.fd >= 0 { net_close(c.fd); }
     }
-    net_close(lfd);
+    if lfd >= 0 { net_close(lfd); }
+    // Submits the closes still queued, then frees the ring.
+    ring_wait(r, done, 0);
+    ring_destroy(r);
     return failed;
 }

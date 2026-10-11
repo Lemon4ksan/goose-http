@@ -10,6 +10,7 @@
     http_client.py PORT slow        slow clients, against the server's timeouts
     http_client.py PORT many N      N connections at once, each pipelining
     http_client.py PORT emfile N    N connections to a server with fewer fds
+    http_client.py PORT stop PID    a graceful stop, by SIGTERM to the server's PID
 
 Each check exits non-zero with a message on the first failure. SERVER_NAME
 is the Server field tfb expects (goose), for checking the servers in bench/.
@@ -19,6 +20,7 @@ import asyncio
 import email.utils
 import json
 import os
+import signal
 import socket
 import sys
 import threading
@@ -600,6 +602,42 @@ def slow(port):
     print("slow: ok")
 
 
+def stop(port, pid):
+    """SIGTERM: the server closes its listener and its idle connections,
+    answers a request in progress with Connection: close, finishes a response
+    in progress, and then exits, which test-http.sh checks."""
+    idle = Conn(port)
+    partial = Conn(port)
+    partial.send(b"GET /plaintext HTTP/1.1\r\nHost: x\r\n")
+    big = Conn(port, timeout=30, rcvbuf=4096)
+    big.send(request(b"/stream?n=20000000"))
+    # Long enough for the server to accept them, and to fill big's socket.
+    time.sleep(0.5)
+    os.kill(pid, signal.SIGTERM)
+    t0 = time.time()
+    if not idle.closed():
+        fail("an idle connection stayed open after the stop")
+    if time.time() - t0 > 2.5:
+        fail(f"the idle connection closed {time.time() - t0:.1f} s after the stop")
+    # Every worker's listener closes within a second or so.
+    while True:
+        try:
+            socket.create_connection((HOST, port), 1).close()
+        except ConnectionRefusedError:
+            break
+        if time.time() - t0 > 3:
+            fail("the server still accepts 3 s after the stop")
+        time.sleep(0.1)
+    partial.send(b"\r\n")
+    r = partial.response()
+    if r.status != 200 or r.header("connection") != "close" or not partial.closed():
+        fail("a request in progress at the stop wasn't answered and closed")
+    r = big.response()
+    if r.status != 200 or r.body != digits(20000000) or not big.closed():
+        fail("a response in progress at the stop didn't finish")
+    print("stop: ok")
+
+
 def emfile(port, n):
     """For a server with a low fd limit: n clients, more than it can hold.
     Those past the limit wait in the listen backlog until others close."""
@@ -653,8 +691,8 @@ def many(port, n):
 def main():
     port = int(sys.argv[1])
     mode = sys.argv[2]
-    if mode in ("many", "emfile"):
-        {"many": many, "emfile": emfile}[mode](port, int(sys.argv[3]))
+    if mode in ("many", "emfile", "stop"):
+        {"many": many, "emfile": emfile, "stop": stop}[mode](port, int(sys.argv[3]))
     else:
         {"tfb": tfb, "pipeline": pipeline, "large": large, "chunked": chunked, "keepalive": keepalive,
          "hostile": hostile, "slow": slow, "stream": stream}[mode](port)

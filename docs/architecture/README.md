@@ -123,6 +123,27 @@ until the task named beside it confirms or replaces it.
   - The `Date` header is rendered when the second changes, at most once a second per
     worker, after the worker's `epoll_wait` returns. Responses are literals around the
     date and the length.
+- **Graceful shutdown by a counter, not a wakeup** (task 013, 2026-10-12).
+  `http::stop()`, and `SIGTERM` or `SIGINT` once a program calls
+  `http::stop_on_signals()` (Ctrl+C and Ctrl+Break on Windows), add one to a counter
+  in the shim. Each loop reads it at its start and after each wait, which ends within
+  a second, and once it moves on: closes its listener and its connections between
+  requests, answers the next request on each other connection with `Connection:
+  close`, and returns an `Error` with code 0 once they have closed, or after
+  `Config.grace_ms` (10 s). A counter, and not a flag, lets a loop started after a
+  stop run.
+  - A wakeup in each shim's wait was the other way: an eventfd on Linux, a pipe on
+    macOS, a completion posted to each port on Windows. It would stop an idle worker
+    at once instead of within a second, but needs a registry of the workers' waits
+    that a signal handler can walk, in four shims. Waking an idle worker once a
+    second costs nothing measurable; workers with connections already woke that
+    often for the sweep.
+  - The io_uring loop tears its ring down on the way out (`ring_destroy`). On
+    Windows the completion port and its buffers stay allocated: closing the sockets
+    cancels their requests, and Windows completes the cancels later, into them.
+  - On macOS, the table of shared listeners holds an fd of its own for each, and
+    each worker a dup it gives back in `net_close`; the last one back closes the
+    listener, so a loop started again opens a new one.
 
 ## Proposed
 

@@ -92,8 +92,26 @@ extern fn net_default_workers() -> i32;
 // fit, and returns its length.
 extern fn net_strerror(err: i64, out: u8[:]) -> i64;
 
-// Writes "call: text of the error" to stderr.
+// Stops every loop running in the process: each closes its listener and its
+// idle connections, answers the next request on each other connection with
+// Connection: close, and returns once they have closed, or after
+// cfg.grace_ms, with an Error whose code is 0. A loop sees the stop within a
+// second. A loop started after the stop runs. Any thread may call it.
+extern "net_stop" fn stop();
+// Makes SIGTERM and SIGINT, or on Windows Ctrl+C and Ctrl+Break, call stop
+// instead of ending the process. Returns 0 or -code.
+extern "net_stop_on_signals" fn stop_on_signals() -> i32;
+// How many times stop has run; a loop stops once it differs from what it was
+// at the loop's start.
+extern "net_stops" fn stops() -> i64;
+
+// Writes "call: text of the error" to stderr, or "stopped" for a loop that
+// stop ended.
 fn report(e: Error) {
+    if e.code == 0 {
+        write_stderr("stopped\n");
+        return;
+    }
     var msg: u8[>..] = [];
     format(msg, e.call, ": ");
     var text: u8[128] = [0; 128];

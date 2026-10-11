@@ -13,6 +13,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #include <string.h>
@@ -135,13 +136,17 @@ static int32_t net_open_listener(int64_t ip, int32_t port, int32_t backlog, int3
    which stops calling accept, is woken by every wait while connections wait
    in the backlog.
 
+   The table holds an fd of its own for each listener, and each worker a dup
+   of it, which it gives back with net_close. The last one back closes the
+   listener and frees the entry, so a loop started again opens a new one.
+
    This table, and the thread-local fields below that tie a worker to its
    entry, are the only state the shim keeps between calls. */
 #define NET_MAX_SHARED 16
 static pthread_mutex_t net_shared_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct {
     int64_t ip;
-    int32_t port, fd, sharers;
+    int32_t port, fd, sharers;      /* fd -1: a free entry */
     _Atomic int64_t accepted;
 } net_shared[NET_MAX_SHARED];
 static int net_shared_count;
@@ -169,25 +174,36 @@ int32_t net_listen(int64_t ip, int32_t port, int32_t backlog, int32_t flags) {
     pthread_mutex_lock(&net_shared_lock);
     int32_t r = 0;
     int i = 0;
-    while (i < net_shared_count && (net_shared[i].port != port || net_shared[i].ip != ip)) i++;
-    if (i < net_shared_count) {
+    while (i < net_shared_count &&
+           (net_shared[i].fd < 0 || net_shared[i].port != port || net_shared[i].ip != ip)) i++;
+    if (i == net_shared_count) {
+        /* A new listener, in a free entry. */
+        i = 0;
+        while (i < net_shared_count && net_shared[i].fd >= 0) i++;
+        if (i == NET_MAX_SHARED) {
+            r = -net_err(ENOBUFS);
+        } else {
+            r = net_open_listener(ip, port, backlog, flags);
+            if (r >= 0) {
+                net_shared[i].ip = ip;
+                net_shared[i].port = port;
+                net_shared[i].fd = r;
+                net_shared[i].sharers = 0;
+                atomic_store_explicit(&net_shared[i].accepted, 0, memory_order_relaxed);
+                if (i == net_shared_count) net_shared_count++;
+            }
+        }
+    }
+    if (r >= 0) {
         int fd = fcntl(net_shared[i].fd, F_DUPFD_CLOEXEC, 0);
         r = fd < 0 ? -net_err(errno) : fd;
-    } else if (net_shared_count == NET_MAX_SHARED) {
-        r = -net_err(ENOBUFS);
-    } else {
-        r = net_open_listener(ip, port, backlog, flags);
-        if (r >= 0) {
-            net_shared[i].ip = ip;
-            net_shared[i].port = port;
-            net_shared[i].fd = r;
-            net_shared_count++;
-        }
     }
     if (r >= 0) {
         net_shared[i].sharers++;
         net_my_lfd = r;
         net_my_entry = i;
+        net_my_accepted = 0;
+        net_my_paused = 0;
     }
     pthread_mutex_unlock(&net_shared_lock);
     return r;
@@ -302,7 +318,18 @@ int32_t net_shutdown(int32_t fd, int32_t how) {
     return shutdown(fd, how) < 0 ? -net_err(errno) : 0;
 }
 
+/* A worker's fd for a shared listener goes back to the table (above). */
 int32_t net_close(int32_t fd) {
+    if (fd == net_my_lfd) {
+        pthread_mutex_lock(&net_shared_lock);
+        if (--net_shared[net_my_entry].sharers == 0) {
+            close(net_shared[net_my_entry].fd);
+            net_shared[net_my_entry].fd = -1;
+        }
+        pthread_mutex_unlock(&net_shared_lock);
+        net_my_lfd = -1;
+        net_my_kq = -1;
+    }
     return close(fd) < 0 ? -net_err(errno) : 0;
 }
 
@@ -430,4 +457,33 @@ int64_t net_strerror(int64_t err, net_bytes out) {
     if (n > (size_t)out.len) n = (size_t)out.len;
     memcpy(out.data, s, n);
     return (int64_t)n;
+}
+
+/* How many times net_stop has run in the process. A loop reads it at its
+   start, and stops once it has moved on. An atomic counter, and not a flag, so
+   that a loop started after a stop runs. A signal handler may call net_stop:
+   a lock-free atomic add is async-signal-safe. */
+static _Atomic int64_t net_stop_count;
+
+void net_stop(void) {
+    atomic_fetch_add_explicit(&net_stop_count, 1, memory_order_relaxed);
+}
+
+int64_t net_stops(void) {
+    return atomic_load_explicit(&net_stop_count, memory_order_relaxed);
+}
+
+static void net_on_signal(int sig) {
+    (void)sig;
+    net_stop();
+}
+
+/* Makes SIGTERM and SIGINT call net_stop instead of ending the process. */
+int32_t net_stop_on_signals(void) {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof sa);
+    sa.sa_handler = net_on_signal;
+    sigemptyset(&sa.sa_mask);
+    if (sigaction(SIGTERM, &sa, NULL) < 0 || sigaction(SIGINT, &sa, NULL) < 0) return -net_err(errno);
+    return 0;
 }

@@ -25,9 +25,9 @@ struct EpollConn<S> {
     out: u8[:],         // still to send
 }
 
-// Serves HTTP as cfg says, answering each request with H, until a call fails,
-// and returns its error, with every socket it opened closed. On Windows it
-// fails at once with ENOSYS.
+// Serves HTTP as cfg says, answering each request with H, until a call fails
+// or stop ends it, and returns its error, with every socket it opened
+// closed. On Windows it fails at once with ENOSYS.
 fn serve_epoll<H>(cfg: Config) -> Error {
     return serve_epoll(cfg, false) { ev, st, out => if whole_only(ev, out) { H(ev.req, ev.data, out); } };
 }
@@ -38,7 +38,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     net_worker_start();
     let ip, ok = ipv4(cfg.address);
     guard ok else { return Error { call: "address", code: EINVAL }; }
-    let lfd = net_listen(ip, cfg.port, cfg.backlog, NONBLOCK | REUSEPORT);
+    var lfd = net_listen(ip, cfg.port, cfg.backlog, NONBLOCK | REUSEPORT);
     guard lfd >= 0 else { return Error { call: "listen", code: -lfd }; }
     let ep = net_epoll_create();
     guard ep >= 0 else {
@@ -52,6 +52,9 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
         return Error { call: "epoll_ctl", code: -added };
     }
 
+    let started = stops();
+    var stopping = false;
+    var stop_by: i64 = 0;
     reusable[] var spill: u8[>..] = [];
     reusable var conns: EpollConn<S>[>..] = [];
     var open = 0;
@@ -171,7 +174,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
         loop {
             var full = false;
             if c.state == OPEN && (rlen > 0 || c.x.stream.open && c.x.body.place == NO_BODY) {
-                let rest, done, f = answer(c, rbuf, rlen, wbuf, date, cfg, fresh, H) { false };
+                let rest, done, f = answer(c, rbuf, rlen, wbuf, date, cfg, fresh, stopping, H) { false };
                 rlen = rest;
                 if done > 0 { progress = true; }
                 full = f;
@@ -249,11 +252,26 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     // usually queued by the time a batch is done, so the next wait only polls,
     // and the worker sleeps only after a poll comes back empty: that skips the
     // wakeup a blocking wait costs each batch.
+    // Closes the listener and the connections between requests, and gives
+    // the rest cfg.grace_ms to finish.
+    fn begin_stop() {
+        stopping = true;
+        stop_by = now + cfg.grace_ms;
+        net_close(lfd);
+        lfd = -1;
+        paused = false;
+        for i in conns.len {
+            let c .= conns[i];
+            if c.fd >= 0 && c.state == OPEN && idle(c) && c.out.len == 0 { close_conn(i); }
+        }
+    }
+
     var hot = false;
     var failed = Error { call: "", code: 0 };
     loop {
-        // Open connections need the sweep, and a paused accept its retry.
-        let timeout: i32 = if hot { 0 } else if open > 0 || paused { 1000 } else { -1 };
+        // A wait ends within a second, for a stop, the sweep, and a paused
+        // accept's retry.
+        let timeout: i32 = if hot { 0 } else { 1000 };
         let n = net_epoll_wait(ep, events, timeout);
         if n == -EINTR { continue; }
         guard n >= 0 else {
@@ -283,11 +301,13 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
             next_sweep = now + 1000;
         }
         if paused { accept_all(); }
+        if !stopping && stops() != started { begin_stop(); }
+        if stopping && (open == 0 || now >= stop_by) { break; }
     }
     for i in conns.len {
         if conns[i].fd >= 0 { close_conn(i); }
     }
     net_close(ep);
-    net_close(lfd);
+    if lfd >= 0 { net_close(lfd); }
     return failed;
 }

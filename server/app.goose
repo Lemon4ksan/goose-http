@@ -45,13 +45,18 @@ thread_fn worker(cfg: http::Config) { stopped(http::serve(cfg, Transfer { .. }, 
 
 thread_fn worker_epoll(cfg: http::Config) { stopped(http::serve_epoll(cfg, Transfer { .. }, handle)); }
 
-// Reports why a worker's loop stopped, and ends the process.
+// Reports why a worker's loop failed, and ends the process. A loop that a
+// stop ended returns, and the process ends once every worker has.
 fn stopped(e: http::Error) {
+    guard e.code != 0 else { return; }
     http::report(e);
     exit(1);
 }
 
 fn serve_http(given: http::Config, default_loop: const u8[:]) {
+    // SIGTERM and SIGINT stop the workers gracefully.
+    let s = http::stop_on_signals();
+    guard s == 0 else { stopped(http::Error { call: "sigaction", code: -s }); }
     var cfg = given;
     var name: u8[>..] = [];
     if !env("LOOP", name) { name.append(default_loop); }

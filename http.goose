@@ -69,6 +69,9 @@ struct Config {
     write_ms: i64 = 10000,
     idle_ms: i64 = 60000,
     linger_ms: i64 = 2000,
+    // After stop, how long a loop goes on with the requests in progress
+    // before it closes their connections and returns.
+    grace_ms: i64 = 10000,
     // serve's ring: its submission entries, and its provided buffers, which
     // the kernel fills in turn, a power of two of them. A receive that finds
     // none left ends its multishot request, which the loop queues again. The
@@ -171,7 +174,8 @@ fn interim() -> const u8[:] { "HTTP/1.1 100 Continue\r\n\r\n" }
 
 // Answers the requests in rbuf[..rlen] for connection c with the handler H,
 // into wbuf, and moves the rest of rbuf to its front. rbuf's length is the
-// longest head it takes. A request's state starts as fresh. Before a
+// longest head it takes. A request's state starts as fresh, and while
+// stopping, its response closes the connection. Before a
 // request, a piece of a body, or a MORE call, if wbuf holds
 // cfg.write_buffer bytes or more, it calls ROOM(), which empties wbuf and
 // returns true, or returns false to stop there. Returns the bytes left in
@@ -179,7 +183,7 @@ fn interim() -> const u8[:] { "HTTP/1.1 100 Continue\r\n\r\n" }
 // request, or a response that doesn't keep the connection open, leaves c
 // CLOSING and rbuf empty.
 fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: const u8[:],
-                         cfg: const Config&, fresh: const S&) -> i64, i64, bool {
+                         cfg: const Config&, fresh: const S&, stopping: bool) -> i64, i64, bool {
     var off = 0;
     var done = 0;
     var full = false;
@@ -222,7 +226,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: co
                 return false;
             }
             x.continued = false;
-            if !x.keep_alive {
+            if !x.keep_alive || stopping {
                 close();
                 return false;
             }
@@ -342,7 +346,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: co
         off = b0 + wire;
         // The request's state goes straight into c's slot, whose stream no
         // response holds open between requests.
-        x.keep_alive = req.keep_alive;
+        x.keep_alive = req.keep_alive && !stopping;
         x.state = fresh;
         let before = wbuf.len;
         H(Event { kind: REQUEST, req: req, data: rbuf[b0..b0 + blen], whole: whole }, x.state,

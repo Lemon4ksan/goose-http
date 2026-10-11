@@ -180,6 +180,19 @@ stop
 echo "The server's output:"
 sed 's/^/    /' "$log"
 
+# A graceful stop by SIGTERM: the server exits by itself, with status 0, once
+# its connections have closed.
+start
+$client stop "$pid"
+tries=0
+while kill -0 "$pid" 2>/dev/null; do
+    tries=$((tries + 1))
+    [ $tries -lt 50 ] || fail "the server was still running 5 s after its connections closed"
+    sleep 0.1
+done
+wait "$pid" || fail "the server exited with status $? after the stop"
+pid=
+
 # One worker with 40 fds: accepting pauses at the limit, and resumes as
 # connections close.
 WORKERS=1
