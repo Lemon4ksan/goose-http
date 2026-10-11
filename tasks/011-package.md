@@ -133,15 +133,18 @@ Steps 1 to 7 of the plan are done, each its own commit, with the unit tests,
 10. The speed checks, below: the package's builds run as fast as the last build before
     this task, once the parser, the response writers, and the benchmark's route are
     `inline fn`.
+11. macOS, 2026-10-11, at `bcac9ed` with Goose `fe6c543`, on the Mac of
+    `docs/development.md`: `scripts/test-unit.sh`; then `LOOP=uring scripts/build.sh`
+    and `LOOP=epoll scripts/build.sh`, each followed by `scripts/test-http.sh` and
+    `scripts/test-echo.sh`, with `TIME_WAIT` drained between runs. All passed, and so
+    did `http_client.py PORT slow` and `pipeline` against each loop with `WORKERS=4`.
+    An fd-limit probe, `ulimit -n 300` with 4 workers and 400 clients, served 289 at
+    the limit, used no measurable CPU over the 3 s it held them, and served the other
+    111 once the first closed, in both loops. An idle uring server used no CPU over
+    5 s: the emulation's level-triggered listener doesn't spin. Nothing needed a fix.
 
 Not done:
 
-- macOS: `http::serve` builds over `shim/ring_epoll.c` there, and nobody has run it.
-  On the Mac, on `main`: `scripts/test-unit.sh`; then `LOOP=uring scripts/build.sh`
-  and `LOOP=epoll scripts/build.sh`, each followed by `scripts/test-http.sh` and
-  `scripts/test-echo.sh`, waiting 30 s between runs for `TIME_WAIT`
-  (`docs/development.md`, "macOS"). The uring build tests the emulation's level-triggered
-  listener, which it watches only while accepting, and its `OUT` watch.
 - On macOS, `shim/kqueue.c`'s table of shared listeners keeps the first worker's fd
   for the listener and never forgets a worker, so a program that calls a loop again
   after one returned dups a closed fd. Each worker would need to leave the table in
@@ -244,8 +247,8 @@ recompiled after a change, so they were run again with clean builds:
 - [x] `http::serve` and `http::serve_epoll` take the program's handler; the benchmark
       server in `server/` serves TechEmpower's and HttpArena's routes through either,
       picked by `LOOP`
-- [ ] `http::serve` runs on Linux, macOS, and Windows, and on Linux without io_uring
-      (all but macOS done 2026-10-11: macOS builds the emulation over kqueue, untested)
+- [x] `http::serve` runs on Linux, macOS, and Windows, and on Linux without io_uring
+      (2026-10-11; on macOS over the emulation on kqueue)
 - [x] A program outside the repository imports the package from git at a commit, and
       `goose build` and `goose run` both work with it
 - [x] The tests pass, and the server's rate in `bench/run.sh`'s closest cells matches

@@ -1,7 +1,7 @@
 # Development
 
 Benchmarking runs on Linux (WSL2 Ubuntu), and so do building and testing by default.
-macOS builds the epoll loop over kqueue ([below](#macos)), and Windows builds the
+macOS builds both loops over kqueue ([below](#macos)), and Windows builds the
 io_uring loop over I/O completion ports ([below](#windows)). Both pass the tests, and
 neither is for benchmarks.
 
@@ -417,7 +417,8 @@ The epoll loop runs on macOS through `shim/kqueue.c`, which `http.build` lists u
 `scripts/test-unit.sh`, `scripts/test-http.sh`, and `scripts/test-echo.sh` pass there.
 `LOOP=uring scripts/build.sh` builds `http::serve` over `shim/ring_epoll.c`, the
 io_uring loop's emulation, on kqueue; both builds hold both loops, and `LOOP` at run
-time picks one. It hasn't run on a Mac yet (task 011).
+time picks one. Both loops pass the three scripts there, and the emulation holds at the fd
+limit without spinning (task 011, 2026-10-11).
 
 | Tool | Where | Version used (2026-10-11) |
 |---|---|---|
