@@ -140,6 +140,11 @@ def tfb(port):
     check_tfb(r, "text/plain", time.time())
     if r.body != b"Hello, World!":
         fail(f"plaintext body {r.body!r}")
+    # Absolute-form, which a server must take (RFC 9112 §3.2.2).
+    c.send(request(b"http://tfb-server/plaintext"))
+    r = c.response()
+    if r.status != 200 or r.body != b"Hello, World!":
+        fail(f"absolute-form: {r.status} {r.body!r}")
     c.send(request(b"/json"))
     r = c.response()
     check_tfb(r, "application/json", time.time())

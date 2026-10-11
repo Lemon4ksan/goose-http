@@ -49,6 +49,42 @@ fn test_parse() {
     assert(s4 == 200 && r4.body == 12);
 }
 
+// The handler's view of the header fields: by name, ignoring case, the first
+// of a repeated one, and all of them in order.
+fn test_fields() {
+    let text = "GET / HTTP/1.1\r\nHost: x\r\nCookie: a=1\r\nX-Empty:\r\ncookie:\t b=2 \r\nAccept: */*\r\n\r\n";
+    let r, s = http::parse(text);
+    assert(s == 200);
+    let v, ok = http::field_of(r, "COOKIE");
+    assert(ok && v == "a=1");
+    let e, has = http::field_of(r, "x-empty");
+    assert(has && e.len == 0);
+    let m, found = http::field_of(r, "Missing");
+    assert(!found && m.len == 0);
+    let h, hok = http::field_of(r, "host");
+    assert(hok && h == "x");
+    var names: u8[>..] = [];
+    var n = 0;
+    http::each_field(r) { name, value =>
+        names.append(name);
+        names.append("=");
+        names.append(value);
+        names.append(";");
+        n++;
+    };
+    assert(n == 5);
+    assert(names == "Host=x;Cookie=a=1;X-Empty=;cookie=b=2;Accept=*/*;");
+
+    // A request without fields, in HTTP/1.0.
+    let r0, s0 = http::parse("GET / HTTP/1.0\r\n\r\n");
+    assert(s0 == 200 && r0.fields.len == 0);
+    let x, xok = http::field_of(r0, "host");
+    assert(!xok);
+    var none = 0;
+    http::each_field(r0) { name, value => none++; };
+    assert(none == 0);
+}
+
 // A header value scanned by find_any: each kind of byte at every offset of a
 // value longer than four of its 16-byte blocks, from every alignment, so both
 // the search and the byte loop after it meet it. Tab, space, visible bytes,
@@ -324,6 +360,7 @@ fn test_reply() {
 
 fn main() {
     test_parse();
+    test_fields();
     test_values();
     test_keep_alive();
     test_refused();

@@ -1,6 +1,6 @@
 # 013: HTTP/1.1 essentials
 
-Status: todo (asked for 2026-10-11; design with task 011)
+Status: in-progress (asked for 2026-10-11; design with task 011)
 
 The server parses and frames HTTP/1.1 well enough to pass the smuggling, limit, and
 keep-alive checks the competitors fail (`bench/README.md`), but it only serves its own
@@ -78,17 +78,28 @@ change the per-connection state, in both of task 011's loops, `http::serve` and
 16. Response helpers: a configurable or absent `Server` (hard-coded in `status_line`),
     conditional `GET` (304), `Range`, static files through `sendfile`.
 
+## Progress
+
+- Items 1 and 2 came with task 007's Http11Probe fixes (`b73d527`).
+- Item 6 (2026-10-11): `parse` keeps the field lines as `Request.fields`, and
+  `http::field_of(req, name)` and `http::each_field(req) { name, value => }` scan them
+  only when a handler asks. `bench/instructions.sh` (3 runs, as in task 011) measured
+  1,423-1,441 user instructions per request for the epoll loop against 1,400-1,431
+  before, and 1,482-1,501 for the uring loop against 1,488-1,507: no cost.
+
 ## Acceptance criteria
 
-- [ ] `GET http://tfb-server/plaintext` answers as `GET /plaintext`
-- [ ] `Host: a b` and `Host: [::1` get 400; `Host: x:8080`, `Host: [::1]:80`, and an
-      empty `Host` get 200
+- [x] `GET http://tfb-server/plaintext` answers as `GET /plaintext` (2026-10-11, `b73d527`;
+      `http_client.py`'s `tfb` checks it)
+- [x] `Host: a b` and `Host: [::1` get 400; `Host: x:8080`, `Host: [::1]:80`, and an
+      empty `Host` get 200 (2026-10-11, `b73d527`)
 - [ ] A `POST` with `Expect: 100-continue` gets `100 Continue` before its body is read, or
       its final status without one; `Expect: other` gets 417
 - [ ] Unit tests show 204, 304, and `HEAD` without a body, and a streamed body to an
       HTTP/1.0 client ending at close, whatever the handler writes
 - [ ] `OPTIONS *` gets 200 with `Allow`; an unknown method gets 501
-- [ ] The handler reads any request field by name, and iterates them
+- [x] The handler reads any request field by name, and iterates them (2026-10-11:
+      `http::field_of` and `http::each_field`)
 - [ ] A handler reads a 100 MB `Content-Length` body and a 100 MB chunked body in pieces;
       a handler that ignores them leaves the connection usable for the next request
 - [ ] A handler sends a 10 MB body, and streams a chunked one, with each connection's

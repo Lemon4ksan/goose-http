@@ -55,6 +55,7 @@ struct Request {
     body: i64,               // Content-Length, 0 without one
     chunked: bool,           // Transfer-Encoding: chunked
     len: i64,                // bytes of the head, the blank line included
+    fields: const u8[:],     // the header field lines, each with its CRLF
 }
 
 // Parses the request head at the start of buf, which may hold max_head bytes
@@ -110,6 +111,7 @@ inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_
 
     // The header fields, up to the blank line.
     var r = Request { method: method, target: target, minor: minor, .. };
+    let f0 = pos;
     var fields = 0;
     var hosts = 0;
     var has_length = false;
@@ -198,7 +200,58 @@ inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_
     guard !(r.chunked && has_length) else { return Request { .. }, 400; }
     r.keep_alive = !close && (minor > 0 || keep);
     r.len = pos;
+    r.fields = buf[f0..pos - 2];
     return r, 200;
+}
+
+// The value of req's header field name, compared ignoring ASCII case, and
+// whether req has it; the first, if it repeats. The value has no whitespace
+// around it, and points into the read buffer, so it lasts until the handler
+// returns.
+fn field_of(req: Request, name: const u8[:]) -> const u8[:], bool {
+    var pos = 0;
+    while pos < req.fields.len {
+        let n, v, next = field_at(req.fields, pos);
+        if same_name(n, name) { return v, true; }
+        pos = next;
+    }
+    return "", false;
+}
+
+// Calls F(name, value) for each of req's header fields, in order, repeated
+// ones included: the name as sent, and the value as field_of gives it.
+fn each_field<F>(req: Request) {
+    var pos = 0;
+    while pos < req.fields.len {
+        let n, v, next = field_at(req.fields, pos);
+        F(n, v);
+        pos = next;
+    }
+}
+
+// The field line at fields[pos..], which parse checked: its name, its value
+// without the whitespace around it, and where the next line starts.
+fn field_at(fields: const u8[:], pos: i64) -> const u8[:], const u8[:], i64 {
+    let line = fields[pos..];
+    let colon = position(line, ':');
+    let end = position(line, '\r');
+    var v0 = colon + 1;
+    while v0 < end && (line[v0] == ' ' || line[v0] == '\t') { v0++; }
+    var v1 = end;
+    while v1 > v0 && (line[v1 - 1] == ' ' || line[v1 - 1] == '\t') { v1--; }
+    return line[..colon], line[v0..v1], pos + end + 2;
+}
+
+// Whether a and b are the same field name, ignoring the case of ASCII letters.
+fn same_name(a: const u8[:], b: const u8[:]) -> bool {
+    guard a.len == b.len else { return false; }
+    for c, i in a {
+        let d = b[i];
+        let lc = if c >= 'A' && c <= 'Z' { c + 32 } else { c };
+        let ld = if d >= 'A' && d <= 'Z' { d + 32 } else { d };
+        guard lc == ld else { return false; }
+    }
+    return true;
 }
 
 // Whether target, which doesn't start with '/', is a form other than

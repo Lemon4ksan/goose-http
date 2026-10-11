@@ -49,6 +49,9 @@ The handler gets:
 
 - `req`, the parsed request head (`http::Request` in `message.goose`): method, target,
   version, keep-alive, the body's announced length, and slices into the read buffer.
+  `http::field_of(req, name)` gives a header field's value and whether it's there,
+  ignoring the name's case, and `http::each_field(req) { name, value => ... }` goes
+  through them all, repeats included. Every slice lasts until the handler returns.
 - `body`, the whole body when it fits in the read buffer with its head, chunked bodies
   decoded. A longer body is dropped as it arrives, and `body` is empty.
 - `out`, an `http::Reply`, to write one whole response of any size into:
@@ -64,8 +67,8 @@ about 190 instructions per request.
 `http::Config` holds the address, port, worker count, limits, timeouts, and buffer
 sizes, with defaults. A loop returns only when a call fails, with an `http::Error`
 that `http::report` writes to stderr. Version 0.1 serves requests and responses of a
-fixed size: no header lookup, bodies read in pieces, or streamed responses yet (task
-013).
+fixed size: no bodies read in pieces or streamed responses yet, and it has no header
+lookup, which `main` adds (task 013).
 
 ## Event loops
 
