@@ -100,6 +100,35 @@ http::serve(cfg) { req, body, out => ... }
   spec §7.6 rules out as a stored function value; they would come as another entry
   point, with per-connection state for the body or the stream, after `v0.1.0`.
 
+## Where it stands (2026-10-11)
+
+Steps 1 to 7 of the plan are done, each its own commit, with the unit tests,
+`test-http.sh`, and `test-echo.sh` passing on Linux (the uring and epoll builds, and
+`LOOP=uring-epoll`) and on Windows (iocp):
+
+1. One `answer` in `http.goose` serves both loops.
+2. A response of any size goes out through the growable write buffer and the spill
+   pool (`/bytes`, `http_client.py large`).
+3. The loops take `http::Config` and return `http::Error`.
+4. The handler's shape, above.
+5. The package layout, with the server in `server/`.
+6. The fallback to a ring emulated over epoll, tested under Docker's default seccomp
+   profile.
+7. A program outside the repository, importing the package from GitHub at
+   `bfd951a53a6c`, built with `goose build` and run with `goose run` on Linux and
+   Windows. `goose run` can't run a program that reaches `thread_spawn`, so its
+   program calls `http::serve` from `main`.
+
+Not done:
+
+- The speed checks: step 1's `bench/instructions.sh` before and after, against task
+  009's 2,255-2,371 instructions per request for the epoll loop, and step 8's
+  `bench/run.sh` cells against task 010's build. Both wait for the machine to be free
+  of other work. The bounds checks the compiler keeps per request didn't change in
+  steps 1 to 3.
+- macOS: `http::serve` builds over `shim/ring_epoll.c` there, and nobody has run it.
+- The `v0.1.0` tag, which waits for the maintainer.
+
 ## Acceptance criteria
 
 - [x] `http.goose` and `http.build` at the root, every module in `namespace http`
@@ -108,11 +137,11 @@ http::serve(cfg) { req, body, out => ... }
       picked by `LOOP`
 - [ ] `http::serve` runs on Linux, macOS, and Windows, and on Linux without io_uring
       (all but macOS done 2026-10-11: macOS builds the emulation over kqueue, untested)
-- [ ] A program outside the repository imports the package from git at a commit, and
+- [x] A program outside the repository imports the package from git at a commit, and
       `goose build` and `goose run` both work with it
 - [ ] The tests pass, and the server's rate in `bench/run.sh`'s closest cells matches
       task 010's build within the runs' spread
-- [ ] `README.md` says how to use the package, as goose-ngfx's does, and which entry
+- [x] `README.md` says how to use the package, as goose-ngfx's does, and which entry
       point to call: `serve` everywhere, `serve_epoll` for the fastest loop on Linux
       and macOS
 - [ ] Tagged `v0.1.0`, the ref the README's example imports

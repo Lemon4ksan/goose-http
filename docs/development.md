@@ -269,6 +269,15 @@ instead ([below](#benchmark)). And oha with `-z`
 aborts the requests in flight at the deadline and lists them as errors, so the test gives
 it a request count instead.
 
+### Use the package from git
+
+A program outside the repository imports the package as a user's does, at a pushed
+commit, by its full hash: `import http from
+"github.com/kaitk/goose-http@<40-hex hash>";`. Git can't fetch an abbreviated hash.
+The compiler fetches it into `~/.goose/pkg/github.com/kaitk/goose-http/<12-hex
+hash>/`. Check both `goose build` and `goose run`, the second with a program that calls
+`http::serve` from `main`: TinyCC can't run one that reaches `thread_spawn`.
+
 ### Test the echo servers
 
 `scripts/test-echo.sh` starts each echo server in turn and fails on the first error.
