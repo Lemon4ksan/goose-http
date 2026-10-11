@@ -297,12 +297,18 @@ fn serve(port: i32) {
         }
     }
 
+    // Whether the last wait returned events. Under load the next ones are
+    // usually queued by the time a batch is done, so the next wait only polls,
+    // and the worker sleeps only after a poll comes back empty: that skips the
+    // wakeup a blocking wait costs each batch.
+    var hot = false;
     loop {
         // Open connections need the sweep, and a paused accept its retry.
-        let timeout: i32 = if open > 0 || paused { 1000 } else { -1 };
+        let timeout: i32 = if hot { 0 } else if open > 0 || paused { 1000 } else { -1 };
         let n = sys::epoll_wait(ep, events, timeout);
         if n == -sys::EINTR { continue; }
         sys::check("epoll_wait", n);
+        hot = n > 0;
         now = sys::clock_ms();
         let t = sys::time_s();
         if t != date_s {
