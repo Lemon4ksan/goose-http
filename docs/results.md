@@ -164,7 +164,7 @@ where the package's build is 2-3% faster. The epoll loop served 6.01 M requests 
 second in plaintext at 256 connections with 4 workers, and the io_uring loop 7.45 M.
 The cells, and the regression the first build had before its parser and response
 writers were made `inline fn`, are in task 011
-([tasks/011-package.md](../tasks/011-package.md#speed-2026-10-11)); the runs are in
+([tasks/000-archive/011-package.md](../tasks/000-archive/011-package.md#speed-2026-10-11)); the runs are in
 `bench/results/2026-10-11-package/` and `bench/results/2026-10-11-package-instructions/`.
 
 ## HttpArena's profiles

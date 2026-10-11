@@ -15,7 +15,7 @@ Declare the package in your program's root file, and call a loop from a `thread_
 your own, with your handler:
 
 ```goose
-import http from "github.com/kaitk/goose-http@bfd951a53a6c149bbe861001abfc7b610202fedd";
+import http from "github.com/kaitk/goose-http@v0.1.0";
 
 thread_fn worker(cfg: http::Config) {
     let e = http::serve(cfg) { req, body, out =>

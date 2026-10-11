@@ -60,7 +60,11 @@ change the per-connection state, in both of task 011's loops, `http::serve` and
 11. Graceful shutdown. The loop never returns. On `SIGTERM` or a call, workers close
     their listeners, answer the next request on each connection with `Connection: close`,
     finish what's in flight within a grace period, and return. Needs a wakeup in each shim's
-    wait: epoll, io_uring, kqueue, and IOCP.
+    wait: epoll, io_uring, kqueue, and IOCP. A loop called again after it returned must
+    work: on macOS, `shim/kqueue.c`'s table of shared listeners keeps the first worker's
+    fd for the listener and never forgets a worker, so it would dup a closed fd. Each
+    worker would need to leave the table in `net_close`, with the table holding a
+    reference of its own (task 011).
 12. Error responses from the handler that keep the connection open when the request was
     read whole; `refuse` always closes.
 

@@ -1,6 +1,6 @@
 # 011: goose-http as a Goose package
 
-Status: in-progress (asked for 2026-10-11)
+Status: done (asked for 2026-10-11, done 2026-10-11)
 
 Goose `efe3155` has packages: a program declares one in its root file,
 `import http from "github.com/kaitk/goose-http@v0.1.0";`, and the compiler fetches the
@@ -143,13 +143,13 @@ Steps 1 to 7 of the plan are done, each its own commit, with the unit tests,
     111 once the first closed, in both loops. An idle uring server used no CPU over
     5 s: the emulation's level-triggered listener doesn't spin. Nothing needed a fix.
 
-Not done:
+12. Tagged `v0.1.0` at `3c4761a`, which the README's example imports. That example,
+    in a directory of its own, builds against the tag and serves `/` and a 404 on
+    Linux and Windows.
 
-- On macOS, `shim/kqueue.c`'s table of shared listeners keeps the first worker's fd
-  for the listener and never forgets a worker, so a program that calls a loop again
-  after one returned dups a closed fd. Each worker would need to leave the table in
-  `net_close`, with the table holding a reference of its own.
-- The `v0.1.0` tag, which waits for the maintainer.
+Left for task 013's graceful shutdown: on macOS, `shim/kqueue.c`'s table of shared
+listeners keeps the first worker's fd for the listener and never forgets a worker, so
+a program that calls a loop again after one returned dups a closed fd.
 
 ## Speed (2026-10-11)
 
@@ -157,7 +157,7 @@ Measured on the machine of `docs/results.md`: Ryzen 7 5800X3D, WSL2 kernel
 6.18.40.1-microsoft-standard-WSL2, Ubuntu 26.04.1, gcc 15.2.0, Goose `fe6c543`. Every
 Goose binary was built after deleting `~/.goose/build/prog/*/native` and
 `~/.goose/build/pkg/local/*/*/stamp`, so none links a shim compiled before a change
-([findings](../docs/goose-findings.md#goose-build-on-linux-never-sees-a-sidecars-c-change)).
+([findings](../../docs/goose-findings.md#goose-build-on-linux-never-sees-a-sidecars-c-change)).
 The comparison builds are `1bea5a0`, the last commit before this task, built in a
 copy of its tree at its own path: `goose-pre011` (`LOOP=epoll`) and `goose-pre011-uring`.
 
@@ -257,4 +257,4 @@ recompiled after a change, so they were run again with clean builds:
 - [x] `README.md` says how to use the package, as goose-ngfx's does, and which entry
       point to call: `serve` everywhere, `serve_epoll` for the fastest loop on Linux
       and macOS
-- [ ] Tagged `v0.1.0`, the ref the README's example imports
+- [x] Tagged `v0.1.0`, the ref the README's example imports (2026-10-11)
