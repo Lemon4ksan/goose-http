@@ -6,8 +6,9 @@ For each server, worker count, test, and connection count, across its runs:
 wrk's requests per second as the median and the spread (lowest to highest),
 the median relative to BASE's (default goose) in the same cell, h2load's median p50 and p99
 latency and its own median rate, the highest peak RSS, the median CPU time of
-the server and of wrk during the wrk run, and the errors and clock steps
-summed over the runs.
+the server and of wrk during the wrk run, the errors and clock steps summed
+over the runs, and the earlier runs a cell's rows were copied from
+(bench/run.sh's REUSE).
 """
 
 import csv
@@ -36,11 +37,14 @@ def main():
     def lat(rs, k):
         return f"{med(rs, k) / 1000:.2f} ms" if any(r[k] for r in rs) else "–"
 
+    def reused(rs):
+        return ", ".join(sorted({r.get("from") or "" for r in rs} - {""}))
+
     base = sys.argv[2] if len(sys.argv) > 2 else "goose"
     print(f"| Test | Conns | Workers | Server | Req/s (wrk) | Spread | vs {base} | "
           "p50 (h2load) | p99 (h2load) | Req/s (h2load) | Peak RSS | Server CPU | wrk CPU | "
-          "Errors | Steps | Runs |")
-    print("|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+          "Errors | Steps | Runs | From |")
+    print("|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
     keys = sorted(cells, key=lambda k: (k[0] != "plaintext", k[1], k[2],
                                         ORDER.index(k[3]) if k[3] in ORDER else 99))
     for test, conns, workers, server in keys:
@@ -58,7 +62,7 @@ def main():
               f"{med(rs, 'h2load_rps') / 1e6:.3f} M | "
               f"{max(num(r['peak_rss_kb']) for r in rs) / 1024:.1f} MB | "
               f"{med(rs, 'server_cpu_s'):.1f} s | {med(rs, 'wrk_cpu_s'):.1f} s | "
-              f"{errors} | {steps} | {len(rs)} |")
+              f"{errors} | {steps} | {len(rs)} | {reused(rs)} |")
 
 
 if __name__ == "__main__":

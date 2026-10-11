@@ -350,6 +350,10 @@ from Windows:
 - `pkill -f PATTERN` inside `wsl.exe -- bash -c '...'` matches that `bash -c` too, whose
   command line holds the pattern, and kills it. Kill by PID instead.
 - Killing `strace` doesn't stop the server it started; kill the server's PID.
+- Git for Windows 2.45 writes a worktree's `.git` file with a Windows path, which WSL's
+  git can't follow, so `bench/run.sh` can't record the commit there. It has no
+  `--relative-paths`; write the file by hand, for example
+  `gitdir: ../goose-http/.git/worktrees/goose-http-uring`. Both gits read that.
 
 The agent's Bash tool turns `\\` into `\` before the shell sees it, even inside a quoted
 heredoc, so `'\\n'` written through it reaches the file as a line break. Edit files with

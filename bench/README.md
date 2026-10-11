@@ -144,6 +144,26 @@ Where each number comes from:
 | wrk CPU time | the shell's `times` for the measured wrk run, to show whether the client had room |
 | Clock steps | `clockstep.py`, during the measured wrk run |
 
+### Reusing earlier cells
+
+A competitor's cells are measured once per binary, not once per run. With `REUSE`
+naming earlier result directories, `bench/run.sh` copies a cell's rows from the first
+one that measured the same binary under the same `key.txt`, and runs only the rest:
+
+```sh
+REUSE="bench/results/2026-10-11-final2-plaintext bench/results/2026-10-11-final2-json" \
+    SERVERS="goose goose-uring vanilla-epoll xitca-web" bench/run.sh
+```
+
+`key.txt` holds what a cell's numbers depend on besides the server: `METHOD`, which
+`run.sh` bumps when it changes what a cell measures, the kernel and CPU, the CPU sets and
+client threads, the durations, the wrk and h2load versions, and hashes of the helper files
+the load runs use. `binaries.txt` holds each server binary's SHA-256. A copied row names
+its source in the `from` column, and the summary in its From column. Goose builds always
+run, so each run measures Goose fresh beside copied competitors. Separate sessions have
+drifted by up to 5%; rerunning an unchanged Goose build beside its earlier numbers shows
+the drift of the day.
+
 In a closed-loop test that keeps every connection busy, latency follows from the rate:
 the requests in flight divided by the requests per second (256 connections × 16 deep at
 3.1 million per second is 1.3 ms). p50 says little beyond the rate; p99 shows how

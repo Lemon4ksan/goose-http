@@ -37,7 +37,19 @@
 #   TESTS         plaintext:256 plaintext:1024 plaintext:4096 json:256 json:1024
 #   LATENCY       1; 0 skips step 3, leaving the latency columns empty
 #   RUNS 3, DURATION 15, WARMUP 5, PORT 29280, OUT bench/results/<date>
+#   REUSE         earlier result directories whose cells this run copies
+#                 instead of measuring again. A cell is copied when the
+#                 earlier run had the same key.txt (METHOD, the settings
+#                 above, the machine, and the load generators), the same
+#                 server binary (binaries.txt), and all RUNS of the cell. Its
+#                 rows name their directory in the from column. Goose builds
+#                 always run: sessions drift by up to 5%, and a Goose build
+#                 rerun beside an earlier one shows by how much.
 set -eu
+
+# Bump METHOD when a change here changes what a cell measures, so REUSE stops
+# copying cells measured the old way.
+METHOD=1
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 bin=$root/build/bench
@@ -94,8 +106,63 @@ trap '[ -z "$pid" ] || kill "$pid" 2>/dev/null; [ -z "$mon" ] || kill "$mon" 2>/
     echo "wrk: $(wrk -v 2>&1 | head -1)"
     echo "h2load: $(h2load --version)"
 } >"$out/env.txt"
-printf 'server\tworkers\ttest\tconns\trun\trps\terrors\tnon2xx\tserver_cpu_s\twrk_cpu_s\tpeak_rss_kb\tsteps\th2load_rps\th2load_failed\th2load_non2xx\tp50_us\tp99_us\tp999_us\tmax_us\n' \
+# What a cell's numbers depend on besides the server, for REUSE.
+{
+    echo "method: $METHOD"
+    echo "kernel: $(uname -r)"
+    echo "cpu: $(lscpu | sed -n 's/^Model name: *//p'), $(nproc) logical CPUs"
+    echo "server cpus: $server_cpus, client cpus: $client_cpus, client threads: $threads"
+    echo "duration: $duration s, warm-up: $warmup s, latency: $latency"
+    echo "wrk: $(wrk -v 2>&1 | head -1)"
+    echo "h2load: $(h2load --version)"
+    (cd "$root" && sha256sum scripts/pipeline.lua bench/wrk-monotonic.c bench/latency.c \
+        bench/clockstep.py)
+} >"$out/key.txt"
+# shellcheck disable=SC2086 # servers is a list of names
+(cd "$bin" && sha256sum $servers) >"$out/binaries.txt"
+printf 'server\tworkers\ttest\tconns\trun\trps\terrors\tnon2xx\tserver_cpu_s\twrk_cpu_s\tpeak_rss_kb\tsteps\th2load_rps\th2load_failed\th2load_non2xx\tp50_us\tp99_us\tp999_us\tmax_us\tfrom\n' \
     >"$out/runs.tsv"
+
+# Prints the RUNS rows of the cell of server $1, $2 workers, test $3, and $4
+# connections from the first REUSE directory that has them for the same key
+# and binary. The from column names that directory, or the one the rows were
+# first copied from.
+reused_rows() {
+    case $1 in goose*) return 1 ;; esac
+    sum=$(awk -v s="$1" '$2 == s {print $1}' "$out/binaries.txt")
+    for dir in ${REUSE:-}; do
+        [ -f "$dir/key.txt" ] && cmp -s "$dir/key.txt" "$out/key.txt" || continue
+        [ "$(awk -v s="$1" '$2 == s {print $1}' "$dir/binaries.txt")" = "$sum" ] || continue
+        awk -F '\t' -v OFS='\t' -v s="$1" -v w="$2" -v t="$3" -v c="$4" -v n="$runs" \
+            -v d="$(basename "$dir")" '
+            NR == 1 { for (i = 1; i <= NF; i++) col[$i] = i; next }
+            $1 == s && $2 == w && $3 == t && $4 == c && $5 <= n && !($5 in row) {
+                f = ("from" in col && $col["from"] != "") ? $col["from"] : d
+                line = $1
+                for (i = 2; i <= 19; i++) line = line OFS $i
+                row[$5] = line OFS f
+                k++
+            }
+            END {
+                if (k != n) exit 1
+                for (i = 1; i <= n; i++) print row[i]
+            }' "$dir/runs.tsv" && return 0
+    done
+    return 1
+}
+
+skip=
+for workers in $worker_counts; do
+    for server in $servers; do
+    for t in $tests; do
+        if reused_rows "$server" "$workers" "${t%%:*}" "${t#*:}" >"$tmp/rows"; then
+            cat "$tmp/rows" >>"$out/runs.tsv"
+            skip="$skip $server-w$workers-$t"
+            echo "$server-w$workers-$t: reused"
+        fi
+    done
+    done
+done
 
 # utime + stime of a process and its threads, in clock ticks.
 cpu_ticks() { awk '{print $14 + $15}' "/proc/$1/stat"; }
@@ -105,6 +172,7 @@ for workers in $worker_counts; do
     if [ "$workers" = 1 ]; then cpus=${server_cpus%%[-,]*}; else cpus=$server_cpus; fi
     for server in $servers; do
     for t in $tests; do
+        case "$skip " in *" $server-w$workers-$t "*) continue ;; esac
         test=${t%%:*}
         conns=${t#*:}
         name=$server-w$workers-$test-c$conns-r$run
@@ -182,7 +250,7 @@ for workers in $worker_counts; do
         h2rps=$(awk '/^finished in/ {print $4}' "$out/$name.h2load")
         h2failed=$(awk '/^requests:/ {print $10 + $12 + $14}' "$out/$name.h2load")
         set -- $(cat "$out/$name.lat")
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n' \
             "$server" "$workers" "$test" "$conns" "$run" "$rps" "${errors:-0}" "${non2xx:-0}" \
             "$(echo "$c0 $c1 $hz" | awk '{printf "%.2f", ($2 - $1) / $3}')" "$wrk_cpu" "$rss" \
             "$steps" "${h2rps:-}" "${h2failed:-}" "${4:-}" "${6:-}" "${10:-}" "${12:-}" "${14:-}" \
