@@ -36,9 +36,14 @@ fail() {
 
 # Starts the server, with an fd limit of $1 if given.
 start() {
-    if nc -z 127.0.0.1 "$port" 2>/dev/null; then
-        fail "port $port is taken; set PORT"
-    fi
+    # The io_uring loop's listener outlives the process by a moment: the
+    # kernel tears a ring down after its process exits.
+    tries=0
+    while nc -z 127.0.0.1 "$port" 2>/dev/null; do
+        tries=$((tries + 1))
+        [ $tries -lt 50 ] || fail "port $port is taken; set PORT"
+        sleep 0.1
+    done
     (ulimit -n "${1:-65536}" && exec "$root/build/server" http "$port") >"$log" 2>&1 &
     pid=$!
     tries=0

@@ -16,7 +16,8 @@ until the task named beside it confirms or replaces it.
   Goose back at runtime: there are no runtime function pointers (§7.5), and `export fn`
   calls must stay on the thread that called `goose_init` (§7.11). So `shim/net.h` only
   wraps calls that return, and returns `-errno` instead of `-1` and `errno`. It covers
-  sockets, epoll, coarse clocks, and `strerror`; io_uring will get `shim/uring.h`.
+  sockets, epoll, coarse clocks, and `strerror`; `shim/uring.h` covers io_uring
+  ([below](#the-io_uring-loop-task-005)).
   Anything that needs a callback, such as llhttp, libuv, or a C HTTP server, is out
   (confirmed by task 002, 2026-10-10). Details:
   - The shim owns the kernel structures whose layout varies by architecture.
@@ -86,8 +87,37 @@ until the task named beside it confirms or replaces it.
 
 ## Proposed
 
-### io_uring later (task 005)
+### The io_uring loop (task 005)
 
-Multishot accept and receive, provided buffer rings, and batched submission, through a
-shim over liburing, whose helpers are mostly inline functions that `extern fn` can't bind
-directly. It replaces the epoll loop only if task 005 measures it faster.
+`LOOP=uring scripts/build.sh` builds the server with an io_uring loop
+(`src/uring.goose`) in place of the epoll loop; `src/app.goose` holds what both share.
+The epoll loop stays the default until task 005 measures both, and stays buildable and
+tested either way (2026-10-11):
+
+- `shim/uring.h` wraps liburing 2.14, whose helpers are static inline functions that
+  `extern fn` can't bind, and needs Linux 6.1. Each worker owns a ring, created with
+  `IORING_SETUP_SINGLE_ISSUER` and `IORING_SETUP_DEFER_TASKRUN`: the kernel completes
+  requests only while the worker waits, and each wait submits everything queued since
+  the last one.
+- A multishot accept takes the listener's connections, and a multishot receive per
+  connection fills the ring's provided buffers, 1,024 of 4 KB per worker. A receive
+  that finds no buffer left ends, and the loop queues it again.
+- The ring owns every buffer the kernel touches after a call returns. The kernel reads a
+  send's bytes and writes a receive's after the call that queued them, and spec §7.10
+  forbids C to keep a Goose argument past a call. So the loop copies each receive out of
+  a provided buffer into its read buffer, and the shim copies each send's bytes into a
+  buffer of its own. The epoll loop makes neither copy; the kernel's own copy into and
+  out of the socket is the same in both.
+- A connection has one send in flight, which keeps its responses in order. Responses
+  answered meanwhile wait in the spill pool. Past 64 KB waiting, the loop cancels the
+  connection's receive and holds what still arrives until the client reads, as the epoll
+  loop stops reading when a send would block.
+- A request's tag is the connection's slot and a generation, so a completion that
+  arrives after its connection closed isn't taken for the slot's next connection.
+- Closing a connection queues a cancel of its requests and, linked after it, the close.
+  A queued request holds a reference to the socket, so a `close` alone would leave the
+  connection open.
+- At 16,384 connections the worker cancels its accept, and closes any connection
+  accepted before the cancel lands. After `EMFILE` or `ENFILE` it queues the accept
+  again after a close or at the next sweep, so waiting clients keep their place in the
+  backlog, as with epoll.

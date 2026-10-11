@@ -22,6 +22,7 @@ the native compiler typechecks the program there, but the server only runs on Li
 | Odin | WSL, `/opt/odin-dev-2026-10` | `dev-2026-10` (`dev-2026-10-nightly:84bc3fc`, LLVM 20.1.8), for odin-http |
 | Zig | WSL, `/opt/zig-0.16.0` | 0.16.0, for dusty |
 | V | WSL, built by `bench/build.sh` in its cache | 0.5.2 `b99970b`, for vanilla-epoll; needs apt `liburing-dev` (2.14) |
+| liburing | WSL, apt `liburing-dev` | 2.14, for the io_uring loop (`LOOP=uring`) |
 | Docker | WSL, Docker Desktop | 29.8.2, for HttpArena's harness |
 | perf | WSL, apt `linux-perf` | 7.0.14 (package `7.0.0-38.38`) |
 
@@ -145,7 +146,7 @@ Run these in WSL. They work from any directory.
 
 | Command | What it does |
 |---|---|
-| `scripts/build.sh` | Compiles `src/main.goose` to `build/server.c` at `-O2`, then to `build/server` with `cc -O2`. |
+| `scripts/build.sh` | Compiles `src/main.goose` to `build/server.c` at `-O2`, then to `build/server` with `cc -O2`. `LOOP=uring` builds `src/main_uring.goose`, the io_uring loop, instead. |
 | `scripts/test-unit.sh` | Runs each `src/test_*.goose` through TinyCC ([below](#test-the-http-server)). |
 | `scripts/test-http.sh` | Tests the HTTP server of `build/server` ([below](#test-the-http-server)). |
 | `scripts/test-echo.sh [server]` | Tests the echo servers of `build/server`, or of another command ([below](#test-the-echo-servers)). |
@@ -156,7 +157,8 @@ Run these in WSL. They work from any directory.
 ([c-interop.md](c-interop.md#where-the-header-goes)). It takes the C compiler from `CC`
 (default `cc`, gcc here) and its flags from `CFLAGS` (default `-O2`). The generated C
 stays in `build/server.c` for reading. gcc builds a faster server than clang
-(task 008).
+(task 008). With `LOOP=uring`, it also passes `--include shim/uring.h` and links
+liburing; that server needs Linux 6.1 ([architecture](architecture/README.md#the-io_uring-loop-task-005)).
 
 TinyCC can't place thread-local storage, so it refuses to run any program that can reach
 `thread_spawn`, even when the spawn isn't taken. `src/main.goose` is one, so the server
@@ -180,7 +182,8 @@ does with bytes alone: the parser on good, partial, pipelined, and refused reque
 kind of response.
 
 `scripts/test-http.sh` starts `build/server http` with 4 workers (`WORKERS`) and fails on
-the first error. It needs curl, wrk, h2load, oha, `nc`, and `python3`
+the first error. It tests whichever loop `build/server` has, so build each loop and run it
+once per loop. It needs curl, wrk, h2load, oha, `nc`, and `python3`
 ([toolchain](#toolchain)). Against the server it runs:
 
 - curl on `/plaintext`, `/json`, and a 404, and two requests on one connection.
@@ -210,6 +213,10 @@ the first error. It needs curl, wrk, h2load, oha, `nc`, and `python3`
   must see only 200s and no errors.
 - Then one worker under `ulimit -n 40` and 60 clients (`emfile`): the clients past the fd
   limit wait in the listen backlog, and are served once earlier ones close.
+
+The io_uring loop's listener outlives its process by a moment: the kernel tears a ring
+down after the process exits, and the queued multishot accept holds the listener until
+then. `test-http.sh` waits up to 5 s for the port to free before each start.
 
 The load runs check correctness, not speed; their numbers aren't measurements (task 004).
 wrk 4.1.0 times requests with the wall clock, `gettimeofday`, and WSL2 steps its wall clock
