@@ -330,8 +330,9 @@ entry passed `validate`. Results in
 
 Goose leads baseline by 20% and limited-conn by 13%, ties vanilla-epoll in pipelined, and
 spends the least CPU per request at the fixed rate, 4% under tokio. On WSL2, dusty led
-limited-conn; here it's third. The servers used 243-292% of their 300% CPU in baseline,
-limited-conn, and pipelined, so those profiles measure gcannon as much as the servers.
+limited-conn; here it's third. The servers used 243-292% of their 300% CPU in baseline and
+limited-conn, and 203-290% in pipelined (Goose 203%), so those profiles measure gcannon as
+much as the servers.
 Memory is the container's, socket buffers included, and inflated by the VM's
 transparent huge pages, so it compares containers on this VM only. The latency-1m p99
 moved by up to 15 times between runs on WSL2, so it ranks the servers only roughly.
