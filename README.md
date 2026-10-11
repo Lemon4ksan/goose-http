@@ -1,7 +1,7 @@
 # goose-http
 
 A small, fast HTTP/1.1 server written in [Goose](https://github.com/aardappel/goose), as
-a Goose package that programs import, benchmarked against the fastest Rust and Odin
+a Goose package that programs import, benchmarked against the fastest Rust, Zig, V, and C
 servers. It runs an event loop per worker, on Linux, macOS, and Windows.
 
 This repository is a Goose package, not an addition to Goose (2026-10-10). Gaps found
