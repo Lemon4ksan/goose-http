@@ -2,7 +2,7 @@
 
 A proof of concept: a small, fast HTTP/1.1 server written in
 [Goose](https://github.com/aardappel/goose), benchmarked against the fastest Rust and Odin
-servers. It starts with an epoll event loop per core and may move to io_uring.
+servers. It runs an event loop per core, on Linux, macOS, and Windows.
 
 This repository is a Goose program, not an addition to Goose (2026-10-10). Gaps found
 in the compiler or the standard library are recorded in
@@ -14,6 +14,19 @@ into the HTTP layer of a Goose port of snowtime-native; nothing here depends on 
 Can a Goose HTTP server match the fastest Rust and Odin servers on plaintext and JSON
 benchmarks, in a small amount of code? Task 004 answers it for epoll, and task 005 for
 io_uring.
+
+## Event loops
+
+`scripts/build.sh` builds one of two loops, both in Goose:
+
+- `LOOP=epoll`, the default on Linux, and the only loop on macOS, over kqueue. It's the
+  fastest on Linux so far, and the one the results below measure.
+- `LOOP=uring`, over io_uring on Linux. On Windows it's the only loop, over I/O
+  completion ports, and the default there as `LOOP=iocp`.
+
+Task 005 measures the two against each other on Linux. When the repository becomes a
+Goose package (task 011), both stay: `http::serve` is the portable loop, and
+`http::serve_epoll` the epoll one for Linux and macOS.
 
 ## Results so far
 
