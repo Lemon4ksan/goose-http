@@ -15,8 +15,7 @@ bench/httparena.sh     # HttpArena's harness, in Docker, with Goose as an entry
 
 They need Linux (`taskset`, `perf`, `/proc`; on Windows, WSL), `GOOSE`, and
 `~/.cargo/bin` on `PATH`. The environment configures them (see the comment at the top
-of each). `docs/development.md` lists the
-tools and the traps they work around.
+of each). `docs/development.md` lists the tools and the traps they work around.
 
 ## Servers
 
