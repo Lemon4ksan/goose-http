@@ -14,11 +14,6 @@
 // count from VANILLA_WORKERS before main runs, so main sets it from WORKERS
 // and re-executes the program.
 //
-// Built with `-d vanilla_io_uring`, this is HttpArena's vanilla-io_uring entry
-// instead (frameworks/vanilla-io_uring): the same handlers on vanilla's
-// io_uring backend, one ring per worker thread. The entry builds that one with
-// V's default GC.
-//
 //     WORKERS=n bench-vanilla-epoll [port]
 module main
 
@@ -173,14 +168,10 @@ fn main() {
 		os.execve(os.executable(), os.args[1..], env) or { panic(err) }
 	}
 	port := if os.args.len > 1 { os.args[1].int() } else { 8080 }
-	mut backend := server.IOBackend.epoll
-	$if vanilla_io_uring ? {
-		backend = .io_uring
-	}
-	println('vanilla-${backend}: ${core.max_thread_pool_size} workers on port ${port}')
+	println('vanilla-epoll: ${core.max_thread_pool_size} workers on port ${port}')
 	mut srv := server.new_server(server.ServerConfig{
 		port:            port
-		io_multiplexing: backend
+		io_multiplexing: .epoll
 		handler:         handle
 		make_state:      new_worker
 	})!

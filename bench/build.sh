@@ -117,7 +117,7 @@ VMODULES=$cache/vmodules "$v/v" -prod -gc none "$root/bench/vanilla-epoll" \
     -o "$out/vanilla-epoll"
 # HttpArena's vanilla-io_uring flags: V's default GC, and again without
 # -d vanilla_tls.
-VMODULES=$cache/vmodules "$v/v" -prod -d vanilla_io_uring "$root/bench/vanilla-epoll" \
+VMODULES=$cache/vmodules "$v/v" -prod -d vanilla_io_uring "$root/bench/vanilla-io_uring" \
     -o "$out/vanilla-io_uring"
 
 # The flags of TechEmpower's xitca-web entry (its .cargo/config.toml).
