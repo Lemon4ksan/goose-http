@@ -55,8 +55,28 @@ inline fn handle(ev: http::Event, st: Transfer&, out: http::Reply) {
 }
 
 // Answers req, or starts to. body is its body when whole is set, or empty.
+// TechEmpower's routes go first, where most requests go, before the other
+// paths are compared: as lets ahead of the first branch, the comparisons cost
+// about 20 instructions per request.
 inline fn route(req: http::Request, body: const u8[:], whole: bool, st: Transfer&, out: http::Reply) {
     let path = http::path_of(req.target);
+    let get = out.head || req.method == "GET";
+    if get && path == "/plaintext" {
+        http::start(out, 200);
+        http::finish(out, "Content-Type: text/plain\r\nContent-Length: ", "Hello, World!");
+    } else if get && path == "/json" {
+        var text: u8[..64] = [];
+        json_object(text, Message { message: "Hello, World!" });
+        http::start(out, 200);
+        http::finish(out, "Content-Type: application/json\r\nContent-Length: ", text);
+    } else {
+        route_rest(req, path, get, body, whole, st, out);
+    }
+}
+
+// route's routes past TechEmpower's.
+inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: const u8[:], whole: bool,
+                     st: Transfer&, out: http::Reply) {
     let plaintext = path == "/plaintext";
     let json = path == "/json";
     let baseline = path == "/baseline11";
@@ -71,18 +91,8 @@ inline fn route(req: http::Request, body: const u8[:], whole: bool, st: Transfer
     let echo = path == "/echo";
     // Upgrade: echo switches the connection to echoing what comes, as it is.
     let raw = path == "/upgrade";
-    let get = out.head || req.method == "GET";
     let post = req.method == "POST";
-    // TechEmpower's routes first, where most requests go.
-    if plaintext && get {
-        http::start(out, 200);
-        http::finish(out, "Content-Type: text/plain\r\nContent-Length: ", "Hello, World!");
-    } else if json && get {
-        var text: u8[..64] = [];
-        json_object(text, Message { message: "Hello, World!" });
-        http::start(out, 200);
-        http::finish(out, "Content-Type: application/json\r\nContent-Length: ", text);
-    } else if !get && !post && !http::known_method(req.method) {
+    if !get && !post && !http::known_method(req.method) {
         http::start(out, 501);
         http::finish(out, "Content-Length: ", "");
     } else if !get && (plaintext || json || pipeline || bytes || stream || raw || baseline && !post) ||
