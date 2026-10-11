@@ -25,6 +25,10 @@ fi
 rm -f "$log"' EXIT
 # The many-client run holds 10000 connections open on each side.
 ulimit -n 65536
+# OpenBSD's nc shuts down its side after the input with -N, where macOS's
+# takes -N for a count of keepalive probes; there, -w ends the wait instead.
+nc_eof=
+nc -h 2>&1 | grep -q -- '-N.*[Ss]hutdown' && nc_eof=-N
 
 for mode in echo-blocking echo-epoll; do
     if nc -z 127.0.0.1 "$port" 2>/dev/null; then
@@ -42,7 +46,7 @@ for mode in echo-blocking echo-epoll; do
         sleep 0.1
     done
 
-    reply=$(printf 'hello\n' | nc -N -w 2 127.0.0.1 "$port")
+    reply=$(printf 'hello\n' | nc $nc_eof -w 2 127.0.0.1 "$port")
     [ "$reply" = hello ] || { echo "nc: got '$reply'"; exit 1; }
     echo "nc: ok"
     $client cut 10
