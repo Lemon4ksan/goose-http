@@ -8,6 +8,9 @@
 # arguments. PORT picks the port (29080):
 # keep it below the kernel's ephemeral range (32768 and up), where the
 # clients' own TIME_WAIT sockets from earlier runs can block the bind.
+#
+# On Windows, in Git Bash, it tests only echo-blocking, without nc
+# (docs/development.md, "Windows").
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -16,22 +19,58 @@ port=${PORT:-29080}
 client="python3 $root/scripts/echo_client.py $port"
 log=$(mktemp)
 pid=
+case $(uname -s) in
+MINGW* | MSYS*) windows=1 ;;
+*) windows= ;;
+esac
+
+# Ends the server. Git Bash's kill doesn't always end a native program, so
+# on Windows it goes by the Windows process id.
+end_server() {
+    if [ -n "$windows" ]; then
+        taskkill //F //PID "$(cat "/proc/$pid/winpid")" >/dev/null
+    else
+        kill "$pid"
+    fi
+}
+
 # On any failure, show what the server said and don't leave it running.
 trap 'status=$?
 if [ -n "$pid" ]; then
     [ $status -eq 0 ] || { echo "server output:"; cat "$log"; }
-    kill "$pid" 2>/dev/null || true
+    end_server 2>/dev/null || true
 fi
 rm -f "$log"' EXIT
-# The many-client run holds 10000 connections open on each side.
-ulimit -n 65536
-# OpenBSD's nc shuts down its side after the input with -N, where macOS's
-# takes -N for a count of keepalive probes; there, -w ends the wait instead.
-nc_eof=
-nc -h 2>&1 | grep -q -- '-N.*[Ss]hutdown' && nc_eof=-N
 
-for mode in echo-blocking echo-epoll; do
-    if nc -z 127.0.0.1 "$port" 2>/dev/null; then
+# Whether the server listens. Windows has no nc.
+probe='import socket, sys; socket.create_connection(("127.0.0.1", int(sys.argv[1])), 1)'
+listening() {
+    if [ -n "$windows" ]; then
+        python3 -c "$probe" "$port" 2>/dev/null
+    else
+        nc -z 127.0.0.1 "$port" 2>/dev/null
+    fi
+}
+
+# Windows has no epoll (shim/net_win.c), and no fd limit for native
+# programs. A send there fails with ECONNRESET where Linux's fails with
+# EPIPE, and no signal goes with either.
+modes="echo-blocking echo-epoll"
+send_error='send: Broken pipe'
+if [ -n "$windows" ]; then
+    modes=echo-blocking
+    send_error='send: Connection reset by peer'
+else
+    # The many-client run holds 10000 connections open on each side.
+    ulimit -n 65536
+    # OpenBSD's nc shuts down its side after the input with -N, where macOS's
+    # takes -N for a count of keepalive probes; there, -w ends the wait instead.
+    nc_eof=
+    nc -h 2>&1 | grep -q -- '-N.*[Ss]hutdown' && nc_eof=-N
+fi
+
+for mode in $modes; do
+    if listening; then
         echo "port $port is taken; set PORT"
         exit 1
     fi
@@ -39,16 +78,18 @@ for mode in echo-blocking echo-epoll; do
     pid=$!
     # A TinyCC run compiles the program first.
     tries=0
-    until nc -z 127.0.0.1 "$port" 2>/dev/null; do
+    until listening; do
         kill -0 "$pid" 2>/dev/null || { echo "$mode exited at start"; exit 1; }
         tries=$((tries + 1))
         [ $tries -lt 600 ] || { echo "$mode isn't listening after 60 s"; exit 1; }
         sleep 0.1
     done
 
-    reply=$(printf 'hello\n' | nc $nc_eof -w 2 127.0.0.1 "$port")
-    [ "$reply" = hello ] || { echo "nc: got '$reply'"; exit 1; }
-    echo "nc: ok"
+    if [ -z "$windows" ]; then
+        reply=$(printf 'hello\n' | nc $nc_eof -w 2 127.0.0.1 "$port")
+        [ "$reply" = hello ] || { echo "nc: got '$reply'"; exit 1; }
+        echo "nc: ok"
+    fi
     $client cut 10
     if [ "$mode" = echo-blocking ]; then
         # One client at a time: the rest wait in the listen backlog.
@@ -60,9 +101,10 @@ for mode in echo-blocking echo-epoll; do
     $client ping
 
     kill -0 "$pid" || { echo "$mode died"; exit 1; }
-    # The cut runs must have reached the error that raises SIGPIPE.
-    grep -q 'send: Broken pipe' "$log" || { echo "$mode never saw EPIPE"; exit 1; }
-    kill "$pid"
+    # The cut runs must have reached the send error that raises SIGPIPE on
+    # Linux.
+    grep -q "$send_error" "$log" || { echo "$mode never saw '$send_error'"; exit 1; }
+    end_server
     wait "$pid" 2>/dev/null || true
     pid=
     echo "$mode passed. Its output:"
