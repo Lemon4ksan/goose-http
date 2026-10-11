@@ -47,7 +47,9 @@ until the task named beside it confirms or replaces it.
   globals it uses (spec §11.2). The fastest Rust plaintext servers use the same shape
   (proposed for task 003, confirmed by it, 2026-10-10):
   - `main` spawns one worker per `hardware_threads()`, or `WORKERS` if set, and passes
-    each only the port.
+    each only the port. On macOS the default is one worker per performance core, and
+    each worker takes the user-interactive QoS class, which keeps it on those cores:
+    Apple Silicon has no CPU affinity (2026-10-11).
   - Each worker opens its own listener with `SO_REUSEPORT`, so the kernel spreads
     connections across workers, and runs its own edge-triggered epoll loop. On macOS and
     Windows the workers share one listener instead

@@ -28,7 +28,16 @@ struct Conn {
     out: u8[:],         // still to send
 }
 
-thread_fn worker(port: i32) { serve(port); }
+thread_fn worker(port: i32) {
+    sys::worker_start();
+    serve(port);
+}
+
+// The worker count without WORKERS (app.goose).
+fn default_workers() -> i64 {
+    let n = sys::default_workers();
+    return if n > 0 { n as i64 } else { hardware_threads() };
+}
 
 fn serve(port: i32) {
     let lfd = sys::check("listen", sys::listen(port, BACKLOG, sys::NONBLOCK | sys::REUSEPORT));

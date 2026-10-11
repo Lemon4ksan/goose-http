@@ -74,6 +74,14 @@ extern "net_epoll_wait" fn epoll_wait(ep: i32, out: Event[:], timeout_ms: i32) -
 extern "net_clock_ms" fn clock_ms() -> i64;
 extern "net_time_s" fn time_s() -> i64;
 
+// Readies the calling thread to run a worker. On macOS it gets the
+// user-interactive QoS class, which keeps it on the performance cores: Apple
+// Silicon has no CPU affinity. Nothing on Linux.
+extern "net_worker_start" fn worker_start();
+// The worker count without WORKERS: the performance cores on macOS, and 0
+// elsewhere, for one worker per hardware thread.
+extern "net_default_workers" fn default_workers() -> i32;
+
 // Writes the C library's text for an error code (positive) into out, cut to
 // fit, and returns its length.
 extern "net_strerror" fn strerror(err: i64, out: u8[:]) -> i64;

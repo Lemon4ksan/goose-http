@@ -434,8 +434,9 @@ What differs from Linux:
 - Apple's `nc -N` sets a count of keepalive probes, where OpenBSD's shuts down the socket
   after the input ends. `test-echo.sh` passes `-N` only to an `nc` whose help describes
   the shutdown, and relies on `-w 2` otherwise, which makes each echo check 2 s longer.
-- `hardware_threads()` counts the efficiency cores, so `build/server http` without
-  `WORKERS` starts 10 workers on an M1 Pro.
+- Without `WORKERS`, `build/server http` starts one worker per performance core
+  (`hw.perflevel0.logicalcpu`, 8 on an M1 Pro), where `hardware_threads()` would count
+  the efficiency cores too.
 
 One wrk run of the kqueue build, at commit `ac64ce9`, 2026-10-11, on the machine above:
 563,173 requests per second on `/plaintext`, 0.97 ms mean latency, and no errors.

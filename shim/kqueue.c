@@ -17,7 +17,9 @@
 #include <stdint.h>
 #include <string.h>
 #include <sys/event.h>
+#include <sys/qos.h>
 #include <sys/socket.h>
+#include <sys/sysctl.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -400,6 +402,21 @@ int64_t net_time_s(void) {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     return (int64_t)ts.tv_sec;
+}
+
+/* Apple Silicon has no CPU affinity; the QoS class is what keeps a thread
+   on the performance cores. */
+void net_worker_start(void) {
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+}
+
+/* The performance cores' logical CPUs (8 on an M1 Pro), or 0 where the
+   sysctl doesn't exist, as on Intel Macs. */
+int32_t net_default_workers(void) {
+    int32_t n = 0;
+    size_t len = sizeof n;
+    if (sysctlbyname("hw.perflevel0.logicalcpu", &n, &len, NULL, 0) < 0) return 0;
+    return n;
 }
 
 /* Writes the C library's text for an error code into out, cut to fit, and

@@ -136,6 +136,12 @@ int64_t net_time_s(void) {
     return (int64_t)ts.tv_sec;
 }
 
+void net_worker_start(void) {}
+
+int32_t net_default_workers(void) {
+    return 0;
+}
+
 /* Writes the C library's text for an errno value into out, cut to fit, and
    returns its length. */
 int64_t net_strerror(int64_t err, net_bytes out) {

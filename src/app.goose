@@ -1,7 +1,7 @@
 // What both builds of the server share: the command line, the worker count,
 // and the limits a worker holds its connections to. src/main.goose builds the
 // epoll loop (src/server.goose) and src/main_uring.goose the io_uring loop
-// (src/uring.goose); each loop defines thread_fn worker.
+// (src/uring.goose); each loop defines thread_fn worker and default_workers.
 import os;
 import http;
 import echo;
@@ -56,10 +56,11 @@ fn serve_http(port: i32) {
     for id in ids { thread_wait(id); }
 }
 
-// WORKERS, or one worker per hardware thread.
+// WORKERS, or the loop's default_workers: one per hardware thread, or on
+// macOS one per performance core.
 fn workers() -> i64 {
     var v: u8[>..] = [];
-    guard env("WORKERS", v) else { return max(1, hardware_threads()); }
+    guard env("WORKERS", v) else { return max(1, default_workers()); }
     let n, ok = parse_int(v);
     guard ok && n > 0 else {
         write_stderr("WORKERS must be a positive number\n");

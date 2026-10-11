@@ -53,6 +53,9 @@ struct Conn {
 
 thread_fn worker(port: i32) { serve(port); }
 
+// The worker count without WORKERS (app.goose).
+fn default_workers() -> i64 { return hardware_threads(); }
+
 fn serve(port: i32) {
     let lfd = sys::check("listen", sys::listen(port, BACKLOG, sys::NONBLOCK | sys::REUSEPORT));
     let r = sys::check("io_uring", ring::create(ENTRIES, NBUFS, BUFLEN));
