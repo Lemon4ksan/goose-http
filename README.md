@@ -19,15 +19,16 @@ io_uring.
 
 `scripts/build.sh` builds one of two loops, both in Goose:
 
-- `LOOP=epoll`, the default on Linux, and the only loop on macOS, over kqueue. The
-  results below measure it.
-- `LOOP=uring`, over io_uring on Linux: 11% to 21% faster than the epoll loop in task
-  005's matrix, at 4 to 5 times its peak RSS (about 10 MB with 4 workers). On Windows
-  it's the only loop, over I/O completion ports, and the default there as `LOOP=iocp`.
+- `LOOP=uring`, over io_uring, the default on Linux: 11% to 21% faster than the epoll
+  loop in task 005's matrix, at 4 to 5 times its peak RSS (about 10 MB with 4 workers).
+  It needs Linux 6.1 and liburing, and Docker's default seccomp profile blocks it. On
+  Windows it's the only loop, over I/O completion ports, built as `LOOP=iocp`.
+- `LOOP=epoll`, the only loop on macOS, over kqueue, and on Linux the loop for kernels
+  and containers without io_uring. The results below measure it.
 
-Task 005 decides which loop is Linux's default. When the repository becomes a
-Goose package (task 011), both stay: `http::serve` is the portable loop, and
-`http::serve_epoll` the epoll one for Linux and macOS.
+Both stay built and tested ([architecture](docs/architecture/README.md#the-io_uring-loop-task-005)).
+When the repository becomes a Goose package (task 011), `http::serve` is the portable
+loop, and `http::serve_epoll` the epoll one for Linux and macOS.
 
 ## Results so far
 

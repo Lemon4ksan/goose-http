@@ -3,10 +3,11 @@
 #
 # GOOSE names the compiler (default: goose on PATH). CC picks the C compiler
 # (default gcc, which builds a faster server than clang: task 008). LOOP
-# picks the event loop: epoll (src/main.goose, the default), or uring
-# (src/main_uring.goose), which needs liburing (apt liburing-dev) and Linux
-# 6.1. Each root file's sidecar (src/main.build, src/main_uring.build) names
-# the C in shim/ it links.
+# picks the event loop: uring (src/main_uring.goose, the default on Linux),
+# which needs liburing (apt liburing-dev) and Linux 6.1, or epoll
+# (src/main.goose, the only loop on macOS, over kqueue). Each root file's
+# sidecar (src/main.build, src/main_uring.build) names the C in shim/ it
+# links.
 #
 # On Windows, in Git Bash, the loop is iocp, src/main_uring.goose's loop over
 # I/O completion ports (shim/iocp.c), and CC defaults to msvc.
@@ -21,6 +22,7 @@ goose=${GOOSE:-goose}
 os=$(uname -s)
 case $os in
 MINGW* | MSYS*) os=Windows loop=${LOOP:-iocp} cc=${CC:-msvc} ;;
+Linux) loop=${LOOP:-uring} cc=${CC:-gcc} ;;
 *) loop=${LOOP:-epoll} cc=${CC:-gcc} ;;
 esac
 case $loop in

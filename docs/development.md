@@ -162,7 +162,7 @@ Run these in WSL, or on macOS ([below](#macos)). They work from any directory.
 
 | Command | What it does |
 |---|---|
-| `scripts/build.sh` | Builds `src/main.goose` into `build/server` with `goose build`, at `-O2` for Goose and gcc. `LOOP=uring` builds `src/main_uring.goose`, the io_uring loop, instead. |
+| `scripts/build.sh` | Builds the server into `build/server` with `goose build`, at `-O2` for Goose and gcc: on Linux `src/main_uring.goose`, the io_uring loop, or with `LOOP=epoll` `src/main.goose`, the epoll loop. |
 | `scripts/test-unit.sh` | Runs each `src/test_*.goose` through TinyCC ([below](#test-the-http-server)). |
 | `scripts/test-http.sh` | Tests the HTTP server of `build/server` ([below](#test-the-http-server)). |
 | `scripts/test-echo.sh [server]` | Tests the echo servers of `build/server`, or of another command ([below](#test-the-echo-servers)). |

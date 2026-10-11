@@ -107,11 +107,22 @@ until the task named beside it confirms or replaces it.
 
 ### The io_uring loop (task 005)
 
-`LOOP=uring scripts/build.sh` builds the server with an io_uring loop
-(`src/uring.goose`) in place of the epoll loop; `src/app.goose` holds what both share.
-The epoll loop stays the default on Linux until task 005 measures both, and stays
-buildable and tested either way (2026-10-11). On Windows the io_uring loop is the only
-one, over `shim/iocp.c` ([below](#the-platform-and-its-error-codes-task-006)):
+The io_uring loop (`src/uring.goose`) is the default on Linux, and the epoll loop
+stays buildable and tested as `LOOP=epoll` (decided 2026-10-11); `src/app.goose` holds
+what both share. Task 005's matrix on the x86 machine of `docs/results.md` had the
+io_uring loop 11% to 21% ahead in every cell, with the server's CPUs saturated. Against
+it:
+
+- In Docker Desktop's VM on an M1 Pro (task 012), the epoll loop led by 4% to 8% in
+  plaintext and tied in JSON, in cells where wrk, not the server, used its CPUs up.
+- Docker's default seccomp profile blocks io_uring, so the HttpArena image builds the
+  epoll loop, and `bench/build.sh` builds both, as `goose` and `goose-uring`.
+- Its peak RSS is 4 to 5 times the epoll loop's, about 10 MB against 2.4 MB with 4
+  workers.
+
+Going back is one line of `scripts/build.sh`, if a server-bound run on another machine
+puts the epoll loop ahead. On Windows the io_uring loop is the only one, over
+`shim/iocp.c` ([below](#the-platform-and-its-error-codes-task-006)):
 
 - `shim/uring.c` wraps liburing 2.14, whose helpers are static inline functions that
   `extern fn` can't bind, and needs Linux 6.1. Each worker owns a ring, created with
@@ -152,7 +163,7 @@ The sidecar chooses the platform, because the spec has no conditional compilatio
 
 | Platform | Root file | Loop | Shim |
 |---|---|---|---|
-| Linux | `src/main.goose` (default) or `src/main_uring.goose` | epoll or io_uring | `shim/net.c`, and `shim/uring.c` for io_uring |
+| Linux | `src/main_uring.goose` (default) or `src/main.goose` | io_uring or epoll | `shim/net.c`, and `shim/uring.c` for io_uring |
 | macOS | `src/main.goose` | epoll | `shim/kqueue.c` |
 | Windows | `src/main_uring.goose` | io_uring | `shim/net_win.c`, `shim/iocp.c` |
 

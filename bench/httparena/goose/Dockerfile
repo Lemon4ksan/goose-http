@@ -17,7 +17,8 @@ RUN git init -q /goose && cd /goose && \
 COPY src /server/src
 COPY shim /server/shim
 COPY scripts/build.sh /server/scripts/build.sh
-RUN GOOSE=/goose/build/goose /server/scripts/build.sh
+# The epoll loop: Docker's default seccomp profile blocks io_uring.
+RUN GOOSE=/goose/build/goose LOOP=epoll /server/scripts/build.sh
 
 FROM ubuntu:26.04
 COPY --from=build /server/build/server /server

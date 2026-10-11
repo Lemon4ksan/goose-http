@@ -1,6 +1,6 @@
 # 005: io_uring
 
-Status: in progress
+Status: done
 
 Add an event loop on io_uring's completion model beside the epoll loop, which stays
 either way: it is the baseline io_uring is measured against, and the loop on kernels
@@ -30,7 +30,7 @@ zix and zeemo (Zig), first and fifth in its pipelined test, and libreactorng (C)
 - [x] xitca-web, zix, zeemo, and libreactorng in `bench/`, pinned and in their fastest
       documented configuration
 - [x] Task 004's matrix rerun with both loops, and the results recorded here
-- [ ] A decision recorded in `docs/architecture/README.md`: which loop is the default,
+- [x] A decision recorded in `docs/architecture/README.md`: which loop is the default,
       and why; the epoll loop stays buildable and tested
 
 ## Progress

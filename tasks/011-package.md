@@ -1,7 +1,6 @@
 # 011: goose-http as a Goose package
 
-Status: todo (after task 005, whose Linux numbers settle the loops; asked for
-2026-10-11)
+Status: todo (asked for 2026-10-11)
 
 Goose `efe3155` has packages: a program declares one in its root file,
 `import http from "github.com/kaitk/goose-http@v0.1.0";`, and the compiler fetches the
@@ -49,10 +48,10 @@ The design, proposed:
     Linux, `ur_create` falls back to the same emulation over epoll when
     `io_uring_setup` fails, as in a container whose seccomp profile blocks io_uring.
   - `http::serve_epoll` is today's readiness loop, `src/server.goose`, on Linux (epoll)
-    and macOS (kqueue). It's the fastest loop on Linux as of task 009, and on macOS it
-    skips the emulation's copies. On Windows it fails at startup with `ENOSYS`.
+    and macOS (kqueue). On Linux it uses a quarter of the io_uring loop's memory and runs
+    where io_uring is blocked, and on macOS it skips the emulation's copies. On Windows it fails at startup with `ENOSYS`.
   The benchmark server reads `LOOP=epoll|uring` at startup and calls one of them,
-  epoll on Linux until task 005 says otherwise. A runtime pick inside the package was
+  uring by default on Linux, as task 005 decided. A runtime pick inside the package was
   rejected: no event-loop library we looked at does it, except as a fallback from
   io_uring to epoll. The cost of one sidecar: every Linux program that imports `http`
   links liburing, even one that calls only `serve_epoll`.
