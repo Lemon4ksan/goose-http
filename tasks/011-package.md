@@ -40,10 +40,11 @@ The design, proposed:
   benchmark server's handler, a program in `server/` that imports the package from
   `"../"`. The parser, the response helpers, and the date stay in the package.
 - The package holds both loops, and `http::serve` picks one at run time: io_uring on
-  Linux and Windows (over IOCP), epoll on macOS (decided 2026-10-11). Each loop is the
-  only one on a platform, and a package has one entry and one sidecar, so the root
+  Windows (over IOCP), epoll on macOS, and on Linux the default task 005 settles,
+  epoll until then, with the other selectable (decided 2026-10-11). Each loop is the
+  only one on some platform, and a package has one entry and one sidecar, so the root
   file can no longer pick. The cost: every Linux program that imports `http` links
-  liburing. Task 005 decides whether Linux keeps epoll as a choice or the default.
+  liburing.
 - Before the handler can go in, the loops' request handling becomes one function both
   call: `answer` is nearly the same in `src/server.goose` and `src/uring.goose`, and
   routes are wired into it (`http::respond`, and `http::reads_body`'s `/baseline11`).
