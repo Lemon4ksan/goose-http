@@ -355,9 +355,10 @@ Next:
 
 Settings for the next session:
 
-- The pin is at `f084e52`. All tests, every finding's minimal program, and the `simd fn`
+- The pin is at `efe3155`. All tests, every finding's minimal program, and the `simd fn`
   finding's timing give the same results there as at `752c3ce`, where everything above
-  before the final run was measured.
+  before the final run was measured. `efe3155` generates the same C for the server as
+  `f084e52`, where the final run's servers were built, but for the stdlib's file paths.
 - For a tuning change, build each version as `build/bench/goose-<name>` and run them
   side by side, `SERVERS="goose-o goose-b" RUNS=3 DURATION=3 WARMUP=1 LATENCY=0
   bench/run.sh`, about 5 minutes for two; `RUNS=5 DURATION=10` with `TESTS` for a

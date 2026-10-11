@@ -7,7 +7,7 @@ the native compiler typechecks the program there, but the server only runs on Li
 
 | Tool | Where | Version used (2026-10-10) |
 |---|---|---|
-| Goose compiler | `../goose`, at the pin in `README.md` | `f084e52` |
+| Goose compiler | `../goose`, at the pin in `README.md` | `efe3155` |
 | WSL2 Ubuntu | | 26.04.1 LTS, kernel 6.18.40.1-microsoft-standard-WSL2 |
 | C compilers | WSL | gcc 15.2.0, clang 21.1.8 |
 | CMake, Ninja | WSL, apt | 4.2.3, 1.13.2 |
@@ -78,16 +78,15 @@ and `../goose-ngpu` are other Goose checkouts on feature branches: leave them al
 WSL builds into `build-linux/` and Windows into `build/`, and the checkout's `.gitignore`
 covers both.
 
-1. Clone the checkout at the pin, with the TinyCC submodule only. TinyCC is what lets
-   `goose file.goose` compile and run a program in process; the other submodules are for
-   graphics, audio, and physics, which this server doesn't use. The clone calls
-   `aardappel/goose` `upstream`, as Kait's checkout does, where `origin` is the fork
-   `kaitk/goose`.
+1. Clone the checkout at the pin. It has no submodules: TinyCC, which lets
+   `goose file.goose` compile and run a program in process, is vendored, and graphics,
+   audio, and physics are packages the compiler fetches only for a program that imports
+   them. The clone calls `aardappel/goose` `upstream`, as Kait's checkout does, where
+   `origin` is the fork `kaitk/goose`.
 
    ```sh
    git clone -o upstream https://github.com/aardappel/goose.git ../goose
-   git -C ../goose checkout f084e52
-   git -C ../goose submodule update --init third_party/tinycc
+   git -C ../goose checkout efe3155
    ```
 
 2. Build the Linux compiler, in WSL:
@@ -95,8 +94,7 @@ covers both.
    ```sh
    sudo apt-get install -y cmake ninja-build
    cd ../goose
-   cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release \
-       -DGOOSE_GFX=OFF -DGOOSE_AUDIO=OFF -DGOOSE_PHYSICS=OFF -DGOOSE_UI=OFF
+   cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release
    cmake --build build-linux
    ```
 
@@ -111,8 +109,7 @@ covers both.
    Tools, at `Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`.
 
    ```powershell
-   cmake -S ..\goose -B ..\goose\build -G "Visual Studio 18 2026" `
-       -DGOOSE_GFX=OFF -DGOOSE_AUDIO=OFF -DGOOSE_PHYSICS=OFF -DGOOSE_UI=OFF
+   cmake -S ..\goose -B ..\goose\build -G "Visual Studio 18 2026"
    cmake --build ..\goose\build --config Release
    ```
 
@@ -133,11 +130,17 @@ in its own commit with the builds and results that still hold (`README.md`):
 git -C ../goose fetch upstream
 git -C ../goose log --oneline HEAD..upstream/master
 git -C ../goose checkout upstream/master
-git -C ../goose submodule update third_party/tinycc
 ```
 
 Then rebuild both compilers (`cmake --build` with the same directories), rerun the
 scripts below, and update the pin in `README.md` and the table above.
+
+A checkout from before `6fcb753`, where TinyCC was a submodule, can't check out a later
+commit over the submodule's directory. Release it first:
+`git -C ../goose submodule deinit -f third_party/tinycc` and
+`rm -rf ../goose/third_party/tinycc`. The old configure options `GOOSE_GFX`,
+`GOOSE_AUDIO`, `GOOSE_PHYSICS`, and `GOOSE_UI` are gone; CMake warns about them in an old
+build directory and ignores them.
 
 ## Build and run
 
