@@ -27,9 +27,9 @@ zix and zeemo (Zig), first and fifth in its pipelined test, and libreactorng (C)
       provided buffer ring, and sends batched per loop iteration
 - [x] The same behavior as task 003's server: its tests pass against both loops,
       selected at build time
-- [ ] xitca-web, zix, zeemo, and libreactorng in `bench/`, pinned and in their fastest
+- [x] xitca-web, zix, zeemo, and libreactorng in `bench/`, pinned and in their fastest
       documented configuration
-- [ ] Task 004's matrix rerun with both loops, and the results recorded here
+- [x] Task 004's matrix rerun with both loops, and the results recorded here
 - [ ] A decision recorded in `docs/architecture/README.md`: which loop is the default,
       and why; the epoll loop stays buildable and tested
 
@@ -59,3 +59,36 @@ wrk's rate, and peak RSS:
 The loop gives each buffer back in the pass that takes it, and running out only ends a
 receive, which the loop queues again. The runs are in
 `bench/results/2026-10-11-uring-bufs/`.
+
+The io_uring loop is faster than the epoll loop in every cell, by 11% to 21%.
+`bench/run.sh` with its defaults (3 runs of 15 s after 5 s of warm-up, interleaved,
+latency step on) at `ae046c9`, on the machine of `docs/results.md`, `TESTS="plaintext:256
+plaintext:1024 json:256"`, 1 worker on CPU 0 and 4 on CPUs 0-3. Median wrk rates, the
+ratio to the epoll loop, and peak RSS:
+
+| Cell | goose (epoll) | goose-uring | vanilla-io_uring | libreactorng | zix | zeemo | xitca-web |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| plaintext 256, 1 w | 1.937 M | 2.159 M, 1.11 | 2.668 M, 1.38 | 2.352 M, 1.21 | 1.767 M, 0.91 | 0.836 M, 0.43 | 1.101 M, 0.57 |
+| plaintext 256, 4 w | 6.003 M | 7.134 M, 1.19 | 8.145 M, 1.36 | 6.965 M, 1.16 | 5.133 M, 0.86 | 2.389 M, 0.40 | 3.302 M, 0.55 |
+| plaintext 1,024, 1 w | 1.878 M | 2.163 M, 1.15 | 2.540 M, 1.35 | 2.441 M, 1.30 | 1.512 M, 0.81 | 0.759 M, 0.40 | 1.046 M, 0.56 |
+| plaintext 1,024, 4 w | 5.784 M | 7.024 M, 1.21 | 8.250 M, 1.43 | 7.384 M, 1.28 | 5.442 M, 0.94 | 2.695 M, 0.47 | 3.518 M, 0.61 |
+| json 256, 1 w | 0.145 M | 0.172 M, 1.19 | 0.148 M, 1.02 | 0.129 M, 0.89 | 0.152 M, 1.05 | 0.140 M, 0.97 | 0.098 M, 0.67 |
+| json 256, 4 w | 0.426 M | 0.510 M, 1.20 | 0.456 M, 1.07 | 0.545 M, 1.28 | 0.552 M, 1.30 | 0.540 M, 1.27 | 0.419 M, 0.98 |
+| Peak RSS, 4 w | 2.3–2.4 MB | 9.4–11.8 MB | 36.9–133.4 MB | 6.2–22.2 MB | 6.9–13.2 MB | 6.8–12.8 MB | 25.5–33.5 MB |
+
+- vanilla-io_uring leads goose-uring in plaintext by 14% to 24%, and had 450 to 766
+  wrk timeouts per run at 1 worker and 1,024 connections (1,837 errors in the cell).
+  libreactorng leads it by 5% to 13%, except at 256 connections with 4 workers, where
+  goose-uring leads by 2%.
+- In JSON at 4 workers, zix, libreactorng, and zeemo lead goose-uring by 6% to 8%. At 1
+  worker goose-uring leads every server.
+- goose-uring's peak RSS is 4 to 5 times the epoll loop's: 256 provided buffers of 4 KB
+  per worker, and the shim's send records.
+- may-minihttp, hyper, tokio, and dusty were copied from task 009's final run
+  (`REUSE`, same binaries and settings). The epoll loop ran 2% slower to 12% faster here
+  than there (plaintext 256 with 4 workers: 6.003 M against 5.467 M), so those four
+  compare with this run's Goose numbers at a disadvantage of up to 12%; compare them with
+  task 009's instead. vanilla-epoll is left out: its JSON cells leak memory
+  (`docs/development.md`), and task 009's run measured only one of them.
+
+The runs are in `bench/results/2026-10-11-uring-matrix/`.
