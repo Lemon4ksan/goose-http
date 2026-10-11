@@ -78,8 +78,8 @@ it.
 - [x] Unit tests for the parts of task 003 that work on bytes alone: the request parser,
       the `Date` header, and the response builder (`src/test_http.goose`, run by
       `scripts/test-unit.sh`; task 003 also added `scripts/test-http.sh`)
-- [ ] [Http11Probe](https://mda2av.github.io/Http11Probe/), HttpArena's RFC 9112
+- [x] [Http11Probe](https://mda2av.github.io/Http11Probe/), HttpArena's RFC 9112
       compliance probe, run against the server, with each failure fixed or recorded as a
-      deliberate refusal
+      deliberate refusal (2026-10-11, against the epoll loop on macOS)
 - [x] How to run it, and what it covers, recorded in `docs/development.md`
 - [x] The "Move the pin" steps in `docs/development.md` run `scripts/test.sh`
