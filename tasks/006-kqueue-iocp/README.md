@@ -1,6 +1,6 @@
 # 006: kqueue on macOS and BSD, IOCP on Windows
 
-Status: todo (asked for 2026-10-10; after task 004)
+Status: done, but for the stretch goal (asked for 2026-10-10)
 
 Run the server on macOS and the BSDs through kqueue, and on Windows through I/O
 completion ports. Linux stays the benchmark platform (`docs/architecture/README.md`), so
@@ -26,8 +26,8 @@ the root file. Conditional compilation in Goose
 would let one root file serve every platform; that is a stretch goal, and an addition to
 Goose, so it starts as a findings entry and a question for the maintainer.
 
-Open question for the start of the task: whether the Windows build works through the
-native `goose.exe` and MSVC, which `docs/development.md` so far uses only for `--check`.
+The Windows build works through the native `goose.exe` and MSVC, and through clang-cl
+(subtask 02, 2026-10-11).
 
 ## Subtasks
 
@@ -36,5 +36,5 @@ native `goose.exe` and MSVC, which `docs/development.md` so far uses only for `-
 
 ## Acceptance criteria
 
-- [ ] Subtasks 01 and 02 done
+- [x] Subtasks 01 and 02 done
 - [ ] Stretch: one root file for every platform, if Goose gains conditional compilation

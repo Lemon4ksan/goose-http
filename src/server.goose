@@ -1,7 +1,7 @@
-// The HTTP server's epoll loop: each worker has its own SO_REUSEPORT
-// listener and edge-triggered epoll instance, and nothing is shared between
-// workers. A connection belongs to the worker that accepted it, in a slot of
-// that worker's pool.
+// The HTTP server's epoll loop: each worker has its own edge-triggered epoll
+// instance, and its own SO_REUSEPORT listener on Linux (sys::listen), and
+// nothing else is shared between workers. A connection belongs to the
+// worker that accepted it, in a slot of that worker's pool.
 import std;
 import os;
 import sys;

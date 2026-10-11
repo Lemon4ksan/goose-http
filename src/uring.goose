@@ -1,8 +1,9 @@
-// The HTTP server's io_uring loop: each worker has its own SO_REUSEPORT
-// listener and its own ring, and nothing is shared between workers. A
-// multishot accept takes the listener's connections, and a multishot
-// receive per connection fills the ring's provided buffers. The sends a pass
-// over the completions queues go to the kernel together, in the next wait.
+// The HTTP server's io_uring loop: each worker has its own ring, and its own
+// SO_REUSEPORT listener on Linux (sys::listen), and nothing else is shared
+// between workers. A multishot accept takes the listener's connections, and
+// a multishot receive per connection fills the ring's provided buffers. The
+// sends a pass over the completions queues go to the kernel together, in the
+// next wait.
 import std;
 import os;
 import sys;

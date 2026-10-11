@@ -1,9 +1,9 @@
 # Development
 
-Building, testing, and benchmarking run on Linux (WSL2 Ubuntu). Windows is for editing:
-the native compiler typechecks the program there, but the server doesn't run there yet.
-macOS builds the epoll loop over kqueue and passes the tests, but isn't for benchmarks
-([below](#macos)).
+Benchmarking runs on Linux (WSL2 Ubuntu), and so do building and testing by default.
+macOS builds the epoll loop over kqueue ([below](#macos)), and Windows builds the
+io_uring loop over I/O completion ports ([below](#windows)). Both pass the tests, and
+neither is for benchmarks.
 
 ## Toolchain
 
@@ -497,6 +497,53 @@ docker run --rm --security-opt seccomp=unconfined --ulimit nofile=1048576:104857
   with `bench/build.sh` and `bench/run.sh`.
 - The VM is no benchmark machine: its CPUs are shared with macOS, and the load runs share
   them with the server.
+
+## Windows
+
+The io_uring loop runs natively on Windows through `shim/iocp.c` and `shim/net_win.c`,
+which `src/main_uring.build` lists under `c_sources_windows`
+([architecture](architecture/README.md#the-platform-and-its-error-codes-task-006)), and
+`scripts/test-unit.sh`, `scripts/test-http.sh`, and `scripts/test-echo.sh` pass there,
+in Git Bash. The epoll loop doesn't build on Windows. Windows isn't for benchmarks.
+
+| Tool | Where | Version used (2026-10-11) |
+|---|---|---|
+| Windows | Windows 11 Pro 25H2, Ryzen 7 5800X3D | 10.0.26200 |
+| C compiler | Visual Studio Build Tools | MSVC 19.51; clang-cl works too |
+| Shell, curl | Git for Windows | Git Bash 5.2.26, mingw curl 8.7.1 |
+| Python | on `PATH` as `python3` | 3.14.6 |
+
+Build the compiler as in [Set up the Goose compiler](#set-up-the-goose-compiler), step 3.
+Then, in Git Bash:
+
+```sh
+export GOOSE=$PWD/../goose/build/Release/goose.exe
+scripts/build.sh                 # LOOP=iocp, CC=msvc: build/server.exe
+nice -n 19 scripts/test-unit.sh
+nice -n 19 scripts/test-http.sh
+nice -n 19 scripts/test-echo.sh
+```
+
+`goose toolchain` shows the C compilers `goose build` finds; `CC=clang-cl` picks
+clang-cl. `test-http.sh` leaves out the load runs and `emfile` on Windows, and
+`test-echo.sh` runs only echo-blocking, without nc ([task
+006.02](../tasks/006-kqueue-iocp/02-iocp-windows.md#tests)).
+
+Traps in Git Bash:
+
+- `nice -n 19` starts a native program in the Idle priority class, which keeps a test
+  run from slowing other work on the machine.
+- A Linux build in the same tree leaves an ELF `build/server` beside `build/server.exe`,
+  and Git Bash runs `build/server` first, which fails with "Exec format error". The test
+  scripts name `build/server.exe` on Windows; do the same by hand.
+- `ulimit -n` fails, and wouldn't reach a native program anyway.
+- Git Bash's `kill` doesn't always end a native program. The test scripts end the server
+  with `taskkill //F //PID` and the Windows process ID from `/proc/$pid/winpid`.
+- MSYS rewrites arguments that look like paths, so `cmd /c` becomes `cmd C:/`. Run it
+  with `MSYS2_ARG_CONV_EXCL='*'`. Writing `//c` with path conversion turned off
+  (`MSYS_NO_PATHCONV=1`) passes `//c` through, and leaves `cmd` waiting for input.
+- The server listens on 127.0.0.1 only. Any other address raises a Windows Defender
+  Firewall prompt.
 
 ## Edit on Windows
 
