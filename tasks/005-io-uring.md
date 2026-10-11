@@ -8,7 +8,7 @@ without io_uring. The HTTP parser and response code from task 003 stay as they
 are; only the event loop and the shim change.
 
 liburing's helpers are mostly `static inline` functions, which `extern fn` can't bind, so
-`shim/uring.h` wraps the ones the loop uses as plain functions. Each worker owns its own
+`shim/uring.c` wraps the ones the loop uses as plain functions. Each worker owns its own
 ring, which matches Goose's shared-nothing workers.
 
 Task 004's profile favors trying it: after the parser fix, 73% of a worker's cycles are in
@@ -21,7 +21,7 @@ zix and zeemo (Zig), first and fifth in its pipelined test, and libreactorng (C)
 
 ## Acceptance criteria
 
-- [x] `shim/uring.h` over liburing, with the liburing version and minimum kernel
+- [x] `shim/uring.c` over liburing, with the liburing version and minimum kernel
       recorded
 - [x] An io_uring loop per worker with multishot accept, multishot receive into a
       provided buffer ring, and sends batched per loop iteration
@@ -38,7 +38,7 @@ zix and zeemo (Zig), first and fifth in its pipelined test, and libreactorng (C)
 ### 2026-10-11
 
 `LOOP=uring scripts/build.sh` builds the io_uring loop (`src/uring.goose`, over
-`src/ring.goose` and `shim/uring.h`); `docs/architecture/README.md` describes it.
+`src/ring.goose` and `shim/uring.c`); `docs/architecture/README.md` describes it.
 `scripts/test-unit.sh` and `scripts/test-http.sh` pass against both loops at Goose
 `f084e52`. `scripts/test-echo.sh` is still to run against the io_uring build off CPU 15:
 pinned to that one CPU beside the benchmark, its EPIPE check failed for both builds. The design follows from spec §7.10: the ring owns every

@@ -62,8 +62,8 @@ the working directory.
     $ grep 'net\.h' out.c
     #include "home/me/repro/net.h"
 
-Workaround: give `-o` a path with a directory, as `scripts/build.sh` does
-(`-o "$root/build/server.c"`). The header is then included as `../shim/net.h`.
+Workaround: give `-o` a path with a directory. Since task 010 the server's shim is C
+files that `goose build` compiles on their own, with no `--include`.
 
 ## An --include header can't set feature-test macros
 
@@ -89,8 +89,8 @@ before the runtime's includes, or a note in spec §7.10 that `-D` is the way.
     net.h: error: implicit declaration of function 'accept4'
 
 Workaround: `goose -D_GNU_SOURCE`, which the compiler writes at the top of the generated C
-for both backends. `scripts/build.sh` passes it, and `shim/net.h`
-stops with an `#error` without it.
+for both backends. Since task 010 the server's shim is C files that `goose build`
+compiles on their own, and `shim/net.c` defines `_GNU_SOURCE` itself.
 
 ## A long-distance return can't carry a struct holding a slice of a parameter
 

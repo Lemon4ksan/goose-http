@@ -14,12 +14,19 @@ until the task named beside it confirms or replaces it.
   on WSL2 Ubuntu.
 - **C behind a thin shim.** Goose calls C directly through `extern fn`, but C can't call
   Goose back at runtime: there are no runtime function pointers (§7.5), and `export fn`
-  calls must stay on the thread that called `goose_init` (§7.11). So `shim/net.h` only
+  calls must stay on the thread that called `goose_init` (§7.11). So `shim/net.c` only
   wraps calls that return, and returns `-errno` instead of `-1` and `errno`. It covers
-  sockets, epoll, coarse clocks, and `strerror`; `shim/uring.h` covers io_uring
+  sockets, epoll, coarse clocks, and `strerror`; `shim/uring.c` covers io_uring
   ([below](#the-io_uring-loop-task-005)).
   Anything that needs a callback, such as llhttp, libuv, or a C HTTP server, is out
   (confirmed by task 002, 2026-10-10). Details:
+  - `goose build` compiles the shim as C files of their own, which each root file's
+    sidecar names (`src/main.build`), and links them (task 010, 2026-10-11). The C sees
+    none of the generated C, so it spells out the layouts it shares with Goose. Headers
+    spliced in with `--include` were dropped: they needed `-D_GNU_SOURCE` from the
+    command line and an `-o` with a directory, two compiler findings. A sidecar's
+    `c_sources_linux`, `_macos`, and `_windows` keys pick each platform's shim with no
+    conditional compilation in Goose.
   - The shim owns the kernel structures whose layout varies by architecture.
     `epoll_wait` fills a local `struct epoll_event` array, which is packed on x86-64 and
     padded on arm64, and copies it into `sys::Event`, a struct of the program's own.
@@ -94,7 +101,7 @@ until the task named beside it confirms or replaces it.
 The epoll loop stays the default until task 005 measures both, and stays buildable and
 tested either way (2026-10-11):
 
-- `shim/uring.h` wraps liburing 2.14, whose helpers are static inline functions that
+- `shim/uring.c` wraps liburing 2.14, whose helpers are static inline functions that
   `extern fn` can't bind, and needs Linux 6.1. Each worker owns a ring, created with
   `IORING_SETUP_SINGLE_ISSUER` and `IORING_SETUP_DEFER_TASKRUN`: the kernel completes
   requests only while the worker waits, and each wait submits everything queued since

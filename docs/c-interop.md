@@ -1,38 +1,35 @@
 # Calling C from Goose
 
-What the C in `shim/` sees of the Goose program, for writing the shim. The rules are in
-the pinned checkout's spec, §7.10 and Appendix C; this page records how they come out in
-the generated C. Checked on Goose `3536810` (2026-10-10) with TinyCC (`goose file.goose`)
+What the C in `shim/` shares with the Goose program, for writing the shim. The rules are
+in the pinned checkout's spec, §7.10 and Appendix C; this page records how they come out
+in the generated C. Checked on Goose `3536810` (2026-10-10) with TinyCC (`goose file.goose`)
 and with gcc 15.2 (`goose -o file.c --standalone`, then `cc -O2 -Wall`). Recheck it
 after moving the pin.
 
-## Where the header goes
+## Where the shim goes
 
-`goose --include shim/net.h` adds an `#include` of the header to the generated C after
-the type declarations and the runtime's extern support, and before the prototypes for
-the program's `extern fn`s. So the header can:
+The shim is plain C files that a root file's sidecar names, `c_sources_linux =
+["../shim/net.c"];` in `src/main.build`. `goose build` compiles each with the C compiler
+and links it with the program (the pinned checkout's `docs/packages.md`). Goose emits a
+prototype for each `extern fn`, such as `int64_t net_recv(int32_t, sl_u8);`, from the
+declaration, and the shim defines the function under that name.
 
-- Use the generated types and the runtime's `sl_u8` and `gs_rref`.
-- Include system headers (`<sys/epoll.h>`, `<sys/socket.h>`, `<errno.h>`). Both
-  TinyCC and gcc compile them.
-- Define its functions `static`. Goose then emits a plain prototype for each `extern fn`,
-  such as `int64_t shim_fill(sl_Ev_g);`, after the header. C accepts that and keeps the
-  function static, with no warning under `-Wall`.
+A shim file is its own translation unit, so:
 
-The header can't set feature-test macros such as `_GNU_SOURCE`: the runtime includes
-`<stdint.h>`, `<stddef.h>`, `<string.h>`, `<stdio.h>`, `<stdlib.h>`, `<unistd.h>`,
-`<signal.h>`, and `<sys/mman.h>` before it. `goose -D_GNU_SOURCE` writes the define at the
-top of the generated C instead, for both backends; that is how `accept4` reaches the shim
-([findings](goose-findings.md#an---include-header-cant-set-feature-test-macros)).
+- It sees none of the generated C. It declares the layouts it shares with Goose itself,
+  from the table below, such as `typedef struct { uint8_t *data; int64_t len; }
+  net_bytes;` for a `u8[:]`, and a packed struct for `sys::Event`.
+- It can't reach the runtime, so it can't append to a `u8[>..]&` (`gs_bld_append`).
+  `net_strerror` writes into a `u8[:]` and returns the length instead.
+- It sets its own feature-test macros: `shim/net.c` starts with `#define _GNU_SOURCE`.
+- The C compiler doesn't inline its functions into the program's C.
 
-The path in the `#include` depends on the backend:
-
-- With `-o`, the compiler rewrites the path relative to the output file's directory, so
-  `scripts/build.sh` gets `#include "../shim/net.h"` in `build/server.c`. An `-o` without
-  a directory breaks an absolute path
-  ([findings](goose-findings.md#an---include-path-is-rewritten-wrongly-when--o-names-no-directory)).
-- A TinyCC run uses the path as given, relative to the working directory, so pass an
-  absolute one.
+`goose --include header.h` still splices a header into the generated C, after the type
+declarations and before the `extern fn` prototypes, where it can use the generated types.
+The server used it before task 010. Such a header can't set feature-test macros
+([findings](goose-findings.md#an---include-header-cant-set-feature-test-macros)), and
+its path breaks under an `-o` without a directory
+([findings](goose-findings.md#an---include-path-is-rewritten-wrongly-when--o-names-no-directory)).
 
 ## Names and layouts
 

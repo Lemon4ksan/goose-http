@@ -1,4 +1,4 @@
-// The kernel calls the server makes, implemented in shim/net.h. Each returns
+// The kernel calls the server makes, implemented in shim/net.c. Each returns
 // what its syscall returns on success and -errno on failure, so a caller
 // compares against the negated constants below: `if n == -sys::EAGAIN`.
 //
@@ -10,14 +10,14 @@ namespace sys;
 
 import os;
 
-// One readiness event, in a layout of the program's own (shim/net.h).
+// One readiness event, in a layout of the program's own (shim/net.c).
 struct Event { events: u32, tag: u64 }
 
 // Flags of listen and accept.
 let NONBLOCK: i32 = 1;
 let REUSEPORT: i32 = 2;   // listen only
 
-// The errno values the server tells apart. shim/net.h asserts each one.
+// The errno values the server tells apart. shim/net.c asserts each one.
 let EINTR = 4;
 let EAGAIN = 11;
 let ENFILE = 23;
@@ -27,7 +27,7 @@ let EADDRINUSE = 98;
 let ECONNABORTED = 103;
 let ECONNRESET = 104;
 
-// epoll event bits and epoll_ctl ops, also asserted in shim/net.h.
+// epoll event bits and epoll_ctl ops, also asserted in shim/net.c.
 let IN: u32 = 0x001;
 let OUT: u32 = 0x004;
 let ERR: u32 = 0x008;
@@ -38,7 +38,7 @@ let CTL_ADD: i32 = 1;
 let CTL_DEL: i32 = 2;
 let CTL_MOD: i32 = 3;
 
-// shutdown's how, asserted in shim/net.h.
+// shutdown's how, asserted in shim/net.c.
 let SHUT_WR: i32 = 1;
 
 // A TCP listener on every IPv4 address, with SO_REUSEADDR and TCP_NODELAY,
@@ -64,14 +64,17 @@ extern "net_epoll_wait" fn epoll_wait(ep: i32, out: Event[:], timeout_ms: i32) -
 extern "net_clock_ms" fn clock_ms() -> i64;
 extern "net_time_s" fn time_s() -> i64;
 
-// Appends the C library's text for an errno value (positive) to out.
-extern "net_strerror" fn strerror(err: i64, out: u8[>..]&);
+// Writes the C library's text for an errno value (positive) into out, cut to
+// fit, and returns its length.
+extern "net_strerror" fn strerror(err: i64, out: u8[:]) -> i64;
 
 // Reports a call that failed with -err on stderr.
 fn report(what: const u8[:], err) {
     var msg: u8[>..] = [];
     format(msg, what, ": ");
-    strerror(-err, msg);
+    var text: u8[128] = [0; 128];
+    let n = strerror(-err, text);
+    msg.append(text[..n]);
     msg.push('\n');
     write_stderr(msg);
 }

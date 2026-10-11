@@ -155,19 +155,21 @@ Run these in WSL. They work from any directory.
 
 | Command | What it does |
 |---|---|
-| `scripts/build.sh` | Compiles `src/main.goose` to `build/server.c` at `-O2`, then to `build/server` with `cc -O2`. `LOOP=uring` builds `src/main_uring.goose`, the io_uring loop, instead. |
+| `scripts/build.sh` | Builds `src/main.goose` into `build/server` with `goose build`, at `-O2` for Goose and gcc. `LOOP=uring` builds `src/main_uring.goose`, the io_uring loop, instead. |
 | `scripts/test-unit.sh` | Runs each `src/test_*.goose` through TinyCC ([below](#test-the-http-server)). |
 | `scripts/test-http.sh` | Tests the HTTP server of `build/server` ([below](#test-the-http-server)). |
 | `scripts/test-echo.sh [server]` | Tests the echo servers of `build/server`, or of another command ([below](#test-the-echo-servers)). |
 | `bench/build.sh` | Builds the Goose server and the competing servers into `build/bench/` ([below](#benchmark)). |
 | `bench/run.sh` | Runs the benchmark matrix against `build/bench/` and writes `bench/results/<date>/` ([below](#benchmark)). |
 
-`build.sh` passes `-D_GNU_SOURCE --include shim/net.h` to goose
-([c-interop.md](c-interop.md#where-the-header-goes)). It takes the C compiler from `CC`
-(default `cc`, gcc here) and its flags from `CFLAGS` (default `-O2`). The generated C
-stays in `build/server.c` for reading. gcc builds a faster server than clang
-(task 008). With `LOOP=uring`, it also passes `--include shim/uring.h` and links
-liburing; that server needs Linux 6.1 ([architecture](architecture/README.md#the-io_uring-loop-task-005)).
+`build.sh` runs `goose build --cc gcc --standalone`. gcc builds a faster server than
+clang (task 008); `CC` picks another. `--standalone` puts the runtime in the program's C
+file, so gcc can inline the runtime's functions into the server, as before task 010. The
+root file's sidecar, `src/main.build` or `src/main_uring.build`, names the C in `shim/`
+to compile and link, and liburing for the io_uring loop, which needs Linux 6.1
+([architecture](architecture/README.md#the-io_uring-loop-task-005)). `goose build` keeps
+the generated C under `~/.goose/build/prog/`; `goose build -v` prints the commands with
+their paths.
 
 TinyCC can't place thread-local storage, so it refuses to run any program that can reach
 `thread_spawn`, even when the spawn isn't taken. `src/main.goose` is one, so the server
@@ -381,8 +383,7 @@ The Windows compiler typechecks the whole program without running it:
 no obstacle on Windows.
 
 The Goose VS Code extension checks on save and underlines errors. Its run commands go
-through TinyCC without `--include`, so they can't run the program, which calls into
-`shim/`. Install it from the checkout:
+through TinyCC, which can't run the server ([above](#build-and-run)). Install it from the checkout:
 
 ```powershell
 code --install-extension ..\goose\vscode\goose-language.vsix

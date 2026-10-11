@@ -1,8 +1,8 @@
 /* The io_uring calls of the server's io_uring loop, for src/ring.goose, over
    liburing 2.14. liburing's helpers are static inline functions, which an
-   extern fn can't bind, so these wrap the ones the loop uses. goose --include
-   pastes this in after shim/net.h, so it can name ring::Completion as
-   ring_Completion_g4.
+   extern fn can't bind, so these wrap the ones the loop uses. goose build
+   compiles this beside the program (src/main_uring.build), so it spells out
+   the layouts it shares with Goose, per spec C.2.
 
    Needs Linux 6.1: multishot accept (5.19), multishot receive into a provided
    buffer ring (6.0), and IORING_SETUP_DEFER_TASKRUN (6.1).
@@ -13,12 +13,27 @@
    its provided buffers, which ur_take copies out of, and ur_send copies the
    bytes it's given. A ring is a number to Goose, the address of its struct
    ur, and belongs to the thread that created it (IORING_SETUP_SINGLE_ISSUER). */
+#include <errno.h>
 #include <liburing.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 _Static_assert(ENOBUFS == 105 && ECANCELED == 125, "errno values differ from src/ring.goose");
-_Static_assert(sizeof(ring_Completion_g4) == 18, "ring::Completion is not packed");
+
+/* A u8[:]: a pointer and a length, passed by value. */
+typedef struct { uint8_t *data; int64_t len; } ur_bytes;
+
+/* ring::Completion, packed as Goose packs a struct, and a slice of it. */
+typedef struct __attribute__((packed)) {
+    uint64_t tag;
+    int32_t res, buf;
+    uint8_t more, send;
+} ur_completion;
+_Static_assert(sizeof(ur_completion) == 18, "ur_completion is not packed");
+typedef struct { ur_completion *data; int64_t len; } ur_completions;
 
 /* A request's user_data: a Goose tag shifted left 2 (UR_TAGGED), a send
    record's address (UR_SEND), or UR_QUIET for cancels and closes, whose
@@ -61,7 +76,7 @@ static struct io_uring_sqe *ur_sqe(struct ur *u) {
 /* A ring of entries submission entries and four times as many completions,
    with nbufs provided buffers of buflen bytes in buffer group 0. nbufs must
    be a power of two. */
-static int64_t ur_create(int32_t entries, int32_t nbufs, int32_t buflen) {
+int64_t ur_create(int32_t entries, int32_t nbufs, int32_t buflen) {
     struct ur *u = calloc(1, sizeof *u);
     if (!u) return -ENOMEM;
     struct io_uring_params p;
@@ -95,7 +110,7 @@ static int64_t ur_create(int32_t entries, int32_t nbufs, int32_t buflen) {
 
 /* Queues a multishot accept on the listener fd. Accepted sockets are
    blocking, which io_uring doesn't need otherwise. */
-static void ur_accept(int64_t h, int32_t fd, uint64_t tag) {
+void ur_accept(int64_t h, int32_t fd, uint64_t tag) {
     struct ur *u = (struct ur *)(intptr_t)h;
     struct io_uring_sqe *sqe = ur_sqe(u);
     io_uring_prep_multishot_accept(sqe, fd, NULL, NULL, SOCK_CLOEXEC);
@@ -103,7 +118,7 @@ static void ur_accept(int64_t h, int32_t fd, uint64_t tag) {
 }
 
 /* Queues a multishot receive into the provided buffers. */
-static void ur_recv(int64_t h, int32_t fd, uint64_t tag) {
+void ur_recv(int64_t h, int32_t fd, uint64_t tag) {
     struct ur *u = (struct ur *)(intptr_t)h;
     struct io_uring_sqe *sqe = ur_sqe(u);
     io_uring_prep_recv_multishot(sqe, fd, NULL, 0, 0);
@@ -114,7 +129,7 @@ static void ur_recv(int64_t h, int32_t fd, uint64_t tag) {
 
 /* Copies data and queues a send of it, with MSG_NOSIGNAL. A short send is
    queued again for the rest inside ur_wait, which reports the send once. */
-static int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, sl_u8 data) {
+int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
     struct ur *u = (struct ur *)(intptr_t)h;
     struct ur_send *s;
     if (data.len <= UR_SMALL && u->free) {
@@ -145,7 +160,7 @@ static void ur_send_free(struct ur *u, struct ur_send *s) {
 }
 
 /* Queues a cancel of the request queued with tag. */
-static void ur_cancel(int64_t h, uint64_t tag) {
+void ur_cancel(int64_t h, uint64_t tag) {
     struct ur *u = (struct ur *)(intptr_t)h;
     struct io_uring_sqe *sqe = ur_sqe(u);
     io_uring_prep_cancel64(sqe, tag << 2 | UR_TAGGED, 0);
@@ -156,7 +171,7 @@ static void ur_cancel(int64_t h, uint64_t tag) {
 /* Queues a cancel of every request on fd, then its close. A queued request
    holds a reference to the socket, so closing fd alone would leave the
    connection open until its receive ended. */
-static void ur_close(int64_t h, int32_t fd) {
+void ur_close(int64_t h, int32_t fd) {
     struct ur *u = (struct ur *)(intptr_t)h;
     struct io_uring_sqe *sqe = ur_sqe(u);
     io_uring_prep_cancel_fd(sqe, fd, IORING_ASYNC_CANCEL_ALL);
@@ -175,13 +190,13 @@ static void ur_close(int64_t h, int32_t fd) {
 }
 
 /* Copies dst.len bytes of provided buffer buf from off into dst. */
-static void ur_take(int64_t h, int32_t buf, int64_t off, sl_u8 dst) {
+void ur_take(int64_t h, int32_t buf, int64_t off, ur_bytes dst) {
     struct ur *u = (struct ur *)(intptr_t)h;
     memcpy(dst.data, u->bufs + (size_t)buf * u->buflen + off, (size_t)dst.len);
 }
 
 /* Gives provided buffer buf back to the kernel, at the next ur_wait. */
-static void ur_give(int64_t h, int32_t buf) {
+void ur_give(int64_t h, int32_t buf) {
     struct ur *u = (struct ur *)(intptr_t)h;
     io_uring_buf_ring_add(u->br, u->bufs + (size_t)buf * u->buflen, u->buflen,
                           (unsigned short)buf, io_uring_buf_ring_mask(u->nbufs), u->given++);
@@ -190,7 +205,7 @@ static void ur_give(int64_t h, int32_t buf) {
 /* Submits what's queued, waits up to timeout_ms (-1: no limit) for at least
    one completion, and writes up to out.len of them into out. Leaves any
    others for the next call. */
-static int32_t ur_wait(int64_t h, sl_ring_Completion_g4 out, int32_t timeout_ms) {
+int32_t ur_wait(int64_t h, ur_completions out, int32_t timeout_ms) {
     struct ur *u = (struct ur *)(intptr_t)h;
     if (u->given) {
         io_uring_buf_ring_advance(u->br, u->given);
@@ -212,7 +227,7 @@ static int32_t ur_wait(int64_t h, sl_ring_Completion_g4 out, int32_t timeout_ms)
         seen++;
         uint64_t ud = cqe->user_data;
         if ((ud & 3) == UR_QUIET) continue;
-        ring_Completion_g4 *c = &out.data[n];
+        ur_completion *c = &out.data[n];
         if ((ud & 3) == UR_SEND) {
             struct ur_send *s = (struct ur_send *)(uintptr_t)(ud & ~(uint64_t)3);
             if (cqe->res > 0 && s->off + (uint32_t)cqe->res < s->len) {
@@ -222,18 +237,18 @@ static int32_t ur_wait(int64_t h, sl_ring_Completion_g4 out, int32_t timeout_ms)
                 io_uring_sqe_set_data64(sqe, ud);
                 continue;
             }
-            c->tag_g = s->tag;
-            c->res_g = cqe->res < 0 ? cqe->res : (int32_t)s->len;
-            c->buf_g = -1;
-            c->more_g = 0;
-            c->send_g = 1;
+            c->tag = s->tag;
+            c->res = cqe->res < 0 ? cqe->res : (int32_t)s->len;
+            c->buf = -1;
+            c->more = 0;
+            c->send = 1;
             ur_send_free(u, s);
         } else {
-            c->tag_g = ud >> 2;
-            c->res_g = cqe->res;
-            c->buf_g = cqe->flags & IORING_CQE_F_BUFFER ? (int32_t)(cqe->flags >> IORING_CQE_BUFFER_SHIFT) : -1;
-            c->more_g = (cqe->flags & IORING_CQE_F_MORE) != 0;
-            c->send_g = 0;
+            c->tag = ud >> 2;
+            c->res = cqe->res;
+            c->buf = cqe->flags & IORING_CQE_F_BUFFER ? (int32_t)(cqe->flags >> IORING_CQE_BUFFER_SHIFT) : -1;
+            c->more = (cqe->flags & IORING_CQE_F_MORE) != 0;
+            c->send = 0;
         }
         n++;
     }

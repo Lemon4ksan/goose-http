@@ -1,26 +1,25 @@
 #!/bin/sh
-# Compiles the server to build/server through generated C.
+# Builds the server into build/server with goose build.
 #
-# GOOSE names the compiler (default: goose on PATH). The compiler reads
-# GOOSE_STDLIB itself. CC and CFLAGS pick the C compiler and its flags. LOOP
+# GOOSE names the compiler (default: goose on PATH). CC picks the C compiler
+# (default gcc, which builds a faster server than clang: task 008). LOOP
 # picks the event loop: epoll (src/main.goose, the default), or uring
-# (src/main_uring.goose), which needs liburing (apt liburing-dev) and Linux 6.1.
+# (src/main_uring.goose), which needs liburing (apt liburing-dev) and Linux
+# 6.1. Each root file's sidecar (src/main.build, src/main_uring.build) names
+# the C in shim/ it links.
+#
+# --standalone puts the runtime in the program's C file, as one translation
+# unit, so the C compiler can inline the runtime's functions into the server.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 goose=${GOOSE:-goose}
-cc=${CC:-cc}
-cflags=${CFLAGS:--O2}
 
 case ${LOOP:-epoll} in
-epoll) main=main; uring=; libs= ;;
-uring) main=main_uring; uring="--include $root/shim/uring.h"; libs=-luring ;;
+epoll) main=main ;;
+uring) main=main_uring ;;
 *) echo "scripts/build.sh: LOOP is epoll or uring"; exit 2 ;;
 esac
 
 mkdir -p "$root/build"
-# shellcheck disable=SC2086 # uring is empty or an option and its argument
-"$goose" -O2 -o "$root/build/server.c" --standalone -D_GNU_SOURCE \
-    --include "$root/shim/net.h" $uring "$root/src/$main.goose"
-# shellcheck disable=SC2086 # CFLAGS is a list of flags
-$cc $cflags "$root/build/server.c" -o "$root/build/server" $libs -lm -pthread
+"$goose" build --cc "${CC:-gcc}" --standalone -o "$root/build/server" "$root/src/$main.goose"

@@ -46,4 +46,5 @@ kept gcc over clang and `simd`. Task 005 adds io_uring beside the epoll loop and
 the two. Task 006 ports the loops to macOS, the BSDs, and Windows, after
 task 004. Task 007 gathers the tests into one command and can start at any point. Task
 009 adds HttpArena's strongest epoll-era servers to the benchmark, and can start after
-task 008.
+task 008. Task 010 moves the build to `goose build` and the shim to C files of their own,
+before task 006 adds a platform's shim.

@@ -1,20 +1,20 @@
-/* The kernel calls the server makes, for src/sys.goose. goose --include
-   pastes this in after the generated types, so it can name sys::Event as
-   sys_Event_g3 and its slice as sl_sys_Event_g3.
+/* The kernel calls the server makes on Linux, for src/sys.goose. goose build
+   compiles this beside the program (the root file's sidecar), so it sees none
+   of the generated C: it spells out the layouts it shares with Goose, per
+   spec C.2.
 
    Every function returns what its syscall returns on success and -errno on
    failure. None of them keeps a pointer into Goose memory after it returns. */
-#ifndef _GNU_SOURCE
-/* The runtime includes the system headers before this one, so only goose's
-   own -D reaches them in time. */
-#error "shim/net.h needs goose -D_GNU_SOURCE, for accept4"
-#endif
+#define _GNU_SOURCE
 #include <errno.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <stdint.h>
+#include <string.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <time.h>
+#include <unistd.h>
 
 /* src/sys.goose spells these out as numbers; this keeps them honest on any
    target the C compiles for. */
@@ -27,7 +27,14 @@ _Static_assert(EPOLLIN == 0x001 && EPOLLOUT == 0x004 && EPOLLERR == 0x008 &&
 _Static_assert(EPOLL_CTL_ADD == 1 && EPOLL_CTL_DEL == 2 && EPOLL_CTL_MOD == 3,
                "epoll_ctl ops differ from src/sys.goose");
 _Static_assert(SHUT_WR == 1, "shutdown's how differs from src/sys.goose");
-_Static_assert(sizeof(sys_Event_g3) == 12, "sys::Event is not packed");
+
+/* A u8[:]: a pointer and a length, passed by value. */
+typedef struct { uint8_t *data; int64_t len; } net_bytes;
+
+/* sys::Event, packed as Goose packs a struct, and a slice of it. */
+typedef struct __attribute__((packed)) { uint32_t events; uint64_t tag; } net_event;
+_Static_assert(sizeof(net_event) == 12, "net_event is not packed");
+typedef struct { net_event *data; int64_t len; } net_events;
 
 /* Flags of net_listen and net_accept; sys::NONBLOCK and sys::REUSEPORT. */
 #define NET_NONBLOCK 1
@@ -38,7 +45,7 @@ _Static_assert(sizeof(sys_Event_g3) == 12, "sys::Event is not packed");
 
 /* A TCP listener on every IPv4 address. Linux copies TCP_NODELAY from the
    listener to each accepted socket, so accept needs no setsockopt. */
-static int32_t net_listen(int32_t port, int32_t backlog, int32_t flags) {
+int32_t net_listen(int32_t port, int32_t backlog, int32_t flags) {
     int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC |
                     (flags & NET_NONBLOCK ? SOCK_NONBLOCK : 0), 0);
     if (fd < 0) return -errno;
@@ -61,39 +68,38 @@ static int32_t net_listen(int32_t port, int32_t backlog, int32_t flags) {
     return fd;
 }
 
-static int32_t net_accept(int32_t fd, int32_t flags) {
+int32_t net_accept(int32_t fd, int32_t flags) {
     int r = accept4(fd, NULL, NULL,
                     SOCK_CLOEXEC | (flags & NET_NONBLOCK ? SOCK_NONBLOCK : 0));
     return r < 0 ? -errno : r;
 }
 
-static int64_t net_recv(int32_t fd, sl_u8 buf) {
+int64_t net_recv(int32_t fd, net_bytes buf) {
     ssize_t r = recv(fd, buf.data, (size_t)buf.len, 0);
     return r < 0 ? -errno : r;
 }
 
 /* MSG_NOSIGNAL turns a write to a closed connection into -EPIPE instead of a
    SIGPIPE that would end the process. */
-static int64_t net_send(int32_t fd, sl_u8 data) {
+int64_t net_send(int32_t fd, net_bytes data) {
     ssize_t r = send(fd, data.data, (size_t)data.len, MSG_NOSIGNAL);
     return r < 0 ? -errno : r;
 }
 
-static int32_t net_shutdown(int32_t fd, int32_t how) {
+int32_t net_shutdown(int32_t fd, int32_t how) {
     return shutdown(fd, how) < 0 ? -errno : 0;
 }
 
-static int32_t net_close(int32_t fd) {
+int32_t net_close(int32_t fd) {
     return close(fd) < 0 ? -errno : 0;
 }
 
-static int32_t net_epoll_create(void) {
+int32_t net_epoll_create(void) {
     int r = epoll_create1(EPOLL_CLOEXEC);
     return r < 0 ? -errno : r;
 }
 
-static int32_t net_epoll_ctl(int32_t ep, int32_t op, int32_t fd, uint32_t events,
-                             uint64_t tag) {
+int32_t net_epoll_ctl(int32_t ep, int32_t op, int32_t fd, uint32_t events, uint64_t tag) {
     struct epoll_event ev;
     ev.events = events;
     ev.data.u64 = tag;
@@ -103,14 +109,14 @@ static int32_t net_epoll_ctl(int32_t ep, int32_t op, int32_t fd, uint32_t events
 /* The kernel's struct epoll_event is packed on x86-64 and padded to 16 bytes
    on arm64, so the kernel writes into a local array of it and the events are
    copied out into sys::Event, whose layout is the same everywhere. */
-static int32_t net_epoll_wait(int32_t ep, sl_sys_Event_g3 out, int32_t timeout_ms) {
+int32_t net_epoll_wait(int32_t ep, net_events out, int32_t timeout_ms) {
     struct epoll_event kev[NET_MAX_EVENTS];
     int max = out.len < NET_MAX_EVENTS ? (int)out.len : NET_MAX_EVENTS;
     int n = epoll_wait(ep, kev, max, timeout_ms);
     if (n < 0) return -errno;
     for (int i = 0; i < n; i++) {
-        out.data[i].events_g = kev[i].events;
-        out.data[i].tag_g = kev[i].data.u64;
+        out.data[i].events = kev[i].events;
+        out.data[i].tag = kev[i].data.u64;
     }
     return n;
 }
@@ -118,19 +124,24 @@ static int32_t net_epoll_wait(int32_t ep, sl_sys_Event_g3 out, int32_t timeout_m
 /* The coarse clocks return the time of the last scheduler tick, 1 to 4 ms
    old by the kernel's HZ, without reading the hardware counter. std's
    clock_ns and time_ns are the precise ones. */
-static int64_t net_clock_ms(void) {
+int64_t net_clock_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC_COARSE, &ts);
     return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
-static int64_t net_time_s(void) {
+int64_t net_time_s(void) {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME_COARSE, &ts);
     return (int64_t)ts.tv_sec;
 }
 
-static void net_strerror(int64_t err, gs_rref out) {
+/* Writes the C library's text for an errno value into out, cut to fit, and
+   returns its length. */
+int64_t net_strerror(int64_t err, net_bytes out) {
     const char *s = strerror((int)err);
-    gs_bld_append(out, s, (int64_t)strlen(s));
+    size_t n = strlen(s);
+    if (n > (size_t)out.len) n = (size_t)out.len;
+    memcpy(out.data, s, n);
+    return (int64_t)n;
 }

@@ -27,7 +27,7 @@ Windows as a benchmark platform.
 
 ```text
 src/           the Goose program
-shim/          C headers passed to goose with --include: sockets, epoll, later io_uring
+shim/          the C the server calls, linked by goose build: sockets, epoll, io_uring
 bench/         the competing servers, the load scripts, and the recorded results
 scripts/       build and run scripts
 docs/          architecture, development setup, and the Goose findings log

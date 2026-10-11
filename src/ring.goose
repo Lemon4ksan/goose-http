@@ -1,5 +1,5 @@
 // The io_uring calls the server's io_uring loop makes, implemented in
-// shim/uring.h over liburing. A ring is the shim's, and owns every buffer the
+// shim/uring.c over liburing. A ring is the shim's, and owns every buffer the
 // kernel reads or writes after a call returns: receives land in its provided
 // buffers, and a send copies its bytes. Calls that can fail return -errno, as
 // sys's do.
@@ -12,7 +12,7 @@ namespace ring;
 // it was given, or its error: the shim queues a short send's rest itself.
 struct Completion { tag: u64, res: i32, buf: i32, more: bool, send: bool }
 
-// The errno values of completions, beyond sys's. shim/uring.h asserts them.
+// The errno values of completions, beyond sys's. shim/uring.c asserts them.
 let ENOBUFS = 105;
 let ECANCELED = 125;
 

@@ -7,13 +7,11 @@ RUN apt-get update -qq && \
     rm -rf /var/lib/apt/lists/*
 
 # The Goose pin in README.md.
-ARG GOOSE_COMMIT=f084e52c64496145c49dc043fc18c5e712d132e2
+ARG GOOSE_COMMIT=efe31554dcce698c0749daec36cd5318d28135fb
 RUN git init -q /goose && cd /goose && \
     git fetch -q --depth 1 https://github.com/aardappel/goose.git "$GOOSE_COMMIT" && \
     git checkout -q FETCH_HEAD && \
-    git submodule update -q --init --depth 1 third_party/tinycc && \
-    cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-        -DGOOSE_GFX=OFF -DGOOSE_AUDIO=OFF -DGOOSE_PHYSICS=OFF -DGOOSE_UI=OFF && \
+    cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && \
     cmake --build build
 
 COPY src /server/src
