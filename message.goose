@@ -37,12 +37,13 @@ fn value_end_set() -> ByteSet {
     return byte_set(m);
 }
 
-// Where find_any stops a request target: a byte that isn't visible ASCII.
+// Where find_any stops a request target: a byte that isn't visible ASCII,
+// or a '%', so that parse checks the escapes only of a target that has one.
 let TARGET_END = target_end_set();
 
 fn target_end_set() -> ByteSet {
     var m = [false; 256];
-    for i in 256 { m[i] = i <= 32 || i >= 127; }
+    for i in 256 { m[i] = i <= 32 || i >= 127 || i == '%'; }
     return byte_set(m);
 }
 
@@ -86,6 +87,7 @@ inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_
     let t0 = pos;
     let kt = find_any(buf[pos..], TARGET_END);
     if kt > 0 && kt <= buf.len - pos { pos = pos + kt; }
+    let escaped = pos < buf.len && buf[pos] == '%';
     while pos < buf.len && buf[pos] > ' ' && buf[pos] < 0x7f { pos++; }
     guard pos - m0 <= MAX_LINE else { return Request { .. }, 414; }
     guard pos < buf.len else { return Request { .. }, short(buf, max_head); }
@@ -94,7 +96,7 @@ inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_
     pos++;
     // A '%' starts an escape of two hex digits (RFC 3986 §2.1), so that
     // decode can't fail on a target the handler gets.
-    guard position(target, '%') < 0 || escapes_ok(target) else { return Request { .. }, 400; }
+    guard !escaped || escapes_ok(target) else { return Request { .. }, 400; }
 
     // The version, HTTP/d.d, and CRLF: ten bytes. Waiting for them would
     // hang a client that ended the line early, so a line end is checked first.

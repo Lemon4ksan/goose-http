@@ -97,20 +97,97 @@ change the per-connection state, in both of task 011's loops, `http::serve` and
   `OPTIONS *` with 200 and `Allow`, and a method it doesn't recognize with 501, on any
   path. Which methods a program recognizes is its own choice, so the package doesn't.
 
-Open: items 4, 5, and 9's `%` check together cost 50-100 user instructions per request
-against `856f99b`: `bench/instructions.sh`, 3 runs, measured 1,480-1,541 for the epoll
-loop against 1,432-1,438, and 1,553-1,575 for the uring loop against 1,488-1,494. Not
-yet split between them. The suspects are `position(target, '%')` in `parse`, and the
-store and load through `Reply.bodyless`, which gcc may not fold across the write
-buffer's appends.
+- Items 4, 5, and 9 cost 50-100 user instructions per request against `856f99b`. Split
+  (2026-10-12) by building `915c34f` without each change, in WSL2 as `bench/README.md`
+  describes, and counting with `bench/instructions.sh` (one worker on CPU 0, wrk on CPUs
+  4-15, plaintext 16 deep at 256 connections, 3 runs each). In user instructions per
+  request:
+
+  | Build | epoll | uring |
+  |---|---|---|
+  | `856f99b`, before the three | 1,411-1,441 | 1,467-1,530 |
+  | `915c34f` | 1,483-1,491 | 1,543-1,584 |
+  | without the `%` check | 1,425-1,438 | 1,510-1,518 |
+  | without `Reply.bodyless` | 1,493-1,511 | 1,548-1,559 |
+  | without item 5's routes | 1,455-1,481 | 1,515-1,553 |
+  | without all three | 1,395-1,455 | 1,467-1,499 |
+
+  The `%` check was the cost: `position` scans the target a byte at a time. `parse`'s
+  search for the target's end now stops at a `%` too, and checks the escapes only of a
+  target that has one. In a second set of 3 runs, that measured 1,448-1,465 (epoll) and
+  1,503-1,523 (uring), against 1,425-1,435 and 1,487-1,512 for `856f99b` and
+  1,485-1,518 and 1,547-1,578 for `915c34f`. The rest, 10-25, is within what the route
+  changes measured, and within the runs' spread.
 
 Next, in order:
 
-1. Split and remove that cost, building a variant without each change.
-2. Items 7 and 8, bodies and responses of any size, streamed. Read how fast servers
+1. Items 7 and 8, bodies and responses of any size, streamed. Read how fast servers
    with a streaming API shape it first (for example may-minihttp, hyper, actix, and
    h2o or nginx for the C side), and record the design here before writing it.
-3. Items 3, 10, 12, and 11.
+2. Items 3, 10, 12, and 11.
+
+## Streaming design (2026-10-12)
+
+How servers with a streaming API shape it, read in their sources:
+
+- may-minihttp 0.1.11 reads the body inside the handler, which runs as a stackful
+  coroutine, and has no streamed response. A handler that never asks for the body leaves
+  it to be parsed as the next request.
+- hyper 1.x pulls a response body with `poll_frame` only while its write buffer has
+  room, and frames it with `Content-Length` when the size is known, chunked when not.
+  A request body goes through a one-item channel, so at most one piece waits. It sends
+  `100 Continue` on the first poll of the body, so an unwanted body never gets one, and
+  it closes rather than drain a body the handler dropped, past what has already arrived.
+- actix-http pulls a response with `poll_next` while the write buffer is below its
+  size. It stops reading the socket while the request payload's buffer is over 32 KB,
+  drains a dropped chunked body, and closes for an unfinished `Content-Length` one. Body
+  limits are set per route (`PayloadConfig`, 256 KB by default).
+- h2o calls a generator's `proceed` once the last batch has gone: one batch in flight
+  per request, and backpressure is "called again". A request body comes in pieces through
+  a callback, and h2o stops reading until the receiver asks for more. A handler that
+  doesn't stream gets the body whole, and so does a streaming one when it's all there
+  already.
+- picohttpparser's `phr_decode_chunked` decodes in place with a small resumable state.
+- nginx drains a discarded body through a small buffer, bounded by time
+  (`lingering_time`), and checks `client_max_body_size` against `Content-Length` before
+  reading and per chunk after.
+- odin-http drains an unread body up to 256 KB when the handler responds, and closes past
+  that.
+
+What fits Goose: a handler can't be suspended or stored (spec §7.6), but the loop can
+call one again, as h2o's callbacks are called again, with its state in the connection's
+slot. So:
+
+- One more entry point per loop, `http::serve(cfg, fresh) { ev, st, out => ... }` and
+  `http::serve_epoll(cfg, fresh) { ... }`. `fresh` is the program's per-request state, a
+  flat value of any type; each connection's slot holds one, reset to `fresh` before each
+  request, and the handler gets it as `st`. `ev` is an event: `REQUEST`, with the
+  parsed head and the body when it arrived whole with the head (`ev.whole`); `BODY`, a
+  piece of the body; `END`, once the body is all there; and `MORE`, room to write more of
+  an open response. The fixed-size `serve(cfg) { req, body, out => }` becomes a wrapper
+  that answers `REQUEST` only, so it serves as today.
+- A body that fits in the read buffer with its head still arrives whole, as today:
+  h2o's fast path, and the benchmark's. A longer one comes in `BODY` pieces of what each
+  read brings, `Content-Length` and chunked alike. Chunked bodies are decoded in the
+  read buffer as they arrive, by a decoder whose place and the chunk's remaining length
+  live in the slot.
+- A response is whole, as today (`start`, `field`, `finish`), or open: `http::begin(out,
+  status, length)` writes the head with `Content-Length` for a known length, or chunked
+  for -1 (HTTP/1.0 then closes at its end), `http::send(out, bytes)` writes a piece,
+  one chunk per call, and `http::end(out)` ends it. While a response is open and its
+  request body is done, the loop calls the handler with `MORE` each time the
+  connection's queued output is below `cfg.write_buffer`, so memory per connection stays
+  bounded. A `MORE` that writes nothing and doesn't end closes the connection, rather
+  than spin.
+- Backpressure on the body is the loops' backpressure on requests: neither reads more
+  while the connection's output is past its limit.
+- A response finished before its body arrived drains the rest without events, up to
+  `cfg.max_drain` bytes, and closes past that. An `Expect: 100-continue` body that would
+  fit in the read buffer gets `100 Continue` at once; a longer one gets it after the
+  handler's `REQUEST` call, unless the handler responded, which closes the connection
+  once the response is sent (hyper's lazy `100 Continue`).
+- Not yet: request trailers, which the decoder checks and skips (item 14), and an
+  event for a connection closed mid-stream: the state is flat data, with nothing to free.
 
 ## Acceptance criteria
 
