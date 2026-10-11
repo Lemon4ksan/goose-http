@@ -165,8 +165,10 @@ fn answer<H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: const
         off = b0 + wire;
         if !whole { c.discard = req.body; }
         var keep = req.keep_alive;
+        var bodyless = false;
         H(req, rbuf[b0..b0 + blen],
-          Reply { buf: wbuf, date: date, keep_alive: keep, minor: req.minor, head: req.method == "HEAD" });
+          Reply { buf: wbuf, date: date, keep_alive: keep, minor: req.minor, head: req.method == "HEAD",
+                  bodyless: bodyless });
         if !keep {
             c.state = CLOSING;
             off = rlen;

@@ -494,6 +494,14 @@ fn path_of(target: const u8[:]) -> const u8[:] {
     return if q >= 0 { t[..q] } else { t };
 }
 
+// Whether method is one that RFC 9110 §9 defines, or PATCH (RFC 5789). A
+// server answers a method it doesn't recognize with 501 (§9.1).
+fn known_method(method: const u8[:]) -> bool {
+    return method == "GET" || method == "HEAD" || method == "POST" || method == "PUT" ||
+        method == "DELETE" || method == "CONNECT" || method == "OPTIONS" || method == "TRACE" ||
+        method == "PATCH";
+}
+
 // The integer value of key in target's query, or 0.
 fn query_int(target: const u8[:], key: const u8[:]) -> i64 {
     let v, found = query_of(target, key);
@@ -582,6 +590,7 @@ struct Reply {
     keep_alive: bool&,      // whether the connection stays open; clear it before start to close
     minor: i32,             // the request's x of HTTP/1.x
     head: bool,             // a HEAD request: finish writes the body's fields, not the body
+    bodyless: bool&,        // set by start for a status that has no body
 }
 
 // The writers below are inline, so that a handler's constant status picks
@@ -591,6 +600,7 @@ struct Reply {
 // The status line and the fields every response has: Server, Date, and
 // Connection where HTTP/1.x's default isn't what the connection does.
 inline fn start(out: Reply, status: i32) {
+    out.bodyless = status < 200 || status == 204 || status == 304;
     status_fields(out.buf, status, out.date, out.keep_alive, out.minor);
 }
 
@@ -605,9 +615,17 @@ inline fn field(out: Reply, name: const u8[:], value: const u8[:]) {
 
 // The body's fields, the blank line, and the body, unless the request was
 // HEAD. fields holds every field before the length's value, ending in
-// "Content-Length: ", so that they take one append.
+// "Content-Length: ", so that they take one append. A 1xx, 204, or 304
+// status gets neither the length nor the body, whatever they are (RFC 9110
+// §6.4.1, §8.6).
 inline fn finish(out: Reply, fields: const u8[:], body: const u8[:]) {
-    write_body(out.buf, fields, body, out.head);
+    if out.bodyless {
+        let length = "Content-Length: ";
+        out.buf.append(if ends_with(fields, length) { fields[..fields.len - length.len] } else { fields });
+        out.buf.append("\r\n");
+    } else {
+        write_body(out.buf, fields, body, out.head);
+    }
 }
 
 // A whole response: status, a Content-Type, and body.
@@ -651,8 +669,7 @@ inline fn write_body<A>(out: A&, fields: const u8[:], body: const u8[:], head_on
 }
 
 // The status line and the fields up to the Date field's value, or "" for a
-// status not listed here. 1xx, 204, and 304 responses are framed as any
-// other, with a Content-Length, which is task 013's to correct.
+// status not listed here.
 inline fn status_line(status: i32) -> const u8[:] {
     match status {
         200 => "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: ",

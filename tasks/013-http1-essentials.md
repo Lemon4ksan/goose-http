@@ -90,6 +90,27 @@ change the per-connection state, in both of task 011's loops, `http::serve` and
   `http::each_query`, and 400 from `parse` for a target with a `%` that doesn't start
   an escape, checked only when the target has one. Values stay encoded until the
   handler decodes them, since a decoded path can hold a `/` that wasn't a separator.
+- Item 4 (2026-10-11): `http::start` sets `Reply.bodyless` for 1xx, 204, and 304, and
+  `http::finish` then writes neither a `Content-Length` nor the body. Streamed bodies to
+  HTTP/1.0 wait for item 8.
+- Item 5 (2026-10-11): `http::known_method`, and the benchmark server answers
+  `OPTIONS *` with 200 and `Allow`, and a method it doesn't recognize with 501, on any
+  path. Which methods a program recognizes is its own choice, so the package doesn't.
+
+Open: items 4, 5, and 9's `%` check together cost 50-100 user instructions per request
+against `856f99b`: `bench/instructions.sh`, 3 runs, measured 1,480-1,541 for the epoll
+loop against 1,432-1,438, and 1,553-1,575 for the uring loop against 1,488-1,494. Not
+yet split between them. The suspects are `position(target, '%')` in `parse`, and the
+store and load through `Reply.bodyless`, which gcc may not fold across the write
+buffer's appends.
+
+Next, in order:
+
+1. Split and remove that cost, building a variant without each change.
+2. Items 7 and 8, bodies and responses of any size, streamed. Read how fast servers
+   with a streaming API shape it first (for example may-minihttp, hyper, actix, and
+   h2o or nginx for the C side), and record the design here before writing it.
+3. Items 3, 10, 12, and 11.
 
 ## Acceptance criteria
 
@@ -101,7 +122,8 @@ change the per-connection state, in both of task 011's loops, `http::serve` and
       its final status without one; `Expect: other` gets 417
 - [ ] Unit tests show 204, 304, and `HEAD` without a body, and a streamed body to an
       HTTP/1.0 client ending at close, whatever the handler writes
-- [ ] `OPTIONS *` gets 200 with `Allow`; an unknown method gets 501
+- [x] `OPTIONS *` gets 200 with `Allow`; an unknown method gets 501 (2026-10-11, the
+      benchmark server's routes)
 - [x] The handler reads any request field by name, and iterates them (2026-10-11:
       `http::field_of` and `http::each_field`)
 - [ ] A handler reads a 100 MB `Content-Length` body and a 100 MB chunked body in pieces;

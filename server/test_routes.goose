@@ -13,8 +13,10 @@ fn response(text: const u8[:], out: u8[>..]&) -> bool {
     let r, s = http::parse(text);
     assert(s == 200);
     var keep = r.keep_alive;
+    var bodyless = false;
     route(r, text[r.len..],
-          http::Reply { buf: out, date: DATE, keep_alive: keep, minor: r.minor, head: r.method == "HEAD" });
+          http::Reply { buf: out, date: DATE, keep_alive: keep, minor: r.minor, head: r.method == "HEAD",
+                        bodyless: bodyless });
     return keep;
 }
 
@@ -45,6 +47,23 @@ fn main() {
     out.clear();
     assert(response("POST /json HTTP/1.0\r\nConnection: keep-alive\r\nContent-Length: 2\r\n\r\n", out));
     same(out, "HTTP/1.1 405 Method Not Allowed\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nConnection: keep-alive\r\nAllow: GET, HEAD\r\nContent-Length: 0\r\n\r\n");
+
+    // OPTIONS *, and a method the server doesn't recognize on any path.
+    out.clear();
+    assert(response("OPTIONS * HTTP/1.1\r\nHost: x\r\n\r\n", out));
+    same(out, "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nAllow: GET, HEAD, POST, OPTIONS\r\nContent-Length: 0\r\n\r\n");
+    out.clear();
+    assert(response("BREW /plaintext HTTP/1.1\r\nHost: x\r\n\r\n", out));
+    same(out, "HTTP/1.1 501 Not Implemented\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Length: 0\r\n\r\n");
+    out.clear();
+    assert(response("BREW /nope HTTP/1.1\r\nHost: x\r\n\r\n", out));
+    same(out[..31], "HTTP/1.1 501 Not Implemented\r\nS");
+    out.clear();
+    assert(response("DELETE /plaintext HTTP/1.1\r\nHost: x\r\n\r\n", out));
+    same(out[..33], "HTTP/1.1 405 Method Not Allowed\r\n");
+    out.clear();
+    assert(response("OPTIONS /nope HTTP/1.1\r\nHost: x\r\n\r\n", out));
+    same(out[..24], "HTTP/1.1 404 Not Found\r\n");
 
     // HttpArena's endpoints.
     out.clear();

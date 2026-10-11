@@ -17,7 +17,10 @@ inline fn route(req: http::Request, body: const u8[:], out: http::Reply) {
     // n bytes, for testing responses larger than the write buffer.
     let bytes = path == "/bytes";
     let get = out.head || req.method == "GET";
-    if (plaintext || json || pipeline || bytes) && !get || baseline && !get && req.method != "POST" {
+    if !get && req.method != "POST" && !http::known_method(req.method) {
+        http::start(out, 501);
+        http::finish(out, "Content-Length: ", "");
+    } else if (plaintext || json || pipeline || bytes) && !get || baseline && !get && req.method != "POST" {
         http::start(out, 405);
         out.buf.append(if baseline { "Allow: GET, HEAD, POST\r\n" } else { "Allow: GET, HEAD\r\n" });
         http::finish(out, "Content-Length: ", "");
@@ -51,6 +54,11 @@ inline fn route(req: http::Request, body: const u8[:], out: http::Reply) {
         if !out.head {
             for i in n { out.buf.push(('0' + i % 10) as! u8); }
         }
+    } else if req.target == "*" {
+        // OPTIONS *, the only method parse lets "*" through with: what the
+        // server as a whole allows (RFC 9110 §9.3.7).
+        http::start(out, 200);
+        http::finish(out, "Allow: GET, HEAD, POST, OPTIONS\r\nContent-Length: ", "");
     } else {
         http::start(out, 404);
         http::finish(out, "Content-Length: ", "");

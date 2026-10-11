@@ -364,7 +364,8 @@ fn same(got: const u8[:], want: const u8[:]) {
 fn test_reply() {
     var out: u8[>..] = [];
     var keep = true;
-    http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false },
+    var nobody = false;
+    http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, bodyless: nobody },
                   201, "text/plain", "made");
     same(out, "HTTP/1.1 201 Created\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Type: text/plain\r\nContent-Length: 4\r\n\r\nmade");
 
@@ -372,7 +373,7 @@ fn test_reply() {
     // handler that closes the connection.
     out.clear();
     keep = false;
-    let r = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false };
+    let r = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, bodyless: nobody };
     http::start(r, 299);
     http::field(r, "X-Thing", "a b");
     http::finish(r, "Content-Length: ", "hi");
@@ -382,14 +383,38 @@ fn test_reply() {
     // says so.
     out.clear();
     keep = true;
-    http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 0, head: true },
+    http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 0, head: true, bodyless: nobody },
                   200, "a/b", "body");
     same(out, "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nConnection: keep-alive\r\nContent-Type: a/b\r\nContent-Length: 4\r\n\r\n");
+
+    // 1xx, 204, and 304 get neither a Content-Length nor a body, whatever
+    // the handler writes, and a HEAD for one gets the same.
+    let bodyless: i32[] = [204, 304, 103];
+    for status in bodyless {
+        out.clear();
+        keep = true;
+        http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, bodyless: nobody },
+                      status, "text/plain", "body");
+        assert(nobody);
+        assert(find(out, "Content-Length") < 0 && out[out.len - 4..] == "\r\n\r\n");
+        assert(find(out, "Content-Type: text/plain\r\n\r\n") > 0);
+    }
+    out.clear();
+    let r304 = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: true, bodyless: nobody };
+    http::start(r304, 304);
+    http::field(r304, "ETag", "\"x\"");
+    http::finish(r304, "", "ignored");
+    same(out, "HTTP/1.1 304 Not Modified\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nETag: \"x\"\r\n\r\n");
+    // A body status after them gets its length again.
+    out.clear();
+    http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, bodyless: nobody },
+                  200, "text/plain", "ok");
+    assert(!nobody && find(out, "Content-Length: 2\r\n\r\nok") > 0);
 
     // A handler clears keep_alive through its copy of the reply.
     keep = true;
     out.clear();
-    let close = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false };
+    let close = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, bodyless: nobody };
     close.keep_alive = false;
     assert(!keep);
 
