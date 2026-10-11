@@ -81,7 +81,12 @@ it, unpinned. A missing `liburing.h` did that once; a build whose output mention
 
 The scripts expect a plain Goose checkout next to this repository, at `../goose`. Leave it
 on the pinned commit and don't edit it (`AGENTS.md`). On Kait's machine, `../goose-fix`
-and `../goose-ngpu` are other Goose checkouts on feature branches: leave them alone. One checkout serves both platforms:
+and `../goose-ngpu` are other Goose checkouts on feature branches: leave them alone.
+`../goose-ngfx` (`kaitk/goose-ngfx`) is Kait's graphics library for Goose, already a
+package that programs import from git; it is the reference for how this repository
+becomes one (task 011). Its `docs/development.md`, `docs/goose-findings.md`, and
+`scripts/run_tests.py` record how its package builds, what Goose's package system got
+wrong, and how its tests run. One checkout serves both platforms:
 WSL builds into `build-linux/` and Windows into `build/`, and the checkout's `.gitignore`
 covers both.
 
