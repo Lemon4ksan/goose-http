@@ -1,7 +1,9 @@
 # Development
 
 Building, testing, and benchmarking run on Linux (WSL2 Ubuntu). Windows is for editing:
-the native compiler typechecks the program there, but the server only runs on Linux.
+the native compiler typechecks the program there, but the server doesn't run there yet.
+macOS builds the epoll loop over kqueue and passes the tests, but isn't for benchmarks
+([below](#macos)).
 
 ## Toolchain
 
@@ -20,8 +22,9 @@ the native compiler typechecks the program there, but the server only runs on Li
 | oha | WSL, `cargo install oha --locked` | 1.16.0, with cargo 1.99.0 |
 | Rust | WSL, rustup | rustc 1.99.0, cargo 1.99.0, for the Rust servers in `bench/` |
 | Odin | WSL, `/opt/odin-dev-2026-10` | `dev-2026-10` (`dev-2026-10-nightly:84bc3fc`, LLVM 20.1.8), for odin-http |
-| Zig | WSL, `/opt/zig-0.16.0` | 0.16.0, for dusty |
+| Zig | WSL, `/opt/zig-0.16.0` | 0.16.0, for dusty, zix, and zeemo |
 | V | WSL, built by `bench/build.sh` in its cache | 0.5.2 `b99970b`, for vanilla-epoll; needs apt `liburing-dev` (2.14) |
+| liburing | WSL, apt `liburing-dev` | 2.14, for the io_uring loop (`LOOP=uring`) |
 | Docker | WSL, Docker Desktop | 29.8.2, for HttpArena's harness |
 | perf | WSL, apt `linux-perf` | 7.0.14 (package `7.0.0-38.38`) |
 
@@ -66,6 +69,12 @@ vanilla's io_uring module needs liburing's header even in an epoll build:
 sudo apt-get install -y liburing-dev
 ```
 
+libreactorng builds with autotools:
+
+```sh
+sudo apt-get install -y autoconf automake libtool libltdl-dev
+```
+
 When V fails to compile the C it generated, it downloads a V release and retries with
 it, unpinned. A missing `liburing.h` did that once; a build whose output mentions
 `v1-fallback` didn't use the pinned V, so fix the cause and rebuild.
@@ -73,16 +82,21 @@ it, unpinned. A missing `liburing.h` did that once; a build whose output mention
 ## Set up the Goose compiler
 
 The scripts expect a plain Goose checkout next to this repository, at `../goose`. Leave it
-on the pinned commit and don't edit it (`AGENTS.md`). On Kait's machine, `../goose-fix`
-and `../goose-ngpu` are other Goose checkouts on feature branches: leave them alone. One checkout serves both platforms:
+on the pinned commit and don't edit it (`AGENTS.md`). Other Goose checkouts beside it,
+such as `../goose-fix` and `../goose-ngpu`, are on feature branches: leave them alone.
+`../goose-ngfx` (`kaitk/goose-ngfx`) is a graphics library for Goose, already a package
+that programs import from git; it is the reference for how this repository
+becomes one (task 011). Its `docs/development.md`, `docs/goose-findings.md`, and
+`scripts/run_tests.py` record how its package builds, what Goose's package system got
+wrong, and how its tests run. One checkout serves both platforms:
 WSL builds into `build-linux/` and Windows into `build/`, and the checkout's `.gitignore`
 covers both.
 
 1. Clone the checkout at the pin. It has no submodules: TinyCC, which lets
    `goose file.goose` compile and run a program in process, is vendored, and graphics,
    audio, and physics are packages the compiler fetches only for a program that imports
-   them. The clone calls `aardappel/goose` `upstream`, as Kait's checkout does, where
-   `origin` is the fork `kaitk/goose`.
+   them. The clone calls `aardappel/goose` `upstream`, which leaves `origin` for a fork
+   such as `kaitk/goose`.
 
    ```sh
    git clone -o upstream https://github.com/aardappel/goose.git ../goose
@@ -144,22 +158,26 @@ build directory and ignores them.
 
 ## Build and run
 
-Run these in WSL. They work from any directory.
+Run these in WSL, or on macOS ([below](#macos)). They work from any directory.
 
 | Command | What it does |
 |---|---|
-| `scripts/build.sh` | Compiles `src/main.goose` to `build/server.c` at `-O2`, then to `build/server` with `cc -O2`. |
+| `scripts/build.sh` | Builds `src/main.goose` into `build/server` with `goose build`, at `-O2` for Goose and gcc. `LOOP=uring` builds `src/main_uring.goose`, the io_uring loop, instead. |
 | `scripts/test-unit.sh` | Runs each `src/test_*.goose` through TinyCC ([below](#test-the-http-server)). |
 | `scripts/test-http.sh` | Tests the HTTP server of `build/server` ([below](#test-the-http-server)). |
 | `scripts/test-echo.sh [server]` | Tests the echo servers of `build/server`, or of another command ([below](#test-the-echo-servers)). |
 | `bench/build.sh` | Builds the Goose server and the competing servers into `build/bench/` ([below](#benchmark)). |
 | `bench/run.sh` | Runs the benchmark matrix against `build/bench/` and writes `bench/results/<date>/` ([below](#benchmark)). |
 
-`build.sh` passes `-D_GNU_SOURCE --include shim/net.h` to goose
-([c-interop.md](c-interop.md#where-the-header-goes)). It takes the C compiler from `CC`
-(default `cc`, gcc here) and its flags from `CFLAGS` (default `-O2`). The generated C
-stays in `build/server.c` for reading. gcc builds a faster server than clang
-(task 008).
+`build.sh` runs `goose build --cc gcc --standalone`. gcc builds a faster server than
+clang (task 008); `CC` picks another. `--standalone` puts the runtime in the program's C
+file, so gcc can inline the runtime's functions into the server, as before task 010. The
+root file's sidecar, `src/main.build` or `src/main_uring.build`, names the C in `shim/`
+to compile and link for each platform (`shim/net.c` on Linux, `shim/kqueue.c` on macOS),
+and liburing for the io_uring loop, which needs Linux 6.1
+([architecture](architecture/README.md#the-io_uring-loop-task-005)). `goose build` keeps
+the generated C under `~/.goose/build/prog/`; `goose build -v` prints the commands with
+their paths.
 
 TinyCC can't place thread-local storage, so it refuses to run any program that can reach
 `thread_spawn`, even when the spawn isn't taken. `src/main.goose` is one, so the server
@@ -183,7 +201,8 @@ does with bytes alone: the parser on good, partial, pipelined, and refused reque
 kind of response.
 
 `scripts/test-http.sh` starts `build/server http` with 4 workers (`WORKERS`) and fails on
-the first error. It needs curl, wrk, h2load, oha, `nc`, and `python3`
+the first error. It tests whichever loop `build/server` has, so build each loop and run it
+once per loop. It needs curl, wrk, h2load, oha, `nc`, and `python3`
 ([toolchain](#toolchain)). Against the server it runs:
 
 - curl on `/plaintext`, `/json`, and a 404, and two requests on one connection.
@@ -213,6 +232,10 @@ the first error. It needs curl, wrk, h2load, oha, `nc`, and `python3`
   must see only 200s and no errors.
 - Then one worker under `ulimit -n 40` and 60 clients (`emfile`): the clients past the fd
   limit wait in the listen backlog, and are served once earlier ones close.
+
+The io_uring loop's listener outlives its process by a moment: the kernel tears a ring
+down after the process exits, and the queued multishot accept holds the listener until
+then. `test-http.sh` waits up to 5 s for the port to free before each start.
 
 The load runs check correctness, not speed; their numbers aren't measurements (task 004).
 wrk 4.1.0 times requests with the wall clock, `gettimeofday`, and WSL2 steps its wall clock
@@ -290,7 +313,7 @@ What the benchmark has to work around on this machine:
   h2load accepts both spellings and adds `user-agent: h2load nghttp2/1.68.0`. Task 004's
   runs sent only `Host` and `Accept` this way (found in task 008, by tracing the
   server's `recvfrom`); write `-H "Host: tfb-server"`.
-- Cargo under `/mnt/c/Users/kait` reads the Windows `~/.cargo/config`, which sets
+- Cargo under `/mnt/c/Users/<user>` reads the Windows `~/.cargo/config`, which sets
   `-C target-cpu=native` for every build (see [below](#from-a-windows-shell)).
   `bench/build.sh` runs cargo from its cache directory on the Linux file system, and sets
   the flags it wants itself.
@@ -317,8 +340,8 @@ What the benchmark has to work around on this machine:
 
 ### From a Windows shell
 
-The repository lives on the Windows drive, so WSL sees it at
-`/mnt/c/Users/kait/projects/goose/goose-http`. These things break commands passed to WSL
+The repository lives on the Windows drive, so WSL sees it under `/mnt/c`, for example
+at `/mnt/c/Users/<user>/projects/goose/goose-http`. These things break commands passed to WSL
 from Windows:
 
 - `wsl.exe` hands its arguments to a shell that expands `$VARS` before `bash -c` sees
@@ -327,19 +350,23 @@ from Windows:
 - Git Bash rewrites arguments that look like POSIX paths, so `/mnt/c/...` turns into
   `C:/Program Files/Git/mnt/c/...`. Set `MSYS_NO_PATHCONV=1` for the `wsl.exe` call.
   PowerShell doesn't rewrite paths.
-- `GOOSE` isn't set in Kait's WSL profile, and `bash script.sh` wouldn't read the profile
-  anyway. A script that calls `scripts/build.sh` or `scripts/test-unit.sh` exports it
-  first: `export GOOSE=/mnt/c/Users/kait/projects/goose/goose/build-linux/goose`. The
+- `bash script.sh` doesn't read the WSL profile, so a `GOOSE` set there doesn't reach
+  it. A script that calls `scripts/build.sh` or `scripts/test-unit.sh` exports it first:
+  `export GOOSE=/mnt/c/Users/<user>/projects/goose/goose/build-linux/goose`. The
   same goes for `PATH`, which needs `$HOME/.cargo/bin` for oha.
 - A server started in the background survives when its `wsl.exe` call ends early, for
   example when the output is piped into `head`. It keeps its port, and the next run fails
   to bind. Check with `ps aux | grep build/server` before rerunning.
-- `wsl.exe` starts in the Windows working directory, under `/mnt/c/Users/kait`, and cargo
-  reads the config files of every directory above its own. It then picks up the Windows
-  `C:\Users\kait\.cargo\config`. Run cargo with `wsl.exe --cd /root`, or `cd ~` first.
+- `wsl.exe` starts in the Windows working directory, under `/mnt/c/Users/<user>`, and
+  cargo reads the config files of every directory above its own. It then picks up the
+  Windows `C:\Users\<user>\.cargo\config`. Run cargo with `wsl.exe --cd /root`, or `cd ~` first.
 - `pkill -f PATTERN` inside `wsl.exe -- bash -c '...'` matches that `bash -c` too, whose
   command line holds the pattern, and kills it. Kill by PID instead.
 - Killing `strace` doesn't stop the server it started; kill the server's PID.
+- Git for Windows 2.45 writes a worktree's `.git` file with a Windows path, which WSL's
+  git can't follow, so `bench/run.sh` can't record the commit there. It has no
+  `--relative-paths`; write the file by hand, for example
+  `gitdir: ../goose-http/.git/worktrees/goose-http-uring`. Both gits read that.
 
 The agent's Bash tool turns `\\` into `\` before the shell sees it, even inside a quoted
 heredoc, so `'\\n'` written through it reaches the file as a line break. Edit files with
@@ -350,6 +377,126 @@ cp1252, so a `§` it writes becomes the byte `0xA7`, which isn't UTF-8. A script
 rewrites files here opens them with `encoding="utf-8", newline="\n"`.
 `.gitattributes` keeps `*.sh` and `*.py` at LF in the index, but WSL runs the working
 copy, so a CRLF script fails there before Git would fix it.
+
+## macOS
+
+The epoll loop runs on macOS through `shim/kqueue.c`, which `src/main.build` lists under
+`c_sources_macos`
+([architecture](architecture/README.md#the-platform-and-its-error-codes-task-006)), and
+`scripts/test-unit.sh`, `scripts/test-http.sh`, and `scripts/test-echo.sh` pass there.
+The io_uring loop is Linux-only, and `LOOP=uring scripts/build.sh` refuses to build on
+macOS.
+
+| Tool | Where | Version used (2026-10-11) |
+|---|---|---|
+| macOS | MacBook Pro `MacBookPro18,3`, Apple M1 Pro (8 performance and 2 efficiency cores) | 26.3.1, Darwin 25.3.0 |
+| C compiler | Xcode | Apple clang 21.0.0 (`clang-2100.0.123.102`) |
+| CMake | Homebrew | 4.4.4 |
+| Python | Homebrew | 3.14.8 |
+| curl, nc | macOS | curl 8.7.1, Apple's nc |
+| wrk | Homebrew | 4.2.0, built on kqueue |
+| h2load | Homebrew `nghttp2` | 1.70.0 |
+| oha | Homebrew | 1.16.0 |
+
+```sh
+brew install cmake wrk nghttp2 oha
+```
+
+Build the compiler as on Linux, with the Makefile generator CMake picks by default. The
+TinyCC backend finds the SDK's headers through `xcrun --show-sdk-path`, which needs Xcode
+or the Command Line Tools. `goose build --cc gcc` works unchanged, because macOS's `gcc`
+is Apple clang:
+
+```sh
+cmake -S ../goose -B ../goose/build-macos -DCMAKE_BUILD_TYPE=Release
+cmake --build ../goose/build-macos -j
+export GOOSE=$PWD/../goose/build-macos/goose
+```
+
+Then `scripts/build.sh` and the test scripts run as on Linux. On the Mac task 006 used,
+`../goose` is a fork on a feature branch, with `../goose-tcc-fix` a worktree of it:
+leave both alone. The plain checkout at the pin is `../goose-upstream`, so there
+`GOOSE=../goose-upstream/build-macos/goose`.
+
+What differs from Linux:
+
+- macOS has 16,384 ephemeral ports (`net.inet.ip.portrange.first` 49152 to `last`
+  65535), against Linux's 28,232, and a closed client socket holds its port in
+  `TIME_WAIT` for 30 s (twice `net.inet.tcp.msl`, 15,000 ms). `test-echo.sh` leaves
+  12,000 such sockets, and `test-http.sh` started within 30 s of it fails its
+  10,000-connection run with `EADDRNOTAVAIL` ("Can't assign requested address"). Wait
+  30 s between them; `netstat -an -p tcp | grep -c TIME_WAIT` counts what's left.
+- `kern.ipc.somaxconn` is 128, and `listen` cuts the server's backlog of 4,096 to it
+  without an error. The tests pass at 128: clients past the backlog retry their `SYN`.
+  `sudo sysctl kern.ipc.somaxconn=4096` raises it until the next boot.
+- The fd limit's hard maximum is unlimited and `kern.maxfilesperproc` is 122,880, so the
+  scripts' `ulimit -n 65536` works without changing a setting.
+- Apple's `nc -N` sets a count of keepalive probes, where OpenBSD's shuts down the socket
+  after the input ends. `test-echo.sh` passes `-N` only to an `nc` whose help describes
+  the shutdown, and relies on `-w 2` otherwise, which makes each echo check 2 s longer.
+- `hardware_threads()` counts the efficiency cores, so `build/server http` without
+  `WORKERS` starts 10 workers on an M1 Pro.
+
+One wrk run of the kqueue build, at commit `ac64ce9`, 2026-10-11, on the machine above:
+563,173 requests per second on `/plaintext`, 0.97 ms mean latency, and no errors.
+
+```sh
+WORKERS=4 build/server http 29084
+wrk -t 4 -c 64 -d 10 -s scripts/pipeline.lua http://127.0.0.1:29084/plaintext -- 16
+```
+
+That's 4 server workers and 4 wrk threads, 64 connections pipelining 16 deep, and one
+10 s run, with wrk on the same machine and no CPU pinning, at a load average of 2.7.
+The number shows that the build carries load, and nothing more: macOS isn't a benchmark
+platform (`AGENTS.md`).
+
+### Linux in Docker on macOS
+
+Docker Desktop on macOS runs the Linux build and its tests in an arm64 Linux VM, and both
+loops pass there as on WSL. Measured 2026-10-11 on the Mac above, Docker Desktop 29.8.2,
+kernel 7.0.14-linuxkit, 10 CPUs and 8 GB for the VM, in `ubuntu:26.04` with gcc 15.2.0,
+wrk 4.1.0, h2load 1.68.0, and oha 1.16.0 (its `oha-linux-arm64` release binary). The
+image installs what the toolchain table lists for WSL and builds the compiler at the pin:
+
+```dockerfile
+FROM ubuntu:26.04
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+    ca-certificates git cmake ninja-build gcc g++ liburing-dev curl wrk nghttp2-client \
+    netcat-openbsd python3
+RUN curl -sSLf -o /usr/local/bin/oha \
+        https://github.com/hatoo/oha/releases/download/v1.16.0/oha-linux-arm64 && \
+    chmod +x /usr/local/bin/oha
+RUN git init -q /goose && cd /goose && \
+    git fetch -q --depth 1 https://github.com/aardappel/goose.git efe31554dcce698c0749daec36cd5318d28135fb && \
+    git checkout -q FETCH_HEAD && \
+    cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build-linux
+ENV GOOSE=/goose/build-linux/goose
+```
+
+Run it on an export of the commit, so the container's `build/` doesn't land in the
+working tree:
+
+```sh
+git archive HEAD | tar -x -C /tmp/work
+docker run --rm --security-opt seccomp=unconfined --ulimit nofile=1048576:1048576 \
+    -v /tmp/work:/work -w /work goose-http-linux \
+    sh -c 'LOOP=uring scripts/build.sh && scripts/test-http.sh'
+```
+
+- Docker's default seccomp profile blocks io_uring: the uring server exits with
+  "io_uring: Operation not permitted". `--security-opt seccomp=unconfined` lets it run.
+- `scripts/test-unit.sh`, and `scripts/test-echo.sh` and `scripts/test-http.sh` against
+  each loop, passed at commit `090b2e2`, in one full run.
+- Before that commit, `test-echo.sh` failed 2 of 10 runs there with "echo-blocking never
+  saw EPIPE": the loopback is fast enough that the echo often reaches a cut client
+  before its close, which then resets the connection, and the server's send fails with
+  `ECONNRESET` instead. The script now repeats the cut rounds until an `EPIPE`, and passed
+  10 of 10, 3 of them needing a second or third round.
+- `test-http.sh` and `test-unit.sh` weren't executable in Git, which WSL's `/mnt/c`
+  hides by showing every file as executable. Commit `e22a9b8` made them executable,
+  with `bench/build.sh` and `bench/run.sh`.
+- The VM is no benchmark machine: its CPUs are shared with macOS, and the load runs share
+  them with the server.
 
 ## Edit on Windows
 
@@ -364,8 +511,7 @@ The Windows compiler typechecks the whole program without running it:
 no obstacle on Windows.
 
 The Goose VS Code extension checks on save and underlines errors. Its run commands go
-through TinyCC without `--include`, so they can't run the program, which calls into
-`shim/`. Install it from the checkout:
+through TinyCC, which can't run the server ([above](#build-and-run)). Install it from the checkout:
 
 ```powershell
 code --install-extension ..\goose\vscode\goose-language.vsix

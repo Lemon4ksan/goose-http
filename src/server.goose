@@ -1,32 +1,11 @@
-// The HTTP server: one worker per core, each with its own SO_REUSEPORT
-// listener and edge-triggered epoll loop, and nothing shared between them.
-// A connection belongs to the worker that accepted it, in a slot of that
-// worker's pool.
+// The HTTP server's epoll loop: each worker has its own SO_REUSEPORT
+// listener and edge-triggered epoll instance, and nothing is shared between
+// workers. A connection belongs to the worker that accepted it, in a slot of
+// that worker's pool.
 import std;
 import os;
 import sys;
 import http;
-
-// A worker's buffers, which the connection it's driving uses. The read
-// buffer holds the longest request head whole. The write buffer takes the
-// responses to a read's worth of pipelined requests: 16 TechEmpower
-// responses are about 2 KB. When it fills, the server sends it and answers
-// the rest of the read buffer after.
-let RBUF = http::MAX_HEAD;
-let WBUF = 8192;
-
-// The most connections one worker holds. One worker must be able to take
-// TechEmpower's largest run, 16,384 connections, alone.
-let MAX_CONNS = 16384;
-let BACKLOG = 4096;
-
-// In milliseconds of the monotonic clock. A request has REQUEST_MS from its
-// first byte to arrive whole, and a response as long to leave once it stops
-// moving. An idle keep-alive connection closes after IDLE_MS. A refused
-// connection has LINGER_MS for the client to read the refusal and close.
-let REQUEST_MS = 10000;
-let IDLE_MS = 60000;
-let LINGER_MS = 2000;
 
 // A connection's states.
 let OPEN: u8 = 0;       // answering requests
@@ -46,26 +25,6 @@ struct Conn {
     discard: i64,       // request body bytes still to drop
     held: u8[:],        // received and not yet answered
     out: u8[:],         // still to send
-}
-
-fn serve_http(port: i32) {
-    let n = workers();
-    print("http: ", n, if n == 1 { " worker" } else { " workers" }, " on port ", port);
-    var ids: i64[>..] = [];
-    for i in n { ids.push(thread_spawn(worker, port)); }
-    for id in ids { thread_wait(id); }
-}
-
-// WORKERS, or one worker per hardware thread.
-fn workers() -> i64 {
-    var v: u8[>..] = [];
-    guard env("WORKERS", v) else { return max(1, hardware_threads()); }
-    let n, ok = parse_int(v);
-    guard ok && n > 0 else {
-        write_stderr("WORKERS must be a positive number\n");
-        exit(2);
-    }
-    return n;
 }
 
 thread_fn worker(port: i32) { serve(port); }

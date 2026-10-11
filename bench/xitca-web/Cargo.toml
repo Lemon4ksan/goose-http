@@ -1,0 +1,28 @@
+[package]
+name = "bench-xitca-web"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# TechEmpower's xitca-web entry (FrameworkBenchmarks frameworks/Rust/xitca-web
+# at 57d92fb), its default test: the io-uring feature, with perf-json
+# (sonic-rs) and perf-allocator (mimalloc), as its Dockerfile builds it for the
+# continuous run. Cargo.lock started from the entry's.
+[dependencies]
+mimalloc = { version = "0.1", default-features = false }
+serde_core = "1"
+sonic-rs = "0.5.6"
+xitca-http = { version = "=0.8.2", features = ["io-uring", "router"] }
+xitca-server = { version = "=0.6.1", features = ["io-uring"] }
+xitca-service = "0.3"
+
+# The entry's profile.
+[profile.release]
+lto = true
+opt-level = 3
+codegen-units = 1
+panic = "abort"
+
+# The entry's patch: xitca-http's router from this xitca-web commit.
+[patch.crates-io]
+xitca-router = { git = "https://github.com/HFQR/xitca-web", rev = "bd86c7c" }

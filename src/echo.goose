@@ -1,4 +1,4 @@
-// Two echo servers that exercise shim/net.h before the HTTP server depends on
+// Two echo servers that exercise shim/net.c before the HTTP server depends on
 // it: a blocking one that serves one client at a time, and a single
 // edge-triggered epoll loop.
 import sys;

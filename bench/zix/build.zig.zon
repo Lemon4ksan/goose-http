@@ -1,0 +1,18 @@
+.{
+    .name = .bench_zix,
+    .version = "0.1.0",
+    .fingerprint = 0xd0d5be010aa3c51a,
+    .minimum_zig_version = "0.16.0",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+    // The commit of the 0.5.x branch the entry's Dockerfile fetches (tag 0.5.0).
+    .dependencies = .{
+        .zix = .{
+            .url = "git+https://github.com/prothegee/zix#8b849c6a48c0867a2388ce2e92697d1a6760777b",
+            .hash = "zix-0.5.0-C6KT3Gv7iQCb16uipSqBF4b-xFify1fgf1yA2fqYo7Tg",
+        },
+    },
+}

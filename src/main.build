@@ -1,0 +1,3 @@
+// The C the server calls, which goose build compiles and links beside it.
+c_sources_linux = ["../shim/net.c"];
+c_sources_macos = ["../shim/kqueue.c"];

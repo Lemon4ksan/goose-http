@@ -1,24 +1,33 @@
 # Architecture
 
-Decisions for the server. Each says who decided it and when. A proposed decision stands
+Decisions for the server. Each says when it was decided. A proposed decision stands
 until the task named beside it confirms or replaces it.
 
 ## Settled
 
 - **A Goose program, not a Goose feature.** This repository uses Goose as the pinned
-  checkout ships it. Gaps go to `docs/goose-findings.md` (Kait, 2026-10-10).
+  checkout ships it. Gaps go to `docs/goose-findings.md` (2026-10-10).
 - **Simple first, then io_uring.** The first server is an epoll loop per core; io_uring
-  follows once epoll is measured (Kait, 2026-10-10).
+  follows once epoll is measured (2026-10-10).
 - **Linux is the benchmark platform.** The fast paths (`SO_REUSEPORT`, epoll, io_uring)
   are Linux APIs, and that is where the competing servers are compared. Development runs
   on WSL2 Ubuntu.
 - **C behind a thin shim.** Goose calls C directly through `extern fn`, but C can't call
   Goose back at runtime: there are no runtime function pointers (§7.5), and `export fn`
-  calls must stay on the thread that called `goose_init` (§7.11). So `shim/net.h` only
+  calls must stay on the thread that called `goose_init` (§7.11). So `shim/net.c` only
   wraps calls that return, and returns `-errno` instead of `-1` and `errno`. It covers
-  sockets, epoll, coarse clocks, and `strerror`; io_uring will get `shim/uring.h`.
+  sockets, epoll, coarse clocks, and `strerror`; `shim/uring.c` covers io_uring
+  ([below](#the-io_uring-loop-task-005)), and `shim/kqueue.c` is `shim/net.c` for macOS,
+  returning the same Linux codes ([below](#the-platform-and-its-error-codes-task-006)).
   Anything that needs a callback, such as llhttp, libuv, or a C HTTP server, is out
   (confirmed by task 002, 2026-10-10). Details:
+  - `goose build` compiles the shim as C files of their own, which each root file's
+    sidecar names (`src/main.build`), and links them (task 010, 2026-10-11). The C sees
+    none of the generated C, so it spells out the layouts it shares with Goose. Headers
+    spliced in with `--include` were dropped: they needed `-D_GNU_SOURCE` from the
+    command line and an `-o` with a directory, two compiler findings. A sidecar's
+    `c_sources_linux`, `_macos`, and `_windows` keys pick each platform's shim with no
+    conditional compilation in Goose.
   - The shim owns the kernel structures whose layout varies by architecture.
     `epoll_wait` fills a local `struct epoll_event` array, which is packed on x86-64 and
     padded on arm64, and copies it into `sys::Event`, a struct of the program's own.
@@ -34,7 +43,8 @@ until the task named beside it confirms or replaces it.
   - `main` spawns one worker per `hardware_threads()`, or `WORKERS` if set, and passes
     each only the port.
   - Each worker opens its own listener with `SO_REUSEPORT`, so the kernel spreads
-    connections across workers, and runs its own edge-triggered epoll loop.
+    connections across workers, and runs its own edge-triggered epoll loop. On macOS the
+    workers share one listener instead ([below](#the-platform-and-its-error-codes-task-006)).
   - A connection belongs to one worker for its life, in a slot of that worker's
     `reusable` pool; its epoll tag is the slot. A table indexed by fd was rejected: fds
     are numbered across the process, so every worker's table would grow to the highest
@@ -86,8 +96,71 @@ until the task named beside it confirms or replaces it.
 
 ## Proposed
 
-### io_uring later (task 005)
+### The io_uring loop (task 005)
 
-Multishot accept and receive, provided buffer rings, and batched submission, through a
-shim over liburing, whose helpers are mostly inline functions that `extern fn` can't bind
-directly. It replaces the epoll loop only if task 005 measures it faster.
+`LOOP=uring scripts/build.sh` builds the server with an io_uring loop
+(`src/uring.goose`) in place of the epoll loop; `src/app.goose` holds what both share.
+The epoll loop stays the default until task 005 measures both, and stays buildable and
+tested either way (2026-10-11):
+
+- `shim/uring.c` wraps liburing 2.14, whose helpers are static inline functions that
+  `extern fn` can't bind, and needs Linux 6.1. Each worker owns a ring, created with
+  `IORING_SETUP_SINGLE_ISSUER` and `IORING_SETUP_DEFER_TASKRUN`: the kernel completes
+  requests only while the worker waits, and each wait submits everything queued since
+  the last one.
+- A multishot accept takes the listener's connections, and a multishot receive per
+  connection fills the ring's provided buffers, 1,024 of 4 KB per worker. A receive
+  that finds no buffer left ends, and the loop queues it again.
+- The ring owns every buffer the kernel touches after a call returns. The kernel reads a
+  send's bytes and writes a receive's after the call that queued them, and spec §7.10
+  forbids C to keep a Goose argument past a call. So the loop copies each receive out of
+  a provided buffer into its read buffer, and the shim copies each send's bytes into a
+  buffer of its own. The epoll loop makes neither copy; the kernel's own copy into and
+  out of the socket is the same in both.
+- A connection has one send in flight, which keeps its responses in order. Responses
+  answered meanwhile wait in the spill pool. Past 64 KB waiting, the loop cancels the
+  connection's receive and holds what still arrives until the client reads, as the epoll
+  loop stops reading when a send would block.
+- A request's tag is the connection's slot and a generation, so a completion that
+  arrives after its connection closed isn't taken for the slot's next connection.
+- Closing a connection queues a cancel of its requests and, linked after it, the close.
+  A queued request holds a reference to the socket, so a `close` alone would leave the
+  connection open.
+- At 16,384 connections the worker cancels its accept, and closes any connection
+  accepted before the cancel lands. After `EMFILE` or `ENFILE` it queues the accept
+  again after a close or at the next sweep, so waiting clients keep their place in the
+  backlog, as with epoll.
+
+### The platform and its error codes (task 006)
+
+The sidecar chooses the platform, because the spec has no conditional compilation:
+`src/main.build` lists `shim/net.c` under `c_sources_linux` and `shim/kqueue.c` under
+`c_sources_macos`. Both platforms compile `src/main.goose`, and the epoll loop runs
+unchanged on either (2026-10-11). `scripts/build.sh` refuses `LOOP=uring` off Linux.
+
+- `shim/kqueue.c` defines the same C functions as `shim/net.c`, so `src/sys.goose` binds
+  either. `IN` and `OUT` become `EVFILT_READ` and `EVFILT_WRITE`, `ET` becomes
+  `EV_CLEAR`, and `EV_EOF` is reported as `RDHUP` on the read filter and `HUP` on the
+  write filter. The events are copied into `sys::Event`, as on Linux, because `struct
+  kevent` is 32 bytes on arm64.
+- The shim merges the events of one fd within a wait into one `sys::Event`, as epoll
+  reports them. kqueue reports each filter apart, and the loop frees a connection's slot on
+  the event that closes it, so a second event for it in the same batch would drive the
+  freed slot. Without the merge, 3,000 connections at once hung.
+- The workers share one listener per port: macOS's `SO_REUSEPORT` gave every connection
+  to the last listener bound. Each worker gets its own fd for the listener and watches it
+  in its own kqueue. The spread across workers is uneven, because the first worker to
+  wake drains the backlog, which costs throughput and not correctness. An acceptor
+  handing out fds would spread them evenly, and is the change to make if macOS becomes a
+  benchmark platform. Task 006's macOS subtask has the measurements.
+- macOS drops a connection whose `accept` fails with `EMFILE`, so the shim checks for a
+  free fd first and leaves the client in the backlog when there's none, as Linux does.
+
+The constants in `src/sys.goose` are the project's own error codes, Linux's errno values
+on every platform, as libuv's are the negated errno on Unix. `shim/net.c` passes errno
+through, and its `_Static_assert`s pin the values. `shim/kqueue.c` translates: codes 1 to
+34 are equal on both systems, a table maps macOS's codes from 35 up to Linux's (`EAGAIN`
+35 to 11, `ECONNABORTED` 53 to 103), and a code with no Linux counterpart becomes 1000
+plus its own. `net_strerror` translates back, for the platform's text. Goose code never
+sees a platform's own numbers. `shim/iocp.c` is to map Winsock's errors onto the same
+codes.
