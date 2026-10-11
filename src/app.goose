@@ -8,10 +8,10 @@ import http;
 import echo;
 
 // A worker's buffers, which the connection it's driving uses. The read
-// buffer holds the longest request head whole. The write buffer takes the
-// responses to a read's worth of pipelined requests: 16 TechEmpower
-// responses are about 2 KB. When it fills, the server sends it and answers
-// the rest of the read buffer after.
+// buffer holds the longest request head whole. The write buffer grows to
+// hold any response whole, and past WBUF bytes the server sends what it
+// holds before it answers more: WBUF takes the responses to a read's worth
+// of pipelined requests, as 16 TechEmpower responses are about 2 KB.
 let RBUF = http::MAX_HEAD;
 let WBUF = 8192;
 
@@ -34,12 +34,12 @@ let CLOSING: u8 = 1;    // sending what's left, then shutting down its side
 let DRAINING: u8 = 2;   // shut down, and dropping what arrives until the client closes
 
 // Answers the complete requests in rbuf[..rlen] for connection c, into wbuf,
-// and moves the rest of rbuf to its front. Before a request, if wbuf may not
-// have room for its response, it calls ROOM(), which makes room and returns
-// true, or returns false to stop there. Returns the bytes left in rbuf, the
+// and moves the rest of rbuf to its front. Before a request, if wbuf holds
+// WBUF bytes or more, it calls ROOM(), which empties wbuf and returns true,
+// or returns false to stop there. Returns the bytes left in rbuf, the
 // number of requests answered, and whether ROOM stopped it. A refused request
 // leaves c CLOSING and rbuf empty.
-fn answer<ROOM, C, A>(c: C&, rbuf: u8[:], rlen: i64, wbuf: A&, date: const u8[:]) -> i64, i64, bool {
+fn answer<ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: const u8[:]) -> i64, i64, bool {
     var off = 0;
     var done = 0;
     var full = false;
@@ -50,7 +50,7 @@ fn answer<ROOM, C, A>(c: C&, rbuf: u8[:], rlen: i64, wbuf: A&, date: const u8[:]
             c.discard -= k;
             continue;
         }
-        if wbuf.cap - wbuf.len < http::MAX_RESPONSE && !ROOM() {
+        if wbuf.len >= WBUF && !ROOM() {
             full = true;
             break;
         }

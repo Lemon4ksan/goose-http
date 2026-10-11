@@ -46,7 +46,7 @@ fn serve(port: i32) {
     // answered, and wbuf[woff..] is still to send.
     var rbuf: u8[RBUF] = [0; RBUF];
     var rlen = 0;
-    var wbuf: u8[..WBUF] = [];
+    var wbuf: u8[>..] = [];
     var woff = 0;
 
     fn accept_all() {

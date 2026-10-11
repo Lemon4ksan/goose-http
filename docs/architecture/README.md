@@ -57,11 +57,14 @@ until the task named beside it confirms or replaces it.
     are numbered across the process, so every worker's table would grow to the highest
     fd of all of them.
   - The buffers belong to the worker, not the connection: an 8 KB read buffer, which
-    holds the longest request head whole, and an 8 KB write buffer, which takes the
-    responses to a read's worth of pipelined requests (16 TechEmpower responses are
-    about 2 KB). The connection being driven uses them. Nothing grows per request: the
-    parser returns slices of the read buffer, and the JSON body is built in a fixed array
-    on the native stack.
+    holds the longest request head whole, and a write buffer that takes 8 KB of
+    responses before the server sends them, a read's worth of pipelined requests (16
+    TechEmpower responses are about 2 KB). The write buffer is a growable array, so a
+    response of any size goes into it whole, and what the socket doesn't take goes to
+    the spill pool, as any response does (2026-10-11). The connection being driven
+    uses them. Nothing grows per request in the benchmarks: the parser returns slices
+    of the read buffer, and the JSON body is built in a fixed array on the native
+    stack. The write buffer keeps the pages its largest response touched.
   - Between events, a slot holds about 50 bytes and two slices into the worker's
     `reusable[]` spill pool: the start of a request not yet whole, and responses the
     socket didn't take, both empty almost always (task 009, 2026-10-10). Slots of 16 KB
@@ -78,7 +81,7 @@ until the task named beside it confirms or replaces it.
   - Keep-alive by default, `Connection: close` honored, and HTTP/1.0 kept alive only
     when it asks.
   - Pipelining: every complete request in the read buffer is answered, and the responses
-    go out in one `send`. When the write buffer fills, the server sends it and answers
+    go out in one `send`. Past 8 KB of responses, the server sends them and answers
     the rest.
   - `Content-Length` request bodies are read and dropped as they arrive. Chunked bodies
     are accepted in HTTP/1.1 (task 009, for HttpArena's `baseline` profile, 2026-10-10):
@@ -86,8 +89,9 @@ until the task named beside it confirms or replaces it.
     a `Content-Length` body the route reads, which only `POST /baseline11` does. A
     chunked body the route reads is decoded in place. Another transfer coding gets 501, and `Transfer-Encoding`
     with `Content-Length`, or in HTTP/1.0, gets 400.
-  - Routes: `/plaintext` and `/json` for TechEmpower's tests, and `/baseline11` and
-    `/pipeline` for HttpArena's (`bench/httparena/goose`).
+  - Routes: `/plaintext` and `/json` for TechEmpower's tests, `/baseline11` and
+    `/pipeline` for HttpArena's (`bench/httparena/goose`), and `/bytes?n=N`, N bytes
+    up to 16 MB, for testing large responses.
   - Lines end in CRLF only; a bare LF is 400. HTTP/1.1 needs one `Host`.
   - Limits, in `src/http.goose`: a 4 KB request line (414), an 8 KB head or 100 fields
     (431), and a 1 MB body (413).

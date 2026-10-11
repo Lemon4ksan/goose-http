@@ -19,8 +19,6 @@ let MAX_FIELDS = 100;
 // (reads_body) and a chunked body: those must fit in the read buffer with the
 // head, or they are refused with 413 too.
 let MAX_BODY = 1048576;
-// More than respond or refuse ever writes for one request.
-let MAX_RESPONSE = 512;
 
 // parse's status for a buffer that holds only the start of a request.
 let INCOMPLETE = 0;
@@ -320,9 +318,9 @@ inline fn eq_fold(a: const u8[:], lower: const u8[:]) -> bool {
     return true;
 }
 
-// The writers below take out as A&, a growable or limited u8 array. The
-// server's write buffer is a limited array, a fixed-size value, so an untyped
-// parameter would get a copy of it.
+// The writers below take out as A&, a growable or limited u8 array. A
+// limited array is a fixed-size value, so an untyped parameter would get a
+// copy of it.
 
 // The target without its query.
 fn path_of(target: const u8[:]) -> const u8[:] {
@@ -340,9 +338,11 @@ fn respond<A>(out: A&, req: Request, body: const u8[:], date: const u8[:]) -> bo
     // HttpArena's endpoints (bench/httparena).
     let baseline = path == "/baseline11";
     let pipeline = path == "/pipeline";
+    // n bytes, for testing responses larger than the write buffer.
+    let bytes = path == "/bytes";
     let head_only = req.method == "HEAD";
     let get = head_only || req.method == "GET";
-    if (plaintext || json || pipeline) && !get || baseline && !get && req.method != "POST" {
+    if (plaintext || json || pipeline || bytes) && !get || baseline && !get && req.method != "POST" {
         start(out, 405, date, req.keep_alive, req.minor);
         out.append(if baseline { "Allow: GET, HEAD, POST\r\n" } else { "Allow: GET, HEAD\r\n" });
         finish(out, "Content-Length: ", "", false);
@@ -367,12 +367,24 @@ fn respond<A>(out: A&, req: Request, body: const u8[:], date: const u8[:]) -> bo
     } else if pipeline {
         start(out, 200, date, req.keep_alive, req.minor);
         finish(out, "Content-Type: text/plain\r\nContent-Length: ", "ok", head_only);
+    } else if bytes {
+        let n = min(max(query_int(req.target, "n"), 0), MAX_BYTES);
+        start(out, 200, date, req.keep_alive, req.minor);
+        out.append("Content-Type: application/octet-stream\r\nContent-Length: ");
+        format(out, n);
+        out.append("\r\n\r\n");
+        if !head_only {
+            for i in n { out.push(('0' + i % 10) as! u8); }
+        }
     } else {
         start(out, 404, date, req.keep_alive, req.minor);
         finish(out, "Content-Length: ", "", head_only);
     }
     return req.keep_alive;
 }
+
+// The most bytes /bytes sends.
+let MAX_BYTES = 16777216;
 
 // The integer value of key in target's query, or 0.
 fn query_int(target: const u8[:], key: const u8[:]) -> i64 {

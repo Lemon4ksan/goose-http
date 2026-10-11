@@ -58,8 +58,9 @@ The design, proposed:
 - Before the handler can go in, the loops' request handling becomes one function both
   call: `answer` is nearly the same in `src/server.goose` and `src/uring.goose`, and
   routes are wired into it (`http::respond`, and `http::reads_body`'s `/baseline11`).
-  A handler's response must not abort the process: today each must fit in
-  `MAX_RESPONSE`, 512 bytes, in a fixed 8 KB write buffer.
+  A handler's response must not abort the process. Done (2026-10-11): `answer` in
+  `src/app.goose` serves both loops, and the write buffer grows to take a response of
+  any size whole.
 - A library can't end the process: `http::serve` returns errors that `sys::check`
   and the shims turn into exits today, and takes its settings (address, limits,
   timeouts, buffer sizes) as one flat struct instead of constants and `WORKERS`.

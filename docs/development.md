@@ -214,6 +214,9 @@ once per loop. It needs curl, wrk, h2load, oha, `nc`, and `python3`
   - `pipeline`: 16 requests in one write, answered in order; a request sent a byte at a
     time; 5-byte and 512 KB bodies dropped between pipelined requests; and 500
     pipelined requests, more than the write buffer holds.
+  - `large`: responses of 5 KB to 300 KB from `/bytes`, alone and pipelined between
+    small ones, and 4 MB to a client that reads only after the server's send has
+    blocked.
   - `chunked`: chunked bodies, with an extension and a trailer field, dropped between
     pipelined requests and sent a byte at a time, and HttpArena's `/baseline11` with no
     body, a `Content-Length` body, and a chunked one.
@@ -593,6 +596,11 @@ Traps in Git Bash:
   (`MSYS_NO_PATHCONV=1`) passes `//c` through, and leaves `cmd` waiting for input.
 - The server listens on 127.0.0.1 only. Any other address raises a Windows Defender
   Firewall prompt.
+- Windows has 16,384 ephemeral ports (49152 to 65535), and `test-http.sh` leaves about
+  11,000 client sockets in `TIME_WAIT`. A second run started within a couple of minutes
+  fails in `many 10000` with `OSError: [WinError 52] You were not connected because a
+  duplicate name exists on the network`, which is running out of ports (2026-10-11).
+  Wait until `netstat -an | grep -c TIME_WAIT` is down to a few thousand.
 
 ## Edit on Windows
 

@@ -73,7 +73,7 @@ fn serve(port: i32) {
     // answered, and wbuf is answered and not yet queued to send.
     var rbuf: u8[RBUF] = [0; RBUF];
     var rlen = 0;
-    var wbuf: u8[..WBUF] = [];
+    var wbuf: u8[>..] = [];
     // Whether the driven connection answered a request or sent a response.
     var progress = false;
 

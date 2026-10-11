@@ -46,8 +46,9 @@ change the per-connection state, in both of task 011's loops, `http::serve` and
    (`src/http.goose:209-228`) or gets 413. The handler reads `Content-Length` and chunked
    bodies in buffer-sized pieces, up to a configurable limit; a body it ignores is still
    drained. This is the largest change to the io_uring loop.
-8. Large and streamed responses. A response is at most 512 bytes (`MAX_RESPONSE`,
-   `src/http.goose:23`). The handler can send a body of any size, and stream one with
+8. Large and streamed responses. A response of any size goes whole into the worker's
+   growable write buffer (task 011), so the handler can send one, but not stream one.
+   The handler can send a body of any size without holding it whole, and stream one with
    chunked encoding, while backpressure pauses the handler instead of buffering
    without bound. Check what shape spec §7.6's compile-time function values allow for a
    handler that resumes.

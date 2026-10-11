@@ -2,6 +2,7 @@
 
     http_client.py PORT tfb         TechEmpower's plaintext and JSON checks
     http_client.py PORT pipeline    pipelined requests and request bodies
+    http_client.py PORT large       responses larger than the write buffer
     http_client.py PORT chunked     chunked request bodies, and HttpArena's /baseline11
     http_client.py PORT keepalive   keep-alive, Connection: close, HTTP/1.0
     http_client.py PORT hostile     malformed and oversized requests
@@ -204,6 +205,43 @@ def pipeline(port):
     sender.join()
     c.close()
     print("pipeline: ok")
+
+
+def large(port):
+    def check(r, n):
+        if r.status != 200:
+            fail(f"/bytes?n={n} answered {r.status}")
+        want = (b"0123456789" * (n // 10 + 1))[:n]
+        if r.body != want:
+            fail(f"/bytes?n={n}: {len(r.body)} bytes, not the ones sent")
+
+    # Responses larger than the server's 8 KB write buffer: alone, and
+    # pipelined between small ones, answered in order.
+    c = Conn(port)
+    for n in (5000, 8192, 8193, 100000):
+        c.send(request(b"/bytes?n=%d" % n))
+        check(c.response(), n)
+    sizes = [None, 6000, None, 300000, 20000, None]
+    c.send(b"".join(request(b"/plaintext") if n is None else request(b"/bytes?n=%d" % n)
+                    for n in sizes))
+    for n in sizes:
+        r = c.response()
+        if n is None:
+            if r.status != 200 or r.body != b"Hello, World!":
+                fail(f"/plaintext between large responses: {r.status} {r.body!r}")
+        else:
+            check(r, n)
+    c.close()
+    # 4 MB to a client that starts reading only after the server's send has
+    # blocked, and a request after it on the same connection.
+    c = Conn(port, rcvbuf=4096)
+    c.send(request(b"/bytes?n=4000000") + request(b"/json"))
+    time.sleep(1)
+    check(c.response(), 4000000)
+    if c.response().status != 200:
+        fail("a request after a 4 MB response")
+    c.close()
+    print("large: ok")
 
 
 def chunked(port):
@@ -453,7 +491,7 @@ def main():
     if mode in ("many", "emfile"):
         {"many": many, "emfile": emfile}[mode](port, int(sys.argv[3]))
     else:
-        {"tfb": tfb, "pipeline": pipeline, "chunked": chunked, "keepalive": keepalive,
+        {"tfb": tfb, "pipeline": pipeline, "large": large, "chunked": chunked, "keepalive": keepalive,
          "hostile": hostile, "slow": slow}[mode](port)
 
 
