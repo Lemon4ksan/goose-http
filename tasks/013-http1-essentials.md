@@ -86,6 +86,10 @@ change the per-connection state, in both of task 011's loops, `http::serve` and
   only when a handler asks. `bench/instructions.sh` (3 runs, as in task 011) measured
   1,423-1,441 user instructions per request for the epoll loop against 1,400-1,431
   before, and 1,482-1,501 for the uring loop against 1,488-1,507: no cost.
+- Item 9 (2026-10-11): `http::decode(s, out, plus)`, `http::query_of`, and
+  `http::each_query`, and 400 from `parse` for a target with a `%` that doesn't start
+  an escape, checked only when the target has one. Values stay encoded until the
+  handler decodes them, since a decoded path can hold a `/` that wasn't a separator.
 
 ## Acceptance criteria
 
@@ -104,7 +108,7 @@ change the per-connection state, in both of task 011's loops, `http::serve` and
       a handler that ignores them leaves the connection usable for the next request
 - [ ] A handler sends a 10 MB body, and streams a chunked one, with each connection's
       memory bounded
-- [ ] Decoded path and query, with 400 for an invalid `%` escape
+- [x] Decoded path and query, with 400 for an invalid `%` escape (2026-10-11)
 - [ ] Limits and timeouts set by the program, with tests at non-default values
 - [ ] `SIGTERM` drains and stops every worker within the grace period, in `serve` and
       `serve_epoll`

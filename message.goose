@@ -92,6 +92,9 @@ inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_
     guard pos > t0 && buf[pos] == ' ' else { return Request { .. }, 400; }
     let target = buf[t0..pos];
     pos++;
+    // A '%' starts an escape of two hex digits (RFC 3986 §2.1), so that
+    // decode can't fail on a target the handler gets.
+    guard position(target, '%') < 0 || escapes_ok(target) else { return Request { .. }, 400; }
 
     // The version, HTTP/d.d, and CRLF: ten bytes. Waiting for them would
     // hang a client that ended the line early, so a line end is checked first.
@@ -493,17 +496,80 @@ fn path_of(target: const u8[:]) -> const u8[:] {
 
 // The integer value of key in target's query, or 0.
 fn query_int(target: const u8[:], key: const u8[:]) -> i64 {
+    let v, found = query_of(target, key);
+    guard found else { return 0; }
+    let n, ok = parse_int(v);
+    return if ok { n } else { 0 };
+}
+
+// The value of key in target's query, and whether the query has it; the
+// first, if it repeats. Both are compared and given as sent, still encoded:
+// decode the value with plus set for a form's query. A key without '=' has
+// an empty value.
+fn query_of(target: const u8[:], key: const u8[:]) -> const u8[:], bool {
     let q = position(target, '?');
-    guard q >= 0 else { return 0; }
-    var v = 0;
+    guard q >= 0 else { return "", false; }
+    var rest = target[q + 1..];
+    loop {
+        let amp = position(rest, '&');
+        let pair = if amp >= 0 { rest[..amp] } else { rest };
+        let eq = position(pair, '=');
+        let k = if eq >= 0 { pair[..eq] } else { pair };
+        if k == key && pair.len > 0 { return if eq >= 0 { pair[eq + 1..] } else { "" }, true; }
+        guard amp >= 0 else { return "", false; }
+        rest = rest[amp + 1..];
+    }
+}
+
+// Calls F(key, value) for each pair of target's query, in order, as query_of
+// splits and gives them. Empty pairs, as in "a=1&&b=2", are skipped.
+fn each_query<F>(target: const u8[:]) {
+    let q = position(target, '?');
+    guard q >= 0 else { return; }
     each_split(target[q + 1..], '&') {
-        let eq = position(it, '=');
-        if eq >= 0 && it[..eq] == key {
-            let n, ok = parse_int(it[eq + 1..]);
-            if ok { v = n; }
+        if it.len > 0 {
+            let eq = position(it, '=');
+            if eq >= 0 { F(it[..eq], it[eq + 1..]); } else { F(it, ""); }
         }
     };
-    return v;
+}
+
+// Appends s to out with its percent-escapes decoded (RFC 3986 §2.1), and with
+// '+' as a space when plus is set, as in a form's query
+// (application/x-www-form-urlencoded). False, with out holding what came
+// before, for a '%' without two hex digits after it, which parse refuses in
+// a target. A decoded path can hold '/' and '?' that weren't separators, so
+// split a path before decoding it.
+fn decode(s: const u8[:], out: u8[>..]&, plus: bool = false) -> bool {
+    var i = 0;
+    while i < s.len {
+        let c = s[i];
+        if c == '%' {
+            guard i + 2 < s.len && hex(s[i + 1]) >= 0 && hex(s[i + 2]) >= 0 else { return false; }
+            out.push((hex(s[i + 1]) * 16 + hex(s[i + 2])) as u8);
+            i += 3;
+        } else {
+            out.push(if plus && c == '+' { ' ' } else { c });
+            i++;
+        }
+    }
+    return true;
+}
+
+// Whether each '%' in s starts an escape of two hex digits.
+fn escapes_ok(s: const u8[:]) -> bool {
+    for c, i in s {
+        if c == '%' && (i + 2 >= s.len || hex(s[i + 1]) < 0 || hex(s[i + 2]) < 0) { return false; }
+    }
+    return true;
+}
+
+// The value of hex digit c, or -1.
+fn hex(c: u8) -> i32 {
+    if c >= '0' && c <= '9' { return c - '0'; }
+    if c >= 'a' && c <= 'f' { return c - 'a' + 10; }
+    if c >= 'A' && c <= 'F' { return c - 'A' + 10; }
+    return -1;
 }
 
 // What a handler writes its response into: the worker's write buffer, which

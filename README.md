@@ -51,7 +51,12 @@ The handler gets:
   version, keep-alive, the body's announced length, and slices into the read buffer.
   `http::field_of(req, name)` gives a header field's value and whether it's there,
   ignoring the name's case, and `http::each_field(req) { name, value => ... }` goes
-  through them all, repeats included. Every slice lasts until the handler returns.
+  through them all, repeats included. `http::path_of(req.target)` is the path,
+  `http::query_of(req.target, key)` a query's value and whether it's there, and
+  `http::each_query(req.target) { key, value => ... }` its pairs, all still encoded;
+  `http::decode(s, out)` decodes one, with `+` as a space when its `plus` is set. A
+  target with a `%` that doesn't start an escape gets 400. Every slice lasts until the
+  handler returns.
 - `body`, the whole body when it fits in the read buffer with its head, chunked bodies
   decoded. A longer body is dropped as it arrives, and `body` is empty.
 - `out`, an `http::Reply`, to write one whole response of any size into:
