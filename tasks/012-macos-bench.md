@@ -59,14 +59,14 @@ the rate here, which the kernel caps.
 
 ### What fast servers do on macOS that this one doesn't
 
-Each is a candidate change, unmeasured here:
+Each was a candidate change, measured in [The kqueue changes](#the-kqueue-changes-2026-10-11):
 
 1. Accept only what kqueue reports. `EVFILT_READ` on a listener returns the backlog's
    length in `data`; nginx accepts that many and no more. Level-triggered registration
    with a cap per wake-up leaves the rest to other workers. A dedicated acceptor thread,
    as actix-server runs, spreads them evenly.
 2. Register `EVFILT_WRITE` only after a send returns `EAGAIN`, as libuv does.
-   `src/server.goose:73` adds it for every connection. With `EV_CLEAR` it fires as each
+   The epoll loop added it for every connection. With `EV_CLEAR` it fires as each
    ACK frees buffer space: in a one-connection probe of 20,000 request-response round
    trips, `kevent` waits rose 39% and `recv` calls that returned `EAGAIN` doubled.
    Against the loopback cap, every extra wake-up is kernel time.

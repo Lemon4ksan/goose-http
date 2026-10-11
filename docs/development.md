@@ -411,7 +411,7 @@ copy, so a CRLF script fails there before Git would fix it.
 
 ## macOS
 
-The epoll loop runs on macOS through `shim/kqueue.c`, which `src/main.build` lists under
+The epoll loop runs on macOS through `shim/kqueue.c`, which `http.build` lists under
 `c_sources_macos`
 ([architecture](architecture/README.md#the-platform-and-its-error-codes-task-006)), and
 `scripts/test-unit.sh`, `scripts/test-http.sh`, and `scripts/test-echo.sh` pass there.
@@ -603,7 +603,7 @@ MACHINE=m1pro-docker SERVERS="goose goose-uring tokio vanilla-epoll vanilla-io_u
   JSON without it, in its own result directory.
 - `goose build` on Linux reuses a program's compiled shim after the first build
   (`docs/goose-findings.md`). `scripts/build.sh` works around it; a hand-run `goose
-  build` of `src/main.goose` needs `~/.goose/build/prog/main-*/native` deleted first.
+  build` needs the shim's `stamp` under `~/.goose/build/pkg/local/` deleted first.
 
 ### HttpArena under Docker on macOS
 
