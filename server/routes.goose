@@ -6,8 +6,9 @@ import http;
 // The most bytes /bytes sends.
 let MAX_BYTES = 16777216;
 
-// Writes the response to req, whose body is body, into out.
-fn route(req: http::Request, body: const u8[:], out: http::Reply) {
+// Writes the response to req, whose body is body, into out. Inline, so that
+// http::start and http::finish fold into each route.
+inline fn route(req: http::Request, body: const u8[:], out: http::Reply) {
     let path = http::path_of(req.target);
     let plaintext = path == "/plaintext";
     let json = path == "/json";

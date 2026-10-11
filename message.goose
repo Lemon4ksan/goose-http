@@ -59,8 +59,10 @@ struct Request {
 // Parses the request head at the start of buf, which may hold max_head bytes
 // of it and announce a body of max_body. Returns the request and 200 once the
 // whole head is there, INCOMPLETE until then, or the status to refuse it with. Lines end in CRLF only: a bare LF is 400, which
-// RFC 9112 §2.2 allows.
-fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_BODY) -> Request, i32 {
+// RFC 9112 §2.2 allows. Inline: each loop's answer calls it, and gcc keeps a
+// call to a function this size with several callers, about 90 instructions
+// per request.
+inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_BODY) -> Request, i32 {
     // Empty lines before the request line are skipped (RFC 9112 §2.2).
     var pos = 0;
     while pos < buf.len && buf[pos] == '\r' {
@@ -350,15 +352,19 @@ struct Reply {
     head: bool,             // a HEAD request: finish writes the body's fields, not the body
 }
 
+// The writers below are inline, so that a handler's constant status picks
+// its status line at compile time and its appends reach the write buffer
+// directly; as calls they cost about 190 instructions per request.
+
 // The status line and the fields every response has: Server, Date, and
 // Connection where HTTP/1.x's default isn't what the connection does.
-fn start(out: Reply, status: i32) {
+inline fn start(out: Reply, status: i32) {
     status_fields(out.buf, status, out.date, out.keep_alive, out.minor);
 }
 
 // A field of the handler's own, between start and finish. name and value
 // hold no CR or LF.
-fn field(out: Reply, name: const u8[:], value: const u8[:]) {
+inline fn field(out: Reply, name: const u8[:], value: const u8[:]) {
     out.buf.append(name);
     out.buf.append(": ");
     out.buf.append(value);
@@ -368,12 +374,12 @@ fn field(out: Reply, name: const u8[:], value: const u8[:]) {
 // The body's fields, the blank line, and the body, unless the request was
 // HEAD. fields holds every field before the length's value, ending in
 // "Content-Length: ", so that they take one append.
-fn finish(out: Reply, fields: const u8[:], body: const u8[:]) {
+inline fn finish(out: Reply, fields: const u8[:], body: const u8[:]) {
     write_body(out.buf, fields, body, out.head);
 }
 
 // A whole response: status, a Content-Type, and body.
-fn respond(out: Reply, status: i32, content_type: const u8[:], body: const u8[:]) {
+inline fn respond(out: Reply, status: i32, content_type: const u8[:], body: const u8[:]) {
     start(out, status);
     out.buf.append("Content-Type: ");
     out.buf.append(content_type);
@@ -388,7 +394,7 @@ fn refuse<A>(out: A&, status: i32, date: const u8[:]) {
     write_body(out, "Content-Length: ", "", false);
 }
 
-fn status_fields<A>(out: A&, status: i32, date: const u8[:], keep_alive: bool, minor: i32) {
+inline fn status_fields<A>(out: A&, status: i32, date: const u8[:], keep_alive: bool, minor: i32) {
     let line = status_line(status);
     if line.len > 0 {
         out.append(line);
@@ -405,7 +411,7 @@ fn status_fields<A>(out: A&, status: i32, date: const u8[:], keep_alive: bool, m
                else { "\r\n" });
 }
 
-fn write_body<A>(out: A&, fields: const u8[:], body: const u8[:], head_only: bool) {
+inline fn write_body<A>(out: A&, fields: const u8[:], body: const u8[:], head_only: bool) {
     out.append(fields);
     format(out, body.len);
     out.append("\r\n\r\n");
@@ -415,7 +421,7 @@ fn write_body<A>(out: A&, fields: const u8[:], body: const u8[:], head_only: boo
 // The status line and the fields up to the Date field's value, or "" for a
 // status not listed here. 1xx, 204, and 304 responses are framed as any
 // other, with a Content-Length, which is task 013's to correct.
-fn status_line(status: i32) -> const u8[:] {
+inline fn status_line(status: i32) -> const u8[:] {
     match status {
         200 => "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: ",
         201 => "HTTP/1.1 201 Created\r\nServer: goose\r\nDate: ",

@@ -56,6 +56,11 @@ The handler gets:
   `http::field(out, name, value)`, and `http::finish(out, fields, body)`. Clearing
   `out.keep_alive` before `start` closes the connection after the response.
 
+A handler passed by name, `http::serve(cfg, route)`, is best an `inline fn`, as the
+benchmark server's is (`server/routes.goose`): both loops call it, and as a call it
+keeps `http::start` from folding a constant status, which cost the benchmark server
+about 190 instructions per request.
+
 `http::Config` holds the address, port, worker count, limits, timeouts, and buffer
 sizes, with defaults. A loop returns only when a call fails, with an `http::Error`
 that `http::report` writes to stderr. Version 0.1 serves requests and responses of a
