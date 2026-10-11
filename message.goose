@@ -169,10 +169,11 @@ inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_
             has_length = true;
             r.body = n;
         } else if eq_fold(name, "transfer-encoding") {
-            // Chunked alone, in HTTP/1.1 (RFC 9112 §6.1). Other codings
-            // aren't implemented.
-            guard eq_fold(value, "chunked") else { return Request { .. }, 501; }
+            // Chunked alone, in HTTP/1.1 (RFC 9112 §6.1). A coding after
+            // chunked, in this field or another, leaves the body's end
+            // unknown, which is 400 (§6.3).
             guard minor > 0 && !r.chunked else { return Request { .. }, 400; }
+            if !eq_fold(value, "chunked") { return Request { .. }, codings_status(value); }
             r.chunked = true;
         } else if eq_fold(name, "connection") {
             // A single option, as clients almost always send, skips the split.
@@ -232,6 +233,24 @@ fn is_host(value: const u8[:]) -> bool {
             (close + 1 == value.len || value[close + 1] == ':');
     }
     return close < 0 && position(value, '[') < 0;
+}
+
+// The status for a Transfer-Encoding value other than chunked: 501 for a
+// list of codings that ends in chunked, its only one, which would be valid
+// with codings this server implements, and 400 for anything else, such as
+// an empty value or element, or chunked not last (RFC 9112 §6.3).
+fn codings_status(value: const u8[:]) -> i32 {
+    var n = 0;
+    var chunked = -1;
+    var bad = value.len == 0;
+    each_split(value, ',') {
+        let c = trim(it);
+        if c.len == 0 || chunked >= 0 { bad = true; }
+        for b in c { if !is_tchar(b) { bad = true; } }
+        if eq_fold(c, "chunked") { chunked = n; }
+        n++;
+    };
+    return if !bad && chunked == n - 1 { 501 } else { 400 };
 }
 
 // Whether ext is a chunk's extensions, the bytes between its size and the

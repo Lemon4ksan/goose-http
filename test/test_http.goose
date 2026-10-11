@@ -121,7 +121,17 @@ fn test_refused() {
     // Other versions, transfer codings, and the size limits.
     expect("GET / HTTP/2.0\r\nHost: x\r\n\r\n", 505);
     expect("GET / HTTP/0.9\r\nHost: x\r\n\r\n", 505);
-    expect("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip\r\n\r\n", 501);
+    // Chunked must come last, once (RFC 9112 §6.3); other codings before it
+    // aren't implemented.
+    expect("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip\r\n\r\n", 400);
+    expect("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked, gzip\r\n\r\n", 400);
+    expect("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked, chunked\r\n\r\n", 400);
+    expect("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked,\r\n\r\n", 400);
+    expect("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: , chunked\r\n\r\n", 400);
+    expect("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: \r\n\r\n", 400);
+    expect("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked;a=b\r\n\r\n", 400);
+    expect("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: gzip\r\n\r\n", 400);
+    expect("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip, deflate , chunked\r\n\r\n", 501);
     expect("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip, chunked\r\n\r\n", 501);
     expect("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\nContent-Length: 1\r\n\r\n", 400);
     expect("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n", 400);

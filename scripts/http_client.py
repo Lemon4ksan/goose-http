@@ -331,6 +331,8 @@ def hostile(port):
         ("HTTP/2 preface", b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n", 505),
         ("gzip coding", b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip, chunked\r\n\r\n"
                         b"5\r\nhello\r\n0\r\n\r\n", 501),
+        ("chunked not last", b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked, gzip\r\n\r\n"
+                             b"0\r\n\r\n", 400),
         ("chunked and Content-Length",
          b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\nContent-Length: 5\r\n\r\n"
          b"0\r\n\r\n", 400),

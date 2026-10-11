@@ -93,8 +93,9 @@ until the task named beside it confirms or replaces it.
     it arrives, and the handler gets an empty one (task 011, 2026-10-11). Chunked
     bodies are accepted in HTTP/1.1 (task 009, for HttpArena's `baseline` profile,
     2026-10-10): the message must fit in the read buffer with its head, or it gets
-    413, and the body is decoded in place. Another transfer coding gets 501, and
-    `Transfer-Encoding` with `Content-Length`, or in HTTP/1.0, gets 400.
+    413, and the body is decoded in place. Another coding before chunked gets 501.
+    A `Transfer-Encoding` whose last coding isn't chunked, as RFC 9112 §6.3 requires, or
+    that's malformed, with `Content-Length`, or in HTTP/1.0, gets 400 (2026-10-11).
   - Routes: `/plaintext` and `/json` for TechEmpower's tests, `/baseline11` and
     `/pipeline` for HttpArena's (`bench/httparena/goose`), and `/bytes?n=N`, N bytes
     up to 16 MB, for testing large responses.
