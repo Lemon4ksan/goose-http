@@ -14,6 +14,57 @@ at a smaller scale.
 - Integration tests are scripts that start the server and talk to it, as
   `scripts/test-echo.sh` does for the echo servers.
 
+## Http11Probe (2026-10-11)
+
+Http11Probe `c5ee0b1` (215 tests), its CLI run in the `mcr.microsoft.com/dotnet/sdk:10.0`
+container against `http::serve_epoll` on the Mac of `docs/development.md`, with 1 worker,
+through `host.docker.internal`. The probe expects `GET /` to answer 200 and `POST /` to
+echo its body, which the benchmark server's routes don't, so the target was a program
+that imports the package and does only that:
+
+```goose
+http::serve_epoll(http::Config { port: 8080, workers: 1, .. }) { req, body, out =>
+    if req.method == "POST" { http::respond(out, 200, "text/plain", body); }
+    else { http::respond(out, 200, "text/plain", "OK"); }
+}
+```
+
+```sh
+docker run --rm -v "$PROBE:/src" -w /src mcr.microsoft.com/dotnet/sdk:10.0 \
+    dotnet run -c Release --project src/Http11Probe.Cli -- --host host.docker.internal --port 8080
+```
+
+At `782bbb7`, 141 of 159 scored tests passed. At `b73d527`, 150 of 159 did, with 17
+warnings. Each failure:
+
+- Fixed in `b73d527`: a `Host` with userinfo, a path, or a comma-separated second host
+  is 400 (`COMP-HOST-WITH-USERINFO`, `COMP-HOST-WITH-PATH`, `SMUG-MULTIPLE-HOST-COMMA`);
+  `GET *` and `CONNECT` are 400, and `OPTIONS *` reaches the handler
+  (`COMP-ASTERISK-WITH-GET`, `COMP-METHOD-CONNECT`, `COMP-OPTIONS-STAR`); request lines
+  of 8,000 octets are taken (`COMP-LONG-URL-OK`); a chunk extension that isn't a token
+  with an optional value is 400 (`SMUG-CHUNK-BARE-SEMICOLON`,
+  `SMUG-CHUNK-EXT-INVALID-TOKEN`); and `http::path_of` gives absolute-form's path
+  (`COMP-ABSOLUTE-FORM`, unscored).
+- Open, waiting on a decision: a `Transfer-Encoding` that isn't `chunked` gets 501,
+  where RFC 9112 §6.3 requires 400 when chunked isn't the final coding, and the probe
+  expects 400 for an empty value or element and for chunked twice or not last
+  (`SMUG-TE-DOUBLE-CHUNKED`, `SMUG-TE-NOT-FINAL-CHUNKED`, `SMUG-TE-EMPTY-VALUE`,
+  `SMUG-TE-LEADING-COMMA`, `SMUG-TE-DUPLICATE-HEADERS`, `SMUG-TE-OBS-FOLD`,
+  `SMUG-TE-TRAILING-COMMA`, and `SMUG-CHUNKED-WITH-PARAMS`, unscored). The
+  architecture records 501 for another coding.
+- Refused deliberately:
+  - An empty `Host` gets 200 (`COMP-HOST-EMPTY-VALUE`): RFC 9112 §3.2 has a client
+    send one for a URI without an authority, and task 013 keeps it.
+  - A chunked body with a 64 KB extension gets 413 (`MAL-CHUNK-EXT-64K`): a chunked
+    message must fit in the read buffer with its head (task 009).
+  - The cookie tests (`COOK-ECHO`, `COOK-PARSED-BASIC`, `COOK-PARSED-MULTI`, unscored)
+    need a handler that reads request fields, which `v0.1.0` doesn't have (task 013,
+    item 6).
+
+One of three full runs had two connect timeouts (`COOK-NUL`, `WS-UPGRADE-HTTP10`), not
+seen again in the other two or when the two ran alone. Another program's GPU testing
+hung the machine's graphics driver around then.
+
 ## Acceptance criteria
 
 - [x] `scripts/test.sh` builds the server, runs each `src/test_*.goose` through TinyCC,
