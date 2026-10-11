@@ -721,6 +721,9 @@ Traps in Git Bash:
   `C:\Users\...\tree.tar` from `$TEMP`, as a remote host, fails with "Cannot connect
   to C: resolve failed", and extracts nothing. Pass `--force-local`, or a `/c/...`
   path.
+- `cd dir && build/server.exe ... &` puts the whole list in a background subshell, so
+  `$!` and its `/proc/$!/winpid` name the subshell, and `taskkill` on that PID leaves the
+  server running. Start the server alone with `&`, after the `cd`.
 
 ### Against WSL
 
@@ -747,11 +750,44 @@ slower, not an order of magnitude.
 | WSL2, io_uring | 1 | 2 | 174,910-176,395 |
 
 Every request succeeded. Windows trails by 2.2 times with 1 worker and 2.8 times with
-4: a request costs more there, and 4 workers serve 2.9 times what 1 does, against 3.7
-times in WSL2, as one worker takes most of the connections
-([architecture](architecture/README.md#the-platform-and-its-error-codes-task-006)).
-The client shares the CPUs with the server on both sides, so the numbers bound the
+4. The client shares the CPUs with the server on both sides, so the numbers bound the
 server only loosely.
+
+#### After the IOCP changes
+
+`82d2939` (2026-10-11) skips the completion port when a request completes at once, and
+receives into the ring's buffers while more than half are free
+([architecture](architecture/README.md#the-platform-and-its-error-codes-task-006)).
+Both sides at `82d2939`, as above, except that the WSL2 build is `LOOP=uring
+scripts/build.sh`'s. The CPU columns are the server's busy threads, from
+`Get-Process`'s `UserProcessorTime` and `PrivilegedProcessorTime` read as oha ends:
+
+| Server | Workers | Runs | Requests per second | CPU per request, user/kernel |
+|---|---:|---:|---:|---|
+| Windows, IOCP, `5778aaa` | 1 | 4 | 78,071-78,348 | 0.8/12.0 µs |
+| Windows, IOCP | 1 | 2 | 83,106-84,435 | 0.8-0.9/11.0-11.2 µs |
+| WSL2, io_uring | 1 | 2 | 171,837-172,415 | |
+| Windows, IOCP, `5778aaa` | 4 | 3 | 229,124-234,017 | |
+| Windows, IOCP | 4 | 3 | 247,647-253,850 | |
+| Windows, IOCP, pinned | 4 | 3 | 255,762-263,177 | |
+| WSL2, io_uring | 4 | 3 | 614,953-634,554 | |
+| WSL2, epoll | 4 | 3 | 537,191-546,550 | |
+| Windows, tokio | 1 | 2 | 61,292-62,362 | 1.6-1.7/14.3-14.5 µs |
+
+- Windows now trails by 2.0 times with 1 worker and 2.5 times with 4, from 2.2 and 2.8.
+  The changes gained 7% and 9% over `5778aaa`, the commit before them; skipping the
+  port was most of it (7% and 5% alone).
+- Nearly all of a request's time on Windows is the kernel's. Receiving into a buffer
+  saves a `recv` per request and gained 0-2%, so the system calls aren't the cost: the
+  loopback TCP path is. A kernel profile, which takes an elevated shell for WPR, would
+  say where it goes.
+- HttpArena's tokio entry, built with Rust 1.90.0 for Windows and bound to 127.0.0.1
+  without `SO_REUSEPORT`, which Windows lacks, serves 26% less than Goose with 1 worker,
+  at more kernel time per request. It can't run 4 workers there: its second bind fails.
+- With 4 workers, every worker was busy for the whole run, at 7.1-7.5 s of kernel time
+  each, so connections spread; the 4 workers serve 3.0 times what 1 does, against 3.6
+  times in WSL2. Pinning the server to CPUs 0, 2, 4, and 6 and oha to 8-15
+  (`ProcessorAffinity` 0x55 and 0xFF00) gained 3%.
 
 ## Edit on Windows
 

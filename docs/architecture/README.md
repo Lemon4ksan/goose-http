@@ -247,7 +247,7 @@ details):
   provided buffers; a buffer posted per connection deadlocked 10,000 connections.
 - Accepted sockets skip the completion port when a request completes at once
   (`FILE_SKIP_COMPLETION_PORT_ON_SUCCESS`), as most sends do: the shim reports it from
-  its own list. With the buffered receive, that served 6-8% more requests a second
+  its own list. With the buffered receive, that served 7-9% more requests a second
   (2026-10-11, [development](../development.md#against-wsl)). Nearly all of a request's
   time is the kernel's, about 11 µs on loopback, against 0.8 µs in user code.
 - The workers share one listener, which belongs to no completion port, because a
