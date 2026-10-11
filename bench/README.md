@@ -11,11 +11,17 @@ bench/compilers.sh     # the Goose server built by gcc and clang, into build/ben
 bench/instructions.sh  # instructions per request of servers in build/bench/, with perf
 bench/parse.sh         # http::parse alone on the requests in bench/parse/
 bench/httparena.sh     # HttpArena's harness, in Docker, with Goose as an entry
+bench/run-macos.sh     # a short matrix natively on macOS, into bench/results/<date>-<machine>/
 ```
 
 They need Linux (`taskset`, `perf`, `/proc`; on Windows, WSL), `GOOSE`, and
 `~/.cargo/bin` on `PATH`. The environment configures them (see the comment at the top
 of each). `docs/development.md` lists the tools and the traps they work around.
+
+`bench/run-macos.sh` is the exception: it runs on macOS, without pinning, against the
+Rust servers that build there, and records wrk's rate and peak RSS only. macOS's
+loopback caps every server at the same rate, so its numbers show that a build works and
+what it uses, and don't rank the servers (task 012).
 
 ## Servers
 
