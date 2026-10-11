@@ -10,11 +10,6 @@ import sys;
 import ring;
 import http;
 
-// A connection's states, as in the epoll loop.
-let OPEN: u8 = 0;       // answering requests
-let CLOSING: u8 = 1;    // sending what's left, then shutting down its side
-let DRAINING: u8 = 2;   // shut down, and dropping what arrives until the client closes
-
 // The ring's size, and its provided buffers, which the kernel fills in
 // turn. A receive that finds none left ends its multishot request, which
 // the loop queues again. The loop gives each buffer back in the pass that
@@ -135,60 +130,6 @@ fn serve(port: i32) {
         wbuf.clear();
     }
 
-    // Answers every complete request in rbuf, and moves the rest of rbuf to
-    // its front.
-    fn answer(c: Conn&) {
-        var off = 0;
-        while off < rlen {
-            if c.discard > 0 {
-                let k = min(c.discard, rlen - off);
-                off += k;
-                c.discard -= k;
-                continue;
-            }
-            if wbuf.cap - wbuf.len < http::MAX_RESPONSE { flush(c); }
-            let req, status = http::parse(rbuf[off..rlen]);
-            if status == http::INCOMPLETE { break; }
-            if status != 200 {
-                http::refuse(wbuf, status, date);
-                c.state = CLOSING;
-                off = rlen;
-                break;
-            }
-            // A body the route reads, and a chunked one, are answered once
-            // they are whole in rbuf; any other body is dropped as it comes.
-            let b0 = off + req.len;
-            let reads = http::reads_body(req);
-            let whole = req.chunked || (req.body > 0 && reads);
-            var wire = 0;
-            if whole {
-                let n, s = http::frame_body(rbuf[b0..rlen], req, RBUF - req.len);
-                if s == http::INCOMPLETE { break; }
-                if s != 200 {
-                    http::refuse(wbuf, s, date);
-                    c.state = CLOSING;
-                    off = rlen;
-                    break;
-                }
-                wire = n;
-            }
-            let blen = if !reads { 0 }
-                       else if req.chunked { http::dechunk(rbuf[b0..b0 + wire]) }
-                       else { wire };
-            progress = true;
-            off = b0 + wire;
-            if !whole { c.discard = req.body; }
-            if !http::respond(wbuf, req, rbuf[b0..b0 + blen], date) {
-                c.state = CLOSING;
-                off = rlen;
-                break;
-            }
-        }
-        let rest = rlen - off;
-        if rest > 0 && off > 0 { copy_into(rbuf[..rest], rbuf[off..rlen]); }
-        rlen = rest;
-    }
-
     // Answers n received bytes after rbuf[..rlen]: those of provided buffer
     // buf, or of src when buf is -1. rbuf takes them as it has room. If the
     // connection reaches MAX_QUEUED, it stops reading and holds the rest.
@@ -200,7 +141,12 @@ fn serve(port: i32) {
             else { copy_into(rbuf[rlen..rlen + k], src[off..off + k]); }
             rlen += k;
             off += k;
-            answer(c);
+            let rest, done, full = answer(c, rbuf, rlen, wbuf, date) {
+                flush(c);
+                true
+            };
+            rlen = rest;
+            if done > 0 { progress = true; }
             if c.state != OPEN {
                 rlen = 0;
                 break;

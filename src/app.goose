@@ -2,6 +2,7 @@
 // and the limits a worker holds its connections to. src/main.goose builds the
 // epoll loop (src/server.goose) and src/main_uring.goose the io_uring loop
 // (src/uring.goose); each loop defines thread_fn worker.
+import std;
 import os;
 import http;
 import echo;
@@ -26,6 +27,74 @@ let BACKLOG = 4096;
 let REQUEST_MS = 10000;
 let IDLE_MS = 60000;
 let LINGER_MS = 2000;
+
+// A connection's states, in both loops.
+let OPEN: u8 = 0;       // answering requests
+let CLOSING: u8 = 1;    // sending what's left, then shutting down its side
+let DRAINING: u8 = 2;   // shut down, and dropping what arrives until the client closes
+
+// Answers the complete requests in rbuf[..rlen] for connection c, into wbuf,
+// and moves the rest of rbuf to its front. Before a request, if wbuf may not
+// have room for its response, it calls ROOM(), which makes room and returns
+// true, or returns false to stop there. Returns the bytes left in rbuf, the
+// number of requests answered, and whether ROOM stopped it. A refused request
+// leaves c CLOSING and rbuf empty.
+fn answer<ROOM, C, A>(c: C&, rbuf: u8[:], rlen: i64, wbuf: A&, date: const u8[:]) -> i64, i64, bool {
+    var off = 0;
+    var done = 0;
+    var full = false;
+    while off < rlen {
+        if c.discard > 0 {
+            let k = min(c.discard, rlen - off);
+            off += k;
+            c.discard -= k;
+            continue;
+        }
+        if wbuf.cap - wbuf.len < http::MAX_RESPONSE && !ROOM() {
+            full = true;
+            break;
+        }
+        let req, status = http::parse(rbuf[off..rlen]);
+        if status == http::INCOMPLETE { break; }
+        if status != 200 {
+            http::refuse(wbuf, status, date);
+            c.state = CLOSING;
+            off = rlen;
+            break;
+        }
+        // A body the route reads, and a chunked one, are answered once they
+        // are whole in rbuf; any other body is dropped as it comes.
+        let b0 = off + req.len;
+        let reads = http::reads_body(req);
+        let whole = req.chunked || (req.body > 0 && reads);
+        var wire = 0;
+        if whole {
+            let n, s = http::frame_body(rbuf[b0..rlen], req, rbuf.len - req.len);
+            if s == http::INCOMPLETE { break; }
+            if s != 200 {
+                http::refuse(wbuf, s, date);
+                c.state = CLOSING;
+                off = rlen;
+                break;
+            }
+            wire = n;
+        }
+        let blen = if !reads { 0 }
+                   else if req.chunked { http::dechunk(rbuf[b0..b0 + wire]) }
+                   else { wire };
+        done++;
+        off = b0 + wire;
+        if !whole { c.discard = req.body; }
+        if !http::respond(wbuf, req, rbuf[b0..b0 + blen], date) {
+            c.state = CLOSING;
+            off = rlen;
+            break;
+        }
+    }
+    let rest = rlen - off;
+    if rest > 0 && off > 0 { copy_into(rbuf[..rest], rbuf[off..rlen]); }
+    return rest, done, full;
+}
 
 fn usage() {
     write_stderr("usage: server http|echo-blocking|echo-epoll [port]\n");

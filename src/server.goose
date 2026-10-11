@@ -7,11 +7,6 @@ import os;
 import sys;
 import http;
 
-// A connection's states.
-let OPEN: u8 = 0;       // answering requests
-let CLOSING: u8 = 1;    // sending what's left, then shutting down its side
-let DRAINING: u8 = 2;   // shut down, and dropping what arrives until the client closes
-
 // The listener's epoll tag. A connection's is its slot.
 let LISTENER: u64 = 0xFFFFFFFFFFFFFFFF;
 
@@ -93,67 +88,6 @@ fn serve(port: i32) {
         open--;
     }
 
-    // Answers every complete request in rbuf while the responses fit in
-    // wbuf, and moves the rest of rbuf to its front. Returns the number of
-    // requests answered, and whether it stopped because wbuf was full.
-    fn answer(c: Conn&) -> i64, bool {
-        var off = 0;
-        var done = 0;
-        var full = false;
-        while off < rlen {
-            if c.discard > 0 {
-                let k = min(c.discard, rlen - off);
-                off += k;
-                c.discard -= k;
-                continue;
-            }
-            if wbuf.cap - wbuf.len < http::MAX_RESPONSE {
-                full = true;
-                break;
-            }
-            let req, status = http::parse(rbuf[off..rlen]);
-            if status == http::INCOMPLETE { break; }
-            if status != 200 {
-                http::refuse(wbuf, status, date);
-                c.state = CLOSING;
-                off = rlen;
-                break;
-            }
-            // A body the route reads, and a chunked one, are answered once
-            // they are whole in rbuf; any other body is dropped as it comes.
-            let b0 = off + req.len;
-            let reads = http::reads_body(req);
-            let whole = req.chunked || (req.body > 0 && reads);
-            var wire = 0;
-            if whole {
-                let n, s = http::frame_body(rbuf[b0..rlen], req, RBUF - req.len);
-                if s == http::INCOMPLETE { break; }
-                if s != 200 {
-                    http::refuse(wbuf, s, date);
-                    c.state = CLOSING;
-                    off = rlen;
-                    break;
-                }
-                wire = n;
-            }
-            let blen = if !reads { 0 }
-                       else if req.chunked { http::dechunk(rbuf[b0..b0 + wire]) }
-                       else { wire };
-            done++;
-            off = b0 + wire;
-            if !whole { c.discard = req.body; }
-            if !http::respond(wbuf, req, rbuf[b0..b0 + blen], date) {
-                c.state = CLOSING;
-                off = rlen;
-                break;
-            }
-        }
-        let rest = rlen - off;
-        if rest > 0 && off > 0 { copy_into(rbuf[..rest], rbuf[off..rlen]); }
-        rlen = rest;
-        return done, full;
-    }
-
     // Moves a connection on as far as its socket allows, in the worker's
     // buffers, and keeps what's left over in spill. hup is whether the event
     // reported the client's side closed. False when the connection is done.
@@ -196,7 +130,8 @@ fn serve(port: i32) {
         loop {
             var full = false;
             if c.state == OPEN && rlen > 0 {
-                let done, f = answer(c);
+                let rest, done, f = answer(c, rbuf, rlen, wbuf, date) { false };
+                rlen = rest;
                 if done > 0 { progress = true; }
                 full = f;
             }
