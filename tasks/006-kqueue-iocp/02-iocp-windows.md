@@ -3,9 +3,9 @@
 Status: todo
 
 A completion loop on Windows through I/O completion ports, following task 005's loop,
-behind `shim/iocp.h` over Winsock ([task 006](README.md)).
+behind `shim/iocp.c` over Winsock ([task 006](README.md)).
 
 ## Acceptance criteria
 
-- [ ] `shim/iocp.h` and a completion loop running on Windows, passing the same tests
+- [ ] `shim/iocp.c` and a completion loop running on Windows, passing the same tests
 - [ ] How Windows is built and tested recorded in `docs/development.md`
