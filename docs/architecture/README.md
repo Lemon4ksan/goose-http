@@ -178,8 +178,11 @@ On macOS:
   has taken more than one past the average, and the listener is level-triggered, so a
   declined connection stays reported until another worker takes it (2026-10-11, task
   012 has the measurements).
-- macOS drops a connection whose `accept` fails with `EMFILE`, so the shim checks for a
-  free fd first and leaves the client in the backlog when there's none, as Linux does.
+- macOS drops a connection whose `accept` fails with `EMFILE`, so near the fd limit the
+  shim checks for a free fd first and leaves the client in the backlog when there's
+  none, as Linux does. The check and the `accept` hold a lock across workers, so two
+  can't both pass the check for the last free fd; far from the limit there's no check
+  (2026-10-11).
 
 On Windows ([task 006.02](../../tasks/006-kqueue-iocp/02-iocp-windows.md) has the
 details):

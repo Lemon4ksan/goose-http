@@ -17,7 +17,6 @@
 #include <stdint.h>
 #include <string.h>
 #include <sys/event.h>
-#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
@@ -198,15 +197,31 @@ static void net_watch_listener(uint16_t flags) {
     kevent(net_my_kq, &ch, 1, NULL, 0, NULL);
 }
 
+/* The highest fd accept has returned, and the fds a check (below) allows
+   for accepts in flight on other threads. */
+static _Atomic int32_t net_high_fd;
+#define NET_FD_MARGIN 64
+static pthread_mutex_t net_fd_lock = PTHREAD_MUTEX_INITIALIZER;
+
 /* macOS drops a connection whose accept fails with EMFILE, where Linux leaves
-   it in the backlog. So this first checks that an fd is free, and fails
-   without accepting when none is: the client keeps its place in the backlog.
-   Another thread can take the fd between the check and the accept.
+   it in the backlog. So near the fd limit, this first checks that an fd is
+   free, and fails without accepting when none is: the client keeps its place
+   in the backlog. The check and the accept hold a lock, so two workers can't
+   both pass the check for the last free fd. The check costs two syscalls, so
+   it starts only once an accepted fd
+   came within NET_FD_MARGIN of getdtablesize(), and from then on always runs:
+   fds go to the lowest free number, so the highest fd seen, and not the last,
+   tells how close the limit is. The system-wide limit (ENFILE) isn't checked
+   for; a connection that reaches it is dropped.
+
+   flags must be the listener's NONBLOCK, as every caller's is: macOS gives the
+   accepted socket the listener's O_NONBLOCK, as it does TCP_NODELAY.
 
    On a shared listener, -EAGAIN also means the worker has taken more than its
    share. At the fd limit, the level-triggered watch would wake the worker
    at once on every wait, so it's disabled until the worker's next try. */
 int32_t net_accept(int32_t fd, int32_t flags) {
+    (void)flags;
     int shared = fd == net_my_lfd;
     if (shared) {
         if (net_my_paused) {
@@ -225,24 +240,40 @@ int32_t net_accept(int32_t fd, int32_t flags) {
             if (now - net_my_seen_ms < NET_STALL_MS) return -net_err(EAGAIN);
         }
     }
-    int spare = fcntl(fd, F_DUPFD_CLOEXEC, 0);
-    if (spare < 0) {
-        int err = errno;
-        if (shared && net_my_kq >= 0) {
-            net_watch_listener(EV_DISABLE);
-            net_my_paused = 1;
-        }
-        return -net_err(err);
+    static _Atomic int32_t limit;
+    int32_t lim = atomic_load_explicit(&limit, memory_order_relaxed);
+    if (lim == 0) {
+        lim = getdtablesize();
+        atomic_store_explicit(&limit, lim, memory_order_relaxed);
     }
-    close(spare);
+    int near = atomic_load_explicit(&net_high_fd, memory_order_relaxed) + NET_FD_MARGIN >= lim;
+    if (near) {
+        pthread_mutex_lock(&net_fd_lock);
+        int spare = fcntl(fd, F_DUPFD_CLOEXEC, 0);
+        if (spare < 0) {
+            int err = errno;
+            pthread_mutex_unlock(&net_fd_lock);
+            if (shared && net_my_kq >= 0) {
+                net_watch_listener(EV_DISABLE);
+                net_my_paused = 1;
+            }
+            return -net_err(err);
+        }
+        close(spare);
+    }
     int r = accept(fd, NULL, NULL);
-    if (r < 0) return -net_err(errno);
+    int err = errno;
+    if (near) pthread_mutex_unlock(&net_fd_lock);
+    if (r < 0) return -net_err(err);
+    int32_t high = atomic_load_explicit(&net_high_fd, memory_order_relaxed);
+    while (r > high && !atomic_compare_exchange_weak_explicit(&net_high_fd, &high, r,
+                                                              memory_order_relaxed,
+                                                              memory_order_relaxed)) {}
     if (shared) {
         net_my_accepted++;
         atomic_fetch_add_explicit(&net_shared[net_my_entry].accepted, 1, memory_order_relaxed);
     }
-    int nb = (flags & NET_NONBLOCK) != 0;
-    if (fcntl(r, F_SETFD, FD_CLOEXEC) < 0 || ioctl(r, FIONBIO, &nb) < 0) {
+    if (fcntl(r, F_SETFD, FD_CLOEXEC) < 0) {
         int err = errno;
         close(r);
         return -net_err(err);

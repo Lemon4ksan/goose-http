@@ -53,6 +53,7 @@ let SHUT_WR: i32 = 1;
 // with SO_EXCLUSIVEADDRUSE. With REUSEPORT, each worker gets a listener of
 // its own on Linux, and the workers share one on macOS and Windows.
 extern "net_listen" fn listen(port: i32, backlog: i32, flags: i32) -> i32;
+// flags must be the listener's NONBLOCK: macOS takes it from the listener.
 extern "net_accept" fn accept(fd: i32, flags: i32) -> i32;
 // Writes up to buf.len bytes into buf; 0 means the peer closed.
 extern "net_recv" fn recv(fd: i32, buf: u8[:]) -> i64;
