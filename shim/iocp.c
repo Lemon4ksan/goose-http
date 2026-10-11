@@ -9,15 +9,22 @@
 
    - A multishot accept is an AcceptEx kept posted on the listener, and
      posted again after each completion.
-   - A multishot receive into provided buffers is a zero-byte WSARecv kept
-     posted on the socket. Its completion says that data has arrived, and
-     ur_wait then reads it with a non-blocking recv into a free buffer of the
-     ring's, reported with the buffer's id. So an idle connection holds no
-     buffer, as with io_uring, where the kernel picks a buffer only once
-     data arrives.
+   - A multishot receive into provided buffers is a WSARecv kept posted on
+     the socket, into one of the ring's free buffers while more than half
+     are free. Otherwise it's a zero-byte WSARecv, whose completion says that
+     data has arrived, and ur_wait then reads it with a non-blocking recv into
+     a free buffer. So idle connections hold at most half the buffers, and
+     past that none, as with io_uring, where the kernel picks a buffer only
+     once data arrives; under load, a receive costs one call, not two.
    - A short send is posted again for the rest, and reported once.
    - A cancel is CancelIoEx, and a close is closesocket, which ends every
      request on the socket.
+
+   Accepted sockets skip the port when a request completes at once
+   (FILE_SKIP_COMPLETION_PORT_ON_SUCCESS), as most sends and many receives
+   do: the request goes on the ring's ready list instead, which saves a
+   packet through the port. A layered provider that isn't IFS would break
+   that, so a ring checks its first accepted socket, as libuv does.
 
    The workers share one listener (shim/net_win.c), and a socket's requests
    complete on the port it's associated with, of which it can have one. So the
@@ -43,6 +50,7 @@ int32_t net_win_err(int err);
 int32_t net_win_init(void);
 
 /* Linux's errno values, as src/ring.goose and src/sys.goose name them. */
+#define UR_EAGAIN 11
 #define UR_ENOMEM 12
 #define UR_ENOBUFS 105
 #define UR_ECANCELED 125
@@ -72,7 +80,7 @@ enum { UR_ACCEPT, UR_RECV, UR_SEND };
 struct ur_req {
     OVERLAPPED ov;
     int kind;
-    int32_t err;               /* -code, while on the ready list */
+    int32_t res;               /* its result, while on the ready list */
     struct ur_req *next;       /* on the ready list */
 };
 
@@ -80,8 +88,9 @@ struct ur_req {
    closed and the kernel has given back every request on it: refs counts
    those requests, and one more until ur_close. */
 struct ur_sock {
-    struct ur_req rd;          /* its zero-byte receive */
+    struct ur_req rd;          /* its receive */
     SOCKET s;
+    int32_t rbuf;              /* the buffer its receive reads into, or -1 for none */
     uint64_t tag;              /* the receive's */
     int refs;
     uint8_t reading, cancel, closed;
@@ -129,6 +138,7 @@ struct ur {
     struct ur_map socks;       /* socket -> ur_sock, until it's closed */
     struct ur_map reads;       /* tag -> ur_sock, while its receive goes on */
     int32_t err;               /* -ENOMEM once the bookkeeping ran out, for ur_wait */
+    int8_t skip;               /* whether sockets skip the port on success, -1 until known */
 };
 
 static uint32_t ur_hash(uint64_t k) {
@@ -197,12 +207,17 @@ static void ur_map_del(struct ur_map *m, uint64_t k) {
     }
 }
 
-static void ur_ready(struct ur *u, struct ur_req *q, int err) {
-    q->err = -net_win_err(err);
+/* Puts q on the ready list with result res. */
+static void ur_ready_res(struct ur *u, struct ur_req *q, int32_t res) {
+    q->res = res;
     q->next = NULL;
     if (u->ready) u->ready_last->next = q;
     else u->ready = q;
     u->ready_last = q;
+}
+
+static void ur_ready(struct ur *u, struct ur_req *q, int err) {
+    ur_ready_res(u, q, -net_win_err(err));
 }
 
 static void ur_unref(struct ur_sock *k) {
@@ -240,25 +255,36 @@ static void ur_post_accept(struct ur *u) {
     }
 }
 
-/* Posts sock's zero-byte receive. */
+/* Posts sock's receive, into a free buffer while more than half are free. */
 static void ur_post_recv(struct ur *u, struct ur_sock *k) {
     WSABUF b = { 0, NULL };
-    DWORD flags = 0;
+    DWORD flags = 0, got = 0;
+    k->rbuf = -1;
+    if (u->nfree > u->nbufs / 2) {
+        k->rbuf = u->free[--u->nfree];
+        b.len = u->buflen;
+        b.buf = (char *)u->bufs + (size_t)k->rbuf * u->buflen;
+    }
     memset(&k->rd.ov, 0, sizeof k->rd.ov);
     k->refs++;
-    if (WSARecv(k->s, &b, 1, NULL, &flags, &k->rd.ov, NULL)) {
+    if (WSARecv(k->s, &b, 1, &got, &flags, &k->rd.ov, NULL)) {
         int err = WSAGetLastError();
         if (err != WSA_IO_PENDING) ur_ready(u, &k->rd, err);
+    } else if (u->skip) {
+        ur_ready_res(u, &k->rd, (int32_t)got);
     }
 }
 
 static void ur_post_send(struct ur *u, struct ur_send *s) {
     WSABUF b = { s->len - s->off, (char *)s->data + s->off };
+    DWORD sent = 0;
     memset(&s->rq.ov, 0, sizeof s->rq.ov);
     s->sock->refs++;
-    if (WSASend(s->sock->s, &b, 1, NULL, 0, &s->rq.ov, NULL)) {
+    if (WSASend(s->sock->s, &b, 1, &sent, 0, &s->rq.ov, NULL)) {
         int err = WSAGetLastError();
         if (err != WSA_IO_PENDING) ur_ready(u, &s->rq, err);
+    } else if (u->skip) {
+        ur_ready_res(u, &s->rq, (int32_t)sent);
     }
 }
 
@@ -280,6 +306,7 @@ static struct ur_sock *ur_sock_of(struct ur *u, int32_t fd) {
     if (!k) return NULL;
     k->rd.kind = UR_RECV;
     k->s = (SOCKET)(intptr_t)fd;
+    k->rbuf = -1;
     k->refs = 1;
     if (ur_map_put(&u->socks, (uint32_t)fd, k) < 0) {
         free(k);
@@ -316,6 +343,7 @@ int64_t ur_create(int32_t entries, int32_t nbufs, int32_t buflen, int32_t flags)
     u->nfree = (uint32_t)nbufs;
     u->acc.rq.kind = UR_ACCEPT;
     u->acc.port = u->port;
+    u->skip = -1;
     return (int64_t)(intptr_t)u;
 }
 
@@ -445,6 +473,18 @@ static void ur_end_read(struct ur *u, struct ur_sock *k) {
     if (ur_map_get(&u->reads, k->tag) == k) ur_map_del(&u->reads, k->tag);
 }
 
+/* Whether the ring's sockets skip the port on success: whether s, its first
+   accepted socket, has IFS handles. */
+static int ur_skips(struct ur *u, SOCKET s) {
+    if (u->skip < 0) {
+        WSAPROTOCOL_INFOW info;
+        int len = sizeof info;
+        u->skip = !getsockopt(s, SOL_SOCKET, SO_PROTOCOL_INFOW, (char *)&info, &len) &&
+                  (info.dwServiceFlags1 & XP1_IFS_HANDLES);
+    }
+    return u->skip;
+}
+
 /* The accept completed with res, the accepted socket or -code. Writes its
    completion into c, if it has one, and returns whether it did. */
 static int ur_finish_accept(struct ur *u, int32_t res, ur_completion *c) {
@@ -461,6 +501,10 @@ static int ur_finish_accept(struct ur *u, int32_t res, ur_completion *c) {
             ioctlsocket(s, FIONBIO, &nb))
             res = -net_win_err(WSAGetLastError());
         else if (!CreateIoCompletionPort((HANDLE)s, u->port, 0, 0))
+            res = -net_win_err((int)GetLastError());
+        else if (ur_skips(u, s) &&
+                 !SetFileCompletionNotificationModes((HANDLE)s, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS |
+                                                                    FILE_SKIP_SET_EVENT_ON_HANDLE))
             res = -net_win_err((int)GetLastError());
         if (res < 0) closesocket(s);
     } else if (s != INVALID_SOCKET) {
@@ -479,27 +523,39 @@ static int ur_finish_accept(struct ur *u, int32_t res, ur_completion *c) {
     return ur_fill(c, a->tag, a->cancel ? -UR_ECANCELED : res, -1, 0, 0);
 }
 
-/* sock's zero-byte receive completed with res: data has arrived, or the
-   receive failed. Reads the data into a free buffer and posts the receive
-   again, or ends it. */
+/* sock's receive completed with res: data has arrived, in its buffer or
+   still in the socket after a zero-byte receive, or the receive failed.
+   Reports the data, read into a free buffer after a zero-byte receive, and
+   posts the receive again, or ends it. */
 static int ur_finish_recv(struct ur *u, struct ur_sock *k, int32_t res, ur_completion *c) {
     uint64_t tag = k->tag;
+    int32_t buf = k->rbuf;
+    k->rbuf = -1;
+    if (k->cancel && !k->closed && buf >= 0 && res > 0) {
+        ur_end_read(u, k);
+        ur_unref(k);
+        return ur_fill(c, tag, res, buf, 0, 0);
+    }
     if (k->closed || k->cancel || res < 0) {
         int32_t err = res < 0 && !k->cancel && !k->closed ? res : -UR_ECANCELED;
+        if (buf >= 0) u->free[u->nfree++] = buf;
         if (!k->closed) ur_end_read(u, k);
         ur_unref(k);
         return ur_fill(c, tag, err, -1, 0, 0);
     }
-    if (u->nfree == 0) {
-        ur_end_read(u, k);
-        ur_unref(k);
-        return ur_fill(c, tag, -UR_ENOBUFS, -1, 0, 0);
+    int32_t n = res;
+    if (buf < 0) {
+        if (u->nfree == 0) {
+            ur_end_read(u, k);
+            ur_unref(k);
+            return ur_fill(c, tag, -UR_ENOBUFS, -1, 0, 0);
+        }
+        buf = u->free[--u->nfree];
+        n = recv(k->s, (char *)u->bufs + (size_t)buf * u->buflen, (int)u->buflen, 0);
+        if (n == SOCKET_ERROR) n = -net_win_err(WSAGetLastError());
     }
-    int32_t buf = u->free[--u->nfree];
-    int n = recv(k->s, (char *)u->bufs + (size_t)buf * u->buflen, (int)u->buflen, 0);
-    int err = n == SOCKET_ERROR ? WSAGetLastError() : 0;
-    if (n > 0 || err == WSAEWOULDBLOCK) {
-        if (n <= 0) u->free[u->nfree++] = buf;
+    if (n > 0 || n == -UR_EAGAIN) {
+        if (n < 0) u->free[u->nfree++] = buf;
         ur_post_recv(u, k);
         ur_unref(k);
         return n > 0 ? ur_fill(c, tag, n, buf, 1, 0) : 0;
@@ -507,7 +563,7 @@ static int ur_finish_recv(struct ur *u, struct ur_sock *k, int32_t res, ur_compl
     u->free[u->nfree++] = buf;
     ur_end_read(u, k);
     ur_unref(k);
-    return ur_fill(c, tag, n == 0 ? 0 : -net_win_err(err), -1, 0, 0);
+    return ur_fill(c, tag, n, -1, 0, 0);
 }
 
 static int ur_finish_send(struct ur *u, struct ur_send *s, int32_t res, ur_completion *c) {
@@ -530,16 +586,16 @@ static int ur_finish_send(struct ur *u, struct ur_send *s, int32_t res, ur_compl
 static int ur_finish(struct ur *u, struct ur_req *q, int from_port, ur_completion *c) {
     if (q->kind == UR_ACCEPT) {
         struct ur_accept *a = (struct ur_accept *)q;
-        return ur_finish_accept(u, from_port ? ur_result(q, a->ls) : q->err, c);
+        return ur_finish_accept(u, from_port ? ur_result(q, a->ls) : q->res, c);
     }
     if (q->kind == UR_RECV) {
         struct ur_sock *k = (struct ur_sock *)q;
         return ur_finish_recv(u, k, from_port && !k->closed ? ur_result(q, k->s)
-                                    : from_port ? -UR_ECANCELED : q->err, c);
+                                    : from_port ? -UR_ECANCELED : q->res, c);
     }
     struct ur_send *s = (struct ur_send *)q;
     return ur_finish_send(u, s, from_port && !s->sock->closed ? ur_result(q, s->sock->s)
-                                : from_port ? -UR_ECANCELED : q->err, c);
+                                : from_port ? -UR_ECANCELED : q->res, c);
 }
 
 /* Waits up to timeout_ms (-1: no limit) for completions, and writes up to

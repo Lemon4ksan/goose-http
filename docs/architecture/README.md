@@ -240,10 +240,16 @@ details):
 
 - `shim/iocp.c` implements `ring.goose` over a completion port. IOCP completes one
   operation per request, so a multishot accept is an `AcceptEx` posted again after each
-  completion, and a multishot receive is a zero-byte `WSARecv` kept posted, whose
-  completion the shim follows with one non-blocking `recv` into a free ring buffer. So
-  an idle connection holds no buffer, as with io_uring's provided buffers; a buffer
-  posted per connection deadlocked 10,000 connections.
+  completion, and a multishot receive is a `WSARecv` kept posted. While more than half
+  the ring's buffers are free, it reads into one of them. Otherwise it's a zero-byte
+  `WSARecv`, whose completion the shim follows with one non-blocking `recv` into a free
+  buffer, so past half the buffers an idle connection holds none, as with io_uring's
+  provided buffers; a buffer posted per connection deadlocked 10,000 connections.
+- Accepted sockets skip the completion port when a request completes at once
+  (`FILE_SKIP_COMPLETION_PORT_ON_SUCCESS`), as most sends do: the shim reports it from
+  its own list. With the buffered receive, that served 6-8% more requests a second
+  (2026-10-11, [development](../development.md#against-wsl)). Nearly all of a request's
+  time is the kernel's, about 11 µs on loopback, against 0.8 µs in user code.
 - The workers share one listener, which belongs to no completion port, because a
   socket can belong to only one. Each ring's `AcceptEx` signals an event, and a wait
   registered on it posts the completion to that ring's port, as libuv does. Windows
