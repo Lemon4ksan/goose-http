@@ -62,7 +62,7 @@ harness's best of 3 runs of 5 s:
 |---|---:|---:|---:|
 | baseline | 544,621 req/s | 520,410 req/s | 0.96 |
 | limited-conn | 307,688 req/s | 309,822 req/s | 1.01 |
-| latency-1m, CPU per request | 10.91 µs | 10.62 µs | 0.97 |
+| latency-1m, CPU per request (lower is better) | 10.91 µs | 10.62 µs | 0.97 |
 | pipelined | 7,070,060 req/s | 6,900,681 req/s | 0.98 |
 
 The runs were hours apart, and a best of 3 has no spread to compare against. The
