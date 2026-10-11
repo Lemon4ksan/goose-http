@@ -146,8 +146,9 @@ git -C ../goose log --oneline HEAD..upstream/master
 git -C ../goose checkout upstream/master
 ```
 
-Then rebuild both compilers (`cmake --build` with the same directories), rerun the
-scripts below, and update the pin in `README.md` and the table above.
+Then rebuild both compilers (`cmake --build` with the same directories), run
+`scripts/test.sh` ([below](#run-every-test)) in WSL and in Git Bash, and update the pin in
+`README.md` and the table above.
 
 A checkout from before `6fcb753`, where TinyCC was a submodule, can't check out a later
 commit over the submodule's directory. Release it first:
@@ -163,6 +164,7 @@ Run these in WSL, or on macOS ([below](#macos)). They work from any directory.
 | Command | What it does |
 |---|---|
 | `scripts/build.sh` | Builds the benchmark server into `build/server` with `goose build`, at `-O2` for Goose and gcc: on Linux `server/server.goose`, which serves with the io_uring loop, or with `LOOP=epoll` `server/server_epoll.goose`, which serves with the epoll loop. |
+| `scripts/test.sh` | Runs every test, and stops at the first failure ([below](#run-every-test)). |
 | `scripts/test-unit.sh` | Runs each `test/test_*.goose` and `server/test_*.goose` through TinyCC ([below](#test-the-http-server)). |
 | `scripts/test-http.sh` | Tests the HTTP server of `build/server` ([below](#test-the-http-server)). |
 | `scripts/test-echo.sh [server]` | Tests the echo servers of `build/server`, or of another command ([below](#test-the-echo-servers)). |
@@ -196,6 +198,27 @@ LOOP=epoll build/server http 8080 # with the epoll loop, whichever root file was
 build/server echo-blocking 8080   # the echo servers of task 002: one client at a time
 build/server echo-epoll 8080      # one edge-triggered epoll loop
 ```
+
+### Run every test
+
+`scripts/test.sh` runs the whole suite, and stops at the first failure:
+
+1. `goose --check` of each root file: `server/server.goose`, `server/server_epoll.goose`,
+   and each `test/test_*.goose` and `server/test_*.goose`.
+2. `scripts/test-unit.sh`.
+3. For each loop, `scripts/build.sh` and then `scripts/test-http.sh`: uring and epoll on
+   Linux and macOS, with `LOOP=uring-epoll` against the uring build on Linux too, and
+   iocp on Windows.
+4. `scripts/test-echo.sh`, against the last build.
+
+```sh
+GOOSE=../goose/build-linux/goose scripts/test.sh
+```
+
+`GOOSE`, `CC`, `PORT`, and `WORKERS` pass through to the scripts it runs. On macOS it
+waits for `TIME_WAIT` to drain before each run ([below](#macos)). On Windows, in Git
+Bash, its first step is the Windows typecheck that [Edit on Windows](#edit-on-windows)
+describes. It took 2 min 48 s on the Mac of [macOS](#macos) (2026-10-11).
 
 ### Test the HTTP server
 

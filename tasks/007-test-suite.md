@@ -1,6 +1,6 @@
 # 007: A lean test suite
 
-Status: todo (asked for 2026-10-10)
+Status: in-progress (asked for 2026-10-10)
 
 One command that runs every test this repository has, so a pin move or a change to the
 server is checked the same way each time. Goose has no unit-test construct; the
@@ -16,15 +16,16 @@ at a smaller scale.
 
 ## Acceptance criteria
 
-- [ ] `scripts/test.sh` builds the server, runs each `src/test_*.goose` through TinyCC,
+- [x] `scripts/test.sh` builds the server, runs each `src/test_*.goose` through TinyCC,
       and runs the integration scripts against the gcc build; it fails on the first
-      failure
+      failure (2026-10-11, run on macOS; not yet on Linux)
 - [ ] The Windows `--check` of every root file, so the Windows typecheck stays green
+      (`scripts/test.sh` runs it in Git Bash, 2026-10-11; not yet run on Windows)
 - [x] Unit tests for the parts of task 003 that work on bytes alone: the request parser,
       the `Date` header, and the response builder (`src/test_http.goose`, run by
       `scripts/test-unit.sh`; task 003 also added `scripts/test-http.sh`)
 - [ ] [Http11Probe](https://mda2av.github.io/Http11Probe/), HttpArena's RFC 9112
       compliance probe, run against the server, with each failure fixed or recorded as a
       deliberate refusal
-- [ ] How to run it, and what it covers, recorded in `docs/development.md`
-- [ ] The "Move the pin" steps in `docs/development.md` run `scripts/test.sh`
+- [x] How to run it, and what it covers, recorded in `docs/development.md`
+- [x] The "Move the pin" steps in `docs/development.md` run `scripts/test.sh`
