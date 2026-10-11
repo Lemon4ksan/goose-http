@@ -28,12 +28,12 @@ Goose, so it starts as a findings entry and a question to Kait.
 Open question for the start of the task: whether the Windows build works through the
 native `goose.exe` and MSVC, which `docs/development.md` so far uses only for `--check`.
 
+## Subtasks
+
+- [01-kqueue-macos.md](01-kqueue-macos.md): the epoll loop on macOS through kqueue.
+- [02-iocp-windows.md](02-iocp-windows.md): a completion loop on Windows through IOCP.
+
 ## Acceptance criteria
 
-- [ ] `shim/kqueue.h` and the epoll loop running on macOS through it, passing the same
-      tests as on Linux
-- [ ] `shim/iocp.h` and a completion loop running on Windows, passing the same tests
-- [ ] How each platform is built and tested recorded in `docs/development.md`
-- [ ] The error codes and the way the platform is chosen recorded in
-      `docs/architecture/README.md`
+- [ ] Subtasks 01 and 02 done
 - [ ] Stretch: one root file for every platform, if Goose gains conditional compilation
