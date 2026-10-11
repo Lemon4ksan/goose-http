@@ -93,7 +93,7 @@ static const struct { int32_t code; const char *text; } net_texts[] = {
 };
 #define NET_TEXT_COUNT (int)(sizeof net_texts / sizeof net_texts[0])
 
-/* sys::Event, packed as Goose packs a struct, and a slice of it. */
+/* sys::PollEvent, packed as Goose packs a struct, and a slice of it. */
 #pragma pack(push, 1)
 typedef struct { uint32_t events; uint64_t tag; } net_event;
 #pragma pack(pop)

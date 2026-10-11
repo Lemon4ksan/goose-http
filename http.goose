@@ -9,6 +9,13 @@
 // The handler gets the parsed request (Request, message.goose), its body, and
 // a Reply to write one whole response into. Goose compiles a generic function
 // only where it's called, so the loop a program doesn't call isn't in it.
+//
+// For bodies and responses of any size, each loop also takes a handler that
+// it calls again for each piece of the exchange (Event), with state of the
+// program's own type that starts each request as fresh:
+//
+//   http::serve(cfg, fresh) { ev, st, out => ... }
+//   http::serve_epoll(cfg, fresh) { ev, st, out => ... }
 namespace http;
 
 import std;
@@ -35,9 +42,13 @@ struct Config {
     max_conns: i64 = 16384,
     // The longest request head, and the size of a worker's read buffer, which
     // holds one whole. A body that fits in it with its head goes to the
-    // handler; a longer one is dropped as it arrives.
+    // handler whole; a longer one in pieces, or dropped as it arrives.
     max_head: i64 = MAX_HEAD,
+    // The longest body a request may have; a longer one is refused with 413.
     max_body: i64 = MAX_BODY,
+    // The most bytes of a body the handler answered without reading that
+    // the connection drops to stay open; past them, it closes.
+    max_drain: i64 = MAX_BODY,
     // A worker's write buffer grows to hold any response whole. Past this
     // many bytes, the worker sends what it holds before it answers more: the
     // default takes the responses to a read's worth of pipelined requests, as
@@ -110,26 +121,177 @@ let OPEN: u8 = 0;       // answering requests
 let CLOSING: u8 = 1;    // sending what's left, then shutting down its side
 let DRAINING: u8 = 2;   // shut down, and dropping what arrives until the client closes
 
-// Answers the complete requests in rbuf[..rlen] for connection c with the
-// handler H, into wbuf, and moves the rest of rbuf to its front. rbuf's
-// length is the longest head it takes. Before a request, if wbuf holds
+// What a handler given to serve(cfg, fresh) or serve_epoll(cfg, fresh) is
+// called for: Event.kind.
+let REQUEST: u8 = 0;    // a request's head, and its body if it came whole
+let BODY: u8 = 1;       // the next piece of a body that didn't come whole
+let END: u8 = 2;        // the end of that body
+let MORE: u8 = 3;       // room for more of a response begun with begin, once the body has ended
+
+struct Event {
+    kind: u8,
+    // REQUEST's parsed head. Its slices point into the read buffer, and last
+    // until the handler returns. A reference, so that the request isn't
+    // copied for each call: about 20 instructions per request.
+    req: const Request&,
+    // REQUEST's body, when whole; BODY's piece, decoded if chunked.
+    data: const u8[:],
+    // REQUEST's data is the whole body, as a body that fits in the read buffer
+    // with its head always is, and no BODY or END follows.
+    whole: bool,
+}
+
+// A request whose exchange outlasts the handler's REQUEST call: what of its
+// body is still to come, what its response needs, and the handler's state.
+// Each connection's slot holds one.
+struct Exchange<S> {
+    body: BodyReader,
+    skip: bool,         // drop the rest of the body: the response is done without it
+    taken: i64,         // body bytes so far, or dropped since skip, if chunked
+    answered: bool,     // the handler's response is whole
+    continued: bool,    // 100 Continue went out for the request in the read buffer
+    expect: bool,       // the client asked for 100 Continue
+    keep_alive: bool,
+    head: bool,
+    minor: i32,
+    stream: Stream,
+    state: S,
+}
+
+// The interim response a client that sent Expect: 100-continue waits for.
+// A function: a thread_fn can't reach a global slice (spec §11.2).
+fn interim() -> const u8[:] { "HTTP/1.1 100 Continue\r\n\r\n" }
+
+// Answers the requests in rbuf[..rlen] for connection c with the handler H,
+// into wbuf, and moves the rest of rbuf to its front. rbuf's length is the
+// longest head it takes. A request's state starts as fresh. Before a
+// request, a piece of a body, or a MORE call, if wbuf holds
 // cfg.write_buffer bytes or more, it calls ROOM(), which empties wbuf and
 // returns true, or returns false to stop there. Returns the bytes left in
-// rbuf, the number of requests answered, and whether ROOM stopped it. A
-// refused request, or a response that doesn't keep the connection open,
-// leaves c CLOSING and rbuf empty.
-fn answer<H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: const u8[:],
-                      cfg: const Config&) -> i64, i64, bool {
+// rbuf, the number of calls to H, and whether ROOM stopped it. A refused
+// request, or a response that doesn't keep the connection open, leaves c
+// CLOSING and rbuf empty.
+fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: const u8[:],
+                         cfg: const Config&, fresh: const S&) -> i64, i64, bool {
     var off = 0;
     var done = 0;
     var full = false;
-    while off < rlen {
-        if c.discard > 0 {
-            let k = min(c.discard, rlen - off);
-            off += k;
-            c.discard -= k;
+    let x .= c.x;
+    // The req of the events after REQUEST.
+    let gone = Request { .. };
+
+    // Sends what wbuf holds, and closes.
+    fn close() {
+        c.state = CLOSING;
+        off = rlen;
+    }
+
+    // Refuses the request with status, unless its response has begun, and
+    // closes.
+    fn fail(status: i32) {
+        if !x.answered && !x.stream.open { refuse(wbuf, status, date); }
+        close();
+    }
+
+    // Calls H for ev on the request in x. Returns whether it wrote anything.
+    fn call(ev: Event) -> bool {
+        let before = wbuf.len;
+        let was_open = x.stream.open;
+        H(ev, x.state, Reply { buf: wbuf, date: date, keep_alive: x.keep_alive, minor: x.minor,
+                               head: x.head, stream: x.stream });
+        done++;
+        let wrote = wbuf.len > before;
+        if !x.stream.open && (wrote || was_open) { x.answered = true; }
+        return wrote;
+    }
+
+    // Moves the request in x on after a call to H. False when the connection
+    // closes.
+    fn settle() -> bool {
+        if x.body.place == NO_BODY {
+            if x.stream.open { return true; }
+            if !x.answered {
+                fail(500);
+                return false;
+            }
+            x.continued = false;
+            if !x.keep_alive {
+                close();
+                return false;
+            }
+            return true;
+        }
+        if x.answered && !x.skip {
+            // Answered before the body ended: the rest is dropped, unless the
+            // client still waits for 100 Continue, or the rest is longer than
+            // cfg.max_drain. Then the connection closes.
+            x.skip = true;
+            x.taken = 0;
+            if (x.expect && !x.continued) || !x.keep_alive ||
+               (x.body.place == LENGTH && x.body.left > cfg.max_drain) {
+                close();
+                return false;
+            }
+        }
+        return true;
+    }
+
+    loop {
+        if x.body.place != NO_BODY {
+            guard off < rlen else { break; }
+            if wbuf.len >= cfg.write_buffer && !ROOM() {
+                full = true;
+                break;
+            }
+            let d0, d1, s = read_body(rbuf[off..rlen], x.body);
+            if s == INCOMPLETE {
+                // A size or trailer line longer than rbuf can't fit.
+                if off == 0 && rlen == rbuf.len { fail(400); }
+                break;
+            }
+            if s != 200 {
+                fail(400);
+                break;
+            }
+            let piece = rbuf[off + d0..off + d1];
+            off += d1;
+            x.taken += piece.len;
+            // A chunk's size tells, before its data, whether it's too long.
+            let coming = if x.body.place == CHUNK_DATA { x.body.left } else { 0 };
+            if x.skip {
+                done++;
+                if x.taken > cfg.max_drain {
+                    close();
+                    break;
+                }
+                if x.body.place == NO_BODY { guard settle() else { break; } }
+                continue;
+            }
+            // A Content-Length beyond cfg.max_body is refused by parse.
+            if x.taken + coming > cfg.max_body {
+                fail(413);
+                break;
+            }
+            if piece.len > 0 { call(Event { kind: BODY, req: gone, data: piece, whole: false }); }
+            if x.body.place == NO_BODY && !x.answered { call(Event { kind: END, req: gone, data: "", whole: false }); }
+            guard settle() else { break; }
             continue;
         }
+        if x.stream.open {
+            if wbuf.len >= cfg.write_buffer && !ROOM() {
+                full = true;
+                break;
+            }
+            // A MORE that neither sends nor ends would be called forever.
+            x.stream.moved = false;
+            if !call(Event { kind: MORE, req: gone, data: "", whole: false }) && !x.stream.moved && x.stream.open {
+                close();
+                break;
+            }
+            guard settle() else { break; }
+            continue;
+        }
+        guard off < rlen else { break; }
         if wbuf.len >= cfg.write_buffer && !ROOM() {
             full = true;
             break;
@@ -138,44 +300,111 @@ fn answer<H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: const
         if status == INCOMPLETE { break; }
         if status != 200 {
             refuse(wbuf, status, date);
-            c.state = CLOSING;
-            off = rlen;
+            close();
             break;
         }
         // A body that fits in rbuf with its head is answered once it's whole,
-        // and so is a chunked one, which must fit. A longer Content-Length
-        // body is dropped as it comes, and answered as an empty one.
+        // and so is a chunked one that turns out to fit. A longer one goes to
+        // the handler in pieces.
         let b0 = off + req.len;
         let room = rbuf.len - req.len;
-        let whole = req.chunked || (req.body > 0 && req.body <= room);
+        var whole = !req.chunked && req.body <= room;
         var wire = 0;
-        if whole {
+        if req.chunked || (req.body > 0 && whole) {
             let n, s = frame_body(rbuf[b0..rlen], req, room);
-            if s == INCOMPLETE { break; }
-            if s != 200 {
-                refuse(wbuf, s, date);
-                c.state = CLOSING;
-                off = rlen;
+            if s == INCOMPLETE {
+                // The client may wait for this before it sends the body.
+                if req.expect && !x.continued {
+                    wbuf.append(interim());
+                    x.continued = true;
+                }
                 break;
             }
-            wire = n;
+            if s == 413 && req.chunked {
+                whole = false;
+            } else if s != 200 {
+                refuse(wbuf, s, date);
+                close();
+                break;
+            } else {
+                whole = true;
+                wire = n;
+            }
         }
-        let blen = if req.chunked { dechunk(rbuf[b0..b0 + wire]) } else { wire };
-        done++;
+        let blen = if req.chunked && whole { dechunk(rbuf[b0..b0 + wire]) } else { wire };
         off = b0 + wire;
-        if !whole { c.discard = req.body; }
         var keep = req.keep_alive;
-        var bodyless = false;
-        H(req, rbuf[b0..b0 + blen],
+        var stream = Stream { .. };
+        var st = fresh;
+        let before = wbuf.len;
+        H(Event { kind: REQUEST, req: req, data: rbuf[b0..b0 + blen], whole: whole }, st,
           Reply { buf: wbuf, date: date, keep_alive: keep, minor: req.minor, head: req.method == "HEAD",
-                  bodyless: bodyless });
-        if !keep {
-            c.state = CLOSING;
-            off = rlen;
-            break;
+                  stream: stream });
+        done++;
+        if whole && !stream.open {
+            if wbuf.len == before {
+                // The handler didn't answer.
+                refuse(wbuf, 500, date);
+                close();
+                break;
+            }
+            if req.expect { x.continued = false; }
+            if !keep {
+                close();
+                break;
+            }
+            continue;
         }
+        // The exchange goes on past this call, in c's slot.
+        x.body = if whole { BodyReader { .. } }
+                 else if req.chunked { BodyReader { place: CHUNK_SIZE, left: 0 } }
+                 else { BodyReader { place: LENGTH, left: req.body } };
+        x.skip = false;
+        x.taken = 0;
+        x.answered = !stream.open && wbuf.len > before;
+        x.expect = req.expect;
+        x.keep_alive = keep;
+        x.head = req.method == "HEAD";
+        x.minor = req.minor;
+        x.stream = stream;
+        x.state = st;
+        if x.expect && !x.answered && !x.stream.open && !x.continued {
+            wbuf.append(interim());
+            x.continued = true;
+        }
+        guard settle() else { break; }
     }
     let rest = rlen - off;
     if rest > 0 && off > 0 { copy_into(rbuf[..rest], rbuf[off..rlen]); }
     return rest, done, full;
+}
+
+// Whether c's request has stopped short, for the sweep: the start of one in
+// held, or a body not all arrived, that the handler hasn't answered yet.
+fn owes_408(c) -> bool {
+    return c.state == OPEN && !c.x.stream.open && c.out.len == 0 &&
+        (c.held.len > 0 && c.x.body.place == NO_BODY || c.x.body.place != NO_BODY && !c.x.answered);
+}
+
+// Whether c is between requests, with nothing of one received or to send.
+fn idle(c) -> bool {
+    return c.held.len == 0 && c.x.body.place == NO_BODY && !c.x.stream.open;
+}
+
+// The handler of serve(cfg) and serve_epoll(cfg) on an Event, ahead of
+// their H: whether H answers it, with the body when it came whole and an
+// empty one otherwise, which is dropped as it arrives. H can't tell an empty
+// chunked body from one dropped, so a chunked body that doesn't come whole
+// is refused with 413. The loops call H themselves, and this returns only at
+// its end: Goose inlines neither a function with an early return nor one
+// that takes a function value, and as a call, gcc keeps it, and H, out of
+// line, which cost 60-120 instructions per request.
+inline fn whole_only(ev: Event, out: Reply) -> bool {
+    let refused = ev.kind == REQUEST && ev.req.chunked && !ev.whole;
+    if refused {
+        out.keep_alive = false;
+        start(out, 413);
+        finish(out, "Content-Length: ", "");
+    }
+    return ev.kind == REQUEST && !refused;
 }

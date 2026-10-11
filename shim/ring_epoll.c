@@ -51,7 +51,7 @@
 /* The listener's epoll tag. A connection's is its fd. */
 #define RP_LISTENER UINT64_MAX
 
-/* The layouts shared with Goose, per spec C.2: a u8[:], http::Event,
+/* The layouts shared with Goose, per spec C.2: a u8[:], http::PollEvent,
    http::Completion, and slices of the last two. */
 typedef struct { uint8_t *data; int64_t len; } rp_bytes;
 #pragma pack(push, 1)

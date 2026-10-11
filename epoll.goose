@@ -15,12 +15,12 @@ let EPOLL_LISTENER: u64 = 0xFFFFFFFFFFFFFFFF;
 // Between events, a connection holds only what its socket left over: the
 // start of a request not yet whole, and responses the socket didn't take.
 // Both are runs of the worker's spill pool, empty almost always.
-struct EpollConn {
+struct EpollConn<S> {
     fd: i32,            // -1 while the slot is free
     state: u8,
     watch_out: bool,    // OUT is registered: set while out holds bytes
     deadline: i64,      // the time after which the sweep closes it
-    discard: i64,       // request body bytes still to drop
+    x: Exchange<S>,     // the request in progress past its handler's REQUEST call
     held: u8[:],        // received and not yet answered
     out: u8[:],         // still to send
 }
@@ -29,6 +29,12 @@ struct EpollConn {
 // and returns its error, with every socket it opened closed. On Windows it
 // fails at once with ENOSYS.
 fn serve_epoll<H>(cfg: Config) -> Error {
+    return serve_epoll(cfg, false) { ev, st, out => if whole_only(ev, out) { H(ev.req, ev.data, out); } };
+}
+
+// serve_epoll(cfg), with a handler H that's called for each Event of a
+// request, with the request's state, which starts as fresh.
+fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     net_worker_start();
     let ip, ok = ipv4(cfg.address);
     guard ok else { return Error { call: "address", code: EINVAL }; }
@@ -47,7 +53,7 @@ fn serve_epoll<H>(cfg: Config) -> Error {
     }
 
     reusable[] var spill: u8[>..] = [];
-    reusable var conns: EpollConn[>..] = [];
+    reusable var conns: EpollConn<S>[>..] = [];
     var open = 0;
     // Set when accepting stopped before the backlog was empty: at cfg.max_conns,
     // or at the fd limit (EMFILE). The listener's edge has passed, so the
@@ -58,7 +64,7 @@ fn serve_epoll<H>(cfg: Config) -> Error {
     var next_sweep = now + 1000;
     var date: u8[..32] = [];
     var date_s: i64 = -1;
-    var events: Event[256] = [Event { events: 0, tag: 0 }; 256];
+    var events: PollEvent[256] = [PollEvent { events: 0, tag: 0 }; 256];
     // The driven connection's bytes: rbuf[..rlen] is received and not yet
     // answered, and wbuf[woff..] is still to send.
     var rbuf: u8[>..] = [];
@@ -82,7 +88,7 @@ fn serve_epoll<H>(cfg: Config) -> Error {
                 if !retry { report(Error { call: "accept", code: -fd }); }
                 return;
             }
-            let i = conns.alloc_index(EpollConn { fd: fd, deadline: now + cfg.request_ms, .. });
+            let i = conns.alloc_index(EpollConn<S> { fd: fd, deadline: now + cfg.request_ms, .. });
             let r = net_epoll_ctl(ep, EPOLL_CTL_ADD, fd, EPOLLIN | EPOLLRDHUP | EPOLLET, i as u64);
             if r < 0 {
                 report(Error { call: "epoll_ctl", code: -r });
@@ -108,7 +114,7 @@ fn serve_epoll<H>(cfg: Config) -> Error {
     // Moves a connection on as far as its socket allows, in the worker's
     // buffers, and keeps what's left over in spill. hup is whether the event
     // reported the client's side closed. False when the connection is done.
-    fn drive(c: EpollConn&, hup: bool) -> bool {
+    fn drive(c: EpollConn<S>&, hup: bool) -> bool {
         rlen = c.held.len;
         if rlen > 0 {
             copy_into(rbuf[..rlen], c.held);
@@ -159,13 +165,13 @@ fn serve_epoll<H>(cfg: Config) -> Error {
     // less than it was given emptied the socket, and the next byte to arrive
     // raises a new event, so it isn't followed by a recv that would block,
     // unless hup: a close that arrived with the last bytes raises none.
-    fn advance(c: EpollConn&, hup: bool) -> bool {
+    fn advance(c: EpollConn<S>&, hup: bool) -> bool {
         var progress = false;
         var drained = false;
         loop {
             var full = false;
-            if c.state == OPEN && rlen > 0 {
-                let rest, done, f = answer(c, rbuf, rlen, wbuf, date, cfg, H) { false };
+            if c.state == OPEN && (rlen > 0 || c.x.stream.open && c.x.body.place == NO_BODY) {
+                let rest, done, f = answer(c, rbuf, rlen, wbuf, date, cfg, fresh, H) { false };
                 rlen = rest;
                 if done > 0 { progress = true; }
                 full = f;
@@ -203,9 +209,9 @@ fn serve_epoll<H>(cfg: Config) -> Error {
     // Moves the deadline of a connection that's waiting on its socket.
     // Progress restarts the clock; the first bytes of a request after an
     // idle spell shorten it.
-    fn wait(c: EpollConn&, progress: bool) -> bool {
+    fn wait(c: EpollConn<S>&, progress: bool) -> bool {
         guard c.state != DRAINING else { return true; }
-        let idle = rlen == 0 && c.discard == 0 && woff == wbuf.len;
+        let idle = rlen == 0 && c.x.body.place == NO_BODY && !c.x.stream.open && woff == wbuf.len;
         if progress { c.deadline = now + (if idle { cfg.idle_ms } else { cfg.request_ms }); }
         else if !idle { c.deadline = min(c.deadline, now + cfg.request_ms); }
         return true;
@@ -218,14 +224,16 @@ fn serve_epoll<H>(cfg: Config) -> Error {
         for i in conns.len {
             let c .= conns[i];
             if c.fd < 0 || c.deadline > now { continue; }
-            if c.state == OPEN && c.held.len > 0 && c.out.len == 0 {
+            if owes_408(c) {
                 wbuf.clear();
                 refuse(wbuf, 408, date);
                 let sent = net_send(c.fd, wbuf) == wbuf.len;
                 wbuf.clear();
                 if sent {
-                    spill.free_slice(c.held);
-                    c.held = c.held[..0];
+                    if c.held.len > 0 {
+                        spill.free_slice(c.held);
+                        c.held = c.held[..0];
+                    }
                     net_shutdown(c.fd, SHUT_WR);
                     c.state = DRAINING;
                     c.deadline = now + cfg.linger_ms;

@@ -119,12 +119,36 @@ change the per-connection state, in both of task 011's loops, `http::serve` and
   1,485-1,518 and 1,547-1,578 for `915c34f`. The rest, 10-25, is within what the route
   changes measured, and within the runs' spread.
 
+- Items 7, 8, and 3 (2026-10-12), as [the design](#streaming-design-2026-10-12) says:
+  `http::serve(cfg, fresh)` and `http::serve_epoll(cfg, fresh)` call their handler
+  with an `http::Event`, `http::begin`, `http::send`, and `http::end` write a response
+  in pieces, and `http::read_body` decodes a body in pieces. `Expect: 100-continue`
+  gets `100 Continue` as the design says, and any other expectation 417. The
+  benchmark server serves through `serve(cfg, fresh)`, with `/upload`, `/echo`,
+  `/stream`, and `/bytes` sent in pieces, and `http_client.py`'s `stream` mode tests
+  them: 100 MB uploads with a `Content-Length` and chunked, dropped bodies below and
+  past `max_drain`, `Expect`, 10 MB echoed both ways, 10 MB and 100 MB downloads, and
+  HTTP/1.0's body ending at the close. After it, the server's peak RSS was 2.7 MB
+  (epoll), 8.5 MB (uring), and 7.8 MB (uring over epoll) in WSL2.
+  - `serve(cfg)` is a wrapper over `serve(cfg, fresh)`. The handler's call takes the
+    request by reference (`Event.req`): copying it cost nothing measurable.
+  - Goose inlines neither a function with an early return nor one that takes a
+    function value, and gcc kept such a wrapper out of line, which cost 60-120
+    instructions per request until the wrapper's checks went into one inline function
+    with a single return.
+
+Open: the streaming loop costs 50-60 user instructions per request on the benchmark
+routes. `bench/instructions.sh`, 2 runs each, as above: 1,531-1,545 (epoll) and
+1,560-1,570 (uring) against 1,461-1,485 and 1,512-1,514 at `1e9dddb`, with cycles per
+request within 1%. Isolating parts of it: the `Expect` field's check in `parse` is
+about 14, and the server's new routes 10-25; the rest is the loop's per-request
+state (the response's `Stream`, the handler's state, the checks for a body or a
+response still open).
+
 Next, in order:
 
-1. Items 7 and 8, bodies and responses of any size, streamed. Read how fast servers
-   with a streaming API shape it first (for example may-minihttp, hyper, actix, and
-   h2o or nginx for the C side), and record the design here before writing it.
-2. Items 3, 10, 12, and 11.
+1. Split the streaming loop's cost further, and remove what can go.
+2. Items 10, 12, and 11.
 
 ## Streaming design (2026-10-12)
 
@@ -195,18 +219,21 @@ slot. So:
       `http_client.py`'s `tfb` checks it)
 - [x] `Host: a b` and `Host: [::1` get 400; `Host: x:8080`, `Host: [::1]:80`, and an
       empty `Host` get 200 (2026-10-11, `b73d527`)
-- [ ] A `POST` with `Expect: 100-continue` gets `100 Continue` before its body is read, or
-      its final status without one; `Expect: other` gets 417
-- [ ] Unit tests show 204, 304, and `HEAD` without a body, and a streamed body to an
-      HTTP/1.0 client ending at close, whatever the handler writes
+- [x] A `POST` with `Expect: 100-continue` gets `100 Continue` before its body is read, or
+      its final status without one; `Expect: other` gets 417 (2026-10-12, `http_client.py`'s
+      `stream` and `hostile`)
+- [x] Unit tests show 204, 304, and `HEAD` without a body, and a streamed body to an
+      HTTP/1.0 client ending at close, whatever the handler writes (2026-10-12,
+      `test_http.goose`'s `test_reply` and `test_stream`)
 - [x] `OPTIONS *` gets 200 with `Allow`; an unknown method gets 501 (2026-10-11, the
       benchmark server's routes)
 - [x] The handler reads any request field by name, and iterates them (2026-10-11:
       `http::field_of` and `http::each_field`)
-- [ ] A handler reads a 100 MB `Content-Length` body and a 100 MB chunked body in pieces;
+- [x] A handler reads a 100 MB `Content-Length` body and a 100 MB chunked body in pieces;
       a handler that ignores them leaves the connection usable for the next request
-- [ ] A handler sends a 10 MB body, and streams a chunked one, with each connection's
-      memory bounded
+      (2026-10-12; up to `Config.max_drain`, past which it closes)
+- [x] A handler sends a 10 MB body, and streams a chunked one, with each connection's
+      memory bounded (2026-10-12; `test-http.sh` checks the peak RSS after 100 MB)
 - [x] Decoded path and query, with 400 for an invalid `%` escape (2026-10-11)
 - [ ] Limits and timeouts set by the program, with tests at non-default values
 - [ ] `SIGTERM` drains and stops every worker within the grace period, in `serve` and

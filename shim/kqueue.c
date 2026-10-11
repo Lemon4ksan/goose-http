@@ -71,7 +71,7 @@ _Static_assert(SHUT_WR == 1, "shutdown's how differs from src/sys.goose");
 /* A u8[:]: a pointer and a length, passed by value. */
 typedef struct { uint8_t *data; int64_t len; } net_bytes;
 
-/* sys::Event, packed as Goose packs a struct, and a slice of it. */
+/* sys::PollEvent, packed as Goose packs a struct, and a slice of it. */
 typedef struct __attribute__((packed)) { uint32_t events; uint64_t tag; } net_event;
 _Static_assert(sizeof(net_event) == 12, "net_event is not packed");
 typedef struct { net_event *data; int64_t len; } net_events;
@@ -352,7 +352,7 @@ int32_t net_epoll_ctl(int32_t ep, int32_t op, int32_t fd, uint32_t events, uint6
 }
 
 /* struct kevent is 32 bytes on arm64, so the kernel writes into a local
-   array of it and the events are copied out into http::Event. kqueue reports
+   array of it and the events are copied out into http::PollEvent. kqueue reports
    each filter apart, and epoll one event per fd holding both, so the events
    of one fd are merged: the loop frees a connection's slot on the event that
    closes it, and a second event for it in the same batch would find the slot

@@ -27,15 +27,18 @@ fn run(default_loop: const u8[:]) {
         port = p as i32;
     }
     let mode = argv[1];
-    if mode == "http" { serve_http(http::Config { port: port, workers: workers(), .. }, default_loop); }
+    // A body may be as long as /upload's tests send.
+    if mode == "http" {
+        serve_http(http::Config { port: port, workers: workers(), max_body: 1 << 30, .. }, default_loop);
+    }
     else if mode == "echo-blocking" { echo_blocking(port); }
     else if mode == "echo-epoll" { echo_epoll(port); }
     else { usage(); }
 }
 
-thread_fn worker(cfg: http::Config) { stopped(http::serve(cfg, route)); }
+thread_fn worker(cfg: http::Config) { stopped(http::serve(cfg, Transfer { .. }, handle)); }
 
-thread_fn worker_epoll(cfg: http::Config) { stopped(http::serve_epoll(cfg, route)); }
+thread_fn worker_epoll(cfg: http::Config) { stopped(http::serve_epoll(cfg, Transfer { .. }, handle)); }
 
 // Reports why a worker's loop stopped, and ends the process.
 fn stopped(e: http::Error) {

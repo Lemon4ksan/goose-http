@@ -13,10 +13,12 @@ fn response(text: const u8[:], out: u8[>..]&) -> bool {
     let r, s = http::parse(text);
     assert(s == 200);
     var keep = r.keep_alive;
-    var bodyless = false;
-    route(r, text[r.len..],
-          http::Reply { buf: out, date: DATE, keep_alive: keep, minor: r.minor, head: r.method == "HEAD",
-                        bodyless: bodyless });
+    var stream = http::Stream { .. };
+    var st = Transfer { .. };
+    let reply = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: r.minor, head: r.method == "HEAD",
+                              stream: stream };
+    handle(http::Event { kind: http::REQUEST, req: r, data: text[r.len..], whole: true }, st, reply);
+    while stream.open { handle(http::Event { kind: http::MORE, req: r, data: "", whole: false }, st, reply); }
     return keep;
 }
 
@@ -83,11 +85,29 @@ fn main() {
     same(out[^2..], "ok");
     out.clear();
     assert(response("GET /bytes?n=12 HTTP/1.1\r\nHost: x\r\n\r\n", out));
-    same(out, "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Type: application/octet-stream\r\nContent-Length: 12\r\n\r\n012345678901");
-    // Larger than the write buffer, which grows to take it.
+    same(out, "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Length: 12\r\nContent-Type: application/octet-stream\r\n\r\n012345678901");
+    // Longer than a MORE's piece.
     out.clear();
     assert(response("GET /bytes?n=50000 HTTP/1.1\r\nHost: x\r\n\r\n", out));
-    same(out[^50017..^49997], "Length: 50000\r\n\r\n012");
+    assert(find(out, "\r\nContent-Length: 50000\r\n") > 0);
+    same(out[^50004..^49997], "\r\n\r\n012");
     same(out[^10..], "0123456789");
+    // Chunked, in pieces of 16 KB.
+    out.clear();
+    assert(response("GET /stream?n=20000 HTTP/1.1\r\nHost: x\r\n\r\n", out));
+    assert(find(out, "\r\nTransfer-Encoding: chunked\r\n") > 0);
+    same(out[find(out, "\r\n\r\n") + 4..find(out, "\r\n\r\n") + 16], "4000\r\n012345");
+    same(out[^17..], "0123456789\r\n0\r\n\r\n");
+    // HEAD gets the head alone.
+    out.clear();
+    assert(response("HEAD /bytes?n=50000 HTTP/1.1\r\nHost: x\r\n\r\n", out));
+    same(out[^39..], "50000\r\nContent-Type: application/octet-stream\r\n\r\n"[^39..]);
+    // /upload and /echo, with whole bodies.
+    out.clear();
+    assert(response("POST /upload HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\n\r\nabc", out));
+    same(out[^7..], "\r\n3 294");
+    out.clear();
+    assert(response("POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\n\r\nabc", out));
+    same(out[^64..], "Content-Length: 3\r\nContent-Type: application/octet-stream\r\n\r\nabc");
     print("test_routes: ok");
 }

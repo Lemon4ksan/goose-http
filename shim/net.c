@@ -32,7 +32,7 @@ _Static_assert(SHUT_WR == 1, "shutdown's how differs from src/sys.goose");
 /* A u8[:]: a pointer and a length, passed by value. */
 typedef struct { uint8_t *data; int64_t len; } net_bytes;
 
-/* sys::Event, packed as Goose packs a struct, and a slice of it. */
+/* sys::PollEvent, packed as Goose packs a struct, and a slice of it. */
 typedef struct __attribute__((packed)) { uint32_t events; uint64_t tag; } net_event;
 _Static_assert(sizeof(net_event) == 12, "net_event is not packed");
 typedef struct { net_event *data; int64_t len; } net_events;
@@ -110,7 +110,7 @@ int32_t net_epoll_ctl(int32_t ep, int32_t op, int32_t fd, uint32_t events, uint6
 
 /* The kernel's struct epoll_event is packed on x86-64 and padded to 16 bytes
    on arm64, so the kernel writes into a local array of it and the events are
-   copied out into sys::Event, whose layout is the same everywhere. */
+   copied out into sys::PollEvent, whose layout is the same everywhere. */
 int32_t net_epoll_wait(int32_t ep, net_events out, int32_t timeout_ms) {
     struct epoll_event kev[NET_MAX_EVENTS];
     int max = out.len < NET_MAX_EVENTS ? (int)out.len : NET_MAX_EVENTS;

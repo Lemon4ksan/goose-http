@@ -18,7 +18,7 @@ A shim file is its own translation unit, so:
 
 - It sees none of the generated C. It declares the layouts it shares with Goose itself,
   from the table below, such as `typedef struct { uint8_t *data; int64_t len; }
-  net_bytes;` for a `u8[:]`, and a packed struct for `http::Event`.
+  net_bytes;` for a `u8[:]`, and a packed struct for `http::PollEvent`.
 - It can't reach the runtime, so it can't append to a `u8[>..]&` (`gs_bld_append`).
   `net_strerror` writes into a `u8[:]` and returns the length instead.
 - It sets its own feature-test macros: `shim/net.c` starts with `#define _GNU_SOURCE`.
@@ -47,7 +47,7 @@ its path breaks under an `-o` without a directory
 | `u8[>..]&` | `gs_rref`, appended to with `gs_bld_append(ref, p, n)` |
 | `Ev[64]` | `a64_Ev_g`: `{ Ev_g e[64]; }` |
 | `bool` | `uint8_t`, not C's `bool` |
-| `namespace sys;` `struct Event` | `sys_Event_g3`, and its slice `sl_sys_Event_g3`: the namespace's length follows `_g` |
+| `namespace sys;` `struct PollEvent` | `sys_PollEvent_g3`, and its slice `sl_sys_PollEvent_g3`: the namespace's length follows `_g` |
 | `extern fn shim_fill(...)` | the symbol `shim_fill`, unchanged |
 
 Goose structs are packed, with no padding. A struct of a `u32` and a `u64` is 12 bytes,

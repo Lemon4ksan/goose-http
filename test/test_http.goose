@@ -351,6 +351,139 @@ fn test_chunked() {
     assert(dechunked("0\r\n\n", out) == 400);
 }
 
+// Reads the chunked body at the start of text as the loops do, with text
+// arriving k bytes at a time, into out. Returns the status, and how many of
+// text's bytes the body took.
+fn read_in_pieces(text: const u8[:], k: i64, out: u8[>..]&) -> i32, i64 {
+    var r = http::BodyReader { place: http::CHUNK_SIZE, left: 0 };
+    var buf: u8[>..] = [];
+    var pos = 0;
+    while r.place != http::NO_BODY {
+        let d0, d1, s = http::read_body(buf[pos..], r);
+        if s == http::INCOMPLETE {
+            guard buf.len < text.len else { return http::INCOMPLETE, pos; }
+            buf.append(text[buf.len..min(buf.len + k, text.len)]);
+            continue;
+        }
+        guard s == 200 else { return s, pos; }
+        out.append(buf[pos + d0..pos + d1]);
+        pos += d1;
+    }
+    return 200, pos;
+}
+
+fn test_read_body() {
+    // Each body, arriving in pieces of every size, decodes as dechunk does.
+    let bodies = ["5\r\nhello\r\n0\r\n\r\n", "3;x=y\r\nabc\r\nA\r\n0123456789\r\n0\r\nT: v\r\n\r\n",
+                  "1\r\n2\r\n1\r\n0\r\n0\r\n\r\n", "0\r\n\r\n"];
+    for b in bodies {
+        var want: u8[>..] = [];
+        assert(dechunked(b, want) == 200);
+        for k in 1..b.len + 1 {
+            var got: u8[>..] = [];
+            var text: u8[>..] = [];
+            text.append(b);
+            text.append("GET");
+            let s, n = read_in_pieces(text, k, got);
+            assert(s == 200 && n == b.len);
+            same(got, want);
+        }
+    }
+    var got: u8[>..] = [];
+    let s1, n1 = read_in_pieces("5\r\nhel", 2, got);
+    assert(s1 == http::INCOMPLETE && got == "hel");
+    let bad = ["5x\r\nhello\r\n0\r\n\r\n", "\r\n", "1000000000000000\r\n", "2\r\nabc\r\n0\r\n\r\n",
+               "2\nab\r\n0\r\n\r\n", "0;a\x01\r\n\r\n", "5;\r\nhello\r\n0\r\n\r\n", "0\r\n\n"];
+    for b in bad {
+        for k in 1..b.len + 1 {
+            got.clear();
+            let s, n = read_in_pieces(b, k, got);
+            assert(s == 400);
+        }
+    }
+
+    // A Content-Length body ends at its length.
+    var r = http::BodyReader { place: http::LENGTH, left: 5 };
+    let d0, d1, s = http::read_body("hel", r);
+    assert(s == 200 && d0 == 0 && d1 == 3 && r.place == http::LENGTH && r.left == 2);
+    let e0, e1, t = http::read_body("loGET", r);
+    assert(t == 200 && e1 == 2 && r.place == http::NO_BODY);
+}
+
+fn test_expect() {
+    let r, s = http::parse("POST / HTTP/1.1\r\nHost: x\r\nExpect: 100-Continue\r\nContent-Length: 5\r\n\r\n");
+    assert(s == 200 && r.expect);
+    expect("POST / HTTP/1.1\r\nHost: x\r\nExpect: something\r\nContent-Length: 5\r\n\r\n", 417);
+    // HTTP/1.0 has no expectations.
+    let r0, s0 = http::parse("POST / HTTP/1.0\r\nExpect: something\r\nContent-Length: 5\r\n\r\n");
+    assert(s0 == 200 && !r0.expect);
+    let rg, sg = http::parse(GET);
+    assert(!rg.expect);
+}
+
+// A response begun with begin, and sent in pieces.
+fn test_stream() {
+    var out: u8[>..] = [];
+    var keep = true;
+    var st = http::Stream { .. };
+    let c = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, stream: st };
+    http::begin(c, 200, -1);
+    http::field(c, "Content-Type", "text/plain");
+    http::send(c, "hello");
+    http::send(c, "");
+    http::send(c, "0123456789abcdef!");
+    http::end(c);
+    same(out, "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nTransfer-Encoding: chunked\r\nContent-Type: text/plain\r\n\r\n5\r\nhello\r\n11\r\n0123456789abcdef!\r\n0\r\n\r\n");
+    assert(keep && !st.open);
+    // send and end after end write nothing.
+    http::send(c, "late");
+    http::end(c);
+    assert(out[out.len - 5..] == "0\r\n\r\n");
+
+    // A known length; a body past it is cut, and one short of it closes.
+    let m1 = out.len;
+    http::begin(c, 200, 7);
+    http::send(c, "abc");
+    assert(keep);
+    http::send(c, "defgh");
+    http::end(c);
+    same(out[m1..], "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Length: 7\r\n\r\nabcdefg");
+    assert(!keep);
+    let m2 = out.len;
+    keep = true;
+    http::begin(c, 200, 5);
+    http::end(c);
+    assert(!keep && out[out.len - 21..] == "Content-Length: 5\r\n\r\n");
+
+    // HEAD gets the head alone.
+    let m3 = out.len;
+    keep = true;
+    let h = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: true, stream: st };
+    http::begin(h, 200, -1);
+    http::send(h, "hello");
+    http::end(h);
+    same(out[m3..], "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nTransfer-Encoding: chunked\r\n\r\n");
+    assert(keep);
+
+    // HTTP/1.0 has no chunks: the body ends at the close.
+    let m4 = out.len;
+    let old = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 0, head: false, stream: st };
+    http::begin(old, 200, -1);
+    http::send(old, "hello");
+    http::end(old);
+    same(out[m4..], "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nConnection: close\r\n\r\nhello");
+    assert(!keep);
+
+    // 204 has no body, and no framing.
+    let m5 = out.len;
+    keep = true;
+    http::begin(c, 204, -1);
+    http::send(c, "hello");
+    http::end(c);
+    same(out[m5..], "HTTP/1.1 204 No Content\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\n\r\n");
+    assert(keep);
+}
+
 let DATE = "Sat, 10 Oct 2026 12:00:00 GMT";
 
 fn same(got: const u8[:], want: const u8[:]) {
@@ -364,8 +497,8 @@ fn same(got: const u8[:], want: const u8[:]) {
 fn test_reply() {
     var out: u8[>..] = [];
     var keep = true;
-    var nobody = false;
-    http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, bodyless: nobody },
+    var nobody = http::Stream { .. };
+    http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, stream: nobody },
                   201, "text/plain", "made");
     same(out, "HTTP/1.1 201 Created\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Type: text/plain\r\nContent-Length: 4\r\n\r\nmade");
 
@@ -373,7 +506,7 @@ fn test_reply() {
     // handler that closes the connection.
     out.clear();
     keep = false;
-    let r = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, bodyless: nobody };
+    let r = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, stream: nobody };
     http::start(r, 299);
     http::field(r, "X-Thing", "a b");
     http::finish(r, "Content-Length: ", "hi");
@@ -383,7 +516,7 @@ fn test_reply() {
     // says so.
     out.clear();
     keep = true;
-    http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 0, head: true, bodyless: nobody },
+    http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 0, head: true, stream: nobody },
                   200, "a/b", "body");
     same(out, "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nConnection: keep-alive\r\nContent-Type: a/b\r\nContent-Length: 4\r\n\r\n");
 
@@ -393,28 +526,28 @@ fn test_reply() {
     for status in bodyless {
         out.clear();
         keep = true;
-        http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, bodyless: nobody },
+        http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, stream: nobody },
                       status, "text/plain", "body");
-        assert(nobody);
+        assert(nobody.bodyless);
         assert(find(out, "Content-Length") < 0 && out[out.len - 4..] == "\r\n\r\n");
         assert(find(out, "Content-Type: text/plain\r\n\r\n") > 0);
     }
     out.clear();
-    let r304 = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: true, bodyless: nobody };
+    let r304 = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: true, stream: nobody };
     http::start(r304, 304);
     http::field(r304, "ETag", "\"x\"");
     http::finish(r304, "", "ignored");
     same(out, "HTTP/1.1 304 Not Modified\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nETag: \"x\"\r\n\r\n");
     // A body status after them gets its length again.
     out.clear();
-    http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, bodyless: nobody },
+    http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, stream: nobody },
                   200, "text/plain", "ok");
-    assert(!nobody && find(out, "Content-Length: 2\r\n\r\nok") > 0);
+    assert(!nobody.bodyless && find(out, "Content-Length: 2\r\n\r\nok") > 0);
 
     // A handler clears keep_alive through its copy of the reply.
     keep = true;
     out.clear();
-    let close = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, bodyless: nobody };
+    let close = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, stream: nobody };
     close.keep_alive = false;
     assert(!keep);
 
@@ -436,7 +569,10 @@ fn main() {
     test_keep_alive();
     test_refused();
     test_chunked();
+    test_read_body();
+    test_expect();
     test_date();
     test_reply();
+    test_stream();
     print("test_http: ok");
 }

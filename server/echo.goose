@@ -68,7 +68,7 @@ fn echo_epoll(port: i32) {
     // Indexed by fd. The kernel hands out the lowest free fd, so the table
     // grows to the most connections open at once.
     var conns: EchoConn[>..] = [];
-    var events: http::Event[256] = [http::Event { events: 0, tag: 0 }; 256];
+    var events: http::PollEvent[256] = [http::PollEvent { events: 0, tag: 0 }; 256];
     loop {
         let n = http::net_epoll_wait(ep, events, -1);
         if n == -http::EINTR { continue; }

@@ -4,6 +4,7 @@
     http_client.py PORT pipeline    pipelined requests and request bodies
     http_client.py PORT large       responses larger than the write buffer
     http_client.py PORT chunked     chunked request bodies, and HttpArena's /baseline11
+    http_client.py PORT stream      bodies and responses of any size, in pieces, and Expect
     http_client.py PORT keepalive   keep-alive, Connection: close, HTTP/1.0
     http_client.py PORT hostile     malformed and oversized requests
     http_client.py PORT slow        slow clients, against the server's timeouts
@@ -68,7 +69,8 @@ class Conn:
             self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, rcvbuf)
         self.sock.settimeout(timeout)
         self.sock.connect((HOST, port))
-        self.buf = b""
+        # A bytearray, which drops a prefix without copying the rest.
+        self.buf = bytearray()
 
     def send(self, data):
         self.sock.sendall(data)
@@ -79,10 +81,29 @@ class Conn:
             fail(f"connection closed with {len(self.buf)} bytes unparsed")
         self.buf += chunk
 
+    def line(self):
+        """The next line, without its CRLF."""
+        while (end := self.buf.find(b"\r\n")) < 0:
+            self.fill()
+        line = bytes(self.buf[:end])
+        del self.buf[:end + 2]
+        return line
+
+    def take(self, n):
+        while len(self.buf) < n:
+            self.fill()
+        data = bytes(self.buf[:n])
+        del self.buf[:n]
+        return data
+
     def response(self, head_only=False):
+        """The next response: a 1xx, a body framed by Content-Length or
+        chunked, or one that ends when the server closes."""
         while b"\r\n\r\n" not in self.buf:
             self.fill()
-        head, self.buf = self.buf.split(b"\r\n\r\n", 1)
+        end = self.buf.find(b"\r\n\r\n")
+        head = bytes(self.buf[:end])
+        del self.buf[:end + 4]
         lines = head.split(b"\r\n")
         version, status, _ = lines[0].split(b" ", 2)
         if version != b"HTTP/1.1":
@@ -92,10 +113,30 @@ class Conn:
             name, value = line.split(b":", 1)
             headers.append((name.decode().lower(), value.strip().decode()))
         r = Response(int(status), headers, b"")
-        n = 0 if head_only else int(r.header("content-length"))
-        while len(self.buf) < n:
-            self.fill()
-        r.body, self.buf = self.buf[:n], self.buf[n:]
+        names = [n for n, _ in headers]
+        if head_only or r.status < 200 or r.status in (204, 304):
+            return r
+        if "transfer-encoding" in names:
+            if r.header("transfer-encoding") != "chunked" or "content-length" in names:
+                fail(f"framing {headers}")
+            body = bytearray()
+            while (size := int(self.line().split(b";")[0], 16)) > 0:
+                body += self.take(size)
+                if self.take(2) != b"\r\n":
+                    fail("a chunk without its CRLF")
+            while self.line():
+                pass
+            r.body = bytes(body)
+        elif "content-length" in names:
+            r.body = self.take(int(r.header("content-length")))
+        else:
+            while True:
+                chunk = self.sock.recv(1 << 20)
+                if not chunk:
+                    break
+                self.buf += chunk
+            r.body = bytes(self.buf)
+            self.buf = bytearray()
         return r
 
     def closed(self):
@@ -287,6 +328,100 @@ def chunked(port):
     print("chunked: ok")
 
 
+def digits(n, at=0):
+    """What /bytes and /stream send: n of the digits, from the at'th."""
+    return (b"0123456789" * ((at + n) // 10 + 1))[at:at + n]
+
+
+def stream(port):
+    block = bytes(range(256)) * 4096
+    total = len(block) * 100
+    want = b"%d %d" % (total, sum(block) * 100)
+
+    def check(r, status, body, what):
+        if r.status != status or (body is not None and r.body != body):
+            fail(f"{what}: {r.status} {r.body[:60]!r}, want {status} {(body or b'')[:60]!r}")
+
+    # 100 MB with a Content-Length, and chunked in chunks of many sizes, read
+    # by /upload in pieces, with requests after them on the connection.
+    c = Conn(port, timeout=30)
+    c.send(request(b"/upload", b"POST", b"Content-Length: %d\r\n" % total))
+    for _ in range(100):
+        c.send(block)
+    check(c.response(), 200, want, "100 MB upload")
+    c.send(request(b"/upload", b"POST", b"Transfer-Encoding: chunked\r\n"))
+    sizes = [1, 7, 4096, 8191, 8192, 70000, 300000]
+    for _ in range(100):
+        pieces, at, i = [], 0, 0
+        while at < len(block):
+            n = min(sizes[i % len(sizes)], len(block) - at)
+            ext = b";n=%d" % i if i % 3 == 0 else b""
+            pieces.append(b"%x%s\r\n" % (n, ext) + block[at:at + n] + b"\r\n")
+            at += n
+            i += 1
+        c.send(b"".join(pieces))
+    c.send(b"0\r\nX-Trailer: y\r\n\r\n" + request(b"/plaintext"))
+    check(c.response(), 200, want, "100 MB chunked upload")
+    check(c.response(), 200, b"Hello, World!", "a request after an upload")
+
+    # Bodies a route answers without reading: dropped, up to the server's
+    # max_drain, 1 MB, and the connection goes on; past it, it closes.
+    c.send(request(b"/json", b"POST", b"Content-Length: 600000\r\n") + b"x" * 600000 +
+           request(b"/json", b"POST", b"Transfer-Encoding: chunked\r\n") +
+           b"4000\r\n" + b"x" * 0x4000 + b"\r\n0\r\n\r\n" + request(b"/plaintext"))
+    for status in (405, 405, 200):
+        check(c.response(), status, None, "after a dropped body")
+    c.send(request(b"/json", b"POST", b"Content-Length: 5000000\r\n") + b"x" * 1000)
+    check(c.response(), 405, None, "a body past max_drain")
+    if not c.closed():
+        fail("a body past max_drain left the connection open")
+
+    # Expect: 100-continue, for a long body and a short one, and a final
+    # status instead of 100 Continue, which closes the connection.
+    c = Conn(port)
+    c.send(request(b"/upload", b"POST", b"Content-Length: 100000\r\nExpect: 100-continue\r\n"))
+    check(c.response(), 100, None, "Expect, long body")
+    c.send(b"y" * 100000)
+    check(c.response(), 200, b"100000 12100000", "Expect, long body")
+    c.send(request(b"/upload", b"POST", b"Content-Length: 5\r\nExpect: 100-continue\r\n"))
+    check(c.response(), 100, None, "Expect, short body")
+    c.send(b"hello")
+    check(c.response(), 200, b"5 532", "Expect, short body")
+    c.send(request(b"/json", b"POST", b"Content-Length: 100000\r\nExpect: 100-continue\r\n"))
+    check(c.response(), 405, None, "Expect, refused")
+    if not c.closed():
+        fail("a refused Expect left the connection open")
+
+    # /echo sends a 10 MB body back as it arrives, with its Content-Length
+    # and chunked; the client sends from a thread, as the server stops
+    # reading while the client doesn't.
+    body = block * 10
+    for framing, data in ((b"Content-Length: %d\r\n" % len(body), body),
+                          (b"Transfer-Encoding: chunked\r\n",
+                           b"".join(b"%x\r\n" % len(body[i:i + 65536]) + body[i:i + 65536] + b"\r\n"
+                                    for i in range(0, len(body), 65536)) + b"0\r\n\r\n")):
+        c = Conn(port, timeout=30)
+        sender = threading.Thread(target=c.send, args=(request(b"/echo", b"POST", framing) + data,))
+        sender.start()
+        check(c.response(), 200, body, f"/echo, {framing!r}")
+        sender.join()
+        c.close()
+
+    # 10 MB with a Content-Length, 100 MB chunked, and to HTTP/1.0, a body
+    # that ends at the close.
+    c = Conn(port, timeout=30)
+    c.send(request(b"/bytes?n=10000000") + request(b"/stream?n=100000000") + request(b"/plaintext"))
+    check(c.response(), 200, digits(10000000), "/bytes, 10 MB")
+    check(c.response(), 200, digits(100000000), "/stream, 100 MB")
+    check(c.response(), 200, b"Hello, World!", "a request after /stream")
+    c.send(b"GET /stream?n=50000 HTTP/1.0\r\n\r\n")
+    r = c.response()
+    check(r, 200, digits(50000), "/stream to HTTP/1.0")
+    if r.header("connection") != "close":
+        fail("/stream to HTTP/1.0 without Connection: close")
+    print("stream: ok")
+
+
 def keepalive(port):
     c = Conn(port)
     c.send(b"GET /plaintext HTTP/1.0\r\n\r\n")
@@ -343,10 +478,13 @@ def hostile(port):
          b"0\r\n\r\n", 400),
         ("bad chunk size", b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n"
                            b"5x\r\nhello\r\n0\r\n\r\n", 400),
-        ("chunked body past the buffer",
-         b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n"
-         b"4000\r\n" + b"x" * 0x4000 + b"\r\n0\r\n\r\n", 413),
+        ("chunk size line past the buffer",
+         b"POST /upload HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n"
+         b"4000\r\n" + b"x" * 0x4000 + b"\r\n1;x=" + b"a" * 9000 + b"\r\n", 400),
+        ("unknown expectation", b"POST / HTTP/1.1\r\nHost: x\r\nExpect: magic\r\n\r\n", 417),
         ("huge body", b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 2000000000\r\n\r\n", 413),
+        ("huge chunk", b"POST /upload HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n"
+                       b"80000000\r\n" + b"x" * 1000, 413),
         ("long target", b"GET /" + big + b" HTTP/1.1\r\nHost: x\r\n\r\n", 414),
         ("huge header", b"GET / HTTP/1.1\r\nHost: x\r\nX: " + big + b"\r\n\r\n", 431),
         ("huge header count",
@@ -503,7 +641,7 @@ def main():
         {"many": many, "emfile": emfile}[mode](port, int(sys.argv[3]))
     else:
         {"tfb": tfb, "pipeline": pipeline, "large": large, "chunked": chunked, "keepalive": keepalive,
-         "hostile": hostile, "slow": slow}[mode](port)
+         "hostile": hostile, "slow": slow, "stream": stream}[mode](port)
 
 
 if __name__ == "__main__":

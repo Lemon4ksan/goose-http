@@ -116,6 +116,14 @@ echo "curl: ok"
 $client tfb
 $client pipeline
 $client large
+$client stream
+# The stream run sends and takes hundreds of MB; a server that held them whole
+# would grow by as much. Linux only: elsewhere there's no /proc.
+if [ -r "/proc/$pid/status" ] && [ -z "$windows" ]; then
+    peak=$(awk '/^VmHWM/ {print $2}' "/proc/$pid/status")
+    [ "$peak" -lt 65536 ] || fail "the server's peak RSS reached $peak kB"
+    echo "stream: peak RSS $peak kB"
+fi
 $client chunked
 $client keepalive
 $client hostile

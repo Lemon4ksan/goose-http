@@ -36,7 +36,7 @@ until the task named beside it confirms or replaces it.
     conditional compilation in Goose.
   - The shim owns the kernel structures whose layout varies by architecture.
     `epoll_wait` fills a local `struct epoll_event` array, which is packed on x86-64 and
-    padded on arm64, and copies it into `http::Event`, a struct of the package's own.
+    padded on arm64, and copies it into `http::PollEvent`, a struct of the package's own.
   - `send` passes `MSG_NOSIGNAL`, so a write to a closed connection is `-EPIPE`, not a
     `SIGPIPE` that ends the process. There is no signal handler to install. Windows has
     no `SIGPIPE`, and such a write is `-ECONNRESET` there.
@@ -66,7 +66,10 @@ until the task named beside it confirms or replaces it.
     responses before the server sends them, a read's worth of pipelined requests (16
     TechEmpower responses are about 2 KB). The write buffer is a growable array, so a
     response of any size goes into it whole, and what the socket doesn't take goes to
-    the spill pool, as any response does (2026-10-11). The connection being driven
+    the spill pool, as any response does (2026-10-11). A response sent in pieces
+    (`http::begin`, task 013) is asked for its next piece only while the connection's
+    queued output is under the write buffer's size, or under `Config.max_queued` in
+    the io_uring loop, so it never sits whole in memory (2026-10-12). The connection being driven
     uses them. Nothing grows per request in the benchmarks: the parser returns slices
     of the read buffer, and the JSON body is built in a fixed array on the native
     stack. The write buffer keeps the pages its largest response touched.
@@ -89,16 +92,20 @@ until the task named beside it confirms or replaces it.
     go out in one `send`. Past 8 KB of responses, the server sends them and answers
     the rest.
   - A request body that fits in the 8 KB read buffer with its head is answered once
-    it's whole, and the handler gets it; a longer `Content-Length` body is dropped as
-    it arrives, and the handler gets an empty one (task 011, 2026-10-11). Chunked
-    bodies are accepted in HTTP/1.1 (task 009, for HttpArena's `baseline` profile,
-    2026-10-10): the message must fit in the read buffer with its head, or it gets
-    413, and the body is decoded in place. Another coding before chunked gets 501.
+    it's whole, and the handler gets it (task 011, 2026-10-11). A longer one goes to
+    the handler of `serve(cfg, fresh)` in pieces as it arrives, chunked bodies
+    decoded in the read buffer; the handler of `serve(cfg)` gets an empty body, and
+    the rest is dropped, and a chunked one gets 413 (task 013, 2026-10-12). A body a
+    response came before is dropped up to `Config.max_drain`, and the connection
+    closes past it. Chunked bodies are accepted in HTTP/1.1 (task 009, for HttpArena's
+    `baseline` profile, 2026-10-10). Another coding before chunked gets 501.
     A `Transfer-Encoding` whose last coding isn't chunked, as RFC 9112 §6.3 requires, or
     that's malformed, with `Content-Length`, or in HTTP/1.0, gets 400 (2026-10-11).
   - Routes: `/plaintext` and `/json` for TechEmpower's tests, `/baseline11` and
-    `/pipeline` for HttpArena's (`bench/httparena/goose`), and `/bytes?n=N`, N bytes
-    up to 16 MB, for testing large responses.
+    `/pipeline` for HttpArena's (`bench/httparena/goose`), and for the tests,
+    `/bytes?n=N` and `/stream?n=N`, N bytes with a `Content-Length` or chunked, sent
+    in pieces, and `/upload` and `/echo`, which take a body of any size in pieces
+    (task 013).
   - Lines end in CRLF only; a bare LF is 400. HTTP/1.1 needs one `Host`.
   - Limits: a 4 KB request line (414), an 8 KB head or 100 fields (431), and a 1 MB
     body (413). The head and body limits, the timeouts, and the buffer sizes are
@@ -210,9 +217,9 @@ On macOS:
 - `shim/kqueue.c` defines the same C functions as `shim/net.c`, so `sys.goose` binds
   either. `IN` and `OUT` become `EVFILT_READ` and `EVFILT_WRITE`, `ET` becomes
   `EV_CLEAR`, and `EV_EOF` is reported as `RDHUP` on the read filter and `HUP` on the
-  write filter. The events are copied into `http::Event`, as on Linux, because `struct
+  write filter. The events are copied into `http::PollEvent`, as on Linux, because `struct
   kevent` is 32 bytes on arm64.
-- The shim merges the events of one fd within a wait into one `http::Event`, as epoll
+- The shim merges the events of one fd within a wait into one `http::PollEvent`, as epoll
   reports them. kqueue reports each filter apart, and the loop frees a connection's slot on
   the event that closes it, so a second event for it in the same batch would drive the
   freed slot. Without the merge, 3,000 connections at once hung.

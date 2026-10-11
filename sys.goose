@@ -15,7 +15,7 @@ import os;
 
 // One readiness event, in a layout of the package's own (shim/net.c). On
 // macOS it holds every filter kqueue reported for the fd in that wait.
-struct Event { events: u32, tag: u64 }
+struct PollEvent { events: u32, tag: u64 }
 
 // Flags of net_listen and net_accept.
 let NONBLOCK: i32 = 1;
@@ -69,11 +69,11 @@ extern fn net_shutdown(fd: i32, how: i32) -> i32;
 extern fn net_close(fd: i32) -> i32;
 
 extern fn net_epoll_create() -> i32;
-// The kernel keeps tag with fd's registration and returns it in Event.tag.
+// The kernel keeps tag with fd's registration and returns it in PollEvent.tag.
 // It's a number, not a reference into Goose memory.
 extern fn net_epoll_ctl(ep: i32, op: i32, fd: i32, events: u32, tag: u64) -> i32;
 // Writes the ready events into out[..n], n at most out.len and 1024.
-extern fn net_epoll_wait(ep: i32, out: Event[:], timeout_ms: i32) -> i32;
+extern fn net_epoll_wait(ep: i32, out: PollEvent[:], timeout_ms: i32) -> i32;
 
 // Coarse clocks, up to one scheduler tick old: monotonic milliseconds, and
 // wall-clock seconds since the epoch.

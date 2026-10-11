@@ -21,7 +21,7 @@ let RING_LISTENER: u64 = 0xFFFFFFFF;
 // Between completions, a connection holds what it couldn't answer yet and
 // the responses its send in flight left waiting, as runs of the worker's
 // spill pool.
-struct RingConn {
+struct RingConn<S> {
     fd: i32,            // -1 while the slot is free
     tag: u64,
     state: u8,
@@ -29,7 +29,7 @@ struct RingConn {
     reading: bool,      // its multishot receive is queued
     stalled: bool,      // stopped reading at cfg.max_queued, with held to answer
     deadline: i64,      // the time after which the sweep closes it
-    discard: i64,       // request body bytes still to drop
+    x: Exchange<S>,     // the request in progress past its handler's REQUEST call
     held: u8[:],        // received and not yet answered
     out: u8[:],         // answered, behind the send in flight
 }
@@ -38,6 +38,12 @@ struct RingConn {
 // and returns its error, with every socket it opened closed. The ring stays:
 // closing one with requests in flight is task 013's graceful shutdown.
 fn serve<H>(cfg: Config) -> Error {
+    return serve(cfg, false) { ev, st, out => if whole_only(ev, out) { H(ev.req, ev.data, out); } };
+}
+
+// serve(cfg), with a handler H that's called for each Event of a request,
+// with the request's state, which starts as fresh.
+fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     net_worker_start();
     let ip, ok = ipv4(cfg.address);
     guard ok else { return Error { call: "address", code: EINVAL }; }
@@ -52,7 +58,7 @@ fn serve<H>(cfg: Config) -> Error {
     ring_accept(r, lfd, RING_LISTENER);
 
     reusable[] var spill: u8[>..] = [];
-    reusable var conns: RingConn[>..] = [];
+    reusable var conns: RingConn<S>[>..] = [];
     var open = 0;
     var generation: u64 = 0;
     // Whether the listener's multishot accept is queued. It ends when the
@@ -92,7 +98,7 @@ fn serve<H>(cfg: Config) -> Error {
         }
         // A tag fits in 62 bits, and a free slot's is 0.
         generation = generation % 0x3FFFFFFF + 1;
-        let i = conns.alloc_index(RingConn { fd: fd, reading: true, deadline: now + cfg.request_ms, .. });
+        let i = conns.alloc_index(RingConn<S> { fd: fd, reading: true, deadline: now + cfg.request_ms, .. });
         let c .= conns[i];
         c.tag = (generation << 32) | (i as u64);
         ring_recv(r, fd, c.tag);
@@ -112,11 +118,11 @@ fn serve<H>(cfg: Config) -> Error {
         closed = true;
     }
 
-    fn blocked(c: RingConn&) -> bool { c.out.len >= cfg.max_queued }
+    fn blocked(c: RingConn<S>&) -> bool { c.out.len >= cfg.max_queued }
 
     // Queues wbuf to send, or keeps it behind the send in flight: one send
     // at a time keeps a connection's responses in order.
-    fn flush(c: RingConn&) {
+    fn flush(c: RingConn<S>&) {
         guard wbuf.len > 0 else { return; }
         if c.sending {
             let m = c.out.len;
@@ -133,17 +139,18 @@ fn serve<H>(cfg: Config) -> Error {
     // Answers n received bytes after rbuf[..rlen]: those of provided buffer
     // buf, or of src when buf is -1. rbuf takes them as it has room. If the
     // connection reaches cfg.max_queued, it stops reading and holds the rest.
-    fn pump(c: RingConn&, buf: i32, src: const u8[:], n: i64) {
+    fn pump(c: RingConn<S>&, buf: i32, src: const u8[:], n: i64) {
+        // At least once, with no bytes, to go on with a response.
         var off: i64 = 0;
-        while off < n {
+        loop {
             let k = min(n - off, rbuf.len - rlen);
             if buf >= 0 { ring_take(r, buf, off, rbuf[rlen..rlen + k]); }
             else { copy_into(rbuf[rlen..rlen + k], src[off..off + k]); }
             rlen += k;
             off += k;
-            let rest, done, full = answer(c, rbuf, rlen, wbuf, date, cfg, H) {
+            let rest, done, full = answer(c, rbuf, rlen, wbuf, date, cfg, fresh, H) {
                 flush(c);
-                true
+                !blocked(c)
             };
             rlen = rest;
             if done > 0 { progress = true; }
@@ -161,6 +168,7 @@ fn serve<H>(cfg: Config) -> Error {
                 if c.reading { ring_cancel(r, c.tag); }
                 break;
             }
+            if off >= n { break; }
         }
         if rlen > 0 {
             c.held = spill.alloc_slice(rlen);
@@ -170,7 +178,7 @@ fn serve<H>(cfg: Config) -> Error {
     }
 
     // A receive's completion. False when the connection is done.
-    fn received(c: RingConn&, cq: Completion) -> bool {
+    fn received(c: RingConn<S>&, cq: Completion) -> bool {
         if !cq.more { c.reading = false; }
         if cq.res > 0 {
             let n = cq.res as i64;
@@ -201,7 +209,7 @@ fn serve<H>(cfg: Config) -> Error {
     }
 
     // A send's completion. False when the connection is done.
-    fn sent(c: RingConn&, res: i32) -> bool {
+    fn sent(c: RingConn<S>&, res: i32) -> bool {
         c.sending = false;
         guard res >= 0 else { return false; }   // EPIPE, ECONNRESET: the client left
         progress = true;
@@ -234,9 +242,9 @@ fn serve<H>(cfg: Config) -> Error {
     // Moves the deadline of a connection after a completion. Progress
     // restarts the clock; the first bytes of a request after an idle spell
     // shorten it.
-    fn touch(c: RingConn&) {
+    fn touch(c: RingConn<S>&) {
         guard c.state != DRAINING else { return; }
-        let idle = c.held.len == 0 && c.discard == 0 && !c.sending;
+        let idle = idle(c) && !c.sending;
         if progress { c.deadline = now + (if idle { cfg.idle_ms } else { cfg.request_ms }); }
         else if !idle { c.deadline = min(c.deadline, now + cfg.request_ms); }
     }
@@ -249,7 +257,7 @@ fn serve<H>(cfg: Config) -> Error {
         for i in conns.len {
             let c .= conns[i];
             if c.fd < 0 || c.deadline > now { continue; }
-            if c.state == OPEN && c.held.len > 0 && !c.sending {
+            if owes_408(c) && !c.sending {
                 wbuf.clear();
                 refuse(wbuf, 408, date);
                 flush(c);

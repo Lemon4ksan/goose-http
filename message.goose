@@ -55,6 +55,7 @@ struct Request {
     keep_alive: bool,
     body: i64,               // Content-Length, 0 without one
     chunked: bool,           // Transfer-Encoding: chunked
+    expect: bool,            // Expect: 100-continue, in HTTP/1.1
     len: i64,                // bytes of the head, the blank line included
     fields: const u8[:],     // the header field lines, each with its CRLF
 }
@@ -196,6 +197,11 @@ inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_
         } else if eq_fold(name, "host") {
             guard is_host(value) else { return Request { .. }, 400; }
             hosts++;
+        } else if eq_fold(name, "expect") && minor > 0 {
+            // 100-continue is the only expectation (RFC 9110 §10.1.1). An
+            // HTTP/1.0 client can't have meant it, so it's ignored there.
+            guard eq_fold(value, "100-continue") else { return Request { .. }, 417; }
+            r.expect = true;
         }
     }
     // HTTP/1.1 requires exactly one Host (RFC 9112 §3.2).
@@ -372,7 +378,7 @@ fn is_hex(c: u8) -> bool { is_digit(c) || (c | 32) >= 'a' && (c | 32) <= 'f' }
 // then, or the status to refuse the request with.
 fn frame_body(rest: const u8[:], req: Request, room: i64) -> i64, i32 {
     if req.chunked {
-        let n, status = chunked_len(rest);
+        let n, status = chunked_len(rest, room);
         if status == INCOMPLETE && rest.len >= room { return 0, 413; }
         return n, status;
     }
@@ -382,9 +388,10 @@ fn frame_body(rest: const u8[:], req: Request, room: i64) -> i64, i32 {
 }
 
 // Measures the chunked body at the start of buf (RFC 9112 §7.1): its length on
-// the wire and 200, INCOMPLETE, or 400. Chunk extensions and trailer fields
-// are allowed and skipped, once their syntax is checked.
-fn chunked_len(buf: const u8[:]) -> i64, i32 {
+// the wire and 200, INCOMPLETE, or 400, or 413 once a chunk's size shows that
+// the body won't fit in room bytes. Chunk extensions and trailer fields are
+// allowed and skipped, once their syntax is checked.
+fn chunked_len(buf: const u8[:], room: i64 = 1 << 62) -> i64, i32 {
     var pos = 0;
     loop {
         let s0 = pos;
@@ -397,6 +404,7 @@ fn chunked_len(buf: const u8[:]) -> i64, i32 {
         guard e > 0 else { return 0, if e == 0 { INCOMPLETE } else { 400 }; }
         guard is_chunk_ext(buf[pos..e - 2]) else { return 0, 400; }
         pos = e;
+        guard size < room - pos else { return 0, 413; }
         if size == 0 {
             // Trailer fields, then the blank line.
             loop {
@@ -443,6 +451,81 @@ fn dechunk(buf: u8[:]) -> i64 {
         n += size;
         pos += size + 2;
     }
+}
+
+// What of a request body is still to arrive, between reads: nothing, the rest
+// of a Content-Length body, or a chunked body's next size line, data, CRLF
+// after the data, or trailer section.
+let NO_BODY: u8 = 0;
+let LENGTH: u8 = 1;
+let CHUNK_SIZE: u8 = 2;
+let CHUNK_DATA: u8 = 3;
+let CHUNK_END: u8 = 4;
+let CHUNK_TRAILER: u8 = 5;
+
+// A body that arrives in pieces: where its reader is, and for LENGTH and
+// CHUNK_DATA, the bytes of the body or the chunk still to come.
+struct BodyReader { place: u8 = NO_BODY, left: i64 = 0 }
+
+// Reads the next bytes of r's body from the start of buf, up to and including
+// one run of data, buf[d0..d1]. Returns d0, d1, and 200, with buf[..d1] used
+// up; INCOMPLETE, with nothing used, until buf holds a whole size or trailer
+// line; or 400. r.place is NO_BODY once the body has ended, chunked bodies
+// at the trailer section's blank line.
+fn read_body(buf: const u8[:], r: BodyReader&) -> i64, i64, i32 {
+    if r.place == LENGTH {
+        let k = min(r.left, buf.len);
+        r.left -= k;
+        if r.left == 0 { r.place = NO_BODY; }
+        return 0, k, if k > 0 { 200 } else { INCOMPLETE };
+    }
+    var pos = 0;
+    loop {
+        if r.place == CHUNK_DATA {
+            guard pos < buf.len else { break; }
+            let k = min(r.left, buf.len - pos);
+            r.left -= k;
+            if r.left == 0 { r.place = CHUNK_END; }
+            return pos, pos + k, 200;
+        }
+        if r.place == CHUNK_END {
+            guard buf.len - pos >= 2 else { break; }
+            guard buf[pos] == '\r' && buf[pos + 1] == '\n' else { return 0, 0, 400; }
+            pos += 2;
+            r.place = CHUNK_SIZE;
+        } else if r.place == CHUNK_SIZE {
+            let s0 = pos;
+            var p = pos;
+            while p < buf.len && is_hex(buf[p]) { p++; }
+            guard p - s0 <= 15 else { return 0, 0, 400; }
+            guard p < buf.len else { break; }
+            guard p > s0 && (buf[p] == ';' || buf[p] == '\r') else { return 0, 0, 400; }
+            let e = line_end(buf, p);
+            guard e >= 0 else { return 0, 0, 400; }
+            guard e > 0 else { break; }
+            guard is_chunk_ext(buf[p..e - 2]) else { return 0, 0, 400; }
+            let size, ok = parse_int(buf[s0..p], 16);
+            pos = e;
+            r.left = size;
+            r.place = if size == 0 { CHUNK_TRAILER } else { CHUNK_DATA };
+        } else if r.place == CHUNK_TRAILER {
+            guard pos < buf.len else { break; }
+            if buf[pos] == '\r' {
+                guard pos + 1 < buf.len else { break; }
+                guard buf[pos + 1] == '\n' else { return 0, 0, 400; }
+                r.place = NO_BODY;
+                return pos + 2, pos + 2, 200;
+            }
+            let t = line_end(buf, pos);
+            guard t >= 0 else { return 0, 0, 400; }
+            guard t > 0 else { break; }
+            pos = t;
+        } else {
+            return 0, 0, 200;
+        }
+    }
+    // Out of bytes before any data: what was used, if anything.
+    return pos, pos, if pos > 0 { 200 } else { INCOMPLETE };
 }
 
 // A token character (RFC 9110 §5.6.2): bit c of TCHAR_LO, or of TCHAR_HI
@@ -585,14 +668,25 @@ fn hex(c: u8) -> i32 {
 // What a handler writes its response into: the worker's write buffer, which
 // grows to take a response of any size, and what the response's framing
 // needs from the request. A handler writes one whole response, with start,
-// field, and finish, or with respond.
+// field, and finish, or with respond; or opens one with begin, and writes its
+// body in pieces with send until end.
 struct Reply {
     buf: u8[>..]&,
     date: const u8[:],      // the Date field's value, rendered once a second
     keep_alive: bool&,      // whether the connection stays open; clear it before start to close
     minor: i32,             // the request's x of HTTP/1.x
     head: bool,             // a HEAD request: finish writes the body's fields, not the body
-    bodyless: bool&,        // set by start for a status that has no body
+    stream: Stream&,        // what start and begin leave for the writers after them
+}
+
+// The framing of the response being written.
+struct Stream {
+    bodyless: bool = false, // a status that has no body
+    open: bool = false,     // begun and not yet ended
+    in_head: bool = false,  // begun, without the blank line after the head yet
+    chunked: bool = false,
+    moved: bool = false,    // send was given bytes, which HEAD and a bodyless status drop
+    left: i64 = 0,          // of a Content-Length body, the bytes still to send; -1 for none
 }
 
 // The writers below are inline, so that a handler's constant status picks
@@ -602,7 +696,7 @@ struct Reply {
 // The status line and the fields every response has: Server, Date, and
 // Connection where HTTP/1.x's default isn't what the connection does.
 inline fn start(out: Reply, status: i32) {
-    out.bodyless = status < 200 || status == 204 || status == 304;
+    out.stream.bodyless = status < 200 || status == 204 || status == 304;
     status_fields(out.buf, status, out.date, out.keep_alive, out.minor);
 }
 
@@ -621,7 +715,7 @@ inline fn field(out: Reply, name: const u8[:], value: const u8[:]) {
 // status gets neither the length nor the body, whatever they are (RFC 9110
 // §6.4.1, §8.6).
 inline fn finish(out: Reply, fields: const u8[:], body: const u8[:]) {
-    if out.bodyless {
+    if out.stream.bodyless {
         let length = "Content-Length: ";
         out.buf.append(if ends_with(fields, length) { fields[..fields.len - length.len] } else { fields });
         out.buf.append("\r\n");
@@ -637,6 +731,80 @@ inline fn respond(out: Reply, status: i32, content_type: const u8[:], body: cons
     out.buf.append(content_type);
     out.buf.append("\r\n");
     finish(out, "Content-Length: ", body);
+}
+
+// Starts a response whose body the handler sends in pieces, with send, up to
+// end: the status line, the fields every response has, and the body's
+// framing, before the handler's own fields. length is the body's
+// Content-Length, or -1 for a length not known yet, which is chunked in
+// HTTP/1.1; HTTP/1.0 has no chunks, so there the body ends when the
+// connection closes. A Content-Length body that end leaves short closes the
+// connection too, and send drops what goes past it.
+fn begin(out: Reply, status: i32, length: i64) {
+    if length < 0 && out.minor == 0 { out.keep_alive = false; }
+    start(out, status);
+    let s .= out.stream;
+    s.open = true;
+    s.in_head = true;
+    s.chunked = length < 0 && out.minor > 0 && !s.bodyless;
+    s.left = length;
+    if s.bodyless { return; }
+    if s.chunked {
+        out.buf.append("Transfer-Encoding: chunked\r\n");
+    } else if length >= 0 {
+        out.buf.append("Content-Length: ");
+        format(out.buf, length);
+        out.buf.append("\r\n");
+    }
+}
+
+// Sends the next piece of the body of the response begin started, as one
+// chunk if it's chunked. The first send or end ends the head.
+fn send(out: Reply, data: const u8[:]) {
+    let s .= out.stream;
+    guard s.open else { return; }
+    if s.in_head {
+        out.buf.append("\r\n");
+        s.in_head = false;
+    }
+    guard data.len > 0 else { return; }
+    s.moved = true;
+    guard !s.bodyless && !out.head else { return; }
+    if s.chunked {
+        hex_size(out.buf, data.len);
+        out.buf.append("\r\n");
+        out.buf.append(data);
+        out.buf.append("\r\n");
+    } else if s.left >= 0 {
+        let k = min(s.left, data.len);
+        out.buf.append(data[..k]);
+        s.left -= k;
+        if k < data.len { out.keep_alive = false; }
+    } else {
+        out.buf.append(data);
+    }
+}
+
+// Ends the response begin started.
+fn end(out: Reply) {
+    let s .= out.stream;
+    guard s.open else { return; }
+    send(out, "");
+    s.open = false;
+    guard !s.bodyless && !out.head else { return; }
+    if s.chunked { out.buf.append("0\r\n\r\n"); }
+    else if s.left > 0 { out.keep_alive = false; }
+}
+
+// Appends n, not negative, in hexadecimal.
+fn hex_size(out: u8[>..]&, n: i64) {
+    var digits = 1;
+    while digits < 16 && n >> (digits * 4) != 0 { digits++; }
+    var i = digits;
+    while i > 0 {
+        i--;
+        out.push("0123456789abcdef"[(n >> (i * 4)) & 15]);
+    }
 }
 
 // Writes the response that refuses a request with status. The connection
@@ -696,6 +864,7 @@ inline fn status_line(status: i32) -> const u8[:] {
         413 => "HTTP/1.1 413 Content Too Large\r\nServer: goose\r\nDate: ",
         414 => "HTTP/1.1 414 URI Too Long\r\nServer: goose\r\nDate: ",
         415 => "HTTP/1.1 415 Unsupported Media Type\r\nServer: goose\r\nDate: ",
+        417 => "HTTP/1.1 417 Expectation Failed\r\nServer: goose\r\nDate: ",
         422 => "HTTP/1.1 422 Unprocessable Content\r\nServer: goose\r\nDate: ",
         429 => "HTTP/1.1 429 Too Many Requests\r\nServer: goose\r\nDate: ",
         431 => "HTTP/1.1 431 Request Header Fields Too Large\r\nServer: goose\r\nDate: ",

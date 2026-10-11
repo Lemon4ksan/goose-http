@@ -74,8 +74,45 @@ about 190 instructions per request.
 `http::Config` holds the address, port, worker count, limits, timeouts, and buffer
 sizes, with defaults. A loop returns only when a call fails, with an `http::Error`
 that `http::report` writes to stderr. Version 0.1 serves requests and responses of a
-fixed size: no bodies read in pieces or streamed responses yet, and it has no header
-lookup, which `main` adds (task 013).
+fixed size; `main` adds header lookup, and bodies and responses of any size (task 013).
+
+### Bodies and responses of any size
+
+On `main`, after 0.1, each loop also takes a handler that it calls again for each part
+of an exchange, with state of the program's own type, which starts each request as
+`fresh` and lives in the connection's slot:
+
+```goose
+struct Upload { bytes: i64 = 0 }
+
+thread_fn worker(cfg: http::Config) {
+    let e = http::serve(cfg, Upload { .. }) { ev, st, out =>
+        if ev.kind == http::REQUEST && !ev.whole {
+            // The body comes in BODY pieces; answer at END.
+        } else if ev.kind == http::REQUEST || ev.kind == http::END {
+            st.bytes += ev.data.len;
+            var text: u8[..24] = [];
+            format(text, st.bytes);
+            http::respond(out, 200, "text/plain", text);
+        } else if ev.kind == http::BODY {
+            st.bytes += ev.data.len;
+        }
+    };
+    http::report(e);
+}
+```
+
+- `REQUEST` comes with `ev.req`, and with the body in `ev.data` when `ev.whole` is set,
+  as a body that fits in the read buffer with its head always is. A longer body comes
+  in `BODY` pieces, decoded if chunked, up to `Config.max_body`, and then `END`.
+- A response is whole, as above, or begun with `http::begin(out, status, length)`, with
+  a `Content-Length`, or chunked for a `length` of -1 (HTTP/1.0 then closes at its end).
+  `http::send(out, bytes)` writes each piece, and `http::end(out)` ends it. While it's
+  open and the body has ended, the loop calls the handler with `MORE` each time the
+  connection has room to send, so a response of any size never sits whole in memory.
+- A response that comes before the body has all arrived drops the rest, up to
+  `Config.max_drain`, past which the connection closes. A client that sends `Expect:
+  100-continue` gets `100 Continue` unless the handler answers at `REQUEST`.
 
 ## Event loops
 
@@ -128,11 +165,11 @@ and the losses in full: [docs/results.md](docs/results.md).
 
 ## Scope
 
-In scope: HTTP/1.1 with keep-alive and pipelining, `Content-Length` request bodies,
-chunked request bodies that fit in the read buffer, a program's handler, and the C shim
-the loops need for syscalls; in the benchmark server, TechEmpower's plaintext and JSON
-endpoints and HttpArena's baseline and pipeline endpoints. Planned (task 013): header
-lookup, bodies and responses of any size streamed, a router, and graceful shutdown.
+In scope: HTTP/1.1 with keep-alive and pipelining, request bodies and responses of any
+size, whole or in pieces, a program's handler, and the C shim the loops need for
+syscalls; in the benchmark server, TechEmpower's plaintext and JSON endpoints and
+HttpArena's baseline and pipeline endpoints. Planned (task 013): configurable limits
+and timeouts, a router, and graceful shutdown.
 Out of scope: TLS and HTTP/2 (task 014 plans them), and Windows as a benchmark
 platform.
 
