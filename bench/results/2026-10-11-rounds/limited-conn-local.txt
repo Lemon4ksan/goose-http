@@ -1,0 +1,13 @@
+HttpArena's limited-conn run outside Docker: each server with WORKERS=4 on CPUs 0-3,
+gcannon 11c802b (built in WSL, make) on CPUs 4-15:
+  gcannon http://127.0.0.1:29280 --raw get.raw,post_cl.raw,post_chunked.raw -c 4096 -t 4 -d 5s -p 1 -r 10
+Syscalls from perf stat -e syscalls:sys_enter_* -p PID over the run, per request.
+
+server     req/s    accept4  epoll_wait  epoll_ctl  recvfrom  sendto  close
+goose-r2   388.0K   0.162    0.301       0.101      1.200     1.000   0.101
+tokio      386.7K   0.138    0.110       0.202      1.101     1.000   0.101
+
+Throughput, one run each: dusty 334.5K, tokio 400.4K, goose-r2 368.3K and 378.4K;
+goose-r3 376.4K and 388.9K against goose-r2 389.4K and 387.3K, alternating.
+Worker CPU ticks over the run (100 Hz): goose-r2 390-411 per worker, tokio 457-470,
+dusty 433-453 on its 4 executors.

@@ -1,0 +1,146 @@
+[info] available CPUs: 16
+[info] load generators: docker mode
+[info] framework: tokio (tokio, Rust)
+[info] subscribed tests: baseline,pipelined,limited-conn,async,latency-1m,latency-10k
+[info] building image: httparena-tokio
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 467B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/rust:1.95
+#2 ...
+
+#3 [internal] load metadata for docker.io/library/debian:bookworm-slim
+#3 DONE 0.6s
+
+#2 [internal] load metadata for docker.io/library/rust:1.95
+#2 DONE 0.6s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 52B done
+#4 DONE 0.0s
+
+#5 [stage-1 1/2] FROM docker.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+#5 DONE 0.0s
+
+#6 [build 1/6] FROM docker.io/library/rust:1.95@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 116B done
+#7 DONE 0.0s
+
+#8 [build 4/6] RUN mkdir src && echo "fn main() {}" > src/main.rs     && cargo build --release     && rm -rf src target/release/httparena-tokio target/release/deps/httparena_tokio*
+#8 CACHED
+
+#9 [build 3/6] COPY Cargo.toml Cargo.lock ./
+#9 CACHED
+
+#10 [build 6/6] RUN RUSTFLAGS="-C target-cpu=native" cargo build --release
+#10 CACHED
+
+#11 [build 2/6] WORKDIR /app
+#11 CACHED
+
+#12 [build 5/6] COPY src ./src
+#12 CACHED
+
+#13 [stage-1 2/2] COPY --from=build /app/target/release/httparena-tokio /server
+#13 CACHED
+
+#14 exporting to image
+#14 exporting layers done
+#14 writing image sha256:c01b7f75bb52d752b1b5666e7f93e8d3de4e79251a1d0d187d06fcce148e8923 done
+#14 naming to docker.io/library/httparena-tokio done
+#14 DONE 0.0s
+[info] skipping system tuning as requested (SKIP_TUNE=true)
+
+==============================================
+=== tokio / limited-conn / 4096c (tool=gcannon) ===
+==============================================
+[info] waiting for server...
+[info] server ready
+
+[run 1/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  1
+  Req/conn:  10
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   11.98ms   11.20ms   14.40ms   20.20ms   127.80ms
+
+  1563533 requests in 5.00s, 1559790 responses
+  Throughput: 311.92K req/s
+  Bandwidth:  19.63MB/s
+  Status codes: 2xx=1559790, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 1559790 / 1559790 responses (100.0%)
+  Reconnects: 154302
+  Per-template: 520051,519867,519872
+  Per-template-ok: 520051,519867,519872
+[info] CPU 247.3% | Mem 296MiB
+
+[run 2/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  1
+  Req/conn:  10
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   11.60ms   11.40ms   15.00ms   18.10ms   24.60ms
+
+  1601457 requests in 5.00s, 1597838 responses
+  Throughput: 319.53K req/s
+  Bandwidth:  20.11MB/s
+  Status codes: 2xx=1597838, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 1597838 / 1597838 responses (100.0%)
+  Reconnects: 158159
+  Per-template: 532621,532598,532619
+  Per-template-ok: 532621,532598,532619
+[info] CPU 242.1% | Mem 337MiB
+
+[run 3/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  1
+  Req/conn:  10
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   11.59ms   11.30ms   14.80ms   18.90ms   29.70ms
+
+  1596560 requests in 5.00s, 1592858 responses
+  Throughput: 318.53K req/s
+  Bandwidth:  20.05MB/s
+  Status codes: 2xx=1592858, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 1592858 / 1592858 responses (100.0%)
+  Reconnects: 157678
+  Per-template: 530826,531035,530997
+  Per-template-ok: 530826,531035,530997
+[info] CPU 244.0% | Mem 365MiB
+
+=== Best: 319567 req/s (CPU: 242.1%, Mem: 337MiB) ===
+[info] input BW: 24.69MB/s (avg template: 81 bytes)
+[info] dry-run — not saving (use --save to persist)
+httparena-bench-tokio
+httparena-bench-tokio
+[info] done

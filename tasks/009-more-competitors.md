@@ -175,27 +175,191 @@ favors the other two: Goose's `parse` also checks `Host`, `Content-Length`,
 `pico.goose` cycles through four copies of the request where `bench.c` parses one
 buffer.
 
-Next, in the order of the criteria:
+## Progress, 2026-10-11
 
-1. vanilla-epoll stays in the matrix (Kait, 2026-10-10): it is the one server ahead of
-   Goose in plaintext, though only because it skips parsing. Its JSON numbers come with
-   the `-gc none` leak above.
-2. `bench/instructions.sh` with peak RSS, the matrix (about 120 minutes for six
-   servers), profiles of any losses, then `docs/results.md` and the README summary.
-3. Ideas to measure once the competitor profiles show where Goose loses, in this order:
-   the `Connection` field (about 520 of the 1,270 instructions per parse of wrk's
-   request, task 008); `inline fn`, new at `e7792d7` (spec §7.13), on `http::parse` and
-   `answer`, separately; and fewer appends per response. `/baseline11` scans its query
-   once per key, which matters only for HttpArena's profiles. dusty's limited-conn lead
-   needs a profile.
+Goose at `752c3ce`. Measured on the machine above, as root where `perf` counts.
+
+### Instructions and peak RSS before tuning
+
+`bench/instructions.sh` (one worker on CPU 0, plaintext pipelined 16 deep at 256
+connections, 3 runs) now records peak RSS. Before the rounds below, Goose at `135fed2`
+(`bench/results/2026-10-11-instructions`; `goose-b` is the same source on the old pin):
+
+| Server | req/s | Instructions per request | In user code | Cycles per request | Peak RSS |
+|---|---:|---:|---:|---:|---:|
+| goose | 1.48-1.56 M | 2,619-2,664 | 1,634-1,662 | 2,132-2,204 | 2.2 MB |
+| vanilla-epoll | 1.57-1.65 M | 1,731-1,745 | 754-760 | 1,991-2,062 | 5.6 MB |
+| tokio | 1.15-1.20 M | 4,342-4,400 | 3,405-3,450 | 2,774-2,889 | 10.3 MB |
+| may-minihttp | 1.10-1.13 M | 2,969-3,047 | 1,938-1,991 | 2,785-2,847 | 68.3 MB |
+| hyper | 0.75-0.77 M | 6,205-6,275 | 5,254-5,325 | 4,294-4,421 | 7.3 MB |
+| dusty | 0.08 M | 20,390-20,493 | 8,034-8,076 | 27,475-29,209 | 9.0 MB |
+
+The pin move changed nothing here: `goose-b` counts 2,619-2,647.
+
+### Tuning rounds
+
+Each round was built beside the previous one and measured side by side; the tables are
+in `bench/results/2026-10-11-rounds` and `bench/results/2026-10-11-r1`.
+
+1. Kept (`10e1a5d`): a `recv` that returns less than it was given emptied the socket,
+   so `advance` no longer follows it with one that returns `EAGAIN`, unless the event
+   reported a hang-up; tokio's `recv` count under limited-conn (below) shows it does
+   the same. The quick matrix (`RUNS=3 DURATION=3`): JSON 1.06-1.08 times the previous
+   version in all four cells, plaintext 1.03-1.07 in five of six; plaintext at 4,096
+   connections and one worker read 0.96, with a spread of 1.29-1.42 M and three clock
+   steps. After this round and the next, HttpArena's baseline rose from 469K to 549K,
+   ahead of tokio's 518K, and limited-conn from 304K to 318K, against tokio's 320K and
+   dusty's 357K (`bench/results/httparena-2026-10-11-r2`, settings as on 2026-10-10).
+2. Kept (`bfd9605`): `eq_fold` compares `c | 32` without a branch and is an `inline fn`,
+   and `find_any` scans field names and the target. Per parse, `bench/parse.sh`:
+
+   | `parse` | Chrome's | picohttpparser's | wrk's | wrk's without `Connection` |
+   |---|---:|---:|---:|---:|
+   | before | 6,184 / 285 ns | 3,497 / 156 ns | 1,285 / 58.7 ns | 762 / 32.9 ns |
+   | `eq_fold` alone | 5,991 / 273 ns | 3,321 / 145 ns | 1,130 / 48.6 ns | 746 / 32.6 ns |
+   | all three | 5,022 / 223 ns | 2,802 / 124 ns | 1,179 / 50.7 ns | 813 / 35.3 ns |
+
+   A `find_any` call costs more than a byte loop over a 4- to 10-byte name, so the two
+   scans cost wrk's short request 2 ns and save 20-60 ns on the browser requests; at
+   about 600 ns per request in the server, 2 ns is 0.3%. Testing the first 16 bytes one
+   at a time before calling `find_any` doubled the cost of every request instead. In the
+   server, user instructions per request fell from about 1,640 to 1,490. Goose now
+   parses picohttpparser's request in 124 ns, against 108 ns for picohttpparser with
+   SSE4.2 and 145 ns for httparse built for this CPU.
+3. Dropped: registering a new socket for `EPOLLOUT` only once a `send` would block.
+   A writable socket reports at once when added, so each new connection took a wakeup
+   and a `recv` that returned `EAGAIN`. The change removed that `recv` (1.2 to 1.1 per
+   request under limited-conn) and moved no rate: HttpArena's limited-conn 315K against
+   318K, and 376-389K against 387-389K locally. The test it needed stays
+   (`3f4fcdd`): a client that reads only after the server's `send` blocked.
+4. Kept (`7cb3e27`): a response takes 7 appends instead of 11; the status line carries
+   `Server` and the start of `Date`. User instructions per request 1,408-1,426 against
+   1,497-1,515, cycles 1,889-1,913 against 1,917-1,939.
+5. Dropped: `inline fn` on `http::parse`. 1,376-1,400 user instructions per request
+   against 1,419-1,426, but cycles moved both ways and the rate fell 1-2%.
+6. Kept (`823d5f6`), after the matrix below: a wait that returned events is followed by
+   one with timeout 0, and the worker blocks only after that comes back empty, as
+   vanilla-epoll's loop does (`server/backend_epoll/worker_linux.c.v` at `091c014`).
+   `RUNS=5 DURATION=10` in three cells, beside the previous version and vanilla-epoll
+   (`bench/results/2026-10-11-r6b`): 1.01-1.02 times the previous version in all six,
+   inside the spreads, where vanilla-epoll read 0.99-1.04. The quick matrix
+   (`bench/results/2026-10-11-r6`) read 0.99-1.10. Under HttpArena
+   (`bench/results/httparena-2026-10-11-r6`), limited-conn 313K against 310K, and
+   latency-1m 10.59 µs of CPU per request against 10.44 µs, with p99.9 at 2.9 ms
+   against 12.7 ms. Locally, limited-conn read 375-378K against 379-382K.
+
+### limited-conn
+
+dusty's limited-conn lead exists under Docker only. Run outside Docker with gcannon
+`11c802b` built in WSL, at the same settings (`bench/results/2026-10-11-rounds/
+limited-conn-local.txt`), tokio reached 400K, Goose 368-389K, and dusty 334K, with
+Goose's four workers within 5% of each other in CPU time. Goose and tokio make the same
+syscalls per request but two: Goose calls `epoll_wait` 0.30 times per request where
+tokio calls it 0.11 times, and `recv` once more per connection (round 3 above). Under
+Docker, Goose's container reports 226% of its 400% CPU in limited-conn, where the same
+load outside Docker keeps its workers about 80% busy. The likely cause is kernel network
+work that the container's cgroup isn't charged for; per-thread CPU times inside the
+container would settle it. Either way, HttpArena's CPU and memory columns compare
+containers, not processes.
+
+### The matrix
+
+`bench/run.sh` with its defaults, Goose at `7cb3e27` (after round 5): six servers,
+servers on CPUs 0-3, wrk and h2load on CPUs 4-15 with 8 threads, 3 runs of 15 s after
+5 s of warm-up per cell, about 115 minutes (`bench/results/2026-10-11-matrix`, whose
+`summary.md` has every column). Requests per second from wrk, medians, as a multiple of
+Goose's:
+
+| Cell | Goose | vanilla-epoll | tokio | may-minihttp | hyper | dusty |
+|---|---:|---:|---:|---:|---:|---:|
+| plaintext, 256 conns, 1 worker | 1.773 M | 1.09 | 0.76 | 0.68 | 0.48 | 0.05 |
+| plaintext, 256, 4 | 5.719 M | 1.07 | 0.67 | 0.42 | 0.47 | 0.07 |
+| plaintext, 1,024, 1 | 1.939 M | 0.99 | 0.69 | 0.67 | 0.36 | 0.04 |
+| plaintext, 1,024, 4 | 5.717 M | 1.05 | 0.67 | 0.75 | 0.47 | 0.06 |
+| plaintext, 4,096, 1 | 1.537 M | 0.99 | 0.78 | 0.71 | 0.45 | 0.06 |
+| plaintext, 4,096, 4 | 5.756 M | 0.95 | 0.63 | 0.69 | 0.44 | 0.06 |
+| json, 256, 1 | 0.145 M | 0.49 | 0.91 | 0.86 | 0.59 | 0.65 |
+| json, 256, 4 | 0.435 M | 0.50 | 0.90 | 0.85 | 0.69 | 0.85 |
+| json, 1,024, 1 | 0.122 M | 0.50 | 0.91 | 0.90 | 0.59 | 0.61 |
+| json, 1,024, 4 | 0.423 M | 0.51 | 0.90 | 0.85 | 0.71 | 0.76 |
+
+Goose leads every JSON cell and every plaintext cell but three, which vanilla-epoll
+takes. Two of those are outside the spread of Goose's runs: at 256 connections,
+vanilla-epoll's slowest run (1.900 M with one worker, 6.051 M with four) beats Goose's
+fastest (1.898 M, 5.807 M). At 1,024 connections and four workers the runs overlap
+(5.336-5.946 M against 5.940-6.000 M). Goose's peak RSS is 2.1-2.6 MB in every cell;
+the others range from 5.6 MB (vanilla-epoll) to 621 MB (may-minihttp at 4,096
+connections), and vanilla-epoll's grows to 5.9-15.1 GB in JSON, the `-gc none` leak.
+
+Latency, from h2load, which is slower than wrk here and offers each server about the
+same load (3.4-3.6 M requests per second in plaintext with four workers):
+
+- Goose's p50 is the lowest or within 0.04 ms of it, except in four cells at 1,024 and
+  4,096 connections where hyper or dusty answers some connections at once and starves
+  others: their p50 is 2.6-5.2 ms there, and their p99 111-773 ms.
+- Goose's p99 trails in plaintext at 256 and 1,024 connections: 3.87 ms against
+  vanilla-epoll's 3.13 ms with one worker at 256; with four workers, 1.74 ms against
+  1.43-1.53 ms (may-minihttp, vanilla-epoll, tokio) at 256, and 5.56 ms against
+  5.30-5.32 ms at 1,024. In the other seven cells Goose's p99 is the lowest.
+- dusty dropped 1,266 requests at 4,096 connections with one worker; no other cell had
+  errors.
+
+HttpArena's four profiles at the same version, settings as on 2026-10-10
+(`bench/results/httparena-2026-10-11-r5`):
+
+| Profile | Goose | tokio | vanilla-epoll | dusty |
+|---|---:|---:|---:|---:|
+| baseline, req/s | 529K | 503K | 488K | 438K |
+| limited-conn, req/s | 310K | 316K | 313K | 353K |
+| pipelined, req/s | 7.34M | 6.69M | 7.05M | 0.59M |
+| latency-1m, CPU per request | 10.44 µs | 10.67 µs | 11.03 µs | 14.54 µs |
+| latency-1m, p99 | 173 µs | 172 µs | 204 µs | 162 µs |
+| baseline, memory | 33 MiB | 170 MiB | 77 MiB | 159 MiB |
+
+Goose loses limited-conn to all three, by 1-2% to tokio and vanilla-epoll, inside the 304-318K
+that Goose's own runs of it spread over since 2026-10-10, and by 12% to dusty, whose lead exists under Docker only (above).
+
+### The final run, stopped
+
+A run of everything at `823d5f6` (round 6) started at 03:30: the matrix, then
+`bench/instructions.sh` for all six servers, then HttpArena's four profiles. Claude Code
+stopped it at 120 of the matrix's 180 cells, in round 2, when the host ran short of
+memory in vanilla-epoll's JSON cell at 1,024 connections with four workers
+(`docs/development.md`, the `-gc none` leak). Its first two rounds are in
+`bench/results/2026-10-11-final/runs.tsv`, without a summary. In them Goose read 1.90-1.94
+M in plaintext at 256 connections with one worker, against vanilla-epoll's 1.90 M, and
+5.77-5.79 M with four workers, against 6.12-6.13 M: round 6 closed the one-worker gap,
+and the four-worker one is still about 6%.
+
+An earlier `bench/instructions.sh` for all servers, at `7cb3e27`, stopped at
+vanilla-epoll in its first round: wrk's connections were refused, though `nc -z` had
+connected. The run before tuning (above) had none of that in three rounds. Goose in its
+first round: 2,332 instructions per request, 1,403 in user code, 1,909 cycles, and
+2.2 MB.
+
+Next:
+
+1. Rerun the matrix at `823d5f6`, from a terminal or without vanilla-epoll's JSON cells
+   (`docs/development.md`), then `bench/instructions.sh` for every server and
+   `bench/httparena.sh run`. `bench/results/2026-10-11-matrix` (`7cb3e27`) and
+   `bench/results/httparena-2026-10-11-r5` are complete, if round 6 is to wait.
+2. `docs/results.md` is drafted from the `7cb3e27` matrix and HttpArena runs, with two
+   sections still open: instructions per request, and where Goose loses. Fill it from the
+   rerun, then the README summary.
+3. The plaintext loss to vanilla-epoll at 256 connections and four workers: a `perf`
+   profile of both (`perf record` on one worker), for the criterion. vanilla-epoll
+   answers `GET /plaintext ` from fixed bytes, and Goose's `parse` is about 1,180 of its
+   1,400 user instructions per request there; 43% of `parse`'s cycles on wrk's request
+   are in `find_any` (`gs_scan_any`, `gs_scan_any_tables`), which costs more per call
+   than the 4- to 10-byte names it scans.
 
 Settings for the next session:
 
-- The pin is at `752c3ce`, after every run above. All tests and every finding's minimal
-  program give the same results there; the `simd fn` finding, which is about time, waits
-  for the next benchmark run.
+- The pin is at `752c3ce`. All tests, every finding's minimal program, and the `simd fn`
+  finding's timing give the same results there.
 - For a tuning change, build each version as `build/bench/goose-<name>` and run them
   side by side, `SERVERS="goose-o goose-b" RUNS=3 DURATION=3 WARMUP=1 LATENCY=0
-  bench/run.sh`, about 5 minutes for two. Separate sessions drifted by up to 5% tonight.
+  bench/run.sh`, about 5 minutes for two; `RUNS=5 DURATION=10` with `TESTS` for a
+  difference near 2%. Separate sessions drifted by up to 5%.
 - `bench/httparena.sh` copies `src/` from the working tree, so swapping
   `src/server.goose` between runs compares versions under HttpArena too.
