@@ -18,7 +18,8 @@ idle close, and a cap of 16,384 connections per worker.
 Items 6, 7, and 8 decide the shape of task 011's handler: a handler called once with
 `(req, body, out)` can't stream. Settle that shape before tagging `v0.1.0`, or tag
 `v0.1.0` as serving fixed-size requests and responses only. Items 3, 7, 8, 11, and 13
-change the per-connection state, in both loops until task 005 picks one.
+change the per-connection state, in both of task 011's loops, `http::serve` and
+`http::serve_epoll`, unless task 011's shared request handling carries them.
 
 ## Correctness (RFC 9110, RFC 9112)
 
@@ -56,8 +57,8 @@ change the per-connection state, in both loops until task 005 picks one.
     `src/app.goose`), with a body and a write timeout apart from the head's.
 11. Graceful shutdown. The loop never returns. On `SIGTERM` or a call, workers close
     their listeners, answer the next request on each connection with `Connection: close`,
-    finish what's in flight within a grace period, and return. Needs a wakeup in the shim
-    for both the epoll and the io_uring wait.
+    finish what's in flight within a grace period, and return. Needs a wakeup in each shim's
+    wait: epoll, io_uring, kqueue, and IOCP.
 12. Error responses from the handler that keep the connection open when the request was
     read whole; `refuse` always closes.
 
@@ -88,7 +89,8 @@ change the per-connection state, in both loops until task 005 picks one.
       memory bounded
 - [ ] Decoded path and query, with 400 for an invalid `%` escape
 - [ ] Limits and timeouts set by the program, with tests at non-default values
-- [ ] `SIGTERM` drains and stops every worker within the grace period, in both loops
+- [ ] `SIGTERM` drains and stops every worker within the grace period, in `serve` and
+      `serve_epoll`
 - [ ] Every item above has a check in `scripts/http_client.py` or `src/test_http.goose`
 - [ ] The benchmark routes, served through the handler, keep their rate in
       `bench/run.sh`'s closest cells within the runs' spread

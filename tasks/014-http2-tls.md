@@ -87,7 +87,7 @@ the `Upgrade: h2c` handshake, gRPC, and WebSocket over h2.
   and many fast servers use; rustls-ffi needs a Rust toolchain in the build; BearSSL's
   callback-free engine fits Goose best but has no TLS 1.3. Check each claim before
   recording it.
-- Whether h2 lands in one loop or both, which depends on task 005's decision.
+- Whether h2 lands in `http::serve`, `http::serve_epoll`, or both (task 011).
 - What snowtime-native needs first: TLS alone covers browsers over HTTP/1.1.
 
 ## Acceptance criteria
