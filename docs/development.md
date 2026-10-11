@@ -450,6 +450,54 @@ That's 4 server workers and 4 wrk threads, 64 connections pipelining 16 deep, an
 The number shows that the build carries load, and nothing more: macOS isn't a benchmark
 platform (`AGENTS.md`).
 
+### Linux in Docker on macOS
+
+Docker Desktop on macOS runs the Linux build and its tests in an arm64 Linux VM, and both
+loops pass there as on WSL. Measured 2026-10-11 on the Mac above, Docker Desktop 29.8.2,
+kernel 7.0.14-linuxkit, 10 CPUs and 8 GB for the VM, in `ubuntu:26.04` with gcc 15.2.0,
+wrk 4.1.0, h2load 1.68.0, and oha 1.16.0 (its `oha-linux-arm64` release binary). The
+image installs what the toolchain table lists for WSL and builds the compiler at the pin:
+
+```dockerfile
+FROM ubuntu:26.04
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+    ca-certificates git cmake ninja-build gcc g++ liburing-dev curl wrk nghttp2-client \
+    netcat-openbsd python3
+RUN curl -sSLf -o /usr/local/bin/oha \
+        https://github.com/hatoo/oha/releases/download/v1.16.0/oha-linux-arm64 && \
+    chmod +x /usr/local/bin/oha
+RUN git init -q /goose && cd /goose && \
+    git fetch -q --depth 1 https://github.com/aardappel/goose.git efe31554dcce698c0749daec36cd5318d28135fb && \
+    git checkout -q FETCH_HEAD && \
+    cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build-linux
+ENV GOOSE=/goose/build-linux/goose
+```
+
+Run it on an export of the commit, so the container's `build/` doesn't land in the
+working tree:
+
+```sh
+git archive HEAD | tar -x -C /tmp/work
+docker run --rm --security-opt seccomp=unconfined --ulimit nofile=1048576:1048576 \
+    -v /tmp/work:/work -w /work goose-http-linux \
+    sh -c 'LOOP=uring scripts/build.sh && scripts/test-http.sh'
+```
+
+- Docker's default seccomp profile blocks io_uring: the uring server exits with
+  "io_uring: Operation not permitted". `--security-opt seccomp=unconfined` lets it run.
+- `scripts/test-unit.sh`, and `scripts/test-echo.sh` and `scripts/test-http.sh` against
+  each loop, passed at commit `090b2e2`, in one full run.
+- Before that commit, `test-echo.sh` failed 2 of 10 runs there with "echo-blocking never
+  saw EPIPE": the loopback is fast enough that the echo often reaches a cut client
+  before its close, which then resets the connection, and the server's send fails with
+  `ECONNRESET` instead. The script now repeats the cut rounds until an `EPIPE`, and passed
+  10 of 10, 3 of them needing a second or third round.
+- `test-http.sh` and `test-unit.sh` weren't executable in Git, which WSL's `/mnt/c`
+  hides by showing every file as executable. Commit `e22a9b8` made them executable,
+  with `bench/build.sh` and `bench/run.sh`.
+- The VM is no benchmark machine: its CPUs are shared with macOS, and the load runs share
+  them with the server.
+
 ## Edit on Windows
 
 The Windows compiler typechecks the whole program without running it:
