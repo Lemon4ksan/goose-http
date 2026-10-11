@@ -18,8 +18,8 @@ let DRAINING: u8 = 2;   // shut down, and dropping what arrives until the client
 // The ring's size, and its provided buffers, which the kernel fills in
 // turn. A receive that finds none left ends its multishot request, which
 // the loop queues again. The loop gives each buffer back in the pass that
-// takes it, so a wait's 256 completions use at most 256; 1,024 doubled
-// peak RSS at the same rate (task 005).
+// takes it, and 256, a wait's batch, served as fast as 1,024, with half
+// the peak RSS (task 005).
 let ENTRIES: i32 = 4096;
 let NBUFS: i32 = 256;
 let BUFLEN: i32 = 4096;

@@ -56,6 +56,6 @@ wrk's rate, and peak RSS:
 | plaintext, 4,096 conns | 6.354 M (6.270–6.499 M), 32.9 MB | 6.454 M (6.347–6.544 M), 15.3 MB |
 | json, 256 conns | 0.479 M (0.479–0.495 M), 21.5 MB | 0.489 M (0.488–0.496 M), 9.4 MB |
 
-The loop gives each buffer back in the pass that takes it, so one wait's 256
-completions use at most 256 buffers. The runs are in
+The loop gives each buffer back in the pass that takes it, and running out only ends a
+receive, which the loop queues again. The runs are in
 `bench/results/2026-10-11-uring-bufs/`.
