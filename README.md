@@ -4,7 +4,7 @@ HTTP/1.1 server package for [Goose](https://github.com/aardappel/goose). One eve
 per worker: io_uring or epoll on Linux, kqueue on macOS, I/O completion ports on Windows.
 
 Parsing, routing, and responses are Goose. C only for what Goose can't reach, in `shim/`
-([below](#what-is-c-and-why)). Compiler and stdlib gaps go to
+([below](#what-isnt-goose-and-why)). Compiler and stdlib gaps go to
 [docs/goose-findings.md](docs/goose-findings.md), not into patches (2026-10-10).
 
 Early work. No TLS yet.
@@ -350,26 +350,64 @@ other isn't in the binary.
 The benchmark server links both. `LOOP` picks: `uring` (`iocp` on Windows), `epoll`,
 or `uring-epoll`. See [architecture](docs/architecture/README.md#the-io_uring-loop-task-005).
 
-## What is C, and why
+## What isn't Goose, and why
 
 Measuring Goose is the point, so everything that is HTTP is Goose: parsing, routing,
-response building, the loops' state machines, the timer table, and JSON. The C in
-`shim/` is thin functions for what Goose can't do:
+response building, the loops' state machines, the mailbox's messages, the timer table,
+and JSON. What isn't Goose is listed here, all of it.
+
+### In the package: C in `shim/`
+
+Thin functions for what Goose can't do, which `http.build` compiles into every program
+that imports the package, on each platform its own:
+
+| File | Platform | What it does |
+|---|---|---|
+| `shim/net.c` | Linux | Sockets, epoll, clocks, file reads, the stop counter, and the loops' waker, an `eventfd` |
+| `shim/kqueue.c` | macOS | `shim/net.c`'s functions over kqueue, with the same Linux error codes; the waker is `EVFILT_USER` |
+| `shim/net_win.c` | Windows | `shim/net.c`'s functions over Winsock |
+| `shim/uring.c` | Linux | The io_uring ring, over liburing |
+| `shim/iocp.c` | Windows | The same ring over a completion port, and the waker, a completion packet |
+| `shim/ring_epoll.c` | Linux, macOS | The ring emulated over epoll or kqueue, where io_uring is blocked, and always on macOS |
+| `shim/mail.c` | all | The mailboxes' bounded queue, and the list of loop wakers that `http::stop` wakes |
+
+Each is C for one of three reasons:
 
 - **Syscalls and kernel structures.** Goose calls C functions, not the kernel, and its
   structs are packed, so they don't match the kernel's own (`struct epoll_event` is 16
-  bytes on ARM, 12 in Goose). `shim/net.c` (Linux), `shim/kqueue.c` (macOS), and
-  `shim/net_win.c` (Windows) wrap sockets, epoll or kqueue, clocks, and file reads.
+  bytes on ARM, 12 in Goose). So `shim/net.c`, `shim/kqueue.c`, and `shim/net_win.c`
+  call the kernel and copy its structures into the package's.
 - **Memory the kernel uses after a call returns.** A C function may not keep a
   pointer into Goose memory past the call (spec §7.10), but io_uring and IOCP read and
   write buffers while a request is in flight. So each ring owns its buffers in C:
-  `shim/uring.c` over liburing, `shim/iocp.c` over a completion port, and
-  `shim/ring_epoll.c`, which emulates the ring over epoll or kqueue.
+  `shim/uring.c`, `shim/iocp.c`, and `shim/ring_epoll.c`.
 - **Atomics, and a wait another thread can end.** Goose threads share no memory and
-  have no atomics, so a mailbox that any thread sends to and that wakes a loop blocked
-  in the kernel is C: `shim/mail.c`'s bounded queue and stop list, and each platform's
-  waker (an `eventfd`, `EVFILT_USER`, or a completion packet). What goes in a message,
-  and everything above the queue, is Goose (`mail.goose`).
+  have no atomics, and a Goose thread can't end another's wait in the kernel. So
+  `shim/mail.c` holds each box's slots and the counts its senders change atomically,
+  and each platform's waker ends a loop's wait. The mailbox's design is Tina's
+  ([Credits](#credits)). What goes in a message, the addresses, and everything above
+  the queue are Goose (`mail.goose`).
+
+`test/test_mail.build` names the same C for `test/test_mail.goose`, which declares the
+package by `mail.goose` alone and so gets no sidecar from `http.build`.
+
+### Outside the package
+
+None of this is in a program that imports the package:
+
+- **Competing servers, in `bench/`**, each in its own language, built in release mode
+  by `bench/build.sh`: hyper, tokio, may-minihttp, and xitca-web (Rust); vanilla-epoll
+  and vanilla-io_uring (V); dusty, zeemo, and zix (Zig); odin-http (Odin); and
+  libreactorng (C). `bench/httparena/goose/` is the Dockerfile that builds this
+  server for HttpArena.
+- **Benchmark tools, in C**: `bench/latency.c` reads h2load's per-request log into
+  percentiles, and `bench/wrk-monotonic.c`, preloaded into wrk, gives it the
+  monotonic clock where WSL2 steps the wall clock.
+- **Scripts.** Shell runs the builds, tests, and benchmarks (`scripts/*.sh`,
+  `bench/*.sh`). Python drives the HTTP and echo checks (`scripts/http_client.py`,
+  `scripts/echo_client.py`), summarizes benchmark runs (`bench/summarize.py`), and logs
+  clock steps (`bench/clockstep.py`). Lua makes wrk pipeline its requests
+  (`scripts/pipeline.lua`).
 
 ## Credits
 
