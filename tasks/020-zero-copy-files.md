@@ -21,8 +21,9 @@ has a way without the copies:
 - [x] `http::send_file` hands a `Content-Length` body to the ring, as it does to the
       epoll loop (`Stream.direct`), on io_uring, IOCP, and the emulated ring
 - [x] `scripts/test.sh`'s `files` passes on each, with no file left open
+- [x] The README's static files row says so, one row for every loop (2026-10-12)
 - [ ] The 64 KB and 1 MB file rates on the desktop before and after, with how they were
-      measured, and the README's row turned green
+      measured, `TransmitFile` with many downloads at once among them
 
 ## Notes (2026-10-12)
 

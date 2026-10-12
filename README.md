@@ -40,8 +40,7 @@ responses only.
 | 🟢 | Request bodies of any size, in pieces. `Expect: 100-continue`. Trailers. |
 | 🟢 | Responses of any size, streamed or chunked. Trailers. |
 | 🟢 | Conditional `GET` (304), one byte range (206, 416) |
-| 🟢 | Static files, with `sendfile` on the epoll loop on Linux and macOS |
-| 🟡 | Static files without copying on io_uring and IOCP. Soon. |
+| 🟢 | Static files, sent without copying them through the program on every loop |
 | 🟢 | CR, LF, and invalid names kept out of response fields |
 | 🟢 | Cookies, `Authorization` with `Basic`, media types, `Accept` (415, 406) |
 | 🟢 | Form and streamed multipart bodies, JSON responses |
@@ -134,7 +133,8 @@ Since then the io_uring shim reuses large send records: `/bytes` at 1.72-1.73 GB
 The ring shims now queue sends, so io_uring copies a response once, and the epoll loop
 sends files with `sendfile`, on Linux and macOS (2026-10-12). On the Windows laptop alone (task 013), a
 1 MB file went from 0.65-0.86 to 1.16-1.23 GB/s on io_uring, and from 2.4 to
-6.5-7.0 GB/s on epoll. The desktop hasn't measured them yet.
+6.5-7.0 GB/s on epoll. Since then io_uring, IOCP, and the emulated ring send files
+without copying them too (task 020). The desktop hasn't measured any of these yet.
 
 ### REST APIs
 
@@ -283,11 +283,11 @@ thread_fn worker(cfg: http::Config) {
   or `HEAD` with 200, 206, 304, or 416, with `ETag`, `Last-Modified`, and
   `Accept-Ranges`.
 - `http::send_file(out, st.file)` at each `MORE` until false, then `http::end(out)`.
-  On the epoll loop on Linux and macOS, it hands the file to the loop, which sends it
-  with `sendfile`, without copying it through the program. On `http::serve` (io_uring,
-  IOCP, and the emulated ring) it reads up to 64 KB with `pread` per call, which the
-  ring then copies to send: a 1 MB file went out at about a sixth of the epoll loop's
-  rate on Linux, on the laptop of task 013 ([Large responses and files](#large-responses-and-files)).
+  With a `Content-Length`, it hands the file to the loop, which sends it without copying
+  it through the program: `sendfile` on the epoll loop and the emulated ring, splice
+  through a pipe on io_uring, and `TransmitFile` on IOCP. Client editions of Windows run
+  two `TransmitFile` calls at a time across the system, so many downloads at once may
+  queue there. A chunked response reads up to 64 KB with `pread` per call.
 - `http::close_body(st.file)` at `CLOSED`.
 - `http::is_safe_path(path)`: rejects `.` and `..` segments, backslashes, and colons.
   Check the decoded path before joining it to a directory.
@@ -366,8 +366,7 @@ other isn't in the binary.
   peak RSS, 10-16 MB with 4 workers. Where
   `io_uring_setup` fails, as under Docker's default seccomp profile, it emulates the
   ring on epoll; `http::ring_probe()` says why.
-- `http::serve_epoll` is faster on macOS, and on Linux uses a quarter of the memory
-  and sends files with `sendfile`, so it's the loop for serving large files.
+- `http::serve_epoll` is faster on macOS, and on Linux uses a quarter of the memory.
   The plaintext and JSON numbers above are this loop.
 
 The benchmark server links both. `LOOP` picks: `uring` (`iocp` on Windows), `epoll`,
