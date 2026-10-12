@@ -17,6 +17,13 @@ when the request takes gzip or deflate ([task 022](README.md)). It uses subtask 
       or not
 - [ ] A one-shot response uses one scratch buffer per worker; only a streamed one holds
       encoder state on its connection
+- [ ] Encoders are built once and reset per response. `compress::compress` already
+      resets one encoder that each worker's program instance keeps. A streamed
+      response's encoder, 459,122 bytes, comes from a pool sized for the concurrent
+      streams, not one per connection slot, and starts each response with
+      `compress::reset`: building one with `compress::encoder` copies its arrays
+      several times, about 145 µs on a Ryzen 7 5800X3D under Windows, where a reset
+      takes a few µs (goose-compress `042d72a`, its `docs/results.md`)
 - [ ] Tests in `scripts/test.sh` on every loop: negotiation, the cases left alone,
       chunked streaming with flushes, and SSE events arriving whole
 - [ ] json-comp's route in `server/` and the profile in the HttpArena entry
