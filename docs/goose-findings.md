@@ -803,3 +803,26 @@ both, or an error that says a call's results need a `let`.
 
 Workaround: `let d, fits = description_of(r, scratch);` and assign each
 (`bench/rest/goose/rest.goose`, `patch_entry`).
+
+## The stdlib's `find` compares the whole subsequence at every offset
+
+Found on `6448f3f`, task 021. Status: open
+
+`find(xs, sub)` in `stdlib/std.goose` compares `xs[i..i + sub.len]` with `sub` at each
+offset `i`, so every byte of `xs` costs a call to the runtime's memory compare, even
+where the byte can't start `sub`. In a multipart body, whose delimiter starts with a CR
+that file data rarely holds, perf put 19% of an upload's time in that compare
+(`gs_memeq_long` and `gs_memeq`), against 0.2% for Rust's `memchr::memmem` in hyper's
+multer. Expected: a search that skips to where `sub`'s first byte is, as `memmem` does.
+
+    import std;
+
+    fn main() {
+        var xs: u8[>..] = [];
+        for i in 10000000 { xs.push('a'); }
+        xs.append("\r\n--end");
+        // One memory compare per byte of xs: 10 million calls.
+        print(find(xs, "\r\n--end"));
+    }
+
+Workaround: `http::find_bytes` (`form.goose`) compares only where `sub`'s first byte is.
