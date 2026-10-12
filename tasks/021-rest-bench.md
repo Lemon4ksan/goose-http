@@ -87,7 +87,7 @@ in a head of about 1.2 KB with a browser's other fields.
 A month of the whole team is no request a schedule view makes; a month of one person,
 about 300 bookings, can be the rare case.
 
-**D. writes** (proposed 2026-10-12, after B and C): tiers A to C are almost all reads,
+**D. writes** (decided 2026-10-12, after B and C): tiers A to C are almost all reads,
 and only B sends small JSON bodies, so none of them measures what the HTTP layer does
 with a request body. Tier D sends large and structured bodies, and each answer is
 computed from the body, so the checker can verify that the server read all of it.
@@ -100,15 +100,29 @@ computed from the body, so the checker can verify that the server read all of it
 | `POST /api/v3/forms` | `application/x-www-form-urlencoded`, 50 to 100 fields | 200, the decoded fields as JSON |
 
 The parsing, the CSV and multipart included, is Goose's, as the rest of the server is.
-Tier D also runs mixed with tier C's reads on the same server, with C's latency
-measured with and without the uploads. A worker runs one handler at a time, so a
-handler parsing a multi-megabyte CSV holds up its worker's other connections. A
-connection whose response is still queued (`max_queued`) isn't read until the client
-takes it, so a client that sends while it reads can stall. The mixed run shows how much
-of either reaches the reads.
-Still open: the mix and its shares, the body sizes, whether uploads come in one
-connection's pipeline or spread across all of them, and which competitors stream a body
-rather than buffer it whole.
+Decided for tier D (2026-10-12):
+
+- The mix: the JSON batch 40%, the form 30%, the attachment 20%, and the CSV import
+  10%. The import still carries most of the bytes.
+- Body sizes: the CSV 2-8 MB, the attachment's file 100 KB to 1 MB, the JSON batch
+  200-500 KB, and the form 2-8 KB. The servers allow bodies of up to 16 MB, past
+  `max_body`'s default of 1 MB.
+- The uploads come from a fixed eighth of the connections, as tier A's writes do, and
+  the other connections send the rest of the mix: uploads come from a few clients, such
+  as an import tool, beside many that browse.
+- Each server reads a body the way its HTTP layer offers: streamed where it can be, as
+  Goose's bodies in pieces and hyper's body stream are, and buffered whole otherwise.
+  The results say which way each server read. Buffering everywhere would be simpler,
+  but would hide the cost streaming saves.
+- The data doesn't change, as in tier B: each answer is computed from the body (counts,
+  sums, checksums, field errors), so the checker verifies the server read every byte. A
+  shared store would measure the store, not the HTTP layer.
+- A mixed run sends tier C's reads at a fixed rate, about half of C's saturation, with
+  and without tier D's uploads on the same server, and compares the reads' p50 and p99
+  latency. A worker runs one handler at a time, so a handler parsing a multi-megabyte
+  CSV holds up its worker's other connections. A connection whose response is still
+  queued (`max_queued`) isn't read until the client takes it, so a client that sends
+  while it reads can stall. The run shows how much of either reaches the reads.
 
 ## How it runs
 
@@ -206,7 +220,7 @@ with `tier-b.lua` or `tier-c.lua`. No run counted a socket error or a status oth
 
 ## Acceptance criteria
 
-- [ ] Tier D's open questions settled, and the tier built as A to C are
+- [ ] Tier D built as A to C are, and its mixed run with tier C
 - [ ] The generator, writing each tier's dataset files from a fixed seed
 - [ ] Each tier's routes in Goose, loading the files, in both JSON ways
 - [ ] Each tier's wrk script and checker, passing against Goose
