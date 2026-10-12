@@ -60,31 +60,6 @@ as task 013's did.
     `Config.max_body`. A streaming handler can already refuse at `REQUEST`; this is a
     helper for it.
 
-## JSON parsing speed: an open question
-
-The stdlib parses JSON in Goose (`json.goose` in the pinned checkout). simdjson parses
-it with SIMD, several times faster on large documents. It may matter for an API whose
-bodies are large. It isn't decided, and it has these costs:
-
-- `AGENTS.md` says JSON is Goose, because measuring Goose is the point. Linking
-  simdjson would be an exception, like task 014's TLS library.
-- simdjson is C++, with no C API of its own, so it needs a C wrapper. It also reads up
-  to 64 bytes past its input (`SIMDJSON_PADDING`), which the read buffer would have to
-  leave room for.
-- An API's request bodies are often under a few KB, where simdjson's lead is smaller.
-
-The options:
-
-- Keep `json.goose`, and measure it against simdjson as a reference only, on bodies of
-  typical sizes.
-- Wrap simdjson in its own package, as `goose-tls` would wrap TLS, so only a program
-  that wants it links it.
-- Make `json.goose` faster with `simd fn` (spec §7.12). That changes the Goose stdlib,
-  so it's a finding for the maintainer, not work here.
-
-Measure first. Decide only if `json.goose` costs a real API's requests a measurable
-share of their time.
-
 ## Acceptance criteria
 
 - [ ] A handler hands a request to another thread and answers it from there, without
@@ -96,6 +71,4 @@ share of their time.
 - [ ] A field with CR, LF, or an invalid name never reaches the client.
 - [ ] Helpers for items 5 to 11, each with a check in `scripts/http_client.py` or
       `test/test_http.goose`.
-- [ ] The JSON question is decided from a measurement, recorded here with how it was
-      measured.
 - [ ] The benchmark routes keep their rate, measured as task 013's were.

@@ -51,5 +51,7 @@ before task 006 adds a platform's shim. Task 011 makes the repository a Goose pa
 programs import, after task 010. Task 012 benchmarks the Mac, natively and
 in Docker. Task 013 lists the HTTP/1.1 features a program needs from the package, and is
 designed with task 011. Task 014 plans HTTP/2 and TLS, after tasks 011 and 013. Task
-015 lists what a REST and JSON API still needs, after task 013; its answers that wait
-are designed with task 014's HTTP/2.
+015 lists what a REST and JSON API still needs. It starts once task 013's macOS tests
+and streaming cost are done (2026-10-12); task 013's large-response items can wait, as an
+API's responses are small. Task 015's answers that wait are designed with task 014's
+HTTP/2.
