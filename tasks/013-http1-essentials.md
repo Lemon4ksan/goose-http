@@ -137,8 +137,8 @@ change the per-connection state, in both of task 011's loops, `http::serve` and
     and gcc kept the wrapper's out of line, which cost 60-120 instructions per request
     until the loops called the program's handler themselves.
 
-Open: the streaming loop costs 60-80 user instructions per request on the benchmark
-routes. `bench/instructions.sh`, 2 runs each, as above, all built with Goose at
+The streaming loop cost 60-80 user instructions per request on the benchmark routes, until
+the split below ("The request path's cost, split"). `bench/instructions.sh`, 2 runs each, as above, all built with Goose at
 `fee060c`:
 
 | Build | epoll | uring | epoll cycles | epoll req/s |
@@ -307,14 +307,80 @@ that no file stays open after `files`, which passed on both loops. The peak RSS 
 after `stream` still runs on Linux only. On the MacBook Pro in `docs/development.md`,
 macOS 26.3.1, Apple clang 21.0.0; each run took 3 minutes.
 
+The request path's cost, split (2026-10-12). `bench/count.sh` counts the user
+instructions a server spends on exactly 10 million plaintext requests from h2load, and
+repeats to within 0.1 per request, where `bench/instructions.sh` spreads by about 15.
+Its totals run about 300 higher, since h2load brings fewer requests per read than wrk,
+so it compares builds only. Each commit since `1e9dddb` that changed the request
+path, built with Goose `5c83a5a`, one run each (1,746.1 for epoll and 1,789.2 for
+io_uring at `1e9dddb`), in user instructions per request against the commit before:
+
+| Commit | epoll | uring |
+|---|---|---|
+| `408edfc`, streaming | +65.9 | +54.4 |
+| `eee987f`, the request's state in its slot | -20.0 | -0.2 |
+| `e8d0a8d`, limits and timeouts as settings | +13.2 | +13.2 |
+| `8f5b338`, the stop | +3.2 | +13.7 |
+| `d80d662`, `Upgrade` | +9.0 | +1.8 |
+| `cc9a9e1`, conditional `GET` and ranges | 0 | +5.0 |
+| `66f28eb`, TechEmpower's routes first | -11.1 | -16.8 |
+| `03c7b67`, request trailers | +9.0 | +5.8 |
+| `743609f`, the `Server` field | +17.2 | +12.7 |
+| `61ef340` | 0 | +0.2 |
+| `a3cf843`, files | +3.9 | +10.2 |
+| `806f46a`, in all | +90.3 | +100.4 |
+
+`28c478c` removes 49.7 (epoll) and 57.5 (uring) of them, each change measured on top of
+the ones before it:
+
+- `common_fields` ends in its CRLF, so an HTTP/1.1 keep-alive response appends nothing
+  after it: -29.9 and -25.1. The append that it saves picked one of three literals by
+  `keep_alive`, which lives in the connection's slot.
+- `answer` reads `cfg.max_body`, `max_line`, `max_fields`, and `write_buffer` once per
+  call, not once per request: -6.9 and -14.5. gcc can't tell an append to `wbuf` from a
+  write to `cfg`, so a read per request is a load per request. And `parse` counts the
+  fields down from `max_fields`, so that the limit doesn't hold a register through its
+  loop: -7.0 and -7.0.
+- The trailers are sliced only from a whole chunked body: -5.9 and -10.9. Not sliced at
+  all, the build measured -14.8 and -18.1; the rest is the value kept live into the
+  handler.
+
+That leaves 40.6 and 42.9 above `1e9dddb`. Resetting the handler's state to `fresh`
+before each request is 9.3 and 9.4 of it: a copy of the benchmark server's 56-byte
+`Transfer`, which the package can't skip without knowing whether the handler wrote it.
+The rest is spread over the commits above, a few instructions each. Keeping
+`keep_alive` and the stream in locals during `REQUEST` measured +5.2 and -2.1, and
+stayed out. With `bench/instructions.sh`, 2 runs each, as above:
+
+| Build | epoll user instructions | epoll cycles | uring user instructions | uring cycles |
+|---|---|---|---|---|
+| `1e9dddb` | 1,451-1,464 | 1,940-1,953 | 1,503-1,514 | 1,719-1,721 |
+| `806f46a` | 1,546-1,577 | 1,962-1,993 | 1,599-1,609 | 1,740-1,746 |
+| `28c478c` | 1,500-1,510 | 1,903-1,927 | 1,540-1,551 | 1,720-1,723 |
+
+In `bench/run.sh`'s 4-worker cells (`bench/results/2026-10-12-cut/`, as above with
+`WORKER_COUNTS=4`; 3 runs a cell, the median), `28c478c` against `1e9dddb`, both on
+Goose `5c83a5a`: every cell's spread overlaps. `goose-v-cut` is `28c478c`, which
+`env.txt` names, and `goose-v-before` is `1e9dddb`, which it doesn't.
+
+| Cells, 4 workers | epoll, `28c478c` / `1e9dddb` | uring, `28c478c` / `1e9dddb` |
+|---|---|---|
+| plaintext, 256 / 1,024 / 4,096 connections | 0.99 / 1.00 / 1.00 | 1.00 / 1.00 / 1.01 |
+| JSON, 256 / 1,024 | 1.00 / 0.99 | 0.99 / 1.00 |
+
+The three cells that were lower before overlap now: epoll plaintext at 1,024
+connections, 5.606 M (5.556-5.674 M) against 5.605 M (5.603-5.662 M); uring plaintext
+at 256, 6.901 M (6.871-6.943 M) against 6.871 M (6.805-6.883 M), and at 1,024, 6.740 M
+(6.682-6.775 M) against 6.722 M (6.697-6.775 M). Peak RSS was 0.2-0.9 MB higher in
+every cell but uring JSON at 1,024 connections, 0.9 MB lower.
+
 Next, in order:
 
-1. Split the streaming loop's cost further, and remove what can go.
-2. Large responses on the io_uring loop: a send queued in each shim behind the one in
+1. Large responses on the io_uring loop: a send queued in each shim behind the one in
    flight, so the loop stops copying pieces into `c.out` (Progress, "Large
    responses"). `shim/ring_epoll.c` queues per fd already; `shim/uring.c` and
    `shim/iocp.c` don't.
-3. `sendfile` for files on the epoll loop, which saves `send_file`'s copies, once a
+2. `sendfile` for files on the epoll loop, which saves `send_file`'s copies, once a
    measurement shows they matter: epoll sends a 1 MB file at 3.3 GB/s now.
 
 ## Streaming design (2026-10-12)
@@ -408,6 +474,6 @@ slot. So:
       `serve_epoll` (2026-10-12, Linux and macOS, and on Windows by Ctrl+Break)
 - [x] Every item above has a check in `scripts/http_client.py` or `test/test_http.goose`
       (2026-10-12; item 11's on Linux, macOS, and Windows)
-- [ ] The benchmark routes, served through the handler, keep their rate in
-      `bench/run.sh`'s closest cells within the runs' spread (2026-10-12: not met in
-      three plaintext cells with 4 workers, 2-3% lower; see Progress)
+- [x] The benchmark routes, served through the handler, keep their rate in
+      `bench/run.sh`'s closest cells within the runs' spread (2026-10-12, `28c478c`:
+      every 4-worker cell's spread overlaps `1e9dddb`'s; see Progress)
