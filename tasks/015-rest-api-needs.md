@@ -150,4 +150,22 @@ xitca-http that `bench/` doesn't build.
   because the checker won't let `base64::decode` shrink the caller's buffer while the
   request is live. `challenge` answers 401 with a `WWW-Authenticate` value, dropped as
   `field` drops one if it's bad.
+- Form bodies (`form.goose`, and `each_form` in `message.goose`). odin-http splits a
+  urlencoded body on `&`, doesn't take `+` as a space, fails the whole body on one bad
+  escape, and lets the last of a repeated key win (`body.odin`, `body_url_encoded`);
+  xitca-web's `Form` hands the whole body to `serde_urlencoded`, and its `Multipart`
+  streams parts through the `http-multipart` crate, with a blank 400 for a bad boundary
+  (`handler/types/multipart.rs`). odin-http has no multipart. Here, `each_form` splits
+  pairs as `each_query` does, which now calls it, and `form_value` decodes the first
+  pair whose key decodes to the one asked for, with `plus` set, skipping a pair with a
+  bad escape. A urlencoded body that doesn't fit the read buffer comes in pieces, which
+  the handler joins. `start_multipart` takes the boundary from `Content-Type`, and
+  `each_part` reads the body as it comes, at `REQUEST` and each `BODY`, calling the
+  handler for each part's head, the pieces of its content, and its end; `disposition`
+  reads a head's name and filename. A delimiter split between pieces is found: the
+  reader holds back only the end of a piece that could start one. `Multipart` is flat,
+  because the loops keep a handler's state in each connection's slot, which can't hold
+  a growable array: it holds at most `MAX_PART_HEAD`, 2,048 bytes, between pieces, and a
+  part's head longer than that fails the body. That cap is the reader's only limit;
+  `Config.max_body` bounds the whole.
 

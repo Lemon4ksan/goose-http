@@ -30,6 +30,7 @@ import file;
 import media;
 import cookie;
 import auth;
+import form;
 
 // The server's settings. Each worker gets a copy, as thread_spawn copies
 // flat values.

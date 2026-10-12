@@ -582,3 +582,38 @@ it does when the loop walks a range.
 
 Workaround: the tests call a function of their own for each element, which declares
 the array there (`test/test_api.goose`, `basic_ok`).
+
+## A string literal in a struct makes it refer into any array a callee shrinks
+
+Found on `5c83a5a`, task 015. Status: open
+
+A callee that shrinks an array it was given by reference, and then reads another
+argument, a struct of slices, is refused when one of the struct's slices points at a
+string literal: "cannot clear h while r is still used: a reference into it was stored
+there", naming the line that built the struct. The struct's slices point at a local
+buffer and at static data, neither of which is the shrunk array. With only the buffer's
+slice in the struct, it checks. Expected: it checks either way. A `Request` from
+`parse` has such a slice, so any helper that takes one and shrinks a buffer of the
+caller's meets it.
+
+    import std;
+
+    struct Req { a: const u8[:], b: const u8[:] }
+    struct Holder { held: u8[>..] = [] }
+
+    fn start(r: Req, h: Holder&) -> bool {
+        h.held.clear();
+        return r.a.len > 0;
+    }
+
+    fn main() {
+        var buf: u8[>..] = [];
+        buf.append("abc");
+        var h = Holder { .. };
+        let r = Req { a: buf, b: "/" };
+        print(start(r, h));
+    }
+
+Workaround: the helper shrinks only an array of its own and appends that to the
+caller's (`basic_auth`, `auth.goose`), or is done with the request before it shrinks
+anything. A limited array, as `Multipart.held` is, isn't refused.

@@ -641,7 +641,15 @@ fn query_of(target: const u8[:], key: const u8[:]) -> const u8[:], bool {
 fn each_query<F>(target: const u8[:]) {
     let q = position(target, '?');
     guard q >= 0 else { return; }
-    each_split(target[q + 1..], '&') {
+    each_form(target[q + 1..]) { k, v => F(k, v); };
+}
+
+// Calls F(key, value) for each pair of an application/x-www-form-urlencoded
+// body, as each_query gives a query's: in order, still encoded, for decode
+// with plus set. A body longer than the read buffer comes in pieces, which
+// the handler joins first.
+fn each_form<F>(body: const u8[:]) {
+    each_split(body, '&') {
         if it.len > 0 {
             let eq = position(it, '=');
             if eq >= 0 { F(it[..eq], it[eq + 1..]); } else { F(it, ""); }
