@@ -59,6 +59,9 @@ struct Config {
     // The most bytes of a body the handler answered without reading that
     // the connection drops to stay open; past them, it closes.
     max_drain: i64 = MAX_BODY,
+    // The most requests one connection may make, the last of which is
+    // answered with Connection: close; 0 for no limit.
+    max_requests: i64 = 0,
     // A worker's write buffer grows to hold any response whole. Past this
     // many bytes, the worker sends what it holds before it answers more: the
     // default takes the responses to a read's worth of pipelined requests, as
@@ -182,6 +185,7 @@ struct Exchange<S> {
     keep_alive: bool,
     head: bool,
     minor: i32,
+    served: i64,        // requests on this connection so far
     stream: Stream,
     state: S,
 }
@@ -227,6 +231,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
     let max_line = cfg.max_line;
     let max_fields = cfg.max_fields;
     let write_buffer = cfg.write_buffer;
+    let max_requests = cfg.max_requests;
 
     // Sends what wbuf holds, and closes.
     fn close() {
@@ -397,7 +402,8 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
         off = b0 + wire;
         // The request's state goes straight into c's slot, whose stream no
         // response holds open between requests.
-        x.keep_alive = req.keep_alive && !stopping;
+        x.served++;
+        x.keep_alive = req.keep_alive && !stopping && (max_requests <= 0 || x.served < max_requests);
         x.state = fresh;
         let before = wbuf.len;
         H(Event { kind: REQUEST, req: req, data: data, whole: whole, trailers: trailers }, x.state,
@@ -480,3 +486,23 @@ inline fn whole_only(ev: Event, out: Reply) -> bool {
     }
     return true;
 }
+
+// A body limit for one route, below Config.max_body, for a handler that
+// takes the body in pieces: call it at REQUEST and at each BODY, with taken
+// in the request's state. Returns whether the body is within limit bytes so
+// far; past it, answers 413 and closes the connection, rather than drop the
+// rest. A Content-Length is checked at REQUEST, and a chunked body as it
+// comes. The handler mustn't have answered yet.
+fn body_within(taken: i64&, ev: Event, out: Reply, limit: i64) -> bool {
+    if ev.kind == REQUEST {
+        taken = if ev.whole || ev.req.chunked { ev.data.len } else { ev.req.body };
+    } else if ev.kind == BODY {
+        taken += ev.data.len;
+    }
+    guard taken > limit else { return true; }
+    out.keep_alive = false;
+    start(out, 413);
+    finish(out, "Content-Length: ", "");
+    return false;
+}
+

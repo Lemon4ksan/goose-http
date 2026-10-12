@@ -274,6 +274,10 @@ once per loop. It needs curl, wrk, h2load, oha, `nc`, and `python3`
     (408 after the body timeout), one that finishes a request every 3 s (never cut
     off), and one that pipelines without reading (closed after the write timeout,
     once the server's buffers fill), while another client is served.
+  - `requests`: against a server started again with a cap of 3 requests a connection
+    (`MAX_REQUESTS=3`), 5 pipelined requests get 3 responses, the third with
+    `Connection: close`, and the connection closes; so does an HTTP/1.0 keep-alive
+    connection after its third.
 - wrk for 3 s on `/plaintext` with 16-deep pipelining (`scripts/pipeline.lua`) and on
   `/json`, h2load `--h1` for 200,000 requests 16 deep, and oha for 500,000 requests. Each
   must see only 200s and no errors.

@@ -71,7 +71,9 @@ as task 013's did.
 - [x] A field with CR, LF, or an invalid name never reaches the client (2026-10-12; see
       "Checked fields")
 - [ ] Helpers for items 5 to 11, each with a check in `scripts/http_client.py` or
-      `test/test_http.goose`.
+      `test/test_http.goose`. (Items 5-8, 10, and 11 have theirs, in
+      `test/test_api.goose` and `scripts/http_client.py`, 2026-10-12; item 9 waits for
+      item 2.)
 - [ ] The benchmark routes keep their rate, measured as task 013's were.
 
 ## Checked fields (2026-10-12)
@@ -177,4 +179,35 @@ xitca-http that `bench/` doesn't build.
   `application/json`. The stdlib's parser and reader take only a whole text, so a body
   that comes in `BODY` pieces must be joined first
   ([findings](../docs/goose-findings.md#the-stdlibs-json-parser-and-reader-take-only-a-whole-text)).
+- Limits (`Config.max_requests` and `body_within`, `http.goose`). None of hyper 1.12.0,
+  xitca-http 0.8.2, may-minihttp, or odin-http caps a connection's requests. For a
+  route's body, odin-http's `body` takes a maximum from the handler, checks
+  `Content-Length` before reading and each chunk's size as it comes, and answers 413
+  (`body.odin`); xitca-web's `Limit<N>` checks as the body streams but answers 400
+  (`error/body.rs`). Here, `Config.max_requests`, 0 by default for no cap, makes the
+  response to a connection's last request carry `Connection: close`, in `answer`, which
+  every loop shares. `body_within` is odin-http's check for a handler that reads the
+  body in pieces: called at `REQUEST` and each `BODY`, it checks `Content-Length`
+  first and then what has come, and past the route's limit answers 413 and closes the
+  connection, rather than drop the rest. The cap's check is in
+  `scripts/http_client.py` (`requests`), and `body_within`'s in `test/test_api.goose`.
+
+Item 9, the log after each response, waits for item 2's client address.
+
+## What WSL2 should measure
+
+The criterion that the benchmark routes keep their rate needs the WSL2 machine, as
+task 013's did; a Mac number doesn't count. No benchmark route calls the helpers of
+items 5 to 11. Two changes reach the routes' path:
+
+- `answer` (`http.goose`) counts each connection's requests and compares the count with
+  `Config.max_requests` for each request (item 11). The count adds 8 bytes to each
+  connection's slot.
+- `field` checks its name and value (item 4). The plaintext and JSON routes write their
+  fields through `finish`, which isn't checked; `/bytes`, `/stream`, `/echo`, and
+  `/upgrade` call `field`.
+
+Measure against `26e073f`, the commit before this task's changes, with task 013's
+method: `bench/count.sh` for user instructions per plaintext request on each loop, and
+`bench/run.sh`'s 4-worker cells for the rate, in the configuration task 013 recorded.
 

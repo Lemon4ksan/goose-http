@@ -1,5 +1,5 @@
 // Unit tests for the package's helpers for APIs: media types and Accept,
-// cookies, Authorization, form bodies, and JSON responses.
+// cookies, Authorization, form bodies, JSON responses, and body limits.
 // scripts/test-unit.sh runs them through TinyCC.
 import std;
 import json;
@@ -325,6 +325,45 @@ fn test_json() {
     same(out, "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: 24\r\n\r\n{\"name\":\"a \\\"b\\\"\",\"n\":7}");
 }
 
+// body_within on a request with fields, whole or not, and then pieces, with a
+// limit of 10: whether each call let the body through, as "y" or "n", and the
+// response.
+fn limited(fields: const u8[:], whole: bool, first: const u8[:], pieces: const u8[:][:], out: u8[>..]&) -> u8[>..] {
+    var buf: u8[>..] = [];
+    let req = request(fields, buf);
+    var keep = true;
+    var st = http::Stream { .. };
+    var taken = 0;
+    var log: u8[>..] = [];
+    let reply = http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: st };
+    let ok = http::body_within(taken, http::Event { kind: http::REQUEST, req: req, data: first, whole: whole, trailers: "" },
+                               reply, 10);
+    log.push(if ok { 'y' } else { 'n' });
+    if ok {
+        for p in pieces {
+            let more = http::body_within(taken, http::Event { kind: http::BODY, req: req, data: p, whole: false, trailers: "" },
+                                         reply, 10);
+            log.push(if more { 'y' } else { 'n' });
+            if !more { break; }
+        }
+    }
+    if !keep { log.append(" close"); }
+    return log;
+}
+
+fn test_body_within() {
+    var out: u8[>..] = [];
+    same(limited("Content-Length: 10\r\n", false, "", [], out), "y");
+    same(limited("Content-Length: 11\r\n", false, "", [], out), "n close");
+    same(out, "HTTP/1.1 413 Content Too Large\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+    out.clear();
+    same(limited("Content-Length: 4\r\n", true, "abcd", [], out), "y");
+    same(limited("Transfer-Encoding: chunked\r\n", true, "abcdefghijk", [], out), "n close");
+    out.clear();
+    same(limited("Transfer-Encoding: chunked\r\n", false, "", ["abcd", "efgh", "ij", "k", "l"], out), "yyyyn close");
+    assert(find(out, "413") > 0);
+}
+
 fn main() {
     test_media_type();
     test_accept();
@@ -334,5 +373,6 @@ fn main() {
     test_form();
     test_multipart();
     test_json();
+    test_body_within();
     print("test_api: ok");
 }

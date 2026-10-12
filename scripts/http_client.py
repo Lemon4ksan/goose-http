@@ -833,6 +833,30 @@ def many(port, n):
     print(f"many: {n} connections ok")
 
 
+def requests(port):
+    """Against a server started with MAX_REQUESTS=3: a connection's third response
+    closes it, pipelined or not, and HTTP/1.0 keep-alive counts the same."""
+    c = Conn(port)
+    c.send(request(b"/plaintext") * 5)
+    for i in range(3):
+        r = c.response()
+        closing = [v for n, v in r.headers if n == "connection"] == ["close"]
+        if r.status != 200 or closing != (i == 2):
+            fail(f"pipelined request {i + 1} of a cap of 3: {r.headers}")
+    if not c.closed():
+        fail("the connection stayed open past its third request")
+    c = Conn(port)
+    for i in range(3):
+        c.send(b"GET /json HTTP/1.0\r\nConnection: keep-alive\r\n\r\n")
+        r = c.response()
+        want = "close" if i == 2 else "keep-alive"
+        if r.status != 200 or r.header("connection") != want:
+            fail(f"HTTP/1.0 request {i + 1} of a cap of 3: {r.headers}")
+    if not c.closed():
+        fail("the HTTP/1.0 connection stayed open past its third request")
+    print("requests: ok")
+
+
 def main():
     port = int(sys.argv[1])
     mode = sys.argv[2]
@@ -844,7 +868,7 @@ def main():
         stop_break(port, sys.argv[3])
     else:
         {"tfb": tfb, "pipeline": pipeline, "large": large, "chunked": chunked, "keepalive": keepalive,
-         "hostile": hostile, "slow": slow, "stream": stream}[mode](port)
+         "hostile": hostile, "slow": slow, "stream": stream, "requests": requests}[mode](port)
 
 
 if __name__ == "__main__":

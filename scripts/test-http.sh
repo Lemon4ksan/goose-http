@@ -159,6 +159,13 @@ $client slow
 kill -0 "$pid" || fail "the server died"
 stop
 unset REQUEST_MS BODY_MS WRITE_MS
+# A cap of 3 requests a connection, which the client expects.
+export MAX_REQUESTS=3
+start
+$client requests
+kill -0 "$pid" || fail "the server died"
+stop
+unset MAX_REQUESTS
 start
 
 if [ -n "$windows" ]; then

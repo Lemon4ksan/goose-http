@@ -28,12 +28,14 @@ fn run(default_loop: const u8[:]) {
     }
     let mode = argv[1];
     if mode == "http" {
-        // A body may be as long as /upload's tests send. The timeouts are
-        // the package's unless the environment names others, for the tests.
+        // A body may be as long as /upload's tests send. The timeouts and
+        // the cap on a connection's requests are the package's unless the
+        // environment names others, for the tests.
         var cfg = http::Config { port: port, workers: positive("WORKERS", 0), max_body: 1 << 30, .. };
         cfg.request_ms = positive("REQUEST_MS", cfg.request_ms);
         cfg.body_ms = positive("BODY_MS", cfg.body_ms);
         cfg.write_ms = positive("WRITE_MS", cfg.write_ms);
+        cfg.max_requests = positive("MAX_REQUESTS", cfg.max_requests);
         serve_http(cfg, default_loop);
     }
     else if mode == "echo-blocking" { echo_blocking(port); }
