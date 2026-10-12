@@ -1,0 +1,7 @@
+server	workers	path	run	rps	ok	other	user_s	kernel_s	user_us	kernel_us
+iocp	1	/plaintext	1	81877	2000000	0	1.64	22.75	0.82	11.38
+iocp	4	/plaintext	1	246586	2000000	0	2.64	29.56	1.32	14.78
+iocp	1	/plaintext	2	82603	2000000	0	1.77	22.41	0.88	11.20
+iocp	4	/plaintext	2	225363	2000000	0	3.09	31.61	1.55	15.80
+iocp	1	/plaintext	3	83171	2000000	0	2.06	21.92	1.03	10.96
+iocp	4	/plaintext	3	224625	2000000	0	2.77	32.42	1.38	16.21

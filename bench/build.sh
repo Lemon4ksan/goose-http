@@ -47,6 +47,8 @@ VC_COMMIT=2cbaf6bc2367937cd5f0b4ef923d1ef9aad613b3
 TCCBIN_COMMIT=d6e7ac1b1bcc98aed734a6ecbfa8509f24606c74
 # tccbin's thirdparty-linux-arm64 head (2024-07-08), for its libgc.a.
 TCCBIN_ARM64_COMMIT=125ad2e1153c7cb86f19ac4aa070063d18504462
+CADDY_VERSION=2.10.2
+CADDY_SHA256=5c218bc34c9197369263da7e9317a83acdbd80ef45d94dca5eff76e727c67cdd
 # As HttpArena's libreactorng Dockerfile pins it.
 LIBREACTORNG_COMMIT=7a65f8b108f62f2531db952b0f87cf5f34a24b3c
 
@@ -166,6 +168,18 @@ git -C "$cache/libreactorng-src" apply "$root/bench/libreactorng/connection-clos
 gcc -O3 -march=native -Wall -Wextra -pthread "$root/bench/libreactorng/server.c" \
     -o "$out/libreactorng" \
     $(PKG_CONFIG_PATH=$cache/libreactorng/lib/pkgconfig pkg-config --libs --cflags libreactor)
+
+# Caddy for bench/files.sh: its x86-64 release, checked against the hash it
+# had when pinned. nginx is the system's (apt nginx).
+if [ "$(uname -m)" = x86_64 ]; then
+    if [ "$(sha256sum <"$cache/caddy.tgz" 2>/dev/null | cut -d' ' -f1)" != "$CADDY_SHA256" ]; then
+        curl -sSLf -o "$cache/caddy.tgz" \
+            "https://github.com/caddyserver/caddy/releases/download/v$CADDY_VERSION/caddy_${CADDY_VERSION}_linux_amd64.tar.gz"
+        [ "$(sha256sum <"$cache/caddy.tgz" | cut -d' ' -f1)" = "$CADDY_SHA256" ] ||
+            { echo "bench/build.sh: caddy.tgz doesn't match CADDY_SHA256"; exit 1; }
+    fi
+    tar -xzf "$cache/caddy.tgz" -C "$out" caddy
+fi
 
 ${CC:-cc} -O2 -shared -fPIC "$root/bench/wrk-monotonic.c" -o "$out/wrk-monotonic.so"
 ${CC:-cc} -O2 "$root/bench/latency.c" -o "$out/latency"

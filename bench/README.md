@@ -13,7 +13,15 @@ bench/count.sh         # user instructions over a fixed request count, to compar
 bench/parse.sh         # http::parse alone on the requests in bench/parse/
 bench/httparena.sh     # HttpArena's harness, in Docker, with Goose as an entry
 bench/run-macos.sh     # a short matrix natively on macOS, into bench/results/<date>-<machine>/
+bench/files.sh         # static files, and /bytes from memory, against nginx and Caddy
+bench/oha.sh           # Goose builds with oha, on Windows (Git Bash) or Linux, for IOCP
 ```
+
+`bench/files.sh` compares static files with the usual file servers rather than the
+servers below, most of which can't serve a file: nginx, Ubuntu's (`apt install nginx`;
+`systemctl disable --now nginx` keeps its service off the benchmark's CPUs), and Caddy,
+the release binary `bench/build.sh` fetches and checks against a pinned SHA-256. The
+script writes each one's configuration in its `start` function.
 
 They need Linux (`taskset`, `perf`, `/proc`; on Windows, WSL), `GOOSE`, and
 `~/.cargo/bin` on `PATH`. The environment configures them (see the comment at the top

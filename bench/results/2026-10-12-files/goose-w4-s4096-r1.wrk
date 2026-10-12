@@ -1,0 +1,8 @@
+Running 10s test @ http://127.0.0.1:29380/files/f4096
+  12 threads and 96 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency   532.75us  118.81us   2.24ms   64.43%
+    Req/Sec    15.00k     1.19k   23.88k    76.90%
+  1808755 requests in 10.10s, 7.32GB read
+Requests/sec: 179095.54
+Transfer/sec:    741.78MB

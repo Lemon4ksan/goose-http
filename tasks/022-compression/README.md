@@ -16,8 +16,17 @@ the request had no `Accept-Encoding`. The static profiles send
 |---|---|---|---|
 | gzip | yes | `.gz` | First. Every client takes it, and it stays the fallback for any other. |
 | deflate | yes | none | The same DEFLATE stream in the zlib wrapper: a 2-byte header and Adler-32 in place of gzip's header and CRC-32. Offered, never preferred over gzip. |
-| zstd | later | `.zst` | Faster and smaller than gzip at low levels, but not every client takes it, so it adds to gzip instead of replacing it. RFC 9659 caps its window at 8 MB for HTTP. |
+| zstd | later | `.zst` | Faster and smaller than gzip at low levels. Adds to gzip instead of replacing it, since not every client takes it (below). RFC 9659 caps its window at 8 MB for HTTP. |
 | br | no | `.br` | Brotli pays off at quality 11, too slow per request; its fast qualities are a large encoder for little over gzip. Precompressed `.br` needs no brotli code. |
+
+Chrome, Edge, and Firefox take zstd. Safari asks for it from 26.3 (released
+2026-02-11) on iOS, iPadOS, and visionOS 26.3, and on macOS Tahoe 26.3 or later, but
+not on older macOS, because it decodes zstd in the system's networking stack; 26.0 to
+26.2 decode it without asking (WebKit's "WebKit features for Safari 26.3" and
+caniuse's `zstd.json`, read 2026-10-12). So the clients that take br on the fly and
+not zstd are Safari on macOS before Tahoe and iOS before 26.3. They get gzip, and br
+for precompressed files, which is why brotli stays out. Revisit it if a deployment
+serves large dynamic text to many of them.
 
 ## Proposed split
 

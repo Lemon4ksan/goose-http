@@ -122,30 +122,83 @@ The io_uring loop peaks 2-13 MB above the epoll loop; task 016 accounts for each
 worker's memory. dusty dropped 1,361 requests at 4,096 connections with 1
 worker; no other cell had errors.
 
+## Static files
+
+`bench/files.sh` on 2026-10-12, Goose at `fcfd80d`: wrk downloads one file over and over
+from tmpfs, 96 connections, wrk 4.1.0 on CPUs 4-15 with 12 threads; 1 worker on CPU 0 or
+4 on CPUs 0-3; 3 runs of 10 s after 3 s of warm-up, medians
+([2026-10-12-files](../bench/results/2026-10-12-files/summary.md), which also has each
+cell's spread and CPU). nginx 1.28.3 is Ubuntu's, with `sendfile`, `tcp_nopush`,
+`open_file_cache`, and no access log; Caddy 2.10.2 is its release binary with
+`file_server`, `GOMAXPROCS` set to the worker count. The rate counts body bytes only. Bold
+is the column's best; the emulated ring is Goose's fallback where io_uring is blocked.
+
+| Server | 4 KB, 1 w | 4 KB, 4 w | 64 KB, 1 w | 64 KB, 4 w | 1 MB, 1 w | 1 MB, 4 w |
+|---|---:|---:|---:|---:|---:|---:|
+| Goose io_uring | **81.6 K/s** | **219 K/s** | 2.08 GB/s | 6.42 GB/s | 10.98 GB/s | 30.39 GB/s |
+| Goose epoll | 56.0 K/s | 179 K/s | 2.23 GB/s | 7.41 GB/s | 11.59 GB/s | **31.28 GB/s** |
+| Goose, emulated ring | 76.8 K/s | 206 K/s | **2.90 GB/s** | 7.85 GB/s | **12.38 GB/s** | 31.11 GB/s |
+| nginx | 50.2 K/s | 173 K/s | 2.31 GB/s | **8.15 GB/s** | 9.93 GB/s | 28.52 GB/s |
+| Caddy | 13.0 K/s | 47 K/s | 0.83 GB/s | 2.99 GB/s | 6.80 GB/s | 20.08 GB/s |
+
+Server CPU per request, in µs:
+
+| Server | 4 KB, 1 w | 4 KB, 4 w | 64 KB, 1 w | 64 KB, 4 w | 1 MB, 1 w | 1 MB, 4 w |
+|---|---:|---:|---:|---:|---:|---:|
+| Goose io_uring | **12.3** | **18.5** | 31.6 | 41.1 | 96.3 | 122 |
+| Goose epoll | 18.1 | 22.7 | 29.7 | 35.8 | 91.5 | **106** |
+| Goose, emulated ring | 13.2 | 19.7 | **22.8** | 33.8 | **85.7** | 107 |
+| nginx | 20.2 | 23.4 | 28.6 | **32.5** | 106.8 | 148 |
+| Caddy | 77.7 | 81.0 | 79.9 | 84.1 | 155.9 | 197 |
+
+- Goose copies a file under 64 KB, and sends a larger one with `sendfile` (epoll and the
+  emulation) or two splices through a pipe (io_uring). At 4 KB, copying serves 1.3 to
+  1.8 times what zero-copy does (task 020).
+- nginx wins 64 KB with 4 workers, and with 1 worker against both real loops. The
+  splices cost io_uring more than `sendfile` from 32 KB up.
+- With 4 workers at 1 MB, wrk used all 120 of its CPU-seconds in Goose's cells, so
+  the rates there measure wrk; CPU per request still separates the servers.
+- WSL2's kernel costs most of a small file: 12-20 µs a request at 4 KB for Goose and
+  nginx, against 5.8 µs for an unpipelined JSON response.
+
 ## Instructions per request
 
-`bench/instructions.sh`, on 2026-10-12: one worker on CPU 0, plaintext pipelined 16 deep
-at 256 connections, wrk on CPUs 4-15 with 8 threads for 20 s, and `perf stat` on CPU 0
-for 10 s from 5 s in, so the counts include the kernel's network work on that CPU. Three
-runs per server
+`bench/instructions.sh`, on 2026-10-12 in the evening, Goose at `47876ad`: one worker on
+CPU 0, plaintext pipelined 16 deep at 256 connections, wrk on CPUs 4-15 with 8 threads for
+20 s, and `perf stat` on CPU 0 for 10 s from 5 s in, so the counts include the kernel's
+network work on that CPU. Three runs per server
+([2026-10-12-desktop-instructions](../bench/results/2026-10-12-desktop-instructions/runs.tsv)),
+the range of the three, ordered by cycles; bold is the column's best. dusty's row is
+from the morning's run
 ([2026-10-12-full-instructions](../bench/results/2026-10-12-full-instructions/instructions.tsv)),
-the range of the three:
+with the same binary.
 
 | Server | Instructions per request | In user code | Cycles per request | Peak RSS |
 |---|---:|---:|---:|---:|
-| Goose epoll | 2,418-2,469 | 1,494-1,527 | 1,921-1,933 | 2.4 MB |
-| Goose io_uring | 2,503-2,517 | 1,545-1,554 | 1,719-1,740 | 5.3 MB |
-| vanilla-epoll | 1,750-1,758 | 763-767 | 1,916-1,929 | 5.4 MB |
-| may-minihttp | 2,999-3,023 | 1,957-1,973 | 2,761-2,772 | 66.7 MB |
-| tokio | 4,369-4,399 | 3,428-3,452 | 2,666-2,676 | 10.0 MB |
-| hyper | 6,286-6,365 | 5,327-5,405 | 4,072-4,151 | 7.3 MB |
+| vanilla-io_uring | **1,702-1,731** | **745-759** | **1,541-1,560** | 14.2 MB |
+| libreactorng | 2,266-2,308 | 1,307-1,328 | 1,719-1,746 | 5.3 MB |
+| Goose io_uring | 2,533-2,580 | 1,576-1,601 | 1,808-1,819 | 4.9 MB |
+| vanilla-epoll | 1,744-1,768 | 756-766 | 1,980-2,010 | 5.5 MB |
+| Goose epoll | 2,475-2,530 | 1,535-1,574 | 1,995-2,036 | **2.4 MB** |
+| zix | 4,675-4,720 | 3,703-3,736 | 2,331-2,359 | 3.8 MB |
+| tokio | 4,353-4,415 | 3,408-3,453 | 2,724-2,736 | 10.0 MB |
+| may-minihttp | 2,983-3,005 | 1,945-1,953 | 2,731-2,776 | 65 MB |
+| xitca-web | 7,166-7,259 | 6,090-6,168 | 3,881-3,943 | 15.4 MB |
+| hyper | 6,136-6,291 | 5,177-5,318 | 4,117-4,326 | 7.2 MB |
+| zeemo | 10,111-10,203 | 7,791-7,870 | 4,949-4,970 | 3.4 MB |
+| Tina | 19,983-20,260 | 8,230-8,334 | 18,566-18,751 | 190 MB |
 | dusty | 20,264-20,293 | 7,990-7,992 | 26,811-27,263 | 8.8 MB |
 
-The io_uring loop runs 20-60 more user instructions per request than the epoll loop,
-and about 200 fewer cycles. Since 2026-10-11 (`b6a26c5`), the epoll loop's user
-instructions rose from 1,351-1,427 to 1,494-1,527, for the package's streaming, files,
-and settings (task 013 splits that cost by commit). Its cycles per request didn't rise:
-1,921-1,933, against 1,974 and 2,107 in that run's two undisturbed runs.
+- Goose's io_uring loop is third by cycles, behind vanilla-io_uring and libreactorng.
+  Both answer without parsing the request as Goose does: vanilla runs half of Goose's user
+  instructions.
+- The io_uring loop runs 40-60 more user instructions per request than the epoll loop,
+  and about 200 fewer cycles, as in the morning. The day's work (answers that wait,
+  queued sends, files without copying) left the epoll loop's user instructions within
+  50 of the morning's 1,494-1,527.
+- Tina pipelines poorly: 216-221 K requests per second here, and 20,000 instructions a
+  request, about 8 times Goose's (task 019). It holds 190 MB, for 4,096 connection
+  slots.
 
 Binary sizes, as `bench/build.sh` builds them: Goose 183,128 bytes with both loops,
 vanilla-epoll 205,920, tokio 630,304, hyper 818,592, may-minihttp 931,456, and dusty

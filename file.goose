@@ -37,6 +37,10 @@ struct FileBody { fd: i64 = -1, off: i64 = 0, left: i64 = 0 }
 
 // The most send_file reads at once.
 let FILE_PIECE = 65536;
+// The least of a file the loop sends itself (Stream.direct). Below it, one
+// read and a send beat sendfile and io_uring's splices through a pipe: at
+// 4 KB by 1.3 to 1.8 times, and they cross between 32 and 64 KB (task 020).
+let DIRECT_MIN = FILE_PIECE;
 
 // Writes info[0..2].
 extern fn net_file_open(path: const u8[:], info: i64[:]) -> i64;
@@ -175,7 +179,7 @@ fn send_file(out: Reply, b: FileBody&) -> bool {
         return false;
     }
     let framed = !s.raw && !s.chunked && s.left >= 0;
-    if s.direct && framed {
+    if s.direct && framed && min(b.left, s.left) >= DIRECT_MIN {
         let k = min(b.left, s.left);
         s.file = b.fd;
         s.file_off = b.off;

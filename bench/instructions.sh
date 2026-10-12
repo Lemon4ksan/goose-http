@@ -41,6 +41,13 @@ for server in "$@"; do
     kill "$pid"
     wait "$pid" 2>/dev/null || true
     pid=
+    # An io_uring server's listener outlives it for a moment, and the next
+    # server would fail to bind while nc still finds this one listening.
+    tries=0
+    while nc -z 127.0.0.1 "$port" 2>/dev/null && [ $tries -lt 50 ]; do
+        tries=$((tries + 1))
+        sleep 0.1
+    done
     rps=$(awk '/^Requests\/sec/ {print $2}' "$tmp/wrk")
     awk -F, -v rps="$rps" -v s="$server" -v r="$run" -v rss="$rss" '
         $3 == "instructions" { i = $1 } $3 == "instructions:u" { u = $1 } $3 == "cycles" { c = $1 }
