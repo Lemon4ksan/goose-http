@@ -73,8 +73,9 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     var closed = false;
     var now = net_clock_ms();
     var next_sweep = now + 1000;
-    // Server's 64 bytes and Date's 29, with their names.
-    var common: u8[..112] = [];
+    // On the heap: as a 112-byte array in the loop's frame, it cost the
+    // io_uring loop 10-25 user instructions per request.
+    var common: u8[>..] = [];
     var date_s: i64 = -1;
     var done: Completion[256] =
         [Completion { tag: 0, res: 0, buf: -1, more: false, send: false }; 256];

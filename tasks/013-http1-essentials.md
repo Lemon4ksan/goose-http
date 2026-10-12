@@ -230,8 +230,12 @@ connections: 12.4 MB against 11.3 MB).
   empty for none, checked at start to be a field value. Each loop renders it with the
   `Date` field, once a second, into one buffer (`http::common_fields`), and the status
   lines' literals end at their CRLF, so a response still takes one append for both.
-  `Reply.date` became `Reply.common`. Not yet: files through `sendfile`, which needs
-  the shims.
+  `Reply.date` became `Reply.common`. The buffer is on the heap: as a 112-byte array
+  in the loop's frame, it raised the io_uring build from 1,567-1,584 user
+  instructions per request to 1,593-1,616, and as a 64-byte one to 1,585-1,592; on
+  the heap, 1,587-1,593, with cycles per request at or below the old build's
+  (`bench/instructions.sh`, 2 runs a build, as above). Not yet: files through
+  `sendfile`, which needs the shims.
 
 Next, in order:
 
