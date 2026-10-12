@@ -55,10 +55,16 @@ latency-10k, and async; 32 checks passed and none failed, among them the 9 shape
 exhaustive fragmentation (1,047 split offsets), `/delay/{ms}` with its timing checks,
 and 32 overlapping delays in 0.52 s.
 
+On the desktop (2026-10-12), Goose `4752493` with Goose `6448f3f`, `validate` passed the
+same 32 checks, with the 32 overlapping delays in 0.51 s. In `run`, Goose served async at
+241K requests per second against tokio's 228K, and spent 30.4 µs of CPU per latency-10k
+request against tokio's 30.6 µs and vanilla-epoll's 30.0 µs.
+
 ## Acceptance criteria
 
 - [x] The profiles mapped to what they need, and the gap for HTTP/1.1 named
 - [x] `/delay/{ms}` in the benchmark server, passing `validate.sh`'s checks by hand
 - [x] async and latency-10k in the entry's `meta.json` and `bench/httparena.sh`
-- [ ] `bench/httparena.sh validate` and `run` with them on the desktop
+- [x] `bench/httparena.sh validate` and `run` with them on the desktop (2026-10-12,
+      [results](../docs/results.md#httparenas-profiles))
 - [ ] Compression (task 022), then json-comp

@@ -255,6 +255,32 @@ limited-conn, and pipelined, so those profiles measure gcannon as much as the se
 latency-1m's p99 moved by up to 15 times between runs on 2026-10-11, so it ranks the
 servers only roughly.
 
+Task 018's two profiles, run the same way on 2026-10-12 with the Goose entry at
+`4752493` and Goose `6448f3f`, after `bench/httparena.sh validate` passed all 32 of its
+checks: async, `GET /delay/10` on 32,000 connections, and latency-10k, latency-1m's
+endpoint offered at 10,000 requests per second by zrk 2.3.0 for 20 s. Results in
+[bench/results/httparena-2026-10-12-async](../bench/results/httparena-2026-10-12-async).
+Latency is the best run's.
+
+| Profile | Goose | tokio | vanilla-epoll | dusty |
+|---|---:|---:|---:|---:|
+| async, req/s | **241K** | 228K | 196K | 226K |
+| async, p50 / p99 | 56 / 99 ms | 61 / 87 ms | 90 / 116 ms | 13 / 216 ms |
+| async, container memory | **159 MiB** | 1.1 GiB | 401 MiB | 662 MiB |
+| latency-10k, CPU per request | 30.4 µs | 30.6 µs | **30.0 µs** | 42.8 µs |
+| latency-10k, p99 / p99.9 | 172 µs / 8.3 ms | 158 µs / 10.8 ms | 166 µs / 16.4 ms | 158 µs / 1.2 ms |
+| latency-10k, container memory | **15 MiB** | 42 MiB | 26 MiB | 46 MiB |
+
+- async's 3 runs per server spread by 7-16%: Goose 221-241K, tokio 212-228K,
+  vanilla-epoll 180-196K, dusty 193-226K. Each server used 320-343% of its 400% CPU.
+- gcannon ran 64 threads in async, not `THREADS`, and counted 38,000-48,000 connect
+  errors per run for every server, likely because `SKIP_TUNE` leaves out the
+  harness's `system_tune`, which widens the ephemeral port range; not measured.
+- dusty answers half its delays at 13 ms and the slowest at 216 ms; the others keep
+  p50 and p99 within 2 times of each other.
+- At 10,000 requests per second, the four spend 3 times latency-1m's CPU per request:
+  each request wakes an idle loop. Goose, tokio, and vanilla-epoll are within 2%.
+
 ## The parser alone
 
 `bench/parse.sh` and the parsers' own benchmarks, on CPU 2, per parse of

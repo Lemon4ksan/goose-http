@@ -413,6 +413,10 @@ What the benchmark has to work around on this machine:
   `bench/httparena.sh` runs HttpArena's readiness probe and cgroup CPU reads in helper
   containers for that (`bench/httparena/docker-desktop.sh`). `-p 8080:8080` publishing,
   which `validate.sh` uses, does reach WSL.
+- HttpArena's `validate.sh` starts a watchdog that sleeps `VALIDATE_TIMEOUT` (800 s), and
+  leaves it running when the checks pass. The watchdog keeps the output open, so
+  `bench/httparena.sh validate | tail` waits the full 800 s. Read the output as it
+  comes instead.
 - gcannon, HttpArena's load generator, peaks at 4 threads on CPUs 4-15 against a
   4-worker server: 466K requests per second on `baseline` for Goose, 248K at 2 threads,
   386K at 6, and 267K at 12 (2026-10-10). More threads lose throughput, one per core

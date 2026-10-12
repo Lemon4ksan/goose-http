@@ -1,0 +1,157 @@
+[info] available CPUs: 16
+[info] load generators: docker mode
+[info] framework: tokio (tokio, Rust)
+[info] subscribed tests: baseline,pipelined,limited-conn,async,latency-1m,latency-10k
+[info] building image: httparena-tokio
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 467B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/debian:bookworm-slim
+#2 ...
+
+#3 [auth] library/debian:pull token for registry-1.docker.io
+#3 DONE 0.0s
+
+#4 [auth] library/rust:pull token for registry-1.docker.io
+#4 DONE 0.0s
+
+#5 [internal] load metadata for docker.io/library/rust:1.95
+#5 ...
+
+#2 [internal] load metadata for docker.io/library/debian:bookworm-slim
+#2 DONE 0.9s
+
+#5 [internal] load metadata for docker.io/library/rust:1.95
+#5 DONE 1.1s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 52B done
+#6 DONE 0.0s
+
+#7 [stage-1 1/2] FROM docker.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+#7 DONE 0.0s
+
+#8 [build 1/6] FROM docker.io/library/rust:1.95@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3
+#8 DONE 0.0s
+
+#9 [internal] load build context
+#9 transferring context: 116B done
+#9 DONE 0.0s
+
+#10 [build 2/6] WORKDIR /app
+#10 CACHED
+
+#11 [build 3/6] COPY Cargo.toml Cargo.lock ./
+#11 CACHED
+
+#12 [build 5/6] COPY src ./src
+#12 CACHED
+
+#13 [build 6/6] RUN RUSTFLAGS="-C target-cpu=native" cargo build --release
+#13 CACHED
+
+#14 [build 4/6] RUN mkdir src && echo "fn main() {}" > src/main.rs     && cargo build --release     && rm -rf src target/release/httparena-tokio target/release/deps/httparena_tokio*
+#14 CACHED
+
+#15 [stage-1 2/2] COPY --from=build /app/target/release/httparena-tokio /server
+#15 CACHED
+
+#16 exporting to image
+#16 exporting layers done
+#16 writing image sha256:c01b7f75bb52d752b1b5666e7f93e8d3de4e79251a1d0d187d06fcce148e8923 done
+#16 naming to docker.io/library/httparena-tokio done
+#16 DONE 0.0s
+[info] skipping system tuning as requested (SKIP_TUNE=true)
+
+==============================================
+=== tokio / latency-10k / 1024c (tool=zrk) ===
+==============================================
+[info] waiting for server...
+[info] server ready
+
+[run 1/3]
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://localhost:8080/baseline11?a=1&b=2", "method": "GET" },
+  "config": { "connections": 1024, "launched": 1024, "duration_s": 20.000, "closed": false, "target_rate": 10000, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 20.005,
+  "requests": 199170,
+  "bytes": 12946050,
+  "achieved_rate": 9956.21,
+  "target_rate": 10000,
+  "target_rate_end": 10000,
+  "rate_ratio": 0.9956,
+  "bytes_per_sec": 647153.88,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 76528,
+  "latency_us": {
+    "min": 24, "mean": 412.9, "stdev": 5077.3, "max": 178943,
+    "p50": 100, "p75": 110, "p90": 123, "p99": 203, "p99_9": 96608, "p99_99": 145088
+  },
+  "status_codes": { "1xx": 0, "2xx": 199170, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAABXl4nDVVbYhUZRR+3/Oee+/cmbk7c3d2PnZnRndXV1u/VtG0D1sr19YlKxX7YRAFEVJEEn0gRRAVOmwioiCLbLLIRhL9sH+LiCxm/fCHgYlIPyQk+hEiERZDhPSc887MvTP3vu/5fs7znml8frJkTNww/uM6T6uLk0fMtj/9xhiFxGG2J7tk06o1+179xL55wp6xp+yMnbaX7Hn7rb1pr9AC3aDjruX+pcvumrvjLvKPfCa4H8yGt8Lb0fXMTNzK3sld6TlevFlYKN4uXigu9i6U2qXr5Zn+SwOXlp4YvvPQ3LrZjYcfP7e1Nd5+8t7O+8+enmpPXJhoTbR3XJy8OnljZ2tqZtfR56/uvr9nfu/p3bO75icXnvrviW8em97cHvtjzdVVD0ZuLWsNLjaO1k/1362eqPzWdy+dTs8Ufk/u5v/KzeV+zV6Pz8aXo/loLpwJ/wkWg2t8ih+4w3zezbs2/ULTNEvHqUVt27ZX7Dm7aOfsh8fsMXvoU3vog/fefuulvRP7nnl686ZHxreuWD++ed3w+PoVy1csr1XWDDYqg7VKo7JusK/Yh9eBIpbDvcuztb78wECjUik2BvK1Wm/fkuFKrbdSHOipVPrCYj6br9SyfWGW8j0hZ/JhpieTzeSZejiTyRDlmTMUGrTAMGU5ZGZDoSPsMbE+KWQKiCCQmzKy4aAfEsREEeOZo5jJEFNEAQd4gyjAVcAVYFGmUdkYwdWkKfqINtIBbEWit5YO0os0ST9YeoG+sHTE0k+W+uFzjF6H/dcE3S30lcVqhF6mIXhbTd8TPB2AuAkvFEN7Oy1F4AhvdfrOQuUzi/UbCPsOHEfQiWgl7OvYHaEUq4NUoo9h9y7cG8j30H5azaKZwGotNPqRQ0LLiLbB+fuIlqpwP4RDMGsi/0dpA34n6RWqIuYGgv8h2kEP47cfG3DA26kJULAYgv2XFsWXAJxBpkYv6ATwuwXyRBBJsdckE4pMcoCQBVwJneMSngHnCOZRxw1QhwEe2KgStGLpXQGyZYiaqpuAHa/EXknDChhGbZ1qYZlCpYRlSghptGlT8FZXd8IA8beUNJg3HeU6fgN8/VWAagEmZRgHesUaEMtIe92NB8Igv5IqOhS3WqpOSAllOBYEIu7HV/zAJhVRAsNU+2hgKqXH6g5cHFORCAQ3dFdxZQTHprJTsjASoyqVss9Nak54g3qtqi/P2CE8scOpJis1RPo14tC3DQL2GIkKkhxl4XkkmbHADaQiX1VJX6pQq4piE05i7RJL3CYALoNOAcB+DasUZHBaTl3hSLRCo6fIdZoWS0OcxGct07Hskws9XkYOMbYUMcdSp5rrCwt5DESRHmoFCd5YcsTRlSPfJWagmrohdJIXKVJsYgkrCMTCh1grE5pUxZ40tJOnU35ovrJr5C6TbpWFUF1mC9K+UG2NY1Zjrc+LAlau68gxSmoAKJl2h02sTUt0+kRaXaBQ6Y/RhVDFiCfHifhhAUjAUfwcEA86zDGajDQcUxBV6VbC/tRUtTqFvCQEKygPEhmKgn+EUzEq1nWco0iGErtQy9fuCO+NhzMO4aTDMplbnsFGJ6kg52vjXCjwBZKxD5toYNI5DblqORnDQdjpm9LAHydfhyBLWhpGg4AlEGCEq0jDxjKiAqFO6NhbCpasnjpziv0h5S4dlGFyB748zVKKlQEKxEhxU6S0SNXz7O7MLtP5t2BRj7rBSFpEPlRBrdk7UHqw76P0lX2cQB37pqUd2unQYB9W8DbaZDWWPy/pBfu8FGmpLNA78QhHgmuTBR2nJ99XGvnOqNTJH2MqbRPuR5JxoEdTnmXN2yhXugCmOop8JjH9Lf9Pz2myPzttZiy4yuHVYx3Q/2WAtlU="
+}
+[info] CPU 27.8% | Mem 33MiB
+
+[run 2/3]
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://localhost:8080/baseline11?a=1&b=2", "method": "GET" },
+  "config": { "connections": 1024, "launched": 1024, "duration_s": 20.000, "closed": false, "target_rate": 10000, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 20.003,
+  "requests": 199086,
+  "bytes": 12940590,
+  "achieved_rate": 9952.67,
+  "target_rate": 10000,
+  "target_rate_end": 10000,
+  "rate_ratio": 0.9953,
+  "bytes_per_sec": 646923.71,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 0,
+  "latency_us": {
+    "min": 25, "mean": 126.9, "stdev": 817.6, "max": 51839,
+    "p50": 98, "p75": 109, "p90": 119, "p99": 158, "p99_9": 10780, "p99_99": 38384
+  },
+  "status_codes": { "1xx": 0, "2xx": 199086, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAA3J4nF1SS2gUWxC9t/p2T/d0z3RPz2S6J/PRRGMM8feMxt8LfgcToiYg/vCz0IUf0JX7FzXkBfHB4+kiKER5BBcjhkGMaBQRFRfqQlRUJIiIhOAiBBEREfHcOwOi/bm36tSpU1W3O9d7OsmYGGGVS6vuXDmn/2YrpyrAHxR1TMNJh7nlC9YdOrBm16GjF/gwL/PH/C7/yP+j/6lEE/SEytpVrV98Frf0b2LAmDL6IgPmmPnF/BqdsMdive7HxCu/N3nRH0oOp8ZrBoPX4e3ah/l/6+/OGmyamH+t9W3b8zXlzvHuU1ufbil1D2980HmyY6D9dvF+8Wxxsvi04/iGvq5yV0/3+02f14+tLrd9XzG56PGC1809TR9mvZnxrW5o2pXci8x4+D1VSvb7L7xX8TuxPudTtD86afabg5Ep46F+Rz+pPxEl8Vx7p41qb2kU9xD10AfeQ6P8Oi/xC/wM7+On+IEjW/fs3d7e3r5qw7w5m1oXti7/s7C0tn5mrjC94M0MHS8VxkXoO9FUOueEs+O1accvpL3Qj/t+znfq/ZyX8vxCHHB9Ou14nhedbnqpqFkbenEAvunEfc8UcQOnS4YhSLCoaQhmCFMwwQgXIwZYJ43IlZ58QIMPI0YRbJohUVf8RRkEakinDuBrYR3j1Ax3Bv3DKQFEpxNc3OOIBFREzhZowrWojXaCeYMrRZfOcbLpGack3ZRkRuclKY/IbhDr6DKHQwcR12gJLaaVsNFgAxyd5qNUHjLbILYTr0adeLOVLhjKMJTLoEATNaKPJnrJsbl0GCUakLebaAdmnAupCGrZyGiEgA3hAFgzLYOUFEzCa1F6LbAz8JLIYshZDHYDfEZdEF2CdhLIyIO3X0RUsTz4zUBrwLQRi4Et85GSQIGDSHdpBW0m1EJCAPo0ojrhKpaGc44hHzMnVBlXfRYFWFh0mRNBi1hiQAKsNcA1dWIB1qwISI2TUJAcRUpnFD2GlqRMI/wslPfRRgwvv2SAs4wByyLSoNYWKZPF3FoVtCHGqgKqpGqHoROLZD/SEggLS9gCn1tI2JaITMKuzsoCKyGlLXVAdvWgArzub36SLpEy7Co9UNWDX6yfthzukUCrFvqyZBGmbtiy7Qj+dZvk/25X2rfFCa64lUmsakxXu1yRQyOa+u+zCpBHP8LpB5Etorg="
+}
+[info] CPU 27.9% | Mem 42MiB
+
+[run 3/3]
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://localhost:8080/baseline11?a=1&b=2", "method": "GET" },
+  "config": { "connections": 1024, "launched": 1024, "duration_s": 20.000, "closed": false, "target_rate": 10000, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 20.003,
+  "requests": 199130,
+  "bytes": 12943450,
+  "achieved_rate": 9954.95,
+  "target_rate": 10000,
+  "target_rate_end": 10000,
+  "rate_ratio": 0.9955,
+  "bytes_per_sec": 647072.01,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 0,
+  "latency_us": {
+    "min": 24, "mean": 127.7, "stdev": 777.1, "max": 33919,
+    "p50": 98, "p75": 109, "p90": 120, "p99": 173, "p99_9": 10916, "p99_99": 31672
+  },
+  "status_codes": { "1xx": 0, "2xx": 199130, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAA/R4nFVTTWhUVxR+77z7/vLm7715M2/mzY8zk+kkbUijptFqxLQao5PWpi1IodqKBUGKGzddFBellDgEFyWWIi5EggRxIaWUICJSgpQSQnDlKkiQLlyUksXQRcii3zkzCH2Pe+49557znd9b/uFGVtPMe1rvM/q7LsyNa9rUdk8wRkTKSgTl6vC752a++ubrq98u6cv6df2e/lDf0b+nX+kZLRgvacXYNP41FlRXrZqr5ob5i/XS3rL/ce66ywMd71VyO9MJOsFicMe/n30cfJe7nb9Z7Mbdyk/1xdbuW2v7u4e7UzePrbd3Plz5ZPPT+Y8ftp/MvJrenlmevjO9MLNx8q/209O7c8/nfpvrzq61Oye6761P/n6ws//Pvc9GHg0tNzdqL6pLpd3CfO5u2AnWM2upP5KdRMf7e+C6u+TcsnfsR9au+dycN7fUqrqlNo2nxiYtGj8b2/SEFmmetvQX+rp+X1/VH+sr+o/6A72jX7385aVzl47Ofn7s1OxHBw4fPXWgeaR15J1mK9w73MiH5bdbQaNRq2ZarbiWzzeqYThcLTQKYbURh3GqWUjE5bgVF4JaUI5rYZwPg0KcyufjQqoQNhOpRCafcJwBK5VxrEQmVEqlHMdSZCnLchwizRpA+ZWyNNIUOQYEFilSGq7IUYYySBjIertlkoFf48WXpjIpC8Ymj3yc0+TigleRTPzQpBJkBig8aLSHkmQr8iGpkKv4UtmEs9dH4T2tkkCFtgaWF2wAZlMRnA0nPnYTywftOevp0gSISTkapCExOcgxjAiKBrs0AT0ShoGgVmSJC4USeE1OEVPl0RfA8ASFo3mT3gBlJ6M4HYL+oJoANRTffwY9V/xVYH8BcTDv0xSNqqyg5vCP0xnxPohAzkiEF3A3BRtEydlFfChxckA9RHUIRmgMGkVg0VkQX6WhniPuQ5rOQzWJNQmjCIBJSIsIk00HETJKDN3jNKYquHNpXHES52E5Ctj3IZGSpoljzEKV9wih1IUvosVqH9LkAng0pJIQ7IG6iUiK0uxIcLmoH8hUMEBaOtPGqd7vURqQEQGfa90G3QeYHF3TEeMJRHmRTqIgI9CcQElM6WqEtH1EWYct45rQdeHVVSUYM+YYILiNSdhrsDsNvg2Ni//7j6Mpoyg9XYGqj0IJCuwUjxqj+pKRIROGeUXPMcE8ioobh2NaRt6WoVO9STPEojcyIkfj+MjRYE++niZMGVLhR+MpbhkruU7Ew8qgMm22lKnnQxBswec6npUnUeznGWHSJ/tvwEYqHlUsT6YbqEPAcF9305R30Mby+C3VZVJMydGVUHuPlSRTQzxqQg0B8Vg83jeB/D9HA6ZT"
+}
+[info] CPU 30.6% | Mem 45MiB
+[info] run 2 wins on score
+
+=== Best: 9953 req/s (CPU: 27.9%, Mem: 42MiB) ===
+[info] exact CPU: 6.10 core-seconds | 30.630 us/req
+=== Fixed-rate: cpu/req 30.63us | p99 158.0us | p99.9 10780.0us | rate_ratio 0.9953 ===
+[info] dry-run — not saving (use --save to persist)
+httparena-bench-tokio
+httparena-bench-tokio
+[info] done
