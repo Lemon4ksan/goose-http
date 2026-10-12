@@ -234,15 +234,31 @@ connections: 12.4 MB against 11.3 MB).
   in the loop's frame, it raised the io_uring build from 1,567-1,584 user
   instructions per request to 1,593-1,616, and as a 64-byte one to 1,585-1,592; on
   the heap, 1,587-1,593, with cycles per request at or below the old build's
-  (`bench/instructions.sh`, 2 runs a build, as above). Not yet: files through
-  `sendfile`, which needs the shims.
+  (`bench/instructions.sh`, 2 runs a build, as above).
+- Item 16, files (2026-10-12): `file.goose`. h2o's file handler, read for it, sends a
+  file with `pread` in pieces by default and with `sendfile` where the platform has
+  one, through a pipe on io_uring, and closes the file when its generator is
+  disposed. Here, `http::open_file`, `http::serve_file` (304, 416, 206, or 200, with
+  `ETag`, `Last-Modified`, and `Accept-Ranges`), and `http::send_file`, which reads up
+  to 64 KB at each `MORE` with a shim function per platform (`pread`, or `ReadFile`
+  at an offset on Windows), and the event `CLOSED`, which the loops send a handler
+  still owed a call when its connection closes, so that it can close the file. Also
+  `http::is_safe_path` and `http::content_type_of`, and 206 and 416 among the status
+  lines. Each piece is read into a buffer of its own and copied: `Reply.common` is a
+  byte slice that, for all the checker knows, points into the write buffer, so the
+  write buffer can't shrink back past a failed read (spec §5.1). `http_client.py`'s
+  `files` checks the benchmark server's `/files/` on every loop, Linux and Windows,
+  and `test-http.sh` that no file stays open after clients leave halfway, which it
+  failed with `CLOSED` ignored; `test_http.goose`'s `test_files` checks the helpers.
+  macOS: `shim/kqueue.c`'s functions passed only the syntax check with stub headers.
 
 Next, in order:
 
 1. Run the tests on macOS (`scripts/test.sh`): the kqueue table change, the stop, and
    the restart, none of which has run there yet.
 2. Split the streaming loop's cost further, and remove what can go.
-3. Files through `sendfile` (item 16's rest), with a shim function per platform.
+3. `sendfile` for files on the epoll loop, which saves `send_file`'s copies, once a
+   measurement shows they matter.
 
 ## Streaming design (2026-10-12)
 

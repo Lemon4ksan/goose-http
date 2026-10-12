@@ -151,6 +151,15 @@ until the task named beside it confirms or replaces it.
     request than before it, of about 1,460, and 1-2% more cycles; in
     `bench/run.sh`'s cells, 0-3% fewer requests per second, the most with 4 workers
     on plaintext. Task 013 records the measurements.
+- **Files read in pieces, and a call for an exchange cut short** (task 013, 2026-10-12).
+  `http::send_file` reads a file with `pread`, 64 KB at a time, into the response at
+  each `MORE`, as h2o's file handler reads by default: one path for every loop, where
+  the io_uring and IOCP loops have no `sendfile` and h2o reaches it on io_uring only
+  through a pipe. The handler keeps the file in its state, so the loops call it with
+  `CLOSED` when a connection closes, or a stop ends the loop, while the handler is owed a
+  call, as h2o disposes of a generator; without it, a client that left mid-file would
+  leave the file open. `sendfile` on the epoll loop, which saves the copy, is left for
+  later.
 - **Graceful shutdown by a counter, not a wakeup** (task 013, 2026-10-12).
   `http::stop()`, and `SIGTERM` or `SIGINT` once a program calls
   `http::stop_on_signals()` (Ctrl+C and Ctrl+Break on Windows), add one to a counter

@@ -109,6 +109,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
 
     fn close_conn(i: i64) {
         let c .= conns[i];
+        abandon(c, H);
         net_close(c.fd);
         c.fd = -1;
         if c.held.len > 0 { spill.free_slice(c.held); }

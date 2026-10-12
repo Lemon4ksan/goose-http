@@ -24,12 +24,17 @@ let REUSEPORT: i32 = 2;   // net_listen only
 // The error codes the loops tell apart, Linux's errno values. shim/net.c
 // asserts each one, shim/kqueue.c translates macOS's errno to them, and
 // shim/net_win.c Winsock's and Win32's errors.
+let ENOENT = 2;
 let EINTR = 4;
 let EAGAIN = 11;
+let EACCES = 13;
+let ENOTDIR = 20;
+let EISDIR = 21;
 let EINVAL = 22;
 let ENFILE = 23;
 let EMFILE = 24;
 let EPIPE = 32;
+let ENAMETOOLONG = 36;
 let ENOSYS = 38;
 let EADDRINUSE = 98;
 let ECONNABORTED = 103;

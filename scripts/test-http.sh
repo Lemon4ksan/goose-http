@@ -21,6 +21,8 @@ client="python3 $root/scripts/http_client.py $port"
 oha=$(command -v oha || echo "$HOME/.cargo/bin/oha")
 log=$(mktemp)
 out=$(mktemp)
+# The directory the server's /files/ serves, which the client fills.
+files=$(mktemp -d)
 pid=
 case $(uname -s) in
 MINGW* | MSYS*) windows=1 ;;
@@ -29,6 +31,9 @@ esac
 # Named in full on Windows: Git Bash runs build/server before build/server.exe,
 # and a Linux build in the same tree leaves one.
 server=$root/build/server${windows:+.exe}
+# A native program on Windows takes a Windows path.
+if [ -n "$windows" ]; then files_path=$(cygpath -m "$files"); else files_path=$files; fi
+export FILES="$files_path"
 
 # Ends the server. Git Bash's kill doesn't always end a native program, so
 # on Windows it goes by the Windows process id.
@@ -46,7 +51,8 @@ if [ -n "$pid" ]; then
     [ $status -eq 0 ] || { echo "server output:"; cat "$log"; }
     end_server 2>/dev/null || true
 fi
-rm -f "$log" "$out"' EXIT
+rm -f "$log" "$out"
+rm -rf "$files"' EXIT
 
 # Sets the fd limit, which Windows has none of for native programs.
 limit_fds() {
@@ -123,6 +129,15 @@ if [ -r "/proc/$pid/status" ] && [ -z "$windows" ]; then
     peak=$(awk '/^VmHWM/ {print $2}' "/proc/$pid/status")
     [ "$peak" -lt 65536 ] || fail "the server's peak RSS reached $peak kB"
     echo "stream: peak RSS $peak kB"
+fi
+$client files "$files_path"
+# Every file a response opened is closed, with its client gone or not. Linux
+# only: elsewhere there's no /proc.
+if [ -d "/proc/$pid/fd" ] && [ -z "$windows" ]; then
+    sleep 1
+    held=$(ls -l "/proc/$pid/fd" | grep -c "$files" || true)
+    [ "$held" = 0 ] || fail "the server holds $held files open"
+    echo "files: none left open"
 fi
 $client chunked
 $client keepalive

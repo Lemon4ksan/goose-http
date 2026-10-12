@@ -114,6 +114,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
 
     fn close_conn(i: i64) {
         let c .= conns[i];
+        abandon(c, H);
         ring_close(r, c.fd);
         c.fd = -1;
         c.tag = 0;
@@ -338,8 +339,12 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     }
 
     let failed = spin();
-    for c in conns {
-        if c.fd >= 0 { net_close(c.fd); }
+    for i in conns.len {
+        let c .= conns[i];
+        if c.fd >= 0 {
+            abandon(c, H);
+            net_close(c.fd);
+        }
     }
     if lfd >= 0 { net_close(lfd); }
     // Submits the closes still queued, then frees the ring.

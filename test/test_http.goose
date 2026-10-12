@@ -773,6 +773,48 @@ fn test_reply() {
     same(j, "\"a\\\"b\\\\c\\u000a\\u0001\"");
 }
 
+fn test_files() {
+    assert(http::is_safe_path("a/b.txt") && http::is_safe_path("a..b/.c") && http::is_safe_path("x"));
+    for p in ["../a", "a/..", "a/./b", ".", "a\\b", "c:x"] { assert(!http::is_safe_path(p)); }
+    assert(http::content_type_of("a/b.HTML") == "text/html; charset=utf-8");
+    assert(http::content_type_of("x.tar.gz") == "application/gzip");
+    assert(http::content_type_of("README") == "application/octet-stream");
+    assert(http::content_type_of("a.d/README") == "application/octet-stream");
+    let none, missing = http::open_file("no such file here");
+    assert(missing == 404 && none.fd < 0);
+
+    // A file larger than a piece, whole and as a range.
+    var data: u8[>..] = [];
+    for i in 200000 { data.push((i % 251) as! u8); }
+    let name = "test_files.tmp";
+    assert(write_file(name, data));
+    for ranged in [false, true] {
+        let f, s = http::open_file(name);
+        assert(s == 200 && f.size == data.len);
+        var rb: u8[>..] = [];
+        let req = get_with(if ranged { "Range: bytes=70000-70009\r\n" } else { "" }, rb);
+        var out: u8[>..] = [];
+        var keep = true;
+        var st = http::Stream { .. };
+        var body = http::FileBody { .. };
+        let reply = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: st };
+        http::serve_file(req, reply, f, "a/b", body);
+        var more = 0;
+        while http::send_file(reply, body) { more++; }
+        http::end(reply);
+        assert(body.fd == -1 && keep);
+        if ranged {
+            assert(more == 0 && ends_with(out, data[70000..70010]));
+            assert(find(out, "206 Partial Content") >= 0);
+            assert(find(out, "Content-Range: bytes 70000-70009/200000\r\n") >= 0);
+        } else {
+            assert(more == 3 && ends_with(out, data));
+            assert(find(out, "Content-Length: 200000\r\n") >= 0);
+        }
+    }
+    assert(delete_file(name));
+}
+
 fn main() {
     test_parse();
     test_fields();
@@ -790,5 +832,6 @@ fn main() {
     test_router();
     test_upgrade();
     test_conditional();
+    test_files();
     print("test_http: ok");
 }

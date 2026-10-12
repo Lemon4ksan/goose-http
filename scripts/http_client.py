@@ -5,6 +5,8 @@
     http_client.py PORT large       responses larger than the write buffer
     http_client.py PORT chunked     chunked request bodies, and HttpArena's /baseline11
     http_client.py PORT stream      bodies and responses of any size, in pieces, and Expect
+    http_client.py PORT files DIR   /files/, after writing its files into DIR, the
+                                    directory the server's FILES names
     http_client.py PORT keepalive   keep-alive, Connection: close, HTTP/1.0
     http_client.py PORT hostile     malformed and oversized requests
     http_client.py PORT slow        slow clients, against the server's timeouts
@@ -709,6 +711,78 @@ def graceful_stop(port, send):
     print("stop: ok")
 
 
+def files(port, root):
+    """/files/NAME, the server's static files: whole, by HEAD, conditional, one
+    range, larger than the write buffer, pipelined, and to a client that
+    leaves halfway, after which test-http.sh checks the server holds no file
+    open."""
+    small = b"hello, file\n"
+    big = bytes(range(256)) * 20000 + b"end"
+    os.makedirs(os.path.join(root, "sub"), exist_ok=True)
+    for name, data in (("a.txt", small), ("sub/big.bin", big), ("sp ace.html", b"<p>")):
+        with open(os.path.join(root, name), "wb") as f:
+            f.write(data)
+
+    def get(path, extra=b"", method=b"GET"):
+        c = Conn(port, timeout=30)
+        c.send(request(path, method, extra))
+        r = c.response(head_only=method == b"HEAD")
+        c.close()
+        return r
+
+    def check(r, status, body, what):
+        if r.status != status or (body is not None and r.body != body):
+            fail(f"{what}: {r.status} {r.body[:60]!r}, want {status} {(body or b'')[:60]!r}")
+
+    r = get(b"/files/a.txt")
+    check(r, 200, small, "/files/a.txt")
+    if r.header("content-type") != "text/plain; charset=utf-8" or r.header("accept-ranges") != "bytes":
+        fail(f"/files/a.txt's fields: {r.headers}")
+    etag, modified = r.header("etag"), r.header("last-modified")
+    if not etag.startswith('"') or email.utils.parsedate_to_datetime(modified) is None:
+        fail(f"/files/a.txt's ETag {etag} or Last-Modified {modified}")
+    r = get(b"/files/a.txt", method=b"HEAD")
+    check(r, 200, b"", "HEAD /files/a.txt")
+    if r.header("content-length") != str(len(small)):
+        fail(f"HEAD /files/a.txt's Content-Length: {r.headers}")
+    check(get(b"/files/a.txt", b"If-None-Match: " + etag.encode() + b"\r\n"), 304, b"", "If-None-Match")
+    check(get(b"/files/a.txt", b"If-Modified-Since: " + modified.encode() + b"\r\n"), 304, b"",
+          "If-Modified-Since")
+    check(get(b"/files/a.txt", b'If-None-Match: "other"\r\n'), 200, small, "another If-None-Match")
+    check(get(b"/files/sp%20ace.html"), 200, b"<p>", "an escaped name")
+
+    r = get(b"/files/sub/big.bin", b"Range: bytes=100-199\r\n")
+    check(r, 206, big[100:200], "a range")
+    if r.header("content-range") != f"bytes 100-199/{len(big)}":
+        fail(f"a range's Content-Range: {r.headers}")
+    check(get(b"/files/sub/big.bin", b"Range: bytes=-3\r\n"), 206, b"end", "a suffix range")
+    r = get(b"/files/sub/big.bin", b"Range: bytes=%d-\r\n" % len(big))
+    check(r, 416, b"", "a range past the end")
+    if r.header("content-range") != f"bytes */{len(big)}":
+        fail(f"416's Content-Range: {r.headers}")
+
+    for path, status in ((b"/files/missing", 404), (b"/files/sub", 404), (b"/files/../a.txt", 404),
+                         (b"/files/sub/%2e%2e/a.txt", 404), (b"/files/a.txt%00", 404)):
+        check(get(path), status, None, path.decode())
+    check(get(b"/files/a.txt", method=b"POST"), 405, None, "POST /files/a.txt")
+
+    # Larger than the write buffer, twice pipelined on one connection.
+    c = Conn(port, timeout=30)
+    c.send(request(b"/files/sub/big.bin") * 2 + request(b"/files/a.txt"))
+    for want in (big, big, small):
+        check(c.response(), 200, want, "pipelined /files/")
+    c.close()
+
+    # A client that leaves with most of a response unread.
+    for _ in range(4):
+        c = Conn(port, rcvbuf=4096)
+        c.send(request(b"/files/sub/big.bin"))
+        c.sock.recv(1000)
+        c.close()
+    check(get(b"/files/a.txt"), 200, small, "/files/ after clients left")
+    print("files: ok")
+
+
 def emfile(port, n):
     """For a server with a low fd limit: n clients, more than it can hold.
     Those past the limit wait in the listen backlog until others close."""
@@ -764,6 +838,8 @@ def main():
     mode = sys.argv[2]
     if mode in ("many", "emfile", "stop"):
         {"many": many, "emfile": emfile, "stop": stop}[mode](port, int(sys.argv[3]))
+    elif mode == "files":
+        files(port, sys.argv[3])
     elif mode == "stop-break":
         stop_break(port, sys.argv[3])
     else:

@@ -151,6 +151,21 @@ thread_fn worker(cfg: http::Config) {
   after the request comes as `BODY`, and `http::send` writes bytes as they are, until
   `http::end` closes the connection. The protocol itself, WebSocket's framing for one,
   is the program's.
+- When a connection closes while the handler is still owed a call, a response open or a
+  body unread, the handler gets `CLOSED`, to release what its state holds.
+
+### Files
+
+`http::open_file(path)` opens a regular file, with 404 or 403 when it can't.
+`http::serve_file(req, out, f, http::content_type_of(path), st.file)` answers a `GET`
+or `HEAD` for it with 200, 206 for a range, 304, or 416, with `ETag`, `Last-Modified`,
+and `Accept-Ranges`; the handler then calls `http::send_file(out, st.file)` at each
+`MORE` until it returns false, and `http::end(out)`. Each call reads up to 64 KB with
+`pread`, so a file of any size goes out in pieces on every loop, and
+`http::close_body(st.file)` at `CLOSED` closes a file whose client left.
+`http::is_safe_path(path)` rejects a decoded path with a `.` or `..` segment, a
+backslash, or a colon, before it's joined to a directory. The benchmark server serves
+the directory `FILES` names at `/files/`.
 
 ## Event loops
 
@@ -208,8 +223,8 @@ size, whole or in pieces, a program's handler, and the C shim the loops need for
 syscalls; in the benchmark server, TechEmpower's plaintext and JSON endpoints and
 HttpArena's baseline and pipeline endpoints, and on `main`, configurable limits and
 timeouts, a graceful shutdown, a router, `Upgrade`, conditional requests, ranges,
-trailers, and a configurable `Server` field. Planned (task 013): files sent with
-`sendfile`.
+trailers, a configurable `Server` field, and files, read in pieces. Planned (task 013):
+files sent with `sendfile` on the epoll loop.
 Out of scope: TLS and HTTP/2 (task 014 plans them), and Windows as a benchmark
 platform.
 
@@ -218,8 +233,9 @@ platform.
 ```text
 http.goose     the package's entry: the settings, the errors, and what both loops share
 *.goose        its other modules, all namespace http: the parser and the response
-               writers (message.goose), the loops (uring.goose, epoll.goose), and the
-               shim's functions (sys.goose, ring.goose)
+               writers (message.goose), the loops (uring.goose, epoll.goose), the
+               router (router.goose), files (file.goose), and the shim's functions
+               (sys.goose, ring.goose)
 http.build     the package's sidecar: each platform's shim
 shim/          the C the package calls, linked by goose build: sockets, epoll, io_uring,
                and kqueue (macOS) and IOCP (Windows) in their place

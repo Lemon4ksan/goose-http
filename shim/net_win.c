@@ -46,7 +46,8 @@ static const struct { int32_t win, linux_errno; } net_win_errnos[] = {
     { WSAEREMOTE, 66 }, { WSAECANCELLED, 125 }, { WSA_OPERATION_ABORTED, 125 },
     { WSA_NOT_ENOUGH_MEMORY, 12 }, { ERROR_OUTOFMEMORY, 12 },
     { ERROR_TOO_MANY_OPEN_FILES, 24 }, { ERROR_INVALID_HANDLE, 9 },
-    { ERROR_ACCESS_DENIED, 13 }, { ERROR_INVALID_PARAMETER, 22 },
+    { ERROR_ACCESS_DENIED, 13 }, { ERROR_FILE_NOT_FOUND, 2 },
+    { ERROR_PATH_NOT_FOUND, 2 }, { ERROR_INVALID_NAME, 2 }, { ERROR_SHARING_VIOLATION, 13 }, { ERROR_INVALID_PARAMETER, 22 },
     { ERROR_NOT_SUPPORTED, 95 }, { ERROR_NETNAME_DELETED, 104 },
     { ERROR_CONNECTION_ABORTED, 103 }, { ERROR_CONNECTION_REFUSED, 111 },
     { ERROR_BROKEN_PIPE, 32 }, { ERROR_NO_DATA, 32 }, { ERROR_CALL_NOT_IMPLEMENTED, 38 },
@@ -326,4 +327,65 @@ static BOOL WINAPI net_on_console(DWORD event) {
    instead of ending the process. */
 int32_t net_stop_on_signals(void) {
     return SetConsoleCtrlHandler(net_on_console, TRUE) ? 0 : -net_win_err((int)GetLastError());
+}
+
+/* An i64[:]. */
+typedef struct { int64_t *data; int64_t len; } net_i64s;
+
+/* Opens path, UTF-8, for reading, as a HANDLE: a file on disk, else -EISDIR
+   for a directory and -EINVAL for anything else. Other programs may read,
+   write, rename, and delete it meanwhile, as on POSIX. Writes its size to
+   info[0] and its modification time, in seconds since the epoch, to info[1]. */
+int64_t net_file_open(net_bytes path, net_i64s info) {
+    WCHAR w[4096];
+    if (path.len >= 4096 || memchr(path.data, 0, (size_t)path.len)) return -2;
+    int n = path.len == 0 ? 0 : MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, (const char *)path.data,
+                                                    (int)path.len, w, 4095);
+    if (n == 0) return -2;
+    w[n] = 0;
+    DWORD attrs = GetFileAttributesW(w);
+    if (attrs == INVALID_FILE_ATTRIBUTES) return -net_win_err(GetLastError());
+    if (attrs & FILE_ATTRIBUTE_DIRECTORY) return -21;
+    HANDLE h = CreateFileW(w, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) return -net_win_err(GetLastError());
+    BY_HANDLE_FILE_INFORMATION fi;
+    if (GetFileType(h) != FILE_TYPE_DISK || !GetFileInformationByHandle(h, &fi)) {
+        CloseHandle(h);
+        return -22;
+    }
+    if (info.len >= 2) {
+        info.data[0] = (int64_t)((uint64_t)fi.nFileSizeHigh << 32 | fi.nFileSizeLow);
+        uint64_t t = (uint64_t)fi.ftLastWriteTime.dwHighDateTime << 32 | fi.ftLastWriteTime.dwLowDateTime;
+        info.data[1] = (int64_t)((t - 116444736000000000ull) / 10000000ull);
+    }
+    return (int64_t)(intptr_t)h;
+}
+
+/* Reads buf.len bytes of the file at off into buf, fewer only at the file's
+   end. Returns how many, or -code. The handle isn't opened for overlapped
+   I/O, so the OVERLAPPED only gives the offset, and the read is synchronous. */
+int64_t net_file_read(int64_t fd, net_bytes buf, int64_t off) {
+    int64_t got = 0;
+    while (got < buf.len) {
+        OVERLAPPED ov;
+        memset(&ov, 0, sizeof ov);
+        uint64_t at = (uint64_t)(off + got);
+        ov.Offset = (DWORD)at;
+        ov.OffsetHigh = (DWORD)(at >> 32);
+        int64_t want = buf.len - got;
+        DWORD n = 0;
+        if (!ReadFile((HANDLE)(intptr_t)fd, buf.data + got, want > 1 << 30 ? 1 << 30 : (DWORD)want, &n, &ov)) {
+            DWORD e = GetLastError();
+            if (e == ERROR_HANDLE_EOF) break;
+            return -net_win_err(e);
+        }
+        if (n == 0) break;
+        got += n;
+    }
+    return got;
+}
+
+void net_file_close(int64_t fd) {
+    CloseHandle((HANDLE)(intptr_t)fd);
 }

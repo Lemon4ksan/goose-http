@@ -251,6 +251,11 @@ once per loop. It needs curl, wrk, h2load, oha, `nc`, and `python3`
     `max_drain`, `Expect: 100-continue`, 10 MB echoed with each framing, 10 MB and
     100 MB downloads, a body to HTTP/1.0 that ends at the close, and an `Upgrade` to
     an echo. After it, on Linux, the server's peak RSS must be under 64 MB.
+  - `files`: `/files/`, from a temporary directory the script names in `FILES`: a
+    file whole, by `HEAD`, by `If-None-Match` and `If-Modified-Since`, one range, a
+    suffix range, and one past the end; 404 for a missing file, a directory, `..`, and
+    a NUL; a 5 MB file twice pipelined; and four clients that leave halfway. After
+    it, on Linux, the server must hold no file of that directory open.
   - `chunked`: chunked bodies, with an extension and a trailer field, dropped between
     pipelined requests and sent a byte at a time, and HttpArena's `/baseline11` with no
     body, a `Content-Length` body, and a chunked one.

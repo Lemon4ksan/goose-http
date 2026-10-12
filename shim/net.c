@@ -7,6 +7,7 @@
    failure. None of them keeps a pointer into Goose memory after it returns. */
 #define _GNU_SOURCE
 #include <errno.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <signal.h>
@@ -15,6 +16,7 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -22,7 +24,8 @@
    target the C compiles for. */
 _Static_assert(EINTR == 4 && EAGAIN == 11 && EPIPE == 32 && ECONNABORTED == 103 &&
                ECONNRESET == 104 && EADDRINUSE == 98 && EMFILE == 24 && ENFILE == 23 &&
-               EINVAL == 22,
+               EINVAL == 22 && ENOENT == 2 && EACCES == 13 && ENOTDIR == 20 && EISDIR == 21 &&
+               ENAMETOOLONG == 36,
                "errno values differ from src/sys.goose");
 _Static_assert(EPOLLIN == 0x001 && EPOLLOUT == 0x004 && EPOLLERR == 0x008 &&
                EPOLLHUP == 0x010 && EPOLLRDHUP == 0x2000 && EPOLLET == 1u << 31,
@@ -183,4 +186,58 @@ int32_t net_stop_on_signals(void) {
     sigemptyset(&sa.sa_mask);
     if (sigaction(SIGTERM, &sa, NULL) < 0 || sigaction(SIGINT, &sa, NULL) < 0) return -errno;
     return 0;
+}
+
+#define ERR(e) (e)
+
+/* An i64[:]. */
+typedef struct { int64_t *data; int64_t len; } net_i64s;
+
+/* Opens path, which holds no NUL, for reading: a regular file, else -EISDIR
+   for a directory and -EINVAL for anything else. O_NONBLOCK keeps a FIFO from
+   blocking the open; a regular file's reads ignore it. Writes its size to
+   info[0] and its modification time, in seconds since the epoch, to info[1]. */
+int64_t net_file_open(net_bytes path, net_i64s info) {
+    char p[4096];
+    if (path.len >= (int64_t)sizeof p) return -ERR(ENAMETOOLONG);
+    if (memchr(path.data, 0, (size_t)path.len)) return -ERR(ENOENT);
+    memcpy(p, path.data, (size_t)path.len);
+    p[path.len] = 0;
+    int fd = open(p, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+    if (fd < 0) return -ERR(errno);
+    struct stat st;
+    if (fstat(fd, &st) < 0) {
+        int e = errno;
+        close(fd);
+        return -ERR(e);
+    }
+    if (!S_ISREG(st.st_mode)) {
+        close(fd);
+        return S_ISDIR(st.st_mode) ? -ERR(EISDIR) : -ERR(EINVAL);
+    }
+    if (info.len >= 2) {
+        info.data[0] = (int64_t)st.st_size;
+        info.data[1] = (int64_t)st.st_mtime;
+    }
+    return fd;
+}
+
+/* Reads buf.len bytes of fd at off into buf, fewer only at the file's end.
+   Returns how many, or -code. */
+int64_t net_file_read(int64_t fd, net_bytes buf, int64_t off) {
+    int64_t got = 0;
+    while (got < buf.len) {
+        ssize_t n = pread((int)fd, buf.data + got, (size_t)(buf.len - got), (off_t)(off + got));
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -ERR(errno);
+        }
+        if (n == 0) break;
+        got += n;
+    }
+    return got;
+}
+
+void net_file_close(int64_t fd) {
+    close((int)fd);
 }

@@ -26,6 +26,7 @@ import ring;
 import epoll;
 import uring;
 import router;
+import file;
 
 // The server's settings. Each worker gets a copy, as thread_spawn copies
 // flat values.
@@ -140,6 +141,11 @@ let REQUEST: u8 = 0;    // a request's head, and its body if it came whole
 let BODY: u8 = 1;       // the next piece of a body that didn't come whole
 let END: u8 = 2;        // the end of that body
 let MORE: u8 = 3;       // room for more of a response begun with begin, once the body has ended
+// The connection closed, or the loop stopped, while the handler was owed
+// another call: its response begun and not ended, or its body not read to the
+// end. The handler releases what its state holds, as a file (close_body);
+// what it writes goes nowhere.
+let CLOSED: u8 = 4;
 
 struct Event {
     kind: u8,
@@ -174,6 +180,18 @@ struct Exchange<S> {
     minor: i32,
     stream: Stream,
     state: S,
+}
+
+// Calls H with CLOSED for c's exchange, if it was owed another call.
+fn abandon<H, C>(c: C&) {
+    let x .= c.x;
+    guard x.stream.open || (!x.skip && x.body.place != NO_BODY) else { return; }
+    var sink: u8[>..] = [];
+    let none = Request { .. };
+    H(Event { kind: CLOSED, req: none, data: "", whole: false, trailers: "" }, x.state,
+      Reply { buf: sink, common: "", keep_alive: x.keep_alive, minor: x.minor, head: x.head, stream: x.stream });
+    x.stream.open = false;
+    x.body.place = NO_BODY;
 }
 
 // The interim response a client that sent Expect: 100-continue waits for.

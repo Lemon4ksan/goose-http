@@ -1,9 +1,11 @@
 // The benchmark server's handler: TechEmpower's plaintext and JSON tests,
 // HttpArena's endpoints (bench/httparena), and for the tests, /bytes and
 // /stream, which send a response of any size in pieces, /upload and /echo,
-// which take a body of any size in pieces, and /upgrade, which switches to a
-// protocol that echoes bytes.
+// which take a body of any size in pieces, /upgrade, which switches to a
+// protocol that echoes bytes, and /files/NAME, the files of the directory
+// that FILES names.
 import std;
+import os;
 import http;
 
 // The most bytes /bytes and /stream send.
@@ -25,12 +27,14 @@ struct Transfer {
     count: i64 = 0,     // /upload: body bytes so far; /bytes, /stream: bytes sent
     left: i64 = 0,      // /bytes, /stream: bytes still to send
     sum: u64 = 0,       // /upload: the sum of the body's bytes
+    file: http::FileBody = http::FileBody { .. },   // /files/
 }
 
 let NONE: u8 = 0;
 let UPLOAD: u8 = 1;
 let ECHO: u8 = 2;
 let SEND: u8 = 3;
+let FILE: u8 = 4;
 
 // The handler: routes each request, and carries on with those that take or
 // send their bodies in pieces. Inline, so that http::start and http::finish
@@ -44,6 +48,12 @@ inline fn handle(ev: http::Event, st: Transfer&, out: http::Reply) {
     } else if st.route == ECHO {
         if ev.kind == http::BODY { http::send(out, ev.data); }
         else if ev.kind == http::END { http::end(out, ev.trailers); }
+    } else if st.route == FILE {
+        if ev.kind == http::MORE {
+            if !http::send_file(out, st.file) { http::end(out); }
+        } else if ev.kind == http::CLOSED {
+            http::close_body(st.file);
+        }
     } else if st.route == SEND && ev.kind == http::MORE {
         let k = min(st.left, PIECE);
         let at = st.count % 10;
@@ -93,11 +103,12 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
     let echo = path == "/echo";
     // Upgrade: echo switches the connection to echoing what comes, as it is.
     let raw = path == "/upgrade";
+    let files = starts_with(path, "/files/");
     let post = req.method == "POST";
     if !get && !post && !http::known_method(req.method) {
         http::start(out, 501);
         http::finish(out, "Content-Length: ", "");
-    } else if !get && (plaintext || json || pipeline || bytes || stream || raw || baseline && !post) ||
+    } else if !get && (plaintext || json || pipeline || bytes || stream || raw || files || baseline && !post) ||
               !post && (upload || echo) {
         http::start(out, 405);
         out.buf.append(if baseline { "Allow: GET, HEAD, POST\r\n" }
@@ -135,6 +146,8 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
         http::send(out, body);
         // A chunked body's trailers go back as the response's.
         if whole { http::end(out, trailers); } else { st.route = ECHO; }
+    } else if files {
+        serve_static(req, path[7..], st, out);
     } else if raw {
         if http::upgrade_of(req) == "echo" {
             http::upgrade(out, "echo");
@@ -153,6 +166,28 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
         http::start(out, 404);
         http::finish(out, "Content-Length: ", "");
     }
+}
+
+// /files/NAME: the file NAME, percent-decoded, in the directory FILES names.
+fn serve_static(req: http::Request, name: const u8[:], st: Transfer&, out: http::Reply) {
+    var dir: u8[>..] = [];
+    var decoded: u8[>..] = [];
+    var status: i32 = 404;
+    if env("FILES", dir) && dir.len > 0 && http::decode(name, decoded) && http::is_safe_path(decoded) {
+        var full: u8[>..] = [];
+        full.append(dir);
+        full.push('/');
+        full.append(decoded);
+        let f, s = http::open_file(full);
+        if s == 200 {
+            st.route = FILE;
+            http::serve_file(req, out, f, http::content_type_of(decoded), st.file);
+            return;
+        }
+        status = s;
+    }
+    http::start(out, status);
+    http::finish(out, "Content-Length: ", "");
 }
 
 fn take(st: Transfer&, data: const u8[:]) {
