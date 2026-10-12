@@ -554,3 +554,31 @@ one-block version does.
 Workaround: `each_cookie` (`cookie.goose`) reads the `Cookie` fields with its own loops
 over `field_at` instead of `each_field` and `each_split`, so `cookie_of`'s block is the
 only one.
+
+## A shrink in a `for` loop over a literal is refused for the literal's sake
+
+Found on `5c83a5a`, task 015. Status: open
+
+A call that shrinks a growable array declared inside a `for` loop's body is refused
+when the loop walks an array literal of strings: "the for loop iterates [...], whose
+elements may refer into buf". The literal's elements are static strings, and the array
+is created after the loop starts, so none can refer into it. Expected: it checks, as
+it does when the loop walks a range.
+
+    import std;
+
+    fn refill(buf: u8[>..]&, text: const u8[:]) {
+        buf.clear();
+        buf.append(text);
+    }
+
+    fn main() {
+        for s in ["a", "b"] {
+            var buf: u8[>..] = [];
+            refill(buf, s);
+            print(buf);
+        }
+    }
+
+Workaround: the tests call a function of their own for each element, which declares
+the array there (`test/test_api.goose`, `basic_ok`).

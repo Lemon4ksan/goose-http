@@ -1,5 +1,5 @@
 // Unit tests for the package's helpers for APIs: media types and Accept,
-// and cookies.
+// cookies, and Authorization.
 // scripts/test-unit.sh runs them through TinyCC.
 import std;
 import http from "../";
@@ -155,10 +155,56 @@ fn test_cookies() {
     assert(out.len == 0);
 }
 
+// Whether basic_auth takes the request with fields. A function of its own: a
+// call that shrinks an array declared in a for loop over a literal is refused
+// (docs/goose-findings.md).
+fn basic_ok(fields: const u8[:]) -> bool {
+    var buf: u8[>..] = [];
+    var decoded: u8[>..] = [];
+    let u, p, ok = http::basic_auth(request(fields, buf), decoded);
+    return ok;
+}
+
+fn test_auth() {
+    var buf: u8[>..] = [];
+    var decoded: u8[>..] = [];
+    let r = request("Authorization: bAsIc  QWxhZGRpbjpvcGVuIHNlc2FtZQ==\r\n", buf);
+    let scheme, cred, ok = http::authorization(r);
+    assert(ok && scheme == "bAsIc" && cred == "QWxhZGRpbjpvcGVuIHNlc2FtZQ==");
+    let user, pass, okb = http::basic_auth(r, decoded);
+    assert(okb && user == "Aladdin" && pass == "open sesame");
+    // The password may hold ':', and either may be empty.
+    var decoded2: u8[>..] = [];
+    let u2, p2, ok2 = http::basic_auth(request("Authorization: Basic OmE6Yg==\r\n", buf), decoded2);
+    assert(ok2 && u2 == "" && p2 == "a:b");
+    let bearer, token, okt = http::authorization(request("Authorization: Bearer abc.def-_~+/=\r\n", buf));
+    assert(okt && bearer == "Bearer" && token == "abc.def-_~+/=");
+    let alone, none, oka = http::authorization(request("Authorization: Negotiate\r\n", buf));
+    assert(oka && alone == "Negotiate" && none == "");
+    for bad in ["", "Authorization: Basic\r\n", "Authorization: Bearer abc\r\n",
+                "Authorization: Basic QWxhZGRpbg==\r\n", "Authorization: Basic QWxhZGRpbjpvcGVu!\r\n",
+                "Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ\r\n", "Authorization: B@sic x\r\n"] {
+        if basic_ok(bad) {
+            print("basic_auth took '", bad, "'");
+            assert(false);
+        }
+    }
+    let s1, c1, ok1 = http::authorization(request("Authorization: B@sic x\r\n", buf));
+    assert(!ok1);
+
+    var out: u8[>..] = [];
+    var keep = true;
+    var st = http::Stream { .. };
+    http::challenge(http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: st },
+                    "Basic realm=\"api\", charset=\"UTF-8\"");
+    same(out, "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"api\", charset=\"UTF-8\"\r\nContent-Length: 0\r\n\r\n");
+}
+
 fn main() {
     test_media_type();
     test_accept();
     test_refusals();
     test_cookies();
+    test_auth();
     print("test_api: ok");
 }

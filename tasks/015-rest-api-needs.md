@@ -139,3 +139,15 @@ xitca-http that `bench/` doesn't build.
   odin-http writes any cookie, escaping LF only. `each_cookie` reads the fields with its
   own loops because of a checker limit
   ([findings](../docs/goose-findings.md#a-closure-that-keeps-a-slice-through-two-nested-blocks-doesnt-settle)).
+- `Authorization` (`auth.goose`). No competitor in `bench/` reads `Authorization` or
+  answers 401: odin-http names the field only to keep it out of trailers
+  (`http.odin`), and xitca-web and its dependencies have no base64. Here,
+  `authorization` splits the scheme, a token, from its credentials at the spaces after
+  it. `basic_auth` takes the `Basic` scheme ignoring case (RFC 9110 §11.1), decodes the
+  credentials with the stdlib's `base64::decode`, which takes only the standard
+  alphabet with its padding, and splits them at the first `:`, as RFC 7617 §2 requires
+  of a user-id. It decodes into a buffer of its own and appends that to the caller's,
+  because the checker won't let `base64::decode` shrink the caller's buffer while the
+  request is live. `challenge` answers 401 with a `WWW-Authenticate` value, dropped as
+  `field` drops one if it's bad.
+

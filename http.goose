@@ -29,6 +29,7 @@ import router;
 import file;
 import media;
 import cookie;
+import auth;
 
 // The server's settings. Each worker gets a copy, as thread_spawn copies
 // flat values.
