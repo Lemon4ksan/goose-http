@@ -90,9 +90,7 @@ fn serve_file(req: Request, out: Reply, f: File, content_type: const u8[:], body
     }
     begin(out, status, e - a);
     if status == 206 { content_range(out, a, e, f.size); }
-    out.buf.append("Content-Type: ");
-    out.buf.append(content_type);
-    out.buf.append("\r\n");
+    field(out, "Content-Type", content_type);
     file_fields(out, tag, f.modified);
     body.off = a;
     body.left = e - a;

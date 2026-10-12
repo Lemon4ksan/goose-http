@@ -1,6 +1,6 @@
 # 015: What a REST and JSON API needs from the package
 
-Status: todo (asked for 2026-10-12)
+Status: in-progress (asked for 2026-10-12)
 
 A REST and JSON API, such as a Goose port of snowtime-native's, needs more from the
 package than task 013 gave it. TLS, HTTP/2, and compression are task 014's or later.
@@ -68,7 +68,41 @@ as task 013's did.
 - [ ] A handler reads the client's address on every loop, and a proxied request's,
       from trusted proxies only.
 - [ ] The server listens on IPv6, dual-stack, and on a Unix socket on Linux and macOS.
-- [ ] A field with CR, LF, or an invalid name never reaches the client.
+- [x] A field with CR, LF, or an invalid name never reaches the client (2026-10-12; see
+      "Checked fields")
 - [ ] Helpers for items 5 to 11, each with a check in `scripts/http_client.py` or
       `test/test_http.goose`.
 - [ ] The benchmark routes keep their rate, measured as task 013's were.
+
+## Checked fields (2026-10-12)
+
+A field that `http::is_field` refuses is dropped, and the rest of the response goes out.
+`is_field` takes a name of token characters (RFC 9110 §5.1) and a value that
+`is_field_value` takes. `field` checks each field, and so do the writers that take a
+name or value from the handler: `respond`'s and `serve_file`'s content type,
+`upgrade`'s protocol, and each line of `end`'s trailers. A handler that would rather
+answer 500 calls `is_field` before `start`. `finish`'s `fields` and the handler's own
+appends to `out.buf` stay unchecked, for constant text; the benchmark routes write their
+fields that way, so the check costs them nothing.
+
+What the competitors in `bench/` do with a bad field:
+
+- hyper and xitca-web take fields as the `http` crate's `HeaderName` and `HeaderValue`.
+  Building one from bytes returns an error for CR, LF, or another control byte
+  (`http` 1.4.2, `header/value.rs`, `is_valid`), so the program handles the error before
+  the response exists, often with a 500; `from_static` panics.
+- odin-http (`fac113f`) writes every field, escaping LF as the two bytes `\n` in names
+  and values (`headers.odin`, `sanitize_key`; `response.odin`,
+  `write_escaped_newlines`).
+- may-minihttp 0.1.11 takes whole field lines as `&'static str` and checks nothing.
+
+Dropping beats answering 500 here because the writers put the head into the write
+buffer as the handler calls them. By the time a field is refused, the status line and
+the fields before it are in the buffer, and a head begun in an earlier call may have
+gone to the client; a 500 could replace it only in some cases. Dropping keeps each
+response well formed in every case, and leaves the 500 to a handler that checks first,
+as hyper's programs do.
+
+Checks: `test/test_http.goose`, `test_reply` (bad names and values for `field` and
+`respond`) and `test_stream` (trailers).
+

@@ -724,9 +724,13 @@ inline fn start(out: Reply, status: i32) {
     status_fields(out.buf, status, out.common, out.keep_alive, out.minor);
 }
 
-// A field of the handler's own, between start and finish. name and value
-// hold no CR or LF.
+// A field of the handler's own, between start and finish, or begin and the
+// first send. A field that is_field refuses is dropped, so that a value from
+// the request can't split the response: check with is_field first to answer
+// otherwise. The fields given to finish, and what a handler appends to
+// out.buf itself, are written as they are, for constant text.
 inline fn field(out: Reply, name: const u8[:], value: const u8[:]) {
+    guard is_field(name, value) else { return; }
     out.buf.append(name);
     out.buf.append(": ");
     out.buf.append(value);
@@ -751,9 +755,7 @@ inline fn finish(out: Reply, fields: const u8[:], body: const u8[:]) {
 // A whole response: status, a Content-Type, and body.
 inline fn respond(out: Reply, status: i32, content_type: const u8[:], body: const u8[:]) {
     start(out, status);
-    out.buf.append("Content-Type: ");
-    out.buf.append(content_type);
-    out.buf.append("\r\n");
+    field(out, "Content-Type", content_type);
     finish(out, "Content-Length: ", body);
 }
 
@@ -815,7 +817,8 @@ fn send(out: Reply, data: const u8[:]) {
 
 // Ends the response begin started, or after an upgrade, the connection. A
 // chunked response ends with trailers, field lines each ending in CRLF, as
-// "Digest: x\r\n" (RFC 9112 §7.1.2); any other drops them.
+// "Digest: x\r\n" (RFC 9112 §7.1.2), less any line field would drop; any
+// other response drops them all.
 fn end(out: Reply, trailers: const u8[:] = "") {
     let s .= out.stream;
     guard s.open else { return; }
@@ -829,7 +832,12 @@ fn end(out: Reply, trailers: const u8[:] = "") {
     guard !s.bodyless && !out.head else { return; }
     if s.chunked {
         out.buf.append("0\r\n");
-        out.buf.append(trailers);
+        each_split(trailers, "\r\n") {
+            if it.len > 0 {
+                let colon = position(it, ':');
+                if colon > 0 { field(out, it[..colon], trim_ows(it[colon + 1..])); }
+            }
+        };
         out.buf.append("\r\n");
     } else if s.left > 0 {
         out.keep_alive = false;
@@ -983,6 +991,21 @@ fn common_fields<A>(out: A&, server: const u8[:], t: i64) {
     out.append("Date: ");
     format_date(out, t);
     out.append("\r\n");
+}
+
+// Whether a response can carry the field name: value. The name is a token
+// (RFC 9110 §5.1), and the value as is_field_value takes it.
+fn is_field(name: const u8[:], value: const u8[:]) -> bool {
+    return name.len > 0 && find_any(name, NAME_END) < 0 && is_field_value(value);
+}
+
+// s without the spaces and tabs around it.
+fn trim_ows(s: const u8[:]) -> const u8[:] {
+    var a = 0;
+    while a < s.len && (s[a] == ' ' || s[a] == '\t') { a++; }
+    var b = s.len;
+    while b > a && (s[b - 1] == ' ' || s[b - 1] == '\t') { b--; }
+    return s[a..b];
 }
 
 // Whether s can be a field's value: visible bytes, spaces, and tabs, with

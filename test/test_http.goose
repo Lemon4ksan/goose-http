@@ -538,6 +538,13 @@ fn test_stream() {
     http::send(c, "ab");
     http::end(c, "Digest: x\r\n");
     same(out[m6..], "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nab\r\n0\r\nDigest: x\r\n\r\n");
+
+    // A trailer line field would drop is dropped, and the rest go out as
+    // fields do; a bare LF can't end one.
+    let m7 = out.len;
+    http::begin(c, 200, -1);
+    http::end(c, "A:1\r\nB C: 2\r\nD: 3\nE: 4\r\nno colon\r\n\r\nF:\t5 \r\nG: \x01\r\n");
+    same(out[m7..], "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nA: 1\r\nF: 5\r\n\r\n");
 }
 
 // The request text's head, parsed, with the extra field lines.
@@ -767,6 +774,33 @@ fn test_reply() {
     var wbuf: u8[..256] = [];
     http::refuse(wbuf, 431, COMMON);
     same(wbuf, "HTTP/1.1 431 Request Header Fields Too Large\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+
+    // A field with CR, LF, or a bad name never reaches the client: it's
+    // dropped, and so is a bad content type.
+    keep = true;
+    assert(http::is_field("X-A", "b c") && http::is_field("X-A", "") && http::is_field("!#$%&'*+-.^_`|~09", "\x80\tx"));
+    let bad_names = ["", "X A", "X:A", "X\r\nY", "X\x80", "(X)", "X\t"];
+    let bad_values = ["a\r\nSet-Cookie: x=1", "a\nb", "a\rb", "a\x00", "a\x7f", " a", "a\t", "\r\n"];
+    for n in bad_names {
+        out.clear();
+        let bn = http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: nobody };
+        http::start(bn, 200);
+        http::field(bn, n, "v");
+        http::finish(bn, "Content-Length: ", "");
+        same(out, "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+    }
+    for v in bad_values {
+        out.clear();
+        let bv = http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: nobody };
+        http::start(bv, 302);
+        http::field(bv, "Location", v);
+        http::finish(bv, "Content-Length: ", "");
+        same(out, "HTTP/1.1 302 Found\r\nContent-Length: 0\r\n\r\n");
+        out.clear();
+        http::respond(http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: nobody },
+                      200, v, "");
+        same(out, "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+    }
 
     var j: u8[>..] = [];
     http::json_string(j, "a\"b\\c\n\x01");
