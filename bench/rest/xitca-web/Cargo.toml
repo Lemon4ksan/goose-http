@@ -1,0 +1,22 @@
+[package]
+name = "rest-xitca-web"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# bench/xitca-web's crates, after TechEmpower's xitca-web entry, and the
+# routes (bench/rest/rust). Cargo.lock started from bench/xitca-web's.
+[dependencies]
+futures-core = "0.3"
+mimalloc = { version = "0.1", default-features = false }
+rest-app = { path = "../rust" }
+xitca-http = { version = "=0.8.2", features = ["io-uring"] }
+xitca-server = { version = "=0.6.1", features = ["io-uring"] }
+xitca-service = "0.3"
+
+# The entry's profile.
+[profile.release]
+lto = true
+opt-level = 3
+codegen-units = 1
+panic = "abort"
