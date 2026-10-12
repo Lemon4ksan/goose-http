@@ -87,6 +87,23 @@ in a head of about 1.2 KB with a browser's other fields.
 A month of the whole team is no request a schedule view makes; a month of one person,
 about 300 bookings, can be the rare case.
 
+**D. writes** (proposed 2026-10-12, after B and C): tiers A to C are almost all reads,
+and only B sends small JSON bodies, so none of them measures what the HTTP layer does
+with a request body. Tier D sends large and structured bodies, and each answer is
+computed from the body, so the checker can verify that the server read all of it.
+
+| Request | Body | Response |
+|---|---|---|
+| `POST /api/v3/imports` | a CSV of several MB, `Transfer-Encoding: chunked` | 201, per-column counts and sums, and the row count |
+| `POST /api/v3/attachments` | `multipart/form-data`: a few text fields and a file part of 100 KB to 1 MB | 201, the fields echoed, and the file's size and checksum |
+| `POST /api/v3/bookings/batch` | JSON of a few hundred KB, an array of bookings | 201 with each booking's new id, or 422 with a list of field errors |
+| `POST /api/v3/forms` | `application/x-www-form-urlencoded`, 50 to 100 fields | 200, the decoded fields as JSON |
+
+The parsing, the CSV and multipart included, is Goose's, as the rest of the server is.
+Still open: the mix and its shares, the body sizes, whether uploads come in one
+connection's pipeline or spread across all of them, and which competitors stream a body
+rather than buffer it whole.
+
 ## How it runs
 
 - Each tier at saturation (requests per second) and at a fixed offered rate (p50 and p99
@@ -125,6 +142,7 @@ and template gains hyper 7-11% over serde_json. One Goose epoll run in round 1 c
 
 ## Acceptance criteria
 
+- [ ] Tier D's open questions settled, and the tier built as A to C are
 - [ ] The generator, writing each tier's dataset files from a fixed seed
 - [ ] Each tier's routes in Goose, loading the files, in both JSON ways
 - [ ] Each tier's wrk script and checker, passing against Goose
