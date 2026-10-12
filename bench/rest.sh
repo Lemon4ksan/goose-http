@@ -32,7 +32,8 @@
 #   SERVER_CPUS    0-3, WORKERS the number of them
 #   CLIENT_CPUS    4-15, CLIENT_THREADS 8
 #   RUNS 3, DURATION 15, WARMUP 5, PORT 29380
-#   STEPS          1 2 3 4. Steps 3 and 4 without step 1 need the RATE_*.
+#   STEPS          1 2 3 4. Without step 1, step 3 needs RATE_A, RATE_B, and
+#                  RATE_C, and step 4 RATE_C.
 #   MACHINE        a short name for the machine (the host name), for OUT
 #   DATA           build/rest; OUT bench/results/<date>-rest-<machine>
 #   ZRK            zrk 2.3.0's x86-64 release, as HttpArena pins it
@@ -217,14 +218,12 @@ done
 
 # The fixed rates, from step 1's results unless given.
 rate_a=${RATE_A:-} rate_b=${RATE_B:-} rate_c=${RATE_C:-}
-for t in a b c; do
+case " $steps " in *" 3 "*) need="a b c" ;; *" 4 "*) need=c ;; *) need= ;; esac
+for t in $need; do
     eval "r=\$rate_$t"
-    case " $steps " in *" 3 "* | *" 4 "*)
-        [ -n "$r" ] || r=$(python3 "$root/bench/rest/summary.py" --half "$out" "$t")
-        eval "rate_$t=$r"
-        echo "rate $t: $r" | tee -a "$out/env.txt"
-        ;;
-    esac
+    [ -n "$r" ] || r=$(python3 "$root/bench/rest/summary.py" --half "$out" "$t")
+    eval "rate_$t=$r"
+    echo "rate $t: $r" | tee -a "$out/env.txt"
 done
 
 for run in $(seq "$runs"); do
