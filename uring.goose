@@ -155,7 +155,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
             else { copy_into(rbuf[rlen..rlen + k], src[off..off + k]); }
             rlen += k;
             off += k;
-            let rest, done, full = answer(c, rbuf, rlen, wbuf, common, cfg, fresh, stopping, H) {
+            let rest, done, full = answer(c, rbuf, rlen, wbuf, common, cfg, fresh, stopping, now, H) {
                 flush(c);
                 !blocked(c)
             };
@@ -197,6 +197,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
                 ring_take(r, cq.buf, 0, c.held[m..]);
             } else {
                 rlen = c.held.len;
+                if rlen == 0 { c.x.since = now; }
                 if rlen > 0 {
                     copy_into(rbuf[..rlen], c.held);
                     spill.free_slice(c.held);

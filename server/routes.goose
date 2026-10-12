@@ -4,7 +4,8 @@
 // which take a body of any size in pieces, /upgrade, which switches to a
 // protocol that echoes bytes, /files/NAME, the files of the directory that
 // FILES names, and /client, the peer's address and port and the client's,
-// trusting proxies on loopback.
+// trusting proxies on loopback. With ACCESS_LOG set, each response is logged
+// to stdout (logged).
 import std;
 import os;
 import http;
@@ -43,6 +44,8 @@ let FILE: u8 = 4;
 inline fn handle(ev: http::Event, st: Transfer&, out: http::Reply) {
     if ev.kind == http::REQUEST {
         route(ev.req, ev.data, ev.whole, ev.trailers, st, out);
+    } else if ev.kind == http::DONE {
+        logged(ev, out);
     } else if st.route == UPLOAD {
         if ev.kind == http::BODY { take(st, ev.data); }
         else if ev.kind == http::END { uploaded(st, out); }
@@ -206,6 +209,18 @@ fn client(req: http::Request, out: http::Reply) {
         text.push('\n');
     }
     http::respond(out, if known && found { 200 } else { 500 }, "text/plain", text);
+}
+
+// A response's line of the access log: the peer, the status, the bytes
+// sent, the milliseconds taken, and the target, or "-" for a response that
+// ended after REQUEST.
+fn logged(ev: http::Event, out: http::Reply) {
+    var line: u8[>..] = [];
+    let p, known = http::peer(out);
+    if known { http::format_address(line, p); } else { line.push('-'); }
+    format(line, " ", ev.status, " ", ev.sent, " ", ev.ms, " ");
+    line.append(if ev.req.target.len > 0 { ev.req.target } else { "-" });
+    print(line);
 }
 
 fn take(st: Transfer&, data: const u8[:]) {

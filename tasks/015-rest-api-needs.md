@@ -72,9 +72,10 @@ as task 013's did.
 - [ ] The server listens on IPv6, dual-stack, and on a Unix socket on Linux and macOS.
 - [x] A field with CR, LF, or an invalid name never reaches the client (2026-10-12; see
       "Checked fields")
-- [ ] Helpers for items 5 to 11, each with a check in `scripts/http_client.py` or
-      `test/test_http.goose`. (Items 5-8, 10, and 11 have theirs, in
-      `test/test_api.goose` and `scripts/http_client.py`, 2026-10-12; item 9 is next.)
+- [x] Helpers for items 5 to 11, each with a check in `scripts/http_client.py` or
+      `test/test_http.goose` (2026-10-12: items 5-8, 10, and 11 in
+      `test/test_api.goose` and `scripts/http_client.py`; item 9 in
+      `scripts/http_client.py`. See "Helpers" and "The access log")
 - [x] The benchmark routes keep their rate (2026-10-12, on the Mac and in Docker on it,
       `288c868` against `26e073f`; see "The benchmark routes' rate")
 
@@ -233,6 +234,51 @@ socket's own address and port. The rate holds: on the Mac, `bench/count.sh`'s lo
 `/usr/bin/time -l`, kernel included, 3 rounds alternating) gave 17,547-17,557
 instructions per request against 17,541-17,547 on epoll, and 17,763-17,777 against
 17,777-17,787 on the ring, within the 30 a run varies.
+
+## The access log (2026-10-12)
+
+With `Config.log`, each loop calls the handler given state with `DONE` once a response
+is whole in the write buffer: `Event.status`, as `start` or a refusal of the loop's gave
+it; `Event.sent`, the response's bytes, head included; and `Event.ms`, the loop's clock
+from the read that brought the head's first byte. `Reply.fd` gives the peer through
+`http::peer` or `http::client`. `Event.req` is the request when its response was whole
+at `REQUEST`; after a body in pieces or a streamed response, the read buffer no longer
+holds it, so the handler keeps in its state what it wants to log. `answer` sends `DONE`
+from the three places a response becomes whole: after `REQUEST`, after the call that
+ends it, and after a refusal of the loop's (500 for a handler that didn't answer, 400
+or 413 for a body). A response cut short by a close gets `CLOSED` instead, an upgraded
+connection gets only `CLOSED`, and a request refused before `REQUEST` (400, 414, 431)
+isn't logged.
+
+The time ends at the write buffer, not at the client's last byte: the loops batch
+responses into one send and don't track where each ends. It is the loop's clock,
+milliseconds and up to a scheduler tick old, as nginx's `$request_time` reads the time
+it caches per event loop pass (recalled, not checked in code). Each read that finds the
+read buffer empty sets `Exchange.since`; a pipelined request whose head began in an
+earlier read than the one before it gets that earlier read's time.
+
+A `DONE` event, not a second function: `serve` takes one handler, and the handler's
+state still holds the request's at `DONE`. odin-http (`fac113f`) writes no line per
+response: its `core:log` calls are diagnostics, such as "no route matched"
+(`routing.odin`) and connection events (`server.odin`), and `middleware_proc`
+(`handlers.odin`) lets a program wrap a handler. The other competitors weren't checked
+for a hook.
+
+Check: `scripts/http_client.py`'s `log`, against a server started with `ACCESS_LOG`,
+whose handler prints each `DONE` (`server/routes.goose`, `logged`). It checks a whole
+response, a 404, a streamed response, a body in pieces, and a head whose first byte
+came 0.3 s before the rest, for the status, the bytes as the client got them, the
+target, and the time.
+
+The rate: on the Mac, with `bench/count.sh`'s load as in "The client's address",
+alternating with `52e7fc8`, the build with the log off took 17,561-17,587 instructions
+per request against 17,533-17,556 on epoll (15 rounds), and 17,783-17,808 against
+17,767-17,771 on the ring (3 rounds): about 25 more on epoll and 12-40 on the ring,
+0.1-0.2%, kernel included. Neither the status
+store in `start`, the arrival time in the loop, nor `Event`'s three new fields accounts
+for it: a build without each measured the same, and one without the `DONE` calls on the
+whole-request path took 130 more, so it follows gcc's layout of `answer` rather than
+the work added.
 
 ## The benchmark routes' rate (2026-10-12)
 

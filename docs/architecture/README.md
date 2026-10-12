@@ -131,7 +131,8 @@ until the task named beside it confirms or replaces it.
   connection's slot (`http::Exchange`). Task 013's file records how the servers
   read for it shape the same thing.
   - `http::serve(cfg, fresh)` and `http::serve_epoll(cfg, fresh)` call the handler
-    with an `http::Event`: `REQUEST`, `BODY`, `END`, and `MORE`. `serve(cfg)` is a
+    with an `http::Event`: `REQUEST`, `BODY`, `END`, and `MORE`, and `DONE` with
+    `Config.log`. `serve(cfg)` is a
     wrapper that answers `REQUEST` alone. A body that fits in the read buffer with
     its head comes whole at `REQUEST`, which keeps the benchmarks' path one call per
     request.
@@ -160,6 +161,17 @@ until the task named beside it confirms or replaces it.
   call, as h2o disposes of a generator; without it, a client that left mid-file would
   leave the file open. `sendfile` on the epoll loop, which saves the copy, is left for
   later.
+- **The client's address on demand, and the access log as an event** (task 015,
+  2026-10-12). `Reply.fd` carries the connection's socket, and `http::peer` calls
+  `getpeername` only when a handler asks, since the io_uring loop's multishot accept
+  passes no address; a client behind a proxy comes from `Forwarded` or
+  `X-Forwarded-For` only when the peer is in the program's trusted networks. With
+  `Config.log`, the loops call the handler with `DONE` once a response is whole in the
+  write buffer, with its status, its bytes, and the milliseconds of the loop's clock
+  since the read that brought the head's first byte, rather than take a second
+  function: the handler's state still holds what it kept of the request. It ends at
+  the write buffer, not at the client's last byte, which the loops don't track per
+  response.
 - **Graceful shutdown by a counter, not a wakeup** (task 013, 2026-10-12).
   `http::stop()`, and `SIGTERM` or `SIGINT` once a program calls
   `http::stop_on_signals()` (Ctrl+C and Ctrl+Break on Windows), add one to a counter

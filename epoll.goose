@@ -178,7 +178,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
         loop {
             var full = false;
             if c.state == OPEN && (rlen > 0 || c.x.stream.open && c.x.body.place == NO_BODY) {
-                let rest, done, f = answer(c, rbuf, rlen, wbuf, common, cfg, fresh, stopping, H) { false };
+                let rest, done, f = answer(c, rbuf, rlen, wbuf, common, cfg, fresh, stopping, now, H) { false };
                 rlen = rest;
                 if done > 0 { progress = true; }
                 full = f;
@@ -202,6 +202,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
             if drained { return wait(c, progress); }
             // answer leaves rbuf full only to refuse the request with 431 or
             // 413, so an OPEN connection always has room to read into.
+            if rlen == 0 { c.x.since = now; }
             let room = if c.state == DRAINING { rbuf.len } else { rbuf.len - rlen };
             let r = if c.state == DRAINING { net_recv(c.fd, rbuf) }
                     else { net_recv(c.fd, rbuf[rlen..]) };

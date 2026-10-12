@@ -267,6 +267,8 @@ once per loop. It needs curl, wrk, h2load, oha, `nc`, and `python3`
     in a pipeline, and `HEAD`.
   - `client`: `/client`'s peer address and port against the client socket's own, and
     the client a loopback proxy forwarded for, from `X-Forwarded-For` and `Forwarded`.
+  - `log`: the access log, against a server started with `ACCESS_LOG`, read from its
+    output: status, bytes, target, and time per response.
   - `hostile`: 23 malformed or oversized requests, each refused with its status (400,
     413, 414, 431, 501, or 505) and the connection closed, and a refusal after a good
     request in a pipeline.

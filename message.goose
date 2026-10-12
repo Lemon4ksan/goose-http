@@ -719,6 +719,7 @@ struct Stream {
     moved: bool = false,    // send was given bytes, which HEAD and a bodyless status drop
     raw: bool = false,      // upgraded: send writes bytes as they are
     left: i64 = 0,          // of a Content-Length body, the bytes still to send; -1 for none
+    status: i32 = 0,        // what start was last given
 }
 
 // The writers below are inline, so that a handler's constant status picks
@@ -729,6 +730,7 @@ struct Stream {
 // Config.server is empty, Date, and Connection where HTTP/1.x's default isn't
 // what the connection does.
 inline fn start(out: Reply, status: i32) {
+    out.stream.status = status;
     out.stream.bodyless = status < 200 || status == 204 || status == 304;
     status_fields(out.buf, status, out.common, out.keep_alive, out.minor);
 }

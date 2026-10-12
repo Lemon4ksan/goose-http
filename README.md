@@ -48,7 +48,7 @@ HTTP/1.1 on `main`. The tag `v0.1.0` has fixed-size requests and responses only.
 | 🔴 | Answers that wait: another thread, a timer, long polling, SSE | Soon |
 | 🟢 | Client address. `Forwarded` from trusted proxies. | Not run on Windows yet |
 | 🔴 | IPv6, dual-stack, Unix sockets | Soon |
-| 🔴 | Access log | Next |
+| 🟢 | Access log, as a `DONE` event | |
 
 CORS, sessions, middleware, and an HTTP client are out of scope. They belong to a
 framework.
@@ -243,6 +243,7 @@ thread_fn worker(cfg: http::Config) {
 | `END` | The body is complete. Request trailers are in `ev.trailers`, here or at a whole body's `REQUEST`; `http::field_in` finds one. |
 | `MORE` | A response is open, the body has ended, and the connection has room to send. |
 | `CLOSED` | The connection closed while the handler was owed a call. Release what `st` holds. |
+| `DONE` | With `Config.log`, the response is whole: `ev.status`, `ev.sent` bytes, and `ev.ms` from the head's first byte, for an access log. `ev.req` is the request only when it was answered at `REQUEST`. |
 
 - `http::begin(out, status, length)` opens a response: `Content-Length`, or chunked
   for -1. HTTP/1.0 then closes at the end.

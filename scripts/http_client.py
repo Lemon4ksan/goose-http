@@ -692,11 +692,12 @@ def graceful_stop(port, send):
         fail(f"the idle connection closed {time.time() - t0:.1f} s after the stop")
     # Every worker's listener closes within a second or so. Windows refuses a
     # connection to a closed port only after retrying for about 2 s, so a
-    # timeout counts as refused.
+    # timeout counts as refused, and on Linux a connection queued on a
+    # listener as it closes is reset.
     while True:
         try:
             socket.create_connection((HOST, port), 1).close()
-        except (ConnectionRefusedError, TimeoutError):
+        except (ConnectionRefusedError, ConnectionResetError, TimeoutError):
             break
         if time.time() - t0 > 3:
             fail("the server still accepts 3 s after the stop")
@@ -878,6 +879,58 @@ def client(port):
     print("client: ok")
 
 
+def raw_exchange(port, data, pause=0.0):
+    """Sends data, its first byte alone first when pause is set, on a new
+    connection, and returns every byte back until the server closes."""
+    sock = socket.create_connection((HOST, port), 5)
+    if pause:
+        sock.sendall(data[:1])
+        time.sleep(pause)
+        data = data[1:]
+    sock.sendall(data)
+    got = bytearray()
+    while chunk := sock.recv(65536):
+        got += chunk
+    sock.close()
+    return bytes(got)
+
+
+def access_log(port, path):
+    """Against a server started with ACCESS_LOG: a line for each response,
+    with its status, its bytes as the client got them, and its time from the
+    head's first byte, whole at REQUEST or after it."""
+    close = b"Connection: close\r\n"
+    upload = b"x" * 100000
+    cases = [
+        (request(b"/plaintext", extra=close), 0.0, 200, "/plaintext"),
+        (request(b"/nowhere", extra=close), 0.0, 404, "/nowhere"),
+        (request(b"/bytes?n=300000", extra=close), 0.0, 200, "-"),
+        (request(b"/upload", b"POST", close + b"Content-Length: %d\r\n" % len(upload)) + upload,
+         0.0, 200, "-"),
+        (request(b"/plaintext", extra=close), 0.3, 200, "/plaintext"),
+    ]
+    want = []
+    for data, pause, status, target in cases:
+        got = raw_exchange(port, data, pause)
+        if not got.startswith(b"HTTP/1.1 %d " % status):
+            fail(f"access log: {got[:40]!r} for {data[:30]!r}")
+        want.append((status, len(got), pause, target))
+    deadline = time.time() + 5
+    while True:
+        with open(path) as f:
+            lines = [l.split() for l in f if l.startswith(HOST + " ")]
+        if len(lines) >= len(want) or time.time() > deadline:
+            break
+        time.sleep(0.1)
+    if len(lines) != len(want):
+        fail(f"access log: {len(lines)} lines for {len(want)} responses")
+    for line, (status, sent, pause, target) in zip(lines, want):
+        _, s, n, ms, t = line
+        if int(s) != status or int(n) != sent or t != target or not pause * 1000 - 20 <= int(ms) < 1000 * pause + 1000:
+            fail(f"access log: {line}, want {status} {sent} {target} after {pause} s")
+    print("access log: ok")
+
+
 def main():
     port = int(sys.argv[1])
     mode = sys.argv[2]
@@ -885,6 +938,8 @@ def main():
         {"many": many, "emfile": emfile, "stop": stop}[mode](port, int(sys.argv[3]))
     elif mode == "files":
         files(port, sys.argv[3])
+    elif mode == "log":
+        access_log(port, sys.argv[3])
     elif mode == "stop-break":
         stop_break(port, sys.argv[3])
     else:

@@ -101,6 +101,9 @@ struct Config {
     // flight. Past this, the loop stops reading from it until the client
     // takes what it was sent, as serve_epoll does when a send would block.
     max_queued: i64 = 65536,
+    // Call the handler given state with DONE after each response, for an
+    // access log.
+    log: bool = false,
 }
 
 // Why a loop stopped: the call that failed, and its error code, one of
@@ -154,6 +157,13 @@ let MORE: u8 = 3;       // room for more of a response begun with begin, once th
 // end. The handler releases what its state holds, as a file (close_body);
 // what it writes goes nowhere.
 let CLOSED: u8 = 4;
+// With Config.log, the response is whole in the write buffer: Event.status,
+// sent, and ms say how it went, and Reply.fd gives the peer. req is the
+// request's head when its response was whole at REQUEST, and empty
+// otherwise; the state is still the request's. A response cut short by a
+// close gets CLOSED instead, as does an upgraded connection, and a request
+// the loop refused before REQUEST gets neither.
+let DONE: u8 = 5;
 
 struct Event {
     kind: u8,
@@ -171,6 +181,13 @@ struct Event {
     // finds a field in. A handler that reads one lets the sender know it may
     // send them with its TE field.
     trailers: const u8[:],
+    // DONE's status, as start, begin, or a refusal of the loop's gave it; the
+    // bytes of the response, head included, written to the write buffer; and
+    // the milliseconds of the loop's clock from the read that brought the
+    // head's first byte.
+    status: i32 = 0,
+    sent: i64 = 0,
+    ms: i64 = 0,
 }
 
 // A request whose exchange outlasts the handler's REQUEST call: what of its
@@ -187,6 +204,9 @@ struct Exchange<S> {
     head: bool,
     minor: i32,
     served: i64,        // requests on this connection so far
+    since: i64,         // when the first byte the read buffer holds arrived; the loops set it
+    began: i64,         // since, at the request's head
+    sent: i64,          // the response's bytes so far
     stream: Stream,
     state: S,
 }
@@ -219,7 +239,7 @@ fn interim() -> const u8[:] { "HTTP/1.1 100 Continue\r\n\r\n" }
 // request, or a response that doesn't keep the connection open, leaves c
 // CLOSING and rbuf empty.
 fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: const u8[:],
-                         cfg: const Config&, fresh: const S&, stopping: bool) -> i64, i64, bool {
+                         cfg: const Config&, fresh: const S&, stopping: bool, now: i64) -> i64, i64, bool {
     var off = 0;
     var done = 0;
     var full = false;
@@ -234,6 +254,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
     let max_fields = cfg.max_fields;
     let write_buffer = cfg.write_buffer;
     let max_requests = cfg.max_requests;
+    let log = cfg.log;
 
     // Sends what wbuf holds, and closes.
     fn close() {
@@ -241,10 +262,26 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
         off = rlen;
     }
 
+    // Calls H with DONE for the request in x, whose response of sent bytes
+    // ended with status. Its writes go nowhere.
+    fn log_done(head: const Request&, status: i32, sent: i64, began: i64) {
+        var sink: u8[>..] = [];
+        var keep = x.keep_alive;
+        var st = x.stream;
+        H(Event { kind: DONE, req: head, data: "", whole: false, trailers: "", status: status, sent: sent,
+                  ms: now - began }, x.state,
+          Reply { buf: sink, common: "", keep_alive: keep, minor: x.minor, head: x.head, stream: st, fd: c.fd });
+    }
+
     // Refuses the request with status, unless its response has begun, and
     // closes.
     fn fail(status: i32) {
-        if !x.answered && !x.stream.open { refuse(wbuf, status, common); }
+        if !x.answered && !x.stream.open {
+            let before = wbuf.len;
+            refuse(wbuf, status, common);
+            x.answered = true;
+            if log { log_done(gone, status, x.sent + wbuf.len - before, x.began); }
+        }
         close();
     }
 
@@ -256,7 +293,11 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
                                head: x.head, stream: x.stream, fd: c.fd });
         done++;
         let wrote = wbuf.len > before;
-        if !x.stream.open && (wrote || was_open) { x.answered = true; }
+        x.sent += wbuf.len - before;
+        if !x.answered && !x.stream.open && (wrote || was_open) {
+            x.answered = true;
+            if log { log_done(gone, x.stream.status, x.sent, x.began); }
+        }
         return wrote;
     }
 
@@ -416,9 +457,11 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
             if wbuf.len == before {
                 // The handler didn't answer.
                 refuse(wbuf, 500, common);
+                if log { log_done(req, 500, wbuf.len - before, x.since); }
                 close();
                 break;
             }
+            if log { log_done(req, x.stream.status, wbuf.len - before, x.since); }
             if req.expect { x.continued = false; }
             if !x.keep_alive {
                 close();
@@ -434,6 +477,9 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
         x.skip = false;
         x.taken = 0;
         x.answered = !x.stream.open && wbuf.len > before;
+        x.sent = wbuf.len - before;
+        x.began = x.since;
+        if x.answered && log { log_done(req, x.stream.status, x.sent, x.began); }
         x.expect = req.expect;
         x.head = req.method == "HEAD";
         x.minor = req.minor;

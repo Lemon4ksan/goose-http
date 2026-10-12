@@ -33,6 +33,7 @@ esac
 server=$root/build/server${windows:+.exe}
 # A native program on Windows takes a Windows path.
 if [ -n "$windows" ]; then files_path=$(cygpath -m "$files"); else files_path=$files; fi
+if [ -n "$windows" ]; then log_path=$(cygpath -m "$log"); else log_path=$log; fi
 export FILES="$files_path"
 
 # Ends the server. Git Bash's kill doesn't always end a native program, so
@@ -183,6 +184,13 @@ $client requests
 kill -0 "$pid" || fail "the server died"
 stop
 unset MAX_REQUESTS
+# The access log, on the server's output.
+export ACCESS_LOG=1
+start
+$client log "$log_path"
+kill -0 "$pid" || fail "the server died"
+stop
+unset ACCESS_LOG
 start
 
 if [ -n "$windows" ]; then
