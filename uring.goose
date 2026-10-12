@@ -436,9 +436,10 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         }
     }
     if lfd >= 0 { net_close(lfd); }
-    close_waiting(box, waker);
-    // Submits the closes still queued, then frees the ring.
+    // Submits the closes still queued, then frees the ring, and after it the
+    // waker, which io_uring's poll of it holds until then.
     ring_wait(r, done, 0);
     ring_destroy(r);
+    close_waiting(box, waker);
     return failed;
 }

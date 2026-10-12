@@ -376,7 +376,7 @@ void RP(close)(int64_t h, int32_t fd) {
 
 /* A waker (shim/mail.c) on the ring: each wake ends the ring's wait with a
    completion of tag, res 0, and no buffer. It's closed with net_waker_close
-   before the ring is destroyed. */
+   after the ring is destroyed, which deletes nothing still registered. */
 int64_t RP(waker)(int64_t h, uint64_t tag) {
     struct rp *u = (struct rp *)(intptr_t)h;
     u->wtag = tag;

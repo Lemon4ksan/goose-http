@@ -31,12 +31,28 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The atomics: C11's for gcc and clang, Interlocked* for MSVC. Each names
-   its memory order; the seq_cst ones pair a sender's count with a close's
-   generation (above). */
-#ifdef _MSC_VER
+/* The atomics: Interlocked* and winnt.h's ReadAcquire family for MSVC, which
+   has no C11 atomics in C, and C11's for every other compiler, MinGW's gcc
+   included. Each names its memory order; the seq_cst ones pair a sender's
+   count with a close's generation (above). The lock and the yield are the
+   platform's. */
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+static SRWLOCK mail_lock = SRWLOCK_INIT;
+#define LOCK() AcquireSRWLockExclusive(&mail_lock)
+#define UNLOCK() ReleaseSRWLockExclusive(&mail_lock)
+#define YIELD() SwitchToThread()
+#else
+#include <pthread.h>
+#include <sched.h>
+static pthread_mutex_t mail_lock = PTHREAD_MUTEX_INITIALIZER;
+#define LOCK() pthread_mutex_lock(&mail_lock)
+#define UNLOCK() pthread_mutex_unlock(&mail_lock)
+#define YIELD() sched_yield()
+#endif
+
+#ifdef _MSC_VER
 typedef volatile LONG mail_a32;
 typedef volatile LONG64 mail_a64;
 #define LOAD32_RELAXED(p) ((uint32_t)ReadNoFence(p))
@@ -58,13 +74,7 @@ static int mail_cas32(mail_a32 *p, uint32_t *e, uint32_t d) {
 #define STORE64_SEQ(p, v) InterlockedExchange64((p), (LONG64)(v))
 #define CAS64(p, e, d) (InterlockedCompareExchange64((p), (LONG64)(d), (LONG64)(e)) == (LONG64)(e))
 #define PAUSE() YieldProcessor()
-static SRWLOCK mail_lock = SRWLOCK_INIT;
-#define LOCK() AcquireSRWLockExclusive(&mail_lock)
-#define UNLOCK() ReleaseSRWLockExclusive(&mail_lock)
-#define YIELD() SwitchToThread()
 #else
-#include <pthread.h>
-#include <sched.h>
 #include <stdatomic.h>
 typedef _Atomic uint32_t mail_a32;
 typedef _Atomic int64_t mail_a64;
@@ -88,10 +98,6 @@ static int mail_cas64(mail_a64 *p, int64_t e, int64_t d) { return atomic_compare
 #else
 #define PAUSE() ((void)0)
 #endif
-static pthread_mutex_t mail_lock = PTHREAD_MUTEX_INITIALIZER;
-#define LOCK() pthread_mutex_lock(&mail_lock)
-#define UNLOCK() pthread_mutex_unlock(&mail_lock)
-#define YIELD() sched_yield()
 #endif
 
 /* Linux's errno values, which every shim returns. */

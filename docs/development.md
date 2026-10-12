@@ -206,7 +206,9 @@ build/server echo-epoll 8080      # one edge-triggered epoll loop
 
 1. `goose --check` of each root file: `server/server.goose`, `server/server_epoll.goose`,
    and each `test/test_*.goose` and `server/test_*.goose`.
-2. `scripts/test-unit.sh`.
+2. `scripts/test-unit.sh`: each unit test through TinyCC, except one with a `thread_fn`,
+   such as `test/test_mail.goose`, which TinyCC can't run: that one is built with
+   `goose build` into `build/` and run from there.
 3. For each loop, `scripts/build.sh` and then `scripts/test-http.sh`: uring and epoll on
    Linux and macOS, with `LOOP=uring-epoll` against the uring build on Linux too, and
    iocp on Windows.
@@ -686,6 +688,35 @@ MACHINE=m1pro-docker SERVERS="goose goose-uring tokio vanilla-epoll vanilla-io_u
 - `goose build` on Linux reuses a program's compiled shim after the first build
   (`docs/goose-findings.md`). `scripts/build.sh` works around it; a hand-run `goose
   build` needs the shim's `stamp` under `~/.goose/build/pkg/local/` deleted first.
+- The image `goose-http-dev3` has the compiler at `/goose/build/goose`, at `5c83a5a`
+  (2026-10-12), and sets no `GOOSE`: pass `-e GOOSE=/goose/build/goose`.
+- To test uncommitted changes, export the working tree with one `tar`: `git ls-files
+  -co --exclude-standard -z | tar --null -T - -cf - | tar -xf - -C /tmp/work`. Through
+  `xargs`, a long list runs several `tar`s, and the extracting one stops at the end of
+  the first archive, without an error.
+
+### Checking the Windows shims compile
+
+With no Windows machine at hand, MinGW-w64 in a container checks that `shim/net_win.c`,
+`shim/iocp.c`, and `shim/mail.c` compile, which a change to the Windows shims needs
+before a run on Windows:
+
+```sh
+docker run --rm -v /tmp/work:/work -w /work ubuntu:26.04 sh -c '
+  apt-get update -qq && apt-get install -y -qq gcc-mingw-w64-x86-64 >/dev/null
+  for f in net_win iocp mail; do
+    x86_64-w64-mingw32-gcc -std=c11 -Wall -Wextra -c shim/$f.c -o /tmp/$f.o
+  done'
+```
+
+- Two warnings come from code that MSVC builds as intended: MinGW has no
+  `SOMAXCONN_HINT` (`shim/net_win.c`), and a sign comparison in `shim/iocp.c`
+  (2026-10-12, at `551ee19`).
+- It doesn't check MSVC's paths. MinGW's headers lack `winnt.h`'s `ReadAcquire`,
+  `ReadNoFence`, `WriteRelease`, and `ReadAcquire64`, which `shim/mail.c`'s atomics use
+  under MSVC, so MinGW builds `mail.c`'s C11 atomics. To type-check the MSVC branch,
+  compile a file that defines those four with the SDK's signatures, defines
+  `_MSC_VER`, and includes `shim/mail.c`.
 
 ### HttpArena under Docker on macOS
 

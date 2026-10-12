@@ -64,7 +64,9 @@ as task 013's did.
 
 - [ ] A handler hands a request to another thread and answers it from there, without
       blocking its worker, on every loop. The handle of a closed connection is refused,
-      and an exchange can wait for a timer.
+      and an exchange can wait for a timer. (Done on kqueue and the ring over it, and in
+      Docker on io_uring, the ring over epoll, and epoll, 2026-10-12; the IOCP waker
+      compiles but waits for a Windows run. See "Answers that wait: a proposal".)
 - [ ] A handler reads the client's address on every loop, and a proxied request's,
       from trusted proxies only. (Done on kqueue and the ring over it, and in Docker on
       io_uring, the ring over epoll, and epoll, 2026-10-12; the IOCP loop's `net_peer`
@@ -121,6 +123,19 @@ Status: agreed as a proof of concept (2026-10-12); see "Decided". Being built:
     across it, `/events`' events, and their limit. With the key compared by slot only,
     the stale-reply check fails. `later-off`: 503 without `MAIL_SLOTS`.
   - `README.md` credits Tina for exactly the three ideas taken.
+- Phase 4 (2026-10-12): on Linux, the waker is an `eventfd` (`shim/net.c`), in the epoll
+  set edge-triggered, or polled by a multishot poll on io_uring (`shim/uring.c`), which
+  empties it at each completion and queues the poll again when it ends. The loop closes
+  its waker after `ring_destroy`, which ends the poll first. `scripts/test.sh` passed in
+  Docker on the Mac, image `goose-http-dev3`, Goose `5c83a5a`, with `seccomp=unconfined`:
+  `test_mail`, and `later` and the 0.5 s stop on io_uring, the ring over epoll, and
+  epoll. On Windows, `shim/iocp.c`'s waker is a request of its own kind that each wake
+  posts to the port with `PostQueuedCompletionStatus`, or an auto-reset event for a
+  thread's `mail_wait`; a ring's waker is never freed, since a packet may still be
+  queued, as the ring itself isn't. It compiles under MinGW-w64 (`docs/development.md`,
+  "Checking the Windows shims compile"), with `mail.c`'s MSVC atomics type-checked
+  there with stand-ins for `winnt.h`'s `ReadAcquire` family; it waits for a run on
+  Windows.
 
 ### What constrains it
 

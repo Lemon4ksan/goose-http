@@ -52,6 +52,7 @@ int32_t net_win_init(void);
 /* Linux's errno values, as src/ring.goose and src/sys.goose name them. */
 #define UR_EAGAIN 11
 #define UR_ENOMEM 12
+#define UR_ENOSYS 38
 #define UR_ENOBUFS 105
 #define UR_ECANCELED 125
 
@@ -72,7 +73,7 @@ typedef struct { ur_completion *data; int64_t len; } ur_completions;
 /* ur_wait takes at most this many completions from the port per call. */
 #define UR_MAX_EVENTS 256
 
-enum { UR_ACCEPT, UR_RECV, UR_SEND };
+enum { UR_ACCEPT, UR_RECV, UR_SEND, UR_WAKE };
 
 /* A request: its OVERLAPPED comes first, so the OVERLAPPED a completion
    names is the request. A request that failed when it was posted, with no
@@ -616,7 +617,77 @@ static int ur_finish_send(struct ur *u, struct ur_send *s, int32_t res, ur_compl
     return 1;
 }
 
+/* A waker, which shim/mail.c's boxes wake their owner with. A ring's
+   (ur_waker) is a request of its own kind, which each wake posts to the
+   port, so the wake ends the ring's wait with a completion of tag, res 0, and
+   no buffer; posting the same OVERLAPPED again while a packet is queued is
+   allowed, since the port only carries its address. A packet can still be
+   queued when the waker is closed, so a ring's waker is never freed, as the
+   ring isn't (ur_destroy); closed, it makes no completion. One made with ep
+   -1 is an auto-reset event, for net_waker_wait. There's no epoll on
+   Windows, so another ep is ENOSYS. Any thread may wake either. */
+struct net_waker {
+    struct ur_req rq;
+    HANDLE port, event;
+    uint64_t tag;
+    volatile LONG closed;
+};
+
+int64_t net_waker(int32_t ep, uint64_t tag) {
+    (void)tag;
+    if (ep >= 0) return -UR_ENOSYS;
+    struct net_waker *w = calloc(1, sizeof *w);
+    if (!w) return -UR_ENOMEM;
+    w->event = CreateEventW(NULL, FALSE, FALSE, NULL);
+    if (!w->event) {
+        int32_t err = -net_win_err((int)GetLastError());
+        free(w);
+        return err;
+    }
+    return (int64_t)(intptr_t)w;
+}
+
+int64_t ur_waker(int64_t h, uint64_t tag) {
+    struct ur *u = (struct ur *)(intptr_t)h;
+    struct net_waker *w = calloc(1, sizeof *w);
+    if (!w) return -UR_ENOMEM;
+    w->rq.kind = UR_WAKE;
+    w->port = u->port;
+    w->tag = tag;
+    return (int64_t)(intptr_t)w;
+}
+
+void net_waker_wake(int64_t h) {
+    struct net_waker *w = (struct net_waker *)(intptr_t)h;
+    if (w->port) PostQueuedCompletionStatus(w->port, 0, 0, &w->rq.ov);
+    else SetEvent(w->event);
+}
+
+/* Waits up to ms (-1: no limit) for a wake of a waker made with ep -1.
+   Returns 1 for a wake, 0 at the time limit. */
+int32_t net_waker_wait(int64_t h, int32_t ms) {
+    struct net_waker *w = (struct net_waker *)(intptr_t)h;
+    DWORD r = WaitForSingleObject(w->event, ms < 0 ? INFINITE : (DWORD)ms);
+    if (r == WAIT_OBJECT_0) return 1;
+    if (r == WAIT_TIMEOUT) return 0;
+    return -net_win_err((int)GetLastError());
+}
+
+void net_waker_close(int64_t h) {
+    struct net_waker *w = (struct net_waker *)(intptr_t)h;
+    if (w->port) {
+        InterlockedExchange(&w->closed, 1);
+        return;
+    }
+    CloseHandle(w->event);
+    free(w);
+}
+
 static int ur_finish(struct ur *u, struct ur_req *q, int from_port, ur_completion *c) {
+    if (q->kind == UR_WAKE) {
+        struct net_waker *w = (struct net_waker *)q;
+        return InterlockedCompareExchange(&w->closed, 0, 0) ? 0 : ur_fill(c, w->tag, 0, -1, 1, 0);
+    }
     if (q->kind == UR_ACCEPT) {
         struct ur_accept *a = (struct ur_accept *)q;
         return ur_finish_accept(u, from_port ? ur_result(q, a->ls) : q->res, c);

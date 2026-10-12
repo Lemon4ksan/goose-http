@@ -20,6 +20,7 @@
    call here passes it on. */
 #include <errno.h>
 #include <liburing.h>
+#include <poll.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -83,7 +84,16 @@ struct ur {
        closes fd, the next accept, on any ring, may reuse the number. */
     uint32_t *gens;
     uint32_t ngens;
+    /* The waker (ur_waker), its eventfd, and its completions' tag. */
+    int64_t waker;
+    int32_t wfd;
+    uint64_t wtag;
 };
+
+/* From shim/net.c. */
+int64_t net_waker(int32_t ep, uint64_t tag);
+int32_t net_waker_fd(int64_t w);
+void net_waker_clear(int64_t w);
 
 /* shim/ring_epoll.c, built with its functions named urp_*. */
 int64_t urp_create(int32_t entries, int32_t nbufs, int32_t buflen, int32_t flags);
@@ -96,6 +106,7 @@ void urp_take(int64_t h, int32_t buf, int64_t off, ur_bytes dst);
 void urp_give(int64_t h, int32_t buf);
 int32_t urp_wait(int64_t h, ur_completions out, int32_t timeout_ms);
 void urp_destroy(int64_t h);
+int64_t urp_waker(int64_t h, uint64_t tag);
 
 /* ur_create's flag, ring.goose's RING_EMULATE. */
 #define UR_EMULATE 1
@@ -303,6 +314,28 @@ void ur_close(int64_t h, int32_t fd) {
     sqe->flags |= IOSQE_CQE_SKIP_SUCCESS;
 }
 
+static void ur_poll_waker(struct ur *u) {
+    struct io_uring_sqe *sqe = ur_sqe(u);
+    io_uring_prep_poll_multishot(sqe, u->wfd, POLLIN);
+    io_uring_sqe_set_data64(sqe, u->wtag << 2 | UR_TAGGED);
+}
+
+/* A waker (shim/mail.c) on the ring: an eventfd of its own, which a
+   multishot poll watches, so each wake ends the ring's wait with a
+   completion of tag, res 0, and no buffer. ur_wait empties the eventfd. The
+   waker is closed after the ring is destroyed, which ends the poll. */
+int64_t ur_waker(int64_t h, uint64_t tag) {
+    if (UR_EMULATED(h)) return urp_waker(UR_POLL(h), tag);
+    struct ur *u = (struct ur *)(intptr_t)h;
+    int64_t w = net_waker(-1, 0);
+    if (w < 0) return w;
+    u->waker = w;
+    u->wfd = net_waker_fd(w);
+    u->wtag = tag;
+    ur_poll_waker(u);
+    return w;
+}
+
 /* Copies dst.len bytes of provided buffer buf from off into dst. */
 void ur_take(int64_t h, int32_t buf, int64_t off, ur_bytes dst) {
     if (UR_EMULATED(h)) {
@@ -367,6 +400,16 @@ int32_t ur_wait(int64_t h, ur_completions out, int32_t timeout_ms) {
             c->more = 0;
             c->send = 1;
             ur_send_free(u, s);
+        } else if (u->waker && ud >> 2 == u->wtag) {
+            /* The poll ends on an error or an overflow of the completion
+               queue; it's queued again, and the wake reported either way. */
+            net_waker_clear(u->waker);
+            if (!(cqe->flags & IORING_CQE_F_MORE)) ur_poll_waker(u);
+            c->tag = u->wtag;
+            c->res = 0;
+            c->buf = -1;
+            c->more = 1;
+            c->send = 0;
         } else {
             c->tag = ud >> 2;
             c->res = cqe->res;

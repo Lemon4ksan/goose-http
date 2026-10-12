@@ -10,11 +10,14 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdatomic.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -184,11 +187,84 @@ int64_t net_strerror(int64_t err, net_bytes out) {
 /* How many times net_stop has run in the process. A loop reads it at its
    start, and stops once it has moved on. An atomic counter, and not a flag, so
    that a loop started after a stop runs. A signal handler may call net_stop:
-   a lock-free atomic add is async-signal-safe. */
+   a lock-free atomic add is async-signal-safe, and so is the eventfd write
+   that each loop's waker gets (shim/mail.c), which makes the stop
+   immediate. */
 static _Atomic int64_t net_stop_count;
+
+void net_stop_wake_all(void);
 
 void net_stop(void) {
     atomic_fetch_add_explicit(&net_stop_count, 1, memory_order_relaxed);
+    net_stop_wake_all();
+}
+
+/* A waker, which shim/mail.c's boxes wake their owner with: an eventfd. On a
+   loop's epoll instance ep it's registered edge-triggered with tag, and every
+   wake raises a new edge, so the loop needn't read it. With ep -1 it's the
+   waker's own, for net_waker_wait, or for shim/uring.c to poll. Any thread
+   may wake it. */
+struct net_waker { int fd, ep; };
+
+int64_t net_waker(int32_t ep, uint64_t tag) {
+    struct net_waker *w = malloc(sizeof *w);
+    if (!w) return -ENOMEM;
+    w->ep = ep;
+    w->fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (w->fd < 0) {
+        int err = errno;
+        free(w);
+        return -err;
+    }
+    if (ep >= 0) {
+        struct epoll_event ev = { .events = EPOLLIN | EPOLLET, .data.u64 = tag };
+        if (epoll_ctl(ep, EPOLL_CTL_ADD, w->fd, &ev) < 0) {
+            int err = errno;
+            close(w->fd);
+            free(w);
+            return -err;
+        }
+    }
+    return (int64_t)(intptr_t)w;
+}
+
+/* The eventfd, for shim/uring.c. */
+int32_t net_waker_fd(int64_t h) {
+    return ((struct net_waker *)(intptr_t)h)->fd;
+}
+
+void net_waker_wake(int64_t h) {
+    struct net_waker *w = (struct net_waker *)(intptr_t)h;
+    uint64_t one = 1;
+    ssize_t r = write(w->fd, &one, sizeof one);
+    (void)r;   /* EAGAIN only once the count nears 2^64: it's readable then */
+}
+
+/* Empties the eventfd's count. */
+void net_waker_clear(int64_t h) {
+    struct net_waker *w = (struct net_waker *)(intptr_t)h;
+    uint64_t n;
+    ssize_t r = read(w->fd, &n, sizeof n);
+    (void)r;
+}
+
+/* Waits up to ms (-1: no limit) for a wake of a waker of its own. Returns 1
+   for a wake, which it takes, and 0 at the time limit. */
+int32_t net_waker_wait(int64_t h, int32_t ms) {
+    struct net_waker *w = (struct net_waker *)(intptr_t)h;
+    struct pollfd p = { .fd = w->fd, .events = POLLIN };
+    int n = poll(&p, 1, ms);
+    if (n < 0) return errno == EINTR ? 0 : -errno;
+    if (n > 0) net_waker_clear(h);
+    return n > 0;
+}
+
+/* A waker on a loop's epoll instance is closed before the instance. */
+void net_waker_close(int64_t h) {
+    struct net_waker *w = (struct net_waker *)(intptr_t)h;
+    if (w->ep >= 0) epoll_ctl(w->ep, EPOLL_CTL_DEL, w->fd, NULL);
+    close(w->fd);
+    free(w);
 }
 
 int64_t net_stops(void) {

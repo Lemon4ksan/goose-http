@@ -328,11 +328,15 @@ int64_t net_strerror(int64_t err, net_bytes out) {
 
 /* How many times net_stop has run in the process. A loop reads it at its
    start, and stops once it has moved on. A counter, and not a flag, so that a
-   loop started after a stop runs. */
+   loop started after a stop runs. Each loop's waker gets a completion packet
+   (shim/mail.c, shim/iocp.c), which makes the stop immediate. */
 static volatile LONG64 net_stop_count;
+
+void net_stop_wake_all(void);
 
 void net_stop(void) {
     InterlockedIncrement64(&net_stop_count);
+    net_stop_wake_all();
 }
 
 int64_t net_stops(void) {
