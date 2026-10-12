@@ -16,8 +16,8 @@ as task 013's did.
    another thread or a timer, and be woken to answer. A blocking call in the handler
    stalls every connection of its worker. Long polling and Server-Sent Events that wait
    for an event need the same thing. The design needs:
-   - A way for another thread to wake a worker's loop. Each shim's wait already has a
-     wakeup for `http::stop` (task 013, item 11).
+   - A way for another thread to wake a worker's loop. None exists: `http::stop` is a
+     counter each loop reads after a wait of at most a second (task 013, item 11).
    - A handle to an exchange that outlives the call, and that a closed or reused
      connection invalidates, as `shim/uring.c`'s generations do for fds.
    - A per-exchange timer.
@@ -78,6 +78,131 @@ as task 013's did.
       `scripts/http_client.py`. See "Helpers" and "The access log")
 - [x] The benchmark routes keep their rate (2026-10-12, on the Mac and in Docker on it,
       `288c868` against `26e073f`; see "The benchmark routes' rate")
+
+## Answers that wait: a proposal (2026-10-12)
+
+Status: proposed, for review before any code. Nothing below is decided.
+
+### What constrains it
+
+- Goose threads share no memory (spec §11.2). They talk through typed queues, one
+  queue per element type, which any thread may take from. A pool thread can't address
+  a queue to one loop, and a queue can't wake a loop blocked in `epoll_wait`,
+  `kevent`, `io_uring_enter`, or `GetQueuedCompletionStatusEx`.
+- The loops have no wakeup today; `http::stop` is a counter they poll each second.
+- An HTTP/1.1 connection answers in order, so a waiting exchange holds back the
+  requests pipelined behind it. Under HTTP/2 (task 014) one connection has many
+  exchanges, and any of them may wait while the others go on.
+
+### What the competitors do (verified in code unless marked)
+
+- hyper 1.12.0 keeps the pending exchange as the service's future
+  (`proto/h1/dispatch.rs`, `in_flight`), and `poll_ready` reads no next head while
+  one is in flight, so pipelined bytes wait in the read buffer. Dropping the
+  connection drops the future: there's no handle to invalidate. Wakeups come from
+  tokio 1.53.2, through mio 1.2.4's `Waker`: an `eventfd` on Linux
+  (`sys/unix/waker/eventfd.rs`), `EVFILT_USER` with `NOTE_TRIGGER` on macOS
+  (`sys/unix/selector/kqueue.rs`), and `PostQueuedCompletionStatus` on Windows
+  (`sys/windows/waker.rs`). tokio's timers are a hierarchical wheel of 6 levels of 64
+  slots (`runtime/time/wheel/`).
+- odin-http (`fac113f`) answers through `^Response`, which points at its
+  connection. `respond` asserts it runs on a server thread, and the connection is
+  freed on close with no generation or count, so a late answer would use freed
+  memory. One request at a time per connection: pipelined bytes wait in its scanner.
+  Its vendored older nbio keeps timeouts in an array scanned each tick, with kevent
+  capped at 10 ms.
+- may-minihttp 0.1.11 runs each connection in a coroutine that a blocking call parks;
+  may 0.3.51 wakes a selector with an `eventfd` (`io/sys/unix/epoll.rs`). There is no
+  handle to answer later with.
+- From memory, not checked: libuv keeps timers in a min-heap and wakes with
+  `uv_async_send` over an eventfd or a pipe; h2o keeps a timer list per loop.
+
+### The proposal
+
+1. **A mailbox per loop, in the shim.** A loop opens one at its start
+   (`net_mailbox_open`), which registers a wakeup with its wait: an `eventfd` in the
+   epoll set or polled by the ring on Linux, `EVFILT_USER` on macOS (also under the
+   ring's emulation, which waits through `net_epoll_wait`), and
+   `PostQueuedCompletionStatus` on the IOCP port. `net_post(box, bytes)` copies a
+   message into the box under a lock and wakes the loop; the loop drains the box
+   after each wait, appending the messages to a Goose buffer (spec §7.10's builder
+   append). A box has an id and a generation, so a post to a box whose loop has
+   returned fails (`ESRCH`), and a byte cap, past which `net_post` fails with
+   `EAGAIN` for the caller to retry or give up. This is data moving through C, against
+   `AGENTS.md`'s "C is for what Goose can't reach": the case for it is that Goose can
+   neither address a queue to a thread nor wake a kernel wait, and the box is a list
+   of byte runs, with no HTTP in it.
+2. **A handle that a closed connection invalidates.** `http::later(out, ms)` makes
+   the exchange wait, and returns a flat `http::Later`: the box's id and generation,
+   the connection's slot and a generation per slot (the io_uring loop's tag has one
+   already; the epoll loop gains one), and the exchange's number (`Exchange.served` in
+   HTTP/1.1, the stream id in HTTP/2). Any thread may call `http::wake(h, bytes)`,
+   which posts to the box. The loop checks the slot, its generation, and the exchange
+   number when the message arrives, and drops it if any differs. The connection that
+   took over the slot never sees it.
+3. **Two new events.** `WAKE` brings the posted bytes in `ev.data`, with the state as
+   `later` left it; the handler answers, begins a stream, or calls `later` again.
+   `TIMEOUT` comes when the time given to `later` runs out with no wake. Without
+   either answer, the loop answers 500 as it does today for a handler that doesn't.
+   The bytes are the program's own encoding (an id, JSON, a row): the response is
+   built on the loop thread, where `Date`, keep-alive, and the write buffer are.
+4. **Streams that wait.** At `MORE`, `later` pauses an open response, for
+   Server-Sent Events and long polling: no `MORE` comes until a `WAKE` or a
+   `TIMEOUT`. Today a `MORE` that neither sends nor ends closes the connection.
+5. **Timers in a heap per loop.** Each waiting exchange has an entry, keyed by its
+   deadline, in a min-heap of the loop's own, and the loop waits no longer than its
+   earliest deadline. The per-connection deadline and the sweep stay for the other
+   timeouts. A heap rather than the sweep, because the sweep runs about once a second
+   and HTTP/2 needs a timer per stream rather than per connection; rather than a
+   wheel, because the waits are far fewer than the connections.
+6. **HTTP/1.1 order.** While an exchange waits, `answer` parses nothing after it.
+   Pipelined bytes stay held, and reading stops once the read buffer is full, as it
+   does for a response the client doesn't take. Requests not waiting cost nothing:
+   the check is one flag, read where `settle` already reads the exchange.
+7. **Stop.** A waiting exchange counts as in progress: it gets `Config.grace_ms`, then
+   `CLOSED`. The wakeup could also make stop immediate rather than within a second,
+   but that is optional.
+
+Work is the program's: it spawns its own pool of `thread_fn` workers that take jobs
+from a typed queue, any worker taking any job, and wake the handle each job carries.
+The package spawns no threads.
+
+```goose
+struct Job { at: http::Later, user: i64 }
+
+// The handler, at REQUEST:
+let at = http::later(out, 5000);
+qput(Job { at: at, user: id });
+// At WAKE: ev.data is what the worker posted. At TIMEOUT: answer 504.
+
+thread_fn pool() {
+    loop {
+        let job = qget<Job>();
+        var row: u8[>..] = [];
+        query(job.user, row);
+        http::wake(job.at, row);   // false if the loop has returned or its box is full
+    }
+}
+```
+
+### Open questions for review
+
+- Is a mailbox of bytes in the shim acceptable, as the one exception to keeping data
+  in Goose, or should it wait for a Goose facility (a queue a thread can address and
+  a loop can wait on)? That facility would be a request to Goose's maintainer.
+- Should the posted bytes be the program's to read at `WAKE`, as above, or should the
+  worker build the whole response? The first keeps the package's response writers on
+  the loop thread; the second saves a step but splits `Date` and keep-alive between
+  threads.
+- Should the wakeup also make `http::stop` immediate?
+
+### Phases, once agreed
+
+1. The mailbox and wakeup in `shim/kqueue.c` and the ring's emulation, with
+   `/later` and `/events` (Server-Sent Events) routes and their checks, on the Mac.
+2. `shim/net.c` and `shim/uring.c` on Linux, in Docker and on WSL2.
+3. `shim/iocp.c` on Windows.
+4. The rate of the benchmark routes, as for the other items.
 
 ## Checked fields (2026-10-12)
 
