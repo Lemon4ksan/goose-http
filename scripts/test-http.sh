@@ -144,6 +144,9 @@ start
 if [ -n "$windows" ]; then
     kill -0 "$pid" || fail "the server died"
     stop
+    # The client starts this server itself, in a process group of its own,
+    # which Ctrl+Break needs.
+    $client stop-break "$(cygpath -m "$server")"
     echo "test-http passed, without the load runs and the fd limit run on Windows. The server's output:"
     sed 's/^/    /' "$log"
     exit 0

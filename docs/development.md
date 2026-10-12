@@ -272,7 +272,9 @@ once per loop. It needs curl, wrk, h2load, oha, `nc`, and `python3`
   must see only 200s and no errors.
 - A graceful stop (`stop`): `SIGTERM` with an idle connection, one partway through a
   request head, and one partway through a 20 MB response; and then, with `SERVER_RUNS=2`, a
-  stop after which the server's loops start again and serve.
+  stop after which the server's loops start again and serve. On Windows, the same
+  checks by Ctrl+Break (`stop-break`), of a server the client starts in a process group
+  of its own, since Ctrl+Break reaches only a console process group.
 - Then one worker under `ulimit -n 40` and 60 clients (`emfile`): the clients past the fd
   limit wait in the listen backlog, and are served once earlier ones close.
 
@@ -725,6 +727,12 @@ Traps in Git Bash:
   (`MSYS_NO_PATHCONV=1`) passes `//c` through, and leaves `cmd` waiting for input.
 - The server listens on 127.0.0.1 only. Any other address raises a Windows Defender
   Firewall prompt.
+- A connection to a port nothing listens on is refused only after Windows retries for
+  about 2 s, so a client with a shorter timeout sees a timeout, not a refusal.
+- Python's `os.kill(pid, signal.SIGTERM)` ends a process at once, as `TerminateProcess`
+  does. For a graceful stop, start the server with `CREATE_NEW_PROCESS_GROUP` and send
+  `signal.CTRL_BREAK_EVENT` to its PID; a path for `subprocess` must be absolute
+  (`cygpath -m "$PWD/build/server.exe"`).
 - Windows has 16,384 ephemeral ports (49152 to 65535), and `test-http.sh` leaves about
   11,000 client sockets in `TIME_WAIT`. A second run started within a couple of minutes
   fails in `many 10000` with `OSError: [WinError 52] You were not connected because a

@@ -11,6 +11,9 @@
     http_client.py PORT many N      N connections at once, each pipelining
     http_client.py PORT emfile N    N connections to a server with fewer fds
     http_client.py PORT stop PID    a graceful stop, by SIGTERM to the server's PID
+    http_client.py PORT stop-break SERVER
+                                    on Windows, a graceful stop by Ctrl+Break, of a
+                                    server it starts from the executable SERVER
 
 Each check exits non-zero with a message on the first failure. SERVER_NAME
 is the Server field tfb expects (goose), for checking the servers in bench/.
@@ -22,6 +25,7 @@ import json
 import os
 import signal
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -640,6 +644,37 @@ def stop(port, pid):
     """SIGTERM: the server closes its listener and its idle connections,
     answers a request in progress with Connection: close, finishes a response
     in progress, and then exits, which test-http.sh checks."""
+    graceful_stop(port, lambda: os.kill(pid, signal.SIGTERM))
+
+
+def stop_break(port, server):
+    """stop's checks on Windows, by Ctrl+Break. It reaches only the processes
+    of a console process group, so the client starts the server in its own,
+    and checks the exit status itself: 0, where the console's default handler
+    would give 0xC000013A."""
+    p = subprocess.Popen([server, "http", str(port)], creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+    try:
+        for _ in range(100):
+            try:
+                socket.create_connection((HOST, port), 1).close()
+                break
+            except OSError:
+                time.sleep(0.1)
+        else:
+            fail("the server isn't listening after 10 s")
+        graceful_stop(port, lambda: os.kill(p.pid, signal.CTRL_BREAK_EVENT))
+        try:
+            status = p.wait(5)
+        except subprocess.TimeoutExpired:
+            fail("the server was still running 5 s after its connections closed")
+        if status != 0:
+            fail(f"the server exited with status {status:#x} after the stop")
+    finally:
+        if p.poll() is None:
+            p.kill()
+
+
+def graceful_stop(port, send):
     idle = Conn(port)
     partial = Conn(port)
     partial.send(b"GET /plaintext HTTP/1.1\r\nHost: x\r\n")
@@ -647,17 +682,19 @@ def stop(port, pid):
     big.send(request(b"/stream?n=20000000"))
     # Long enough for the server to accept them, and to fill big's socket.
     time.sleep(0.5)
-    os.kill(pid, signal.SIGTERM)
+    send()
     t0 = time.time()
     if not idle.closed():
         fail("an idle connection stayed open after the stop")
     if time.time() - t0 > 2.5:
         fail(f"the idle connection closed {time.time() - t0:.1f} s after the stop")
-    # Every worker's listener closes within a second or so.
+    # Every worker's listener closes within a second or so. Windows refuses a
+    # connection to a closed port only after retrying for about 2 s, so a
+    # timeout counts as refused.
     while True:
         try:
             socket.create_connection((HOST, port), 1).close()
-        except ConnectionRefusedError:
+        except (ConnectionRefusedError, TimeoutError):
             break
         if time.time() - t0 > 3:
             fail("the server still accepts 3 s after the stop")
@@ -727,6 +764,8 @@ def main():
     mode = sys.argv[2]
     if mode in ("many", "emfile", "stop"):
         {"many": many, "emfile": emfile, "stop": stop}[mode](port, int(sys.argv[3]))
+    elif mode == "stop-break":
+        stop_break(port, sys.argv[3])
     else:
         {"tfb": tfb, "pipeline": pipeline, "large": large, "chunked": chunked, "keepalive": keepalive,
          "hostile": hostile, "slow": slow, "stream": stream}[mode](port)

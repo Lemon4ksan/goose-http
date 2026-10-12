@@ -194,9 +194,9 @@ connections: 12.4 MB against 11.3 MB).
   benchmark server stops on `SIGTERM` and exits 0, and `http_client.py`'s `stop`
   mode checks it on Linux: an idle connection closed within 2.5 s, the listener
   refusing within 3 s, a request in progress answered with `Connection: close`, a
-  20 MB response in progress finished, and the process gone. Not tested: the stop on
-  Windows, where nothing in the test scripts can send Ctrl+Break to the server, and
-  on macOS, where `shim/kqueue.c`'s table change passed only a syntax check (clang,
+  20 MB response in progress finished, and the process gone. On Windows, the same
+  checks by Ctrl+Break (`stop-break`, 2026-10-12), with the exit status 0. Not tested:
+  the stop on macOS, where `shim/kqueue.c`'s table change passed only a syntax check (clang,
   with stub macOS headers, in WSL). With `SERVER_RUNS=2`, the benchmark server serves again
   after a stop, and `test-http.sh` checks that the loops started again serve
   (`keepalive`) and stop.
@@ -242,8 +242,7 @@ Next, in order:
 1. Run the tests on macOS (`scripts/test.sh`): the kqueue table change, the stop, and
    the restart, none of which has run there yet.
 2. Split the streaming loop's cost further, and remove what can go.
-3. The stop on Windows, by Ctrl+Break, which no test sends yet.
-4. Files through `sendfile` (item 16's rest), with a shim function per platform.
+3. Files through `sendfile` (item 16's rest), with a shim function per platform.
 
 ## Streaming design (2026-10-12)
 
@@ -333,9 +332,9 @@ slot. So:
 - [x] Limits and timeouts set by the program, with tests at non-default values
       (2026-10-12)
 - [x] `SIGTERM` drains and stops every worker within the grace period, in `serve` and
-      `serve_epoll` (2026-10-12, Linux; Windows and macOS untested)
+      `serve_epoll` (2026-10-12, Linux, and on Windows by Ctrl+Break; macOS untested)
 - [x] Every item above has a check in `scripts/http_client.py` or `test/test_http.goose`
-      (2026-10-12; item 11's on Linux only)
+      (2026-10-12; item 11's on Linux and Windows)
 - [ ] The benchmark routes, served through the handler, keep their rate in
       `bench/run.sh`'s closest cells within the runs' spread (2026-10-12: not met in
       three plaintext cells with 4 workers, 2-3% lower; see Progress)
