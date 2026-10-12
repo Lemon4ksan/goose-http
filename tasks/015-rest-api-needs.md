@@ -82,9 +82,19 @@ as task 013's did.
 ## Answers that wait: a proposal (2026-10-12)
 
 Status: agreed as a proof of concept (2026-10-12); see "Decided". Being built:
-phase 1, the timer table (`timers.goose`) and handles (`handle.goose`), with
-`test/test_timers.goose`, which declares the package by `timers.goose` alone, so it
-compiles only while the table reaches nothing of the HTTP side (2026-10-12).
+
+- Phase 1: the timer table (`timers.goose`) and handles (`handle.goose`), with
+  `test/test_timers.goose`, which declares the package by `timers.goose` alone, so it
+  compiles only while the table reaches nothing of the HTTP side (2026-10-12).
+- Phase 2: the mailbox, `shim/mail.c` and `mail.goose`, with the macOS waker in
+  `shim/kqueue.c` and the ring emulation's `ur_waker`, and `test/test_mail.goose`,
+  declared by `mail.goose` alone with a sidecar of its own (`test/test_mail.build`).
+  It checks `FULL`, `STALE` after a close and after a reopen, 8 senders of 20,000
+  messages each with every sender's messages in order, and two ping-pongs, of 20,000
+  rounds and of 400 with a 1 ms pause before each reply, so that every wait sleeps in
+  the kernel; no wait reaches its 2 s limit. `test-unit.sh` builds a test with a
+  `thread_fn` with the C compiler, as TinyCC runs no threads (2026-10-12). The mailbox's
+  address type is `MailAddress`, since `Address` is an IP address (`forwarded.goose`).
 
 ### What constrains it
 
@@ -246,9 +256,9 @@ address rather than a shared queue, and for the required time limit on a wait.
 - **Taking into Goose memory.** A shim can't append to a `u8[>..]&` (it can't reach the
   runtime: `docs/c-interop.md`), so `mail_take` writes whole messages into a `u8[:]`
   the owner gives, and returns the bytes written, as `net_strerror` does.
-- **Memory.** A box is its slots times (slot size + a 16-byte header), allocated at
-  open, and nothing grows after: 256 slots of 512 bytes is about 135 KB, 540 KB for 4
-  workers, against the epoll loop's 2.4 MB peak RSS with 4 workers today. Each box adds
+- **Memory.** A box is its slots times (slot size + a 24-byte header, rounded up to 8
+  bytes), allocated at open, and nothing grows after: 256 slots of 512 bytes is about
+  137 KB, 550 KB for 4 workers, against the epoll loop's 2.4 MB peak RSS with 4 workers today. Each box adds
   one `eventfd` on Linux, one `EVFILT_USER` registration on macOS, and nothing on
   Windows, where the completion port is there already. So the loops open no box unless
   `Config.mail_slots` is above 0, which is 0 by default, and the program sets the slot

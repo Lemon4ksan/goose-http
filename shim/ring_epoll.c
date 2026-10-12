@@ -48,8 +48,9 @@
 #define RP_CTL_DEL 2
 #define RP_CTL_MOD 3
 
-/* The listener's epoll tag. A connection's is its fd. */
+/* The listener's epoll tag, and the waker's. A connection's is its fd. */
 #define RP_LISTENER UINT64_MAX
+#define RP_WAKER (UINT64_MAX - 1)
 
 /* The layouts shared with Goose, per spec C.2: a u8[:], http::PollEvent,
    http::Completion, and slices of the last two. */
@@ -70,6 +71,7 @@ int32_t net_close(int32_t fd);
 int32_t net_epoll_create(void);
 int32_t net_epoll_ctl(int32_t ep, int32_t op, int32_t fd, uint32_t events, uint64_t tag);
 int32_t net_epoll_wait(int32_t ep, rp_events out, int32_t timeout_ms);
+int64_t net_waker(int32_t ep, uint64_t tag);
 
 /* A send's bytes, owned by the ring until they're sent. */
 struct rp_send {
@@ -117,6 +119,7 @@ struct rp {
     uint32_t headdone, ndone, capdone;
     int32_t lfd;
     uint64_t ltag;
+    uint64_t wtag;                  /* the waker's completions' (ur_waker) */
     uint8_t ladded, accepting, acceptable;
     int32_t err;                    /* -ENOMEM once the bookkeeping ran out, for ur_wait */
     struct rp_send *small[RP_CLASSES], *big;  /* sent records, to reuse */
@@ -371,6 +374,15 @@ void RP(close)(int64_t h, int32_t fd) {
     net_close(fd);
 }
 
+/* A waker (shim/mail.c) on the ring: each wake ends the ring's wait with a
+   completion of tag, res 0, and no buffer. It's closed with net_waker_close
+   before the ring is destroyed. */
+int64_t RP(waker)(int64_t h, uint64_t tag) {
+    struct rp *u = (struct rp *)(intptr_t)h;
+    u->wtag = tag;
+    return net_waker(u->ep, RP_WAKER);
+}
+
 #ifdef RING_EPOLL_ONLY
 /* There's no io_uring to probe for: the ring is always this emulation. */
 int32_t ur_probe(void) { return -RP_ENOSYS; }
@@ -484,6 +496,10 @@ int32_t RP(wait)(int64_t h, rp_completions out, int32_t timeout_ms) {
     for (int32_t i = 0; i < got; i++) {
         if (evs[i].tag == RP_LISTENER) {
             u->acceptable = 1;
+            continue;
+        }
+        if (evs[i].tag == RP_WAKER) {
+            rp_emit(u, out, &n, u->wtag, 0, -1, 1, 0);
             continue;
         }
         int32_t fd = (int32_t)evs[i].tag;

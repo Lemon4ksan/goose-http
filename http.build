@@ -2,7 +2,7 @@
 // that imports it: each platform's shim (docs/architecture/README.md).
 c_sources_linux = ["shim/net.c", "shim/uring.c", "shim/ring_epoll.c"];
 c_libs_linux = ["uring"];
-c_sources_macos = ["shim/kqueue.c", "shim/ring_epoll.c"];
+c_sources_macos = ["shim/kqueue.c", "shim/ring_epoll.c", "shim/mail.c"];
 c_defines_macos = ["RING_EPOLL_ONLY"];
 c_sources_windows = ["shim/net_win.c", "shim/iocp.c"];
 c_libs_windows = ["ws2_32", "mswsock"];

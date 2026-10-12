@@ -42,6 +42,10 @@ extern "ur_close" fn ring_close(r: i64, fd: i32);
 // Writes dst.len bytes of provided buffer buf, from off, into dst.
 extern "ur_take" fn ring_take(r: i64, buf: i32, off: i64, dst: u8[:]);
 extern "ur_give" fn ring_give(r: i64, buf: i32);
+// A waker (net_waker, mail.goose) on the ring: each wake ends the ring's
+// wait with a completion of tag, res 0, and no buffer. Returns it, or -code.
+// The box that owns it is closed before the ring is destroyed.
+extern "ur_waker" fn ring_waker(r: i64, tag: u64) -> i64;
 // Tears the ring down, with whatever is still queued on it. Windows keeps a
 // completion port's memory: it completes the cancels of closed sockets'
 // requests later (shim/iocp.c).

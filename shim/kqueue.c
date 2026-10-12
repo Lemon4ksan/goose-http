@@ -16,6 +16,7 @@
 #include <signal.h>
 #include <stdatomic.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/event.h>
 #include <sys/qos.h>
@@ -425,6 +426,7 @@ int32_t net_epoll_wait(int32_t ep, net_events out, int32_t timeout_ms) {
         uint32_t bits;
         if (kev[i].filter == EVFILT_READ) bits = NET_IN | (kev[i].flags & EV_EOF ? NET_RDHUP : 0);
         else if (kev[i].filter == EVFILT_WRITE) bits = NET_OUT | (kev[i].flags & EV_EOF ? NET_HUP : 0);
+        else if (kev[i].filter == EVFILT_USER) bits = NET_IN;   /* a waker's (net_waker) */
         else continue;
         if (kev[i].flags & EV_EOF && kev[i].fflags) bits |= NET_ERR;
         int j = m;
@@ -439,6 +441,68 @@ int32_t net_epoll_wait(int32_t ep, net_events out, int32_t timeout_ms) {
         }
     }
     return m;
+}
+
+/* A waker, which shim/mail.c's boxes wake their owner with: an EVFILT_USER
+   event, identified by the waker's own address, with EV_CLEAR, so a trigger
+   stays reported until a wait takes it and no wake is lost between a check
+   and a wait. On a loop's kqueue its event comes out of net_epoll_wait as IN
+   with the waker's tag; with ep -1 the waker has a kqueue of its own, for
+   net_waker_wait. Any thread may wake it. */
+struct net_waker { int kq, own; };
+
+int64_t net_waker(int32_t ep, uint64_t tag) {
+    struct net_waker *w = malloc(sizeof *w);
+    if (!w) return -net_err(ENOMEM);
+    w->own = ep < 0;
+    w->kq = w->own ? net_epoll_create() : ep;
+    if (w->kq < 0) {
+        int32_t r = w->kq;
+        free(w);
+        return r;
+    }
+    struct kevent ch;
+    EV_SET(&ch, (uintptr_t)w, EVFILT_USER, EV_ADD | EV_CLEAR, 0, 0, (void *)tag);
+    if (kevent(w->kq, &ch, 1, NULL, 0, NULL) < 0) {
+        int err = errno;
+        if (w->own) close(w->kq);
+        free(w);
+        return -net_err(err);
+    }
+    return (int64_t)(intptr_t)w;
+}
+
+void net_waker_wake(int64_t h) {
+    struct net_waker *w = (struct net_waker *)(intptr_t)h;
+    struct kevent ch;
+    EV_SET(&ch, (uintptr_t)w, EVFILT_USER, 0, NOTE_TRIGGER, 0, NULL);
+    kevent(w->kq, &ch, 1, NULL, 0, NULL);
+}
+
+/* Waits up to ms (-1: no limit) for a wake of a waker with a kqueue of its
+   own. Returns 1 for a wake, 0 at the time limit. */
+int32_t net_waker_wait(int64_t h, int32_t ms) {
+    struct net_waker *w = (struct net_waker *)(intptr_t)h;
+    struct timespec ts, *tp = NULL;
+    if (ms >= 0) {
+        ts.tv_sec = ms / 1000;
+        ts.tv_nsec = (long)(ms % 1000) * 1000000;
+        tp = &ts;
+    }
+    struct kevent ev;
+    int n = kevent(w->kq, NULL, 0, &ev, 1, tp);
+    if (n < 0) return errno == EINTR ? 0 : -net_err(errno);
+    return n;
+}
+
+/* A waker on a loop's kqueue is closed before the kqueue. */
+void net_waker_close(int64_t h) {
+    struct net_waker *w = (struct net_waker *)(intptr_t)h;
+    struct kevent ch;
+    EV_SET(&ch, (uintptr_t)w, EVFILT_USER, EV_DELETE, 0, 0, NULL);
+    kevent(w->kq, &ch, 1, NULL, 0, NULL);
+    if (w->own) close(w->kq);
+    free(w);
 }
 
 /* CLOCK_MONOTONIC_RAW_APPROX is the value cached at the last context switch,
