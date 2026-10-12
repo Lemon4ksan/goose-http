@@ -84,7 +84,9 @@ as task 013's did.
 
 ## Answers that wait: a proposal (2026-10-12)
 
-Status: agreed as a proof of concept (2026-10-12); see "Decided". Being built:
+Status: agreed as a proof of concept (2026-10-12); see "Decided". Built, in the phases
+below, and its rate measured in "The benchmark routes' rate", "After answers that wait"
+(2026-10-12):
 
 - Phase 1: the timer table (`timers.goose`) and handles (`handle.goose`), with
   `test/test_timers.goose`, which declares the package by `timers.goose` alone, so it
@@ -590,7 +592,8 @@ No regression shows, with waiting off, the default: in every cell, `af23e84`'s r
 overlap `1265886`'s, the commit before phase 1 of "Answers that wait", on the Mac and
 in Docker on it. What reaches the routes' path when nothing waits: a check of
 `Stream.waiting` after each `REQUEST` call, and of `Stream.later`'s box before it, in
-`answer`, and 40 more bytes in each connection's slot. The server binary grew from
+`answer`, and 34 more bytes in each connection's slot: 26 in `Stream` and 8 in
+`Exchange`. The server binary grew from
 242 KB to 415 KB, with the routes and the backend thread of `/later` and `/events`.
 
 macOS, on the MacBook Pro M1 Pro of `docs/development.md`, macOS 26.3.1 (Darwin 25.3.0),
