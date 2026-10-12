@@ -97,6 +97,32 @@ about 300 bookings, can be the rare case.
 - Goose and one competitor on tier A first, then the other tiers, then the rest of the
   competitors.
 
+## Progress
+
+Tier A (2026-10-12): `bench/rest/gen.goose` writes `arena-items.json` (10,000 items,
+1.57 MB) and `arena-users.json` (1,000 users) from a fixed seed. Goose's server
+(`bench/rest/goose/rest.goose`) and hyper's (`bench/rest/hyper`, bench/hyper's pinned
+versions) answer both JSON ways, and `bench/rest/check.py` passes against both on every
+loop: each item and user field against the files, `servedAt` within 2 s, 404 and 401,
+and writes answered 204 or 422. `bench/rest/tier-a.lua` sends the mix.
+
+A first quick comparison: Docker Desktop 29.8.2 on the MacBook Pro M1 Pro of
+`docs/development.md`, kernel 7.0.14-linuxkit, image `goose-http-dev3` with wrk 4.1.0,
+`--security-opt seccomp=unconfined`; Goose `5d1d329` with Goose `5c83a5a`, hyper built
+in `goose-http-bench2` with `-C target-cpu=native`. Each server with 3 workers on CPUs
+0-2, wrk on CPUs 3-9, `-t 7 -c 256 -d 5 -s bench/rest/tier-a.lua`, 3 rounds alternating
+the servers; the first round ran 30-40% lower for every server and is left out. In
+thousands of requests per second, rounds 2 and 3:
+
+| JSON | Goose io_uring | Goose epoll | hyper |
+|---|---|---|---|
+| serialize | 590-634 | 625-629 | 350-392 |
+| template | 581-629 | 605-619 | 388-420 |
+
+Tier A's records are small (about 200 bytes), so the two ways cost the same in Goose,
+and template gains hyper 7-11% over serde_json. One Goose epoll run in round 1 counted
+224 wrk timeouts. The Docker VM isn't the benchmark machine.
+
 ## Acceptance criteria
 
 - [ ] The generator, writing each tier's dataset files from a fixed seed
