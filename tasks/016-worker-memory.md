@@ -100,12 +100,12 @@ Requests per second stayed within the runs' spread (plaintext 2.90-3.20 M agains
 the rate still needs `bench/count.sh` or `bench/run.sh` on the WSL2 machine.
 `scripts/test.sh` passes on macOS and in the Docker VM, all three Linux loops.
 
+`shim/iocp.c` has the same classes, and keeps big records up to 4 MB as the other shims
+do (2026-10-12). `scripts/test.sh` passes in Git Bash, where the stream run's peak
+working set was 8,468 KB; its rate isn't measured yet.
+
 ### Still to do
 
-- **Windows:** `shim/iocp.c` keeps the old scheme: one 8 KB class (`UR_SMALL`) with a
-  free list. Give it the same size classes as `shim/uring.c`, then run `scripts/test.sh`
-  in Git Bash. Not done here because this change was made on macOS, which can't build
-  it.
 - Confirm on WSL2 that the size classes cost no instructions (`bench/count.sh`), and
   record which THP mode the WSL2 kernel uses.
 - A fix for the data stacks' huge pages. The package doesn't set `PR_SET_THP_DISABLE`

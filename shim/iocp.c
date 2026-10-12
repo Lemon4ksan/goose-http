@@ -97,15 +97,24 @@ struct ur_sock {
 };
 
 /* A send's bytes, owned by the ring until the send completes. Records of
-   UR_SMALL bytes or fewer go back to a free list; bigger ones are allocated
-   for one send. */
-#define UR_SMALL 8192
+   up to UR_SMALL bytes come in UR_CLASSES powers of two from UR_MIN, each
+   with its own free list, so that a ring's records of small responses, one
+   for each send in flight, pack into few pages. Bigger ones, sized in UR_BIG
+   steps, go back to another while it holds under UR_KEEP bytes: freed to
+   malloc, a record that size goes back to the system, and the next one
+   faults its pages in again. */
+#define UR_MIN 256
+#define UR_CLASSES 6
+#define UR_SMALL (UR_MIN << (UR_CLASSES - 1))
+#define UR_BIG 65536
+#define UR_KEEP (4u << 20)
 struct ur_send {
     struct ur_req rq;
     struct ur_sock *sock;
     struct ur_send *next;      /* on the free list */
     uint64_t tag;
     uint32_t len, off;
+    uint32_t cap;              /* data's size */
     unsigned char data[];
 };
 
@@ -132,7 +141,9 @@ struct ur {
     uint32_t nbufs, buflen;
     int32_t *free;             /* the ids of free buffers, a stack */
     uint32_t nfree;
-    struct ur_send *spare;
+    struct ur_send *spare[UR_CLASSES];
+    struct ur_send *big;
+    uint32_t kept;             /* the bytes of big's records */
     struct ur_req *ready, *ready_last;
     struct ur_accept acc;
     struct ur_map socks;       /* socket -> ur_sock, until it's closed */
@@ -289,9 +300,15 @@ static void ur_post_send(struct ur *u, struct ur_send *s) {
 }
 
 static void ur_send_free(struct ur *u, struct ur_send *s) {
-    if (s->len <= UR_SMALL) {
-        s->next = u->spare;
-        u->spare = s;
+    if (s->cap <= UR_SMALL) {
+        int k = 0;
+        while ((UR_MIN << k) < s->cap) k++;
+        s->next = u->spare[k];
+        u->spare[k] = s;
+    } else if (u->kept + s->cap <= UR_KEEP) {
+        s->next = u->big;
+        u->big = s;
+        u->kept += s->cap;
     } else {
         free(s);
     }
@@ -389,13 +406,29 @@ void ur_recv(int64_t h, int32_t fd, uint64_t tag) {
    rest inside ur_wait, which reports the send once. */
 int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
     struct ur *u = (struct ur *)(intptr_t)h;
-    struct ur_send *s;
-    if (data.len <= UR_SMALL && u->spare) {
-        s = u->spare;
-        u->spare = s->next;
+    struct ur_send *s = NULL;
+    int k = 0;
+    if (data.len <= UR_SMALL) {
+        while ((UR_MIN << k) < data.len) k++;
+        if (u->spare[k]) {
+            s = u->spare[k];
+            u->spare[k] = s->next;
+        }
     } else {
-        s = malloc(sizeof *s + (data.len <= UR_SMALL ? UR_SMALL : (size_t)data.len));
+        for (struct ur_send **p = &u->big; *p; p = &(*p)->next) {
+            if ((*p)->cap >= data.len) {
+                s = *p;
+                *p = s->next;
+                u->kept -= s->cap;
+                break;
+            }
+        }
+    }
+    if (!s) {
+        size_t cap = data.len <= UR_SMALL ? (size_t)UR_MIN << k : ((size_t)data.len + UR_BIG - 1) / UR_BIG * UR_BIG;
+        s = malloc(sizeof *s + cap);
         if (!s) return -UR_ENOMEM;
+        s->cap = (uint32_t)cap;
     }
     s->rq.kind = UR_SEND;
     s->sock = ur_sock_of(u, fd);
