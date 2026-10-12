@@ -38,6 +38,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     net_worker_start();
     let ip, ok = ipv4(cfg.address);
     guard ok else { return Error { call: "address", code: EINVAL }; }
+    guard is_field_value(cfg.server) else { return Error { call: "server", code: EINVAL }; }
     var lfd = net_listen(ip, cfg.port, cfg.backlog, NONBLOCK | REUSEPORT);
     guard lfd >= 0 else { return Error { call: "listen", code: -lfd }; }
     let ep = net_epoll_create();
@@ -65,7 +66,8 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     var paused = false;
     var now = net_clock_ms();
     var next_sweep = now + 1000;
-    var date: u8[..32] = [];
+    // Server's 64 bytes and Date's 29, with their names.
+    var common: u8[..112] = [];
     var date_s: i64 = -1;
     var events: PollEvent[256] = [PollEvent { events: 0, tag: 0 }; 256];
     // The driven connection's bytes: rbuf[..rlen] is received and not yet
@@ -174,7 +176,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
         loop {
             var full = false;
             if c.state == OPEN && (rlen > 0 || c.x.stream.open && c.x.body.place == NO_BODY) {
-                let rest, done, f = answer(c, rbuf, rlen, wbuf, date, cfg, fresh, stopping, H) { false };
+                let rest, done, f = answer(c, rbuf, rlen, wbuf, common, cfg, fresh, stopping, H) { false };
                 rlen = rest;
                 if done > 0 { progress = true; }
                 full = f;
@@ -230,7 +232,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
             if c.fd < 0 || c.deadline > now { continue; }
             if owes_408(c) {
                 wbuf.clear();
-                refuse(wbuf, 408, date);
+                refuse(wbuf, 408, common);
                 let sent = net_send(c.fd, wbuf) == wbuf.len;
                 wbuf.clear();
                 if sent {
@@ -282,8 +284,8 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
         now = net_clock_ms();
         let t = net_time_s();
         if t != date_s {
-            date.clear();
-            format_date(date, t);
+            common.clear();
+            common_fields(common, cfg.server, t);
             date_s = t;
         }
         for ev in events[..n] {

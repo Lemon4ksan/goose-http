@@ -5,7 +5,8 @@ import http from "../";
 import routes;
 
 let GET = "GET /plaintext HTTP/1.1\r\nHost: x\r\n\r\n";
-let DATE = "Sat, 10 Oct 2026 12:00:00 GMT";
+// common_fields's, for Config.server's default.
+let COMMON = "Server: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT";
 
 // Answers a request, whose body follows its head, into out, as the loops do.
 // Returns whether the connection stays open.
@@ -15,7 +16,7 @@ fn response(text: const u8[:], out: u8[>..]&) -> bool {
     var keep = r.keep_alive;
     var stream = http::Stream { .. };
     var st = Transfer { .. };
-    let reply = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: r.minor, head: r.method == "HEAD",
+    let reply = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: r.minor, head: r.method == "HEAD",
                               stream: stream };
     handle(http::Event { kind: http::REQUEST, req: r, data: text[r.len..], whole: true, trailers: "" }, st, reply);
     while stream.open { handle(http::Event { kind: http::MORE, req: r, data: "", whole: false, trailers: "" }, st, reply); }

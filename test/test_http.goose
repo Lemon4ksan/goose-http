@@ -299,6 +299,14 @@ fn test_date() {
             assert(false);
         }
     }
+    var common: u8[>..] = [];
+    http::common_fields(common, "goose", 1791633600);
+    assert(common == "Server: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT");
+    var bare: u8[>..] = [];
+    http::common_fields(bare, "", 1791633600);
+    assert(bare == "Date: Sat, 10 Oct 2026 12:00:00 GMT");
+    assert(http::is_field_value("") && http::is_field_value("goose/1.0 (x\tz)"));
+    assert(!http::is_field_value("a\r\nX: y") && !http::is_field_value(" a") && !http::is_field_value("a\t"));
 }
 
 // The chunked body at the start of text, decoded, or its status.
@@ -467,7 +475,7 @@ fn test_stream() {
     var out: u8[>..] = [];
     var keep = true;
     var st = http::Stream { .. };
-    let c = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, stream: st };
+    let c = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: st };
     http::begin(c, 200, -1);
     http::field(c, "Content-Type", "text/plain");
     http::send(c, "hello");
@@ -499,7 +507,7 @@ fn test_stream() {
     // HEAD gets the head alone.
     let m3 = out.len;
     keep = true;
-    let h = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: true, stream: st };
+    let h = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: true, stream: st };
     http::begin(h, 200, -1);
     http::send(h, "hello");
     http::end(h);
@@ -508,7 +516,7 @@ fn test_stream() {
 
     // HTTP/1.0 has no chunks: the body ends at the close.
     let m4 = out.len;
-    let old = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 0, head: false, stream: st };
+    let old = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 0, head: false, stream: st };
     http::begin(old, 200, -1);
     http::send(old, "hello");
     http::end(old);
@@ -607,7 +615,7 @@ fn test_conditional() {
     var out: u8[>..] = [];
     var keep = true;
     var st = http::Stream { .. };
-    let c = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, stream: st };
+    let c = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: st };
     http::content_range(c, 90, 100, 100);
     http::content_range(c, 0, 0, 100);
     same(out, "Content-Range: bytes 90-99/100\r\nContent-Range: bytes */100\r\n");
@@ -626,7 +634,7 @@ fn test_upgrade() {
     var out: u8[>..] = [];
     var keep = true;
     var st = http::Stream { .. };
-    let c = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, stream: st };
+    let c = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: st };
     http::upgrade(c, "websocket");
     http::send(c, "\x81\x00");
     same(out, "HTTP/1.1 101 Switching Protocols\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n\x81\x00");
@@ -642,7 +650,7 @@ fn app(text: const u8[:], out: u8[>..]&) {
     assert(s == 200);
     var keep = true;
     var stream = http::Stream { .. };
-    let reply = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: req.method == "HEAD",
+    let reply = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: req.method == "HEAD",
                               stream: stream };
     var r = http::router(req);
     if http::on(r, "GET", "/") { out.append("root"); }
@@ -687,7 +695,8 @@ fn test_router() {
     routes_to("GET //users/1 HTTP/1.1\r\nHost: x\r\n\r\n", missing);
 }
 
-let DATE = "Sat, 10 Oct 2026 12:00:00 GMT";
+// common_fields's, for Config.server's default.
+let COMMON = "Server: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT";
 
 fn same(got: const u8[:], want: const u8[:]) {
     if got != want {
@@ -701,7 +710,7 @@ fn test_reply() {
     var out: u8[>..] = [];
     var keep = true;
     var nobody = http::Stream { .. };
-    http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, stream: nobody },
+    http::respond(http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: nobody },
                   201, "text/plain", "made");
     same(out, "HTTP/1.1 201 Created\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Type: text/plain\r\nContent-Length: 4\r\n\r\nmade");
 
@@ -709,7 +718,7 @@ fn test_reply() {
     // handler that closes the connection.
     out.clear();
     keep = false;
-    let r = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, stream: nobody };
+    let r = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: nobody };
     http::start(r, 299);
     http::field(r, "X-Thing", "a b");
     http::finish(r, "Content-Length: ", "hi");
@@ -719,7 +728,7 @@ fn test_reply() {
     // says so.
     out.clear();
     keep = true;
-    http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 0, head: true, stream: nobody },
+    http::respond(http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 0, head: true, stream: nobody },
                   200, "a/b", "body");
     same(out, "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nConnection: keep-alive\r\nContent-Type: a/b\r\nContent-Length: 4\r\n\r\n");
 
@@ -729,34 +738,34 @@ fn test_reply() {
     for status in bodyless {
         out.clear();
         keep = true;
-        http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, stream: nobody },
+        http::respond(http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: nobody },
                       status, "text/plain", "body");
         assert(nobody.bodyless);
         assert(find(out, "Content-Length") < 0 && out[out.len - 4..] == "\r\n\r\n");
         assert(find(out, "Content-Type: text/plain\r\n\r\n") > 0);
     }
     out.clear();
-    let r304 = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: true, stream: nobody };
+    let r304 = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: true, stream: nobody };
     http::start(r304, 304);
     http::field(r304, "ETag", "\"x\"");
     http::finish(r304, "", "ignored");
     same(out, "HTTP/1.1 304 Not Modified\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nETag: \"x\"\r\n\r\n");
     // A body status after them gets its length again.
     out.clear();
-    http::respond(http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, stream: nobody },
+    http::respond(http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: nobody },
                   200, "text/plain", "ok");
     assert(!nobody.bodyless && find(out, "Content-Length: 2\r\n\r\nok") > 0);
 
     // A handler clears keep_alive through its copy of the reply.
     keep = true;
     out.clear();
-    let close = http::Reply { buf: out, date: DATE, keep_alive: keep, minor: 1, head: false, stream: nobody };
+    let close = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: nobody };
     close.keep_alive = false;
     assert(!keep);
 
     // A limited array takes responses as the server's write buffer does.
     var wbuf: u8[..256] = [];
-    http::refuse(wbuf, 431, DATE);
+    http::refuse(wbuf, 431, COMMON);
     same(wbuf, "HTTP/1.1 431 Request Header Fields Too Large\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
 
     var j: u8[>..] = [];

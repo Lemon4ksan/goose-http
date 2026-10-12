@@ -121,8 +121,9 @@ until the task named beside it confirms or replaces it.
     connection 60 s, each its own setting (2026-10-12). A sweep once a second enforces
     them.
   - The `Date` header is rendered when the second changes, at most once a second per
-    worker, after the worker's `epoll_wait` returns. Responses are literals around the
-    date and the length.
+    worker, after the worker's `epoll_wait` returns, together with the `Server` field
+    (`Config.server`, `goose` by default, or none when empty; 2026-10-12). Responses
+    are literals around those fields and the length.
 - **A handler called again, with state in the slot** (task 013, 2026-10-12). A Goose
   handler can't be suspended or stored (spec §7.6), so bodies and responses of any
   size come from calling it again, as h2o calls its generators and body callbacks,

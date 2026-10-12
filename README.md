@@ -208,7 +208,7 @@ size, whole or in pieces, a program's handler, and the C shim the loops need for
 syscalls; in the benchmark server, TechEmpower's plaintext and JSON endpoints and
 HttpArena's baseline and pipeline endpoints, and on `main`, configurable limits and
 timeouts, a graceful shutdown, a router, `Upgrade`, conditional requests, ranges,
-and trailers. Planned (task 013): a configurable `Server` field, and files sent with
+trailers, and a configurable `Server` field. Planned (task 013): files sent with
 `sendfile`.
 Out of scope: TLS and HTTP/2 (task 014 plans them), and Windows as a benchmark
 platform.

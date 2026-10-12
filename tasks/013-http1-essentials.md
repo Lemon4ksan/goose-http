@@ -225,20 +225,21 @@ connections: 12.4 MB against 11.3 MB).
   `test_http.goose`'s `test_conditional` and `test_stream` check them. Request
   trailers come in `Event.trailers`, at `END` or with a whole chunked body, as field
   lines that `http::field_in` searches, checked to be field lines; `/echo` sends a
-  chunked body's back as its response's, which `stream` checks. Not yet: a
-  configurable or
-  absent `Server` field, which every status line has as a literal, so that a constant
-  status costs one append; and files through `sendfile`, which needs the shims.
+  chunked body's back as its response's, which `stream` checks.
+- Item 16, the `Server` field (2026-10-12): `Config.server`, `goose` by default, or
+  empty for none, checked at start to be a field value. Each loop renders it with the
+  `Date` field, once a second, into one buffer (`http::common_fields`), and the status
+  lines' literals end at their CRLF, so a response still takes one append for both.
+  `Reply.date` became `Reply.common`. Not yet: files through `sendfile`, which needs
+  the shims.
 
 Next, in order:
 
 1. Run the tests on macOS (`scripts/test.sh`): the kqueue table change, the stop, and
    the restart, none of which has run there yet.
 2. Split the streaming loop's cost further, and remove what can go.
-3. The rest of item 16. A configurable `Server` field could cost nothing per request:
-   render it into the buffer the `Date` field is rendered into once a second, and drop
-   it from the status lines' literals.
-4. The stop on Windows, by Ctrl+Break, which no test sends yet.
+3. The stop on Windows, by Ctrl+Break, which no test sends yet.
+4. Files through `sendfile` (item 16's rest), with a shim function per platform.
 
 ## Streaming design (2026-10-12)
 

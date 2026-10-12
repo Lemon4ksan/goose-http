@@ -692,7 +692,7 @@ fn hex(c: u8) -> i32 {
 // body in pieces with send until end.
 struct Reply {
     buf: u8[>..]&,
-    date: const u8[:],      // the Date field's value, rendered once a second
+    common: const u8[:],    // common_fields, rendered once a second
     keep_alive: bool&,      // whether the connection stays open; clear it before start to close
     minor: i32,             // the request's x of HTTP/1.x
     head: bool,             // a HEAD request: finish writes the body's fields, not the body
@@ -714,11 +714,12 @@ struct Stream {
 // its status line at compile time and its appends reach the write buffer
 // directly; as calls they cost about 190 instructions per request.
 
-// The status line and the fields every response has: Server, Date, and
-// Connection where HTTP/1.x's default isn't what the connection does.
+// The status line and the fields every response has: Server, unless
+// Config.server is empty, Date, and Connection where HTTP/1.x's default isn't
+// what the connection does.
 inline fn start(out: Reply, status: i32) {
     out.stream.bodyless = status < 200 || status == 204 || status == 304;
-    status_fields(out.buf, status, out.date, out.keep_alive, out.minor);
+    status_fields(out.buf, status, out.common, out.keep_alive, out.minor);
 }
 
 // A field of the handler's own, between start and finish. name and value
@@ -878,12 +879,12 @@ fn hex_size(out: u8[>..]&, n: i64) {
 
 // Writes the response that refuses a request with status. The connection
 // closes after it.
-fn refuse<A>(out: A&, status: i32, date: const u8[:]) {
-    status_fields(out, status, date, false, 1);
+fn refuse<A>(out: A&, status: i32, common: const u8[:]) {
+    status_fields(out, status, common, false, 1);
     write_body(out, "Content-Length: ", "", false);
 }
 
-inline fn status_fields<A>(out: A&, status: i32, date: const u8[:], keep_alive: bool, minor: i32) {
+inline fn status_fields<A>(out: A&, status: i32, common: const u8[:], keep_alive: bool, minor: i32) {
     let line = status_line(status);
     if line.len > 0 {
         out.append(line);
@@ -892,9 +893,9 @@ inline fn status_fields<A>(out: A&, status: i32, date: const u8[:], keep_alive: 
         // §4).
         out.append("HTTP/1.1 ");
         format(out, status);
-        out.append(" \r\nServer: goose\r\nDate: ");
+        out.append(" \r\n");
     }
-    out.append(date);
+    out.append(common);
     out.append(if !keep_alive { "\r\nConnection: close\r\n" }
                else if minor == 0 { "\r\nConnection: keep-alive\r\n" }
                else { "\r\n" });
@@ -907,43 +908,42 @@ inline fn write_body<A>(out: A&, fields: const u8[:], body: const u8[:], head_on
     if !head_only { out.append(body); }
 }
 
-// The status line and the fields up to the Date field's value, or "" for a
-// status not listed here.
+// The status line, or "" for a status not listed here.
 inline fn status_line(status: i32) -> const u8[:] {
     match status {
-        200 => "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: ",
-        101 => "HTTP/1.1 101 Switching Protocols\r\nServer: goose\r\nDate: ",
-        201 => "HTTP/1.1 201 Created\r\nServer: goose\r\nDate: ",
-        202 => "HTTP/1.1 202 Accepted\r\nServer: goose\r\nDate: ",
-        204 => "HTTP/1.1 204 No Content\r\nServer: goose\r\nDate: ",
-        301 => "HTTP/1.1 301 Moved Permanently\r\nServer: goose\r\nDate: ",
-        302 => "HTTP/1.1 302 Found\r\nServer: goose\r\nDate: ",
-        303 => "HTTP/1.1 303 See Other\r\nServer: goose\r\nDate: ",
-        304 => "HTTP/1.1 304 Not Modified\r\nServer: goose\r\nDate: ",
-        307 => "HTTP/1.1 307 Temporary Redirect\r\nServer: goose\r\nDate: ",
-        308 => "HTTP/1.1 308 Permanent Redirect\r\nServer: goose\r\nDate: ",
-        400 => "HTTP/1.1 400 Bad Request\r\nServer: goose\r\nDate: ",
-        401 => "HTTP/1.1 401 Unauthorized\r\nServer: goose\r\nDate: ",
-        403 => "HTTP/1.1 403 Forbidden\r\nServer: goose\r\nDate: ",
-        404 => "HTTP/1.1 404 Not Found\r\nServer: goose\r\nDate: ",
-        405 => "HTTP/1.1 405 Method Not Allowed\r\nServer: goose\r\nDate: ",
-        408 => "HTTP/1.1 408 Request Timeout\r\nServer: goose\r\nDate: ",
-        409 => "HTTP/1.1 409 Conflict\r\nServer: goose\r\nDate: ",
-        410 => "HTTP/1.1 410 Gone\r\nServer: goose\r\nDate: ",
-        411 => "HTTP/1.1 411 Length Required\r\nServer: goose\r\nDate: ",
-        413 => "HTTP/1.1 413 Content Too Large\r\nServer: goose\r\nDate: ",
-        414 => "HTTP/1.1 414 URI Too Long\r\nServer: goose\r\nDate: ",
-        415 => "HTTP/1.1 415 Unsupported Media Type\r\nServer: goose\r\nDate: ",
-        417 => "HTTP/1.1 417 Expectation Failed\r\nServer: goose\r\nDate: ",
-        422 => "HTTP/1.1 422 Unprocessable Content\r\nServer: goose\r\nDate: ",
-        426 => "HTTP/1.1 426 Upgrade Required\r\nServer: goose\r\nDate: ",
-        429 => "HTTP/1.1 429 Too Many Requests\r\nServer: goose\r\nDate: ",
-        431 => "HTTP/1.1 431 Request Header Fields Too Large\r\nServer: goose\r\nDate: ",
-        500 => "HTTP/1.1 500 Internal Server Error\r\nServer: goose\r\nDate: ",
-        501 => "HTTP/1.1 501 Not Implemented\r\nServer: goose\r\nDate: ",
-        502 => "HTTP/1.1 502 Bad Gateway\r\nServer: goose\r\nDate: ",
-        503 => "HTTP/1.1 503 Service Unavailable\r\nServer: goose\r\nDate: ",
-        505 => "HTTP/1.1 505 HTTP Version Not Supported\r\nServer: goose\r\nDate: ",
+        200 => "HTTP/1.1 200 OK\r\n",
+        101 => "HTTP/1.1 101 Switching Protocols\r\n",
+        201 => "HTTP/1.1 201 Created\r\n",
+        202 => "HTTP/1.1 202 Accepted\r\n",
+        204 => "HTTP/1.1 204 No Content\r\n",
+        301 => "HTTP/1.1 301 Moved Permanently\r\n",
+        302 => "HTTP/1.1 302 Found\r\n",
+        303 => "HTTP/1.1 303 See Other\r\n",
+        304 => "HTTP/1.1 304 Not Modified\r\n",
+        307 => "HTTP/1.1 307 Temporary Redirect\r\n",
+        308 => "HTTP/1.1 308 Permanent Redirect\r\n",
+        400 => "HTTP/1.1 400 Bad Request\r\n",
+        401 => "HTTP/1.1 401 Unauthorized\r\n",
+        403 => "HTTP/1.1 403 Forbidden\r\n",
+        404 => "HTTP/1.1 404 Not Found\r\n",
+        405 => "HTTP/1.1 405 Method Not Allowed\r\n",
+        408 => "HTTP/1.1 408 Request Timeout\r\n",
+        409 => "HTTP/1.1 409 Conflict\r\n",
+        410 => "HTTP/1.1 410 Gone\r\n",
+        411 => "HTTP/1.1 411 Length Required\r\n",
+        413 => "HTTP/1.1 413 Content Too Large\r\n",
+        414 => "HTTP/1.1 414 URI Too Long\r\n",
+        415 => "HTTP/1.1 415 Unsupported Media Type\r\n",
+        417 => "HTTP/1.1 417 Expectation Failed\r\n",
+        422 => "HTTP/1.1 422 Unprocessable Content\r\n",
+        426 => "HTTP/1.1 426 Upgrade Required\r\n",
+        429 => "HTTP/1.1 429 Too Many Requests\r\n",
+        431 => "HTTP/1.1 431 Request Header Fields Too Large\r\n",
+        500 => "HTTP/1.1 500 Internal Server Error\r\n",
+        501 => "HTTP/1.1 501 Not Implemented\r\n",
+        502 => "HTTP/1.1 502 Bad Gateway\r\n",
+        503 => "HTTP/1.1 503 Service Unavailable\r\n",
+        505 => "HTTP/1.1 505 HTTP Version Not Supported\r\n",
         _ => "",
     }
 }
@@ -964,6 +964,28 @@ fn json_string<A>(out: A&, s: const u8[:]) {
         }
     }
     out.push('"');
+}
+
+// Appends the field lines every response has, but Connection, without the
+// last CRLF: Server, when server isn't empty, and Date at t. The loops render
+// them once a second, so that they cost a response one append.
+fn common_fields<A>(out: A&, server: const u8[:], t: i64) {
+    if server.len > 0 {
+        out.append("Server: ");
+        out.append(server);
+        out.append("\r\n");
+    }
+    out.append("Date: ");
+    format_date(out, t);
+}
+
+// Whether s can be a field's value: visible bytes, spaces, and tabs, with
+// none at its ends (RFC 9110 §5.5).
+fn is_field_value(s: const u8[:]) -> bool {
+    for c in s {
+        guard (c >= ' ' && c != 0x7f) || c == '\t' else { return false; }
+    }
+    return s.len == 0 || (s[0] > ' ' && s[s.len - 1] > ' ');
 }
 
 // Appends t, in seconds since the epoch and not negative, as an HTTP date

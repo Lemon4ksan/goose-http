@@ -47,6 +47,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     net_worker_start();
     let ip, ok = ipv4(cfg.address);
     guard ok else { return Error { call: "address", code: EINVAL }; }
+    guard is_field_value(cfg.server) else { return Error { call: "server", code: EINVAL }; }
     var lfd = net_listen(ip, cfg.port, cfg.backlog, NONBLOCK | REUSEPORT);
     guard lfd >= 0 else { return Error { call: "listen", code: -lfd }; }
     let r = ring_create(cfg.ring_entries, cfg.ring_buffers, cfg.ring_buffer_size,
@@ -72,7 +73,8 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     var closed = false;
     var now = net_clock_ms();
     var next_sweep = now + 1000;
-    var date: u8[..32] = [];
+    // Server's 64 bytes and Date's 29, with their names.
+    var common: u8[..112] = [];
     var date_s: i64 = -1;
     var done: Completion[256] =
         [Completion { tag: 0, res: 0, buf: -1, more: false, send: false }; 256];
@@ -151,7 +153,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
             else { copy_into(rbuf[rlen..rlen + k], src[off..off + k]); }
             rlen += k;
             off += k;
-            let rest, done, full = answer(c, rbuf, rlen, wbuf, date, cfg, fresh, stopping, H) {
+            let rest, done, full = answer(c, rbuf, rlen, wbuf, common, cfg, fresh, stopping, H) {
                 flush(c);
                 !blocked(c)
             };
@@ -262,7 +264,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
             if c.fd < 0 || c.deadline > now { continue; }
             if owes_408(c) && !c.sending {
                 wbuf.clear();
-                refuse(wbuf, 408, date);
+                refuse(wbuf, 408, common);
                 flush(c);
                 c.state = CLOSING;
                 c.deadline = now + cfg.linger_ms;
@@ -299,8 +301,8 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
             now = net_clock_ms();
             let t = net_time_s();
             if t != date_s {
-                date.clear();
-                format_date(date, t);
+                common.clear();
+                common_fields(common, cfg.server, t);
                 date_s = t;
             }
             closed = false;

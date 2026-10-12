@@ -70,6 +70,8 @@ struct Config {
     write_ms: i64 = 10000,
     idle_ms: i64 = 60000,
     linger_ms: i64 = 2000,
+    // The Server field's value, or empty for no Server field.
+    server: u8[..64] = "goose",
     // After stop, how long a loop goes on with the requests in progress
     // before it closes their connections and returns.
     grace_ms: i64 = 10000,
@@ -188,7 +190,7 @@ fn interim() -> const u8[:] { "HTTP/1.1 100 Continue\r\n\r\n" }
 // rbuf, the number of calls to H, and whether ROOM stopped it. A refused
 // request, or a response that doesn't keep the connection open, leaves c
 // CLOSING and rbuf empty.
-fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: const u8[:],
+fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: const u8[:],
                          cfg: const Config&, fresh: const S&, stopping: bool) -> i64, i64, bool {
     var off = 0;
     var done = 0;
@@ -206,7 +208,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: co
     // Refuses the request with status, unless its response has begun, and
     // closes.
     fn fail(status: i32) {
-        if !x.answered && !x.stream.open { refuse(wbuf, status, date); }
+        if !x.answered && !x.stream.open { refuse(wbuf, status, common); }
         close();
     }
 
@@ -214,7 +216,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: co
     fn call(ev: Event) -> bool {
         let before = wbuf.len;
         let was_open = x.stream.open;
-        H(ev, x.state, Reply { buf: wbuf, date: date, keep_alive: x.keep_alive, minor: x.minor,
+        H(ev, x.state, Reply { buf: wbuf, common: common, keep_alive: x.keep_alive, minor: x.minor,
                                head: x.head, stream: x.stream });
         done++;
         let wrote = wbuf.len > before;
@@ -321,7 +323,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: co
         let req, status = parse(rbuf[off..rlen], rbuf.len, cfg.max_body, cfg.max_line, cfg.max_fields);
         if status == INCOMPLETE { break; }
         if status != 200 {
-            refuse(wbuf, status, date);
+            refuse(wbuf, status, common);
             close();
             break;
         }
@@ -345,7 +347,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: co
             if s == 413 && req.chunked {
                 whole = false;
             } else if s != 200 {
-                refuse(wbuf, s, date);
+                refuse(wbuf, s, common);
                 close();
                 break;
             } else {
@@ -371,13 +373,13 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, date: co
         let before = wbuf.len;
         H(Event { kind: REQUEST, req: req, data: rbuf[b0..b0 + blen], whole: whole,
                   trailers: rbuf[b0 + t0..b0 + t1] }, x.state,
-          Reply { buf: wbuf, date: date, keep_alive: x.keep_alive, minor: req.minor,
+          Reply { buf: wbuf, common: common, keep_alive: x.keep_alive, minor: req.minor,
                   head: req.method == "HEAD", stream: x.stream });
         done++;
         if whole && !x.stream.open {
             if wbuf.len == before {
                 // The handler didn't answer.
-                refuse(wbuf, 500, date);
+                refuse(wbuf, 500, common);
                 close();
                 break;
             }
