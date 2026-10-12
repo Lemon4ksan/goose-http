@@ -1,55 +1,58 @@
 # goose-http
 
-An HTTP/1.1 server written in [Goose](https://github.com/aardappel/goose), as a package
-that Goose programs import. It runs an event loop per worker on Linux, macOS, and
-Windows, and is benchmarked against the fastest Rust, Zig, V, and C servers. It's an
-early work in progress.
+HTTP/1.1 server package for [Goose](https://github.com/aardappel/goose). One event loop
+per worker: io_uring or epoll on Linux, kqueue on macOS, I/O completion ports on Windows.
 
-The repository is a Goose package, not an addition to Goose (2026-10-10). Gaps found in
-the compiler or the standard library are recorded in
-[docs/goose-findings.md](docs/goose-findings.md), not patched here.
+Parsing, routing, and responses are Goose. C only for syscalls, in `shim/`. Compiler and
+stdlib gaps go to [docs/goose-findings.md](docs/goose-findings.md), not into patches
+(2026-10-10).
 
-## What it has
+Early work. No TLS yet.
 
-| Protocol or platform | Status | Notes |
+## Status
+
+🟢 works · 🟡 partial or next · 🔴 not yet
+
+| | Protocol | Notes |
 |---|---|---|
-| HTTP/1.1 | Yes | Keep-alive, pipelining, chunked bodies; HTTP/1.0 too |
-| HTTP/2 | No | Out of scope for now; task 014 proposes it |
-| TLS (HTTPS) | No | Out of scope for now; task 014 proposes a separate `goose-tls` package |
-| WebSocket | Partial | `Upgrade` answers 101 and hands the connection to the program, which does the framing |
-| HTTP/3 | No | Not planned |
-| Compression | No | Task 014 or later |
-| Linux | Yes | io_uring (kernel 6.1 or later) or epoll |
-| macOS | Yes | kqueue |
-| Windows | Yes | I/O completion ports; not a benchmark platform |
+| 🟢 | HTTP/1.1 | Keep-alive, pipelining, chunked. HTTP/1.0 too. |
+| 🟡 | WebSocket | `Upgrade` and 101 only. The framing is the program's. |
+| 🔴 | HTTP/2 | Proposed in task 014. |
+| 🔴 | TLS | Proposed in task 014, as a separate `goose-tls` package. |
+| 🔴 | Compression | Task 014 or later. |
+| 🔴 | HTTP/3 | Not planned. |
 
-Within HTTP/1.1, on `main`. The tag `v0.1.0` serves requests and responses of a fixed
-size only.
+| | Platform | Notes |
+|---|---|---|
+| 🟢 | Linux | io_uring (kernel 6.1+) or epoll. |
+| 🟢 | macOS | kqueue. |
+| 🟢 | Windows | IOCP. Not benchmarked. |
 
-| Feature | Status |
-|---|---|
-| Strict parsing: rejects smuggling, oversized heads (414, 431), other major versions (505), unknown transfer codings (501) | Yes |
-| Header fields by name and in order, path and query with percent-decoding | Yes |
-| Router: method and path patterns, parameters, wildcards, 405 with `Allow`, `OPTIONS` | Yes |
-| Request bodies of any size, in pieces; `Expect: 100-continue`; request trailers | Yes |
-| Responses of any size, streamed or chunked; response trailers | Yes |
-| Conditional `GET` (304), one byte range (206, 416) | Yes |
-| Static files, read in 64 KB pieces | Yes |
-| Limits and timeouts set by the program; graceful shutdown on `SIGTERM` | Yes |
-| `sendfile` for files on the epoll loop | Next (task 013) |
-| Large responses on the io_uring loop without the extra copy | Next (task 013) |
-| Answers that wait for another thread or a timer (long polling, Server-Sent Events) | Planned (task 015) |
-| The client's address, and from `Forwarded` behind trusted proxies | Planned (task 015) |
-| IPv6, dual-stack, and Unix sockets | Planned (task 015) |
-| Response fields checked for CR and LF | Planned (task 015) |
-| Cookies, `Authorization`, media types and `Accept` (415, 406) | Planned (task 015) |
-| Form and multipart bodies, JSON responses, a log after each response | Planned (task 015) |
-| CORS, sessions, middleware, an HTTP client | No; a framework's job |
+HTTP/1.1 on `main`. The tag `v0.1.0` has fixed-size requests and responses only.
+
+| | Feature | Task |
+|---|---|---|
+| 🟢 | Strict parser: smuggling, 414, 431, 505, 501 | |
+| 🟢 | Header fields, path, query, percent-decoding | |
+| 🟢 | Router: parameters, wildcards, 405 with `Allow`, `OPTIONS` | |
+| 🟢 | Request bodies of any size, in pieces. `Expect: 100-continue`. Trailers. | |
+| 🟢 | Responses of any size, streamed or chunked. Trailers. | |
+| 🟢 | Conditional `GET` (304), one byte range (206, 416) | |
+| 🟢 | Static files | |
+| 🟢 | Limits and timeouts. Graceful shutdown. | |
+| 🟡 | `sendfile` on the epoll loop | 013 |
+| 🟡 | Large responses on io_uring without the extra copy | 013 |
+| 🔴 | Answers that wait: another thread, a timer, long polling, SSE | 015 |
+| 🔴 | Client address. `Forwarded` from trusted proxies. | 015 |
+| 🔴 | IPv6, dual-stack, Unix sockets | 015 |
+| 🔴 | CR and LF checked in response fields | 015 |
+| 🔴 | Cookies, `Authorization`, media types, `Accept` | 015 |
+| 🔴 | Form and multipart bodies, JSON responses, access log | 015 |
+
+CORS, sessions, middleware, and an HTTP client are out of scope. They belong to a
+framework.
 
 ## Quick start
-
-Declare the package in your program's root file, and call a loop from a `thread_fn` of
-your own, with your handler:
 
 ```goose
 import http from "github.com/kaitk/goose-http@v0.1.0";
@@ -73,28 +76,26 @@ fn main() {
 }
 ```
 
-`goose build hello.goose` makes an executable. The first build fetches the package into
-`~/.goose` and compiles its C shim, which needs liburing (apt `liburing-dev`) on Linux
-and the Visual Studio Build Tools on Windows. The rest of the API is in
-[Using the package](#using-the-package), and setup in
+```sh
+goose build hello.goose
+```
+
+The first build fetches the package into `~/.goose` and compiles the shim. Linux needs
+liburing (`liburing-dev`), Windows the Visual Studio Build Tools. Setup:
 [docs/development.md](docs/development.md).
 
 ## Benchmarks
 
-Every number below names its machine, build, and method; the full tables and the
-losses are in [docs/results.md](docs/results.md).
+All tables, spreads, and losses: [docs/results.md](docs/results.md).
 
-### Plaintext and JSON: fast, and synthetic
+### Plaintext and JSON
 
-TechEmpower's plaintext and JSON tests answer a fixed, tiny response, so they measure
-the event loop and the parser and little else. Goose is at or near the top here, which
-says little about a real program, whose time goes elsewhere.
+Tiny fixed responses. They measure the loop and the parser, nothing else. Goose is at
+the top here. A real program spends its time elsewhere.
 
-On one machine (Ryzen 7 5800X3D, WSL2 kernel 6.18), with `bench/run.sh`'s defaults on
-2026-10-11: plaintext pipelined 16 deep and JSON, 1 and 4 workers on CPUs 0-3, wrk on
-CPUs 4-15, medians of 3 runs of 15 s per cell. The epoll server at `b6a26c5`, against
-the strongest servers of [HttpArena](https://www.http-arena.com/) and TechEmpower that
-run on this machine:
+Ryzen 7 5800X3D, WSL2, kernel 6.18. `bench/run.sh` defaults, 2026-10-11. Servers on
+CPUs 0-3, wrk on 4-15. Plaintext pipelined 16 deep. Median of 3 runs of 15 s. Goose's
+epoll loop at `b6a26c5`.
 
 | | Goose | vanilla-epoll (V) | tokio (Rust) | may-minihttp (Rust) |
 |---|---:|---:|---:|---:|
@@ -104,87 +105,81 @@ run on this machine:
 | instructions per request (plaintext, 1 worker) | 2,255-2,371 | 1,756-1,765 | 4,330-4,375 | 2,983-3,011 |
 | peak RSS, any cell | 2.1-2.6 MB | 5.6-57 MB, 15 GB in JSON | 12-184 MB | 40-639 MB |
 
-Goose leads every JSON cell and four of six plaintext cells. It loses plaintext with 4
-workers at 256 and 1,024 connections to vanilla-epoll by 1%, inside both servers' run
-spreads; vanilla-epoll answers `GET /plaintext` from its first bytes without parsing
-the request. Goose's p99 latency trails the best in six of ten cells, by 0.05-0.53 ms,
-and in HttpArena's `limited-conn` profile (a new connection every 10 requests) it runs
-2% behind tokio. The streaming handler added since cost 0-3% in these cells (task
-013).
+- Wins every JSON cell and 4 of 6 plaintext cells.
+- Loses plaintext with 4 workers at 256 and 1,024 connections to vanilla-epoll, by 1%,
+  inside both run spreads. vanilla-epoll answers without parsing the request.
+- p99 latency behind the best in 6 of 10 cells, by 0.05-0.53 ms.
+- HttpArena's `limited-conn` profile: 2% behind tokio.
+- The streaming handler added since costs 0-3% in these cells (task 013).
 
-### Large responses and files: not compared yet
+### Large responses and files
 
-Sending a 64 KB or 1 MB response, or a file, measures how the loop moves bytes rather
-than how it parses. No competitor has been measured on it yet, so these numbers say
-how the two loops compare, not where Goose ranks.
+No competitor measured yet. This compares the two loops only.
 
-On the same machine on 2026-10-12, at `4a65d96` with Goose `5c83a5a`: one worker on
-CPU 0, wrk on CPUs 4-15 with 8 threads and 64 connections for 10 s, files from tmpfs, 2
-runs each:
+Same machine, 2026-10-12, `4a65d96`, Goose `5c83a5a`. One worker on CPU 0, wrk on
+4-15, 8 threads, 64 connections, 10 s, files on tmpfs, 2 runs.
 
 | Path | epoll | io_uring |
 |---|---:|---:|
-| `/files/`, a 64 KB file | 1.90-1.91 GB/s | 1.21-1.22 GB/s |
-| `/files/`, a 1 MB file | 3.25-3.30 GB/s | 0.98 GB/s |
-| `/bytes?n=1048576`, 1 MB generated | 2.32 GB/s (1 run) | 1.02-1.05 GB/s |
+| `/files/`, 64 KB file | 1.90-1.91 GB/s | 1.21-1.22 GB/s |
+| `/files/`, 1 MB file | 3.25-3.30 GB/s | 0.98 GB/s |
+| `/bytes?n=1048576` | 2.32 GB/s (1 run) | 1.02-1.05 GB/s |
 
-Since then, `shim/uring.c` reuses its large send records, which took the io_uring loop's
-`/bytes` to 1.72-1.73 GB/s; its files weren't measured again. The io_uring loop still
-copies each piece once more than it needs to, and the epoll loop reads files with
-`pread` where `sendfile` would save a copy. Both are task 013's next steps.
+Since then the io_uring shim reuses large send records: `/bytes` at 1.72-1.73 GB/s.
+Files not measured again. Next (task 013): no extra copy on io_uring, `sendfile` on
+epoll.
 
-### REST and JSON APIs: to be measured
+### REST APIs
 
-An API spends its time in routing, JSON in both directions, and waiting on other work,
-such as a database. Nothing measures that yet; it follows task 015, which adds what an
-API needs.
+Not measured. After task 015.
 
-## Using the package
+## API
 
-The program spawns its workers itself, because `thread_spawn` can't take a `thread_fn`
-a package function was passed
+### Handler
+
+- **`req`**: the parsed head, `http::Request`. Slices into the read buffer, valid until
+  the handler returns.
+  - `http::field_of(req, name)`: a field's value, and whether it's there. Name is
+    case-insensitive.
+  - `http::each_field(req) { name, value => }`: all fields, repeats included.
+  - `http::path_of(req.target)`, `http::query_of(req.target, key)`,
+    `http::each_query(req.target) { key, value => }`: still percent-encoded.
+  - `http::decode(s, out)`: decodes one. With `plus` set, `+` is a space.
+  - A target with a bad `%` escape gets 400.
+- **`body`**: the whole body, if it fits in the read buffer with the head. Chunked is
+  decoded. A longer body is dropped and `body` is empty; see
+  [Streaming](#streaming).
+- **`out`**: an `http::Reply`. One whole response, any size.
+  - `http::respond(out, status, content_type, body)`, or
+  - `http::start(out, status)`, `http::field(out, name, value)`,
+    `http::finish(out, fields, body)`.
+  - Clear `out.keep_alive` before `start` to close after the response.
+
+A handler passed by name, `http::serve(cfg, route)`, should be an `inline fn`, as in
+`server/routes.goose`. As a call, it keeps `http::start` from folding a constant status:
+about 190 instructions per request in the benchmark server.
+
+The program spawns its own workers. `thread_spawn` can't take a `thread_fn` passed to a
+package function
 ([findings](docs/goose-findings.md#thread_spawn-doesnt-take-a-function-value-bound-to-a-thread_fn)).
-`goose hello.goose` runs a program in the compiler, which can't run one that reaches
-`thread_spawn`: there, call `http::serve` from `main`, for one worker.
+`goose hello.goose` runs in the compiler, which can't reach `thread_spawn`: call
+`http::serve` from `main` there, for one worker.
 
-The handler gets:
+### Config and shutdown
 
-- `req`, the parsed request head (`http::Request` in `message.goose`): method, target,
-  version, keep-alive, the body's announced length, and slices into the read buffer.
-  `http::field_of(req, name)` gives a header field's value and whether it's there,
-  ignoring the name's case, and `http::each_field(req) { name, value => ... }` goes
-  through them all, repeats included. `http::path_of(req.target)` is the path,
-  `http::query_of(req.target, key)` a query's value and whether it's there, and
-  `http::each_query(req.target) { key, value => ... }` its pairs, all still encoded;
-  `http::decode(s, out)` decodes one, with `+` as a space when its `plus` is set. A
-  target with a `%` that doesn't start an escape gets 400. Every slice lasts until the
-  handler returns.
-- `body`, the whole body when it fits in the read buffer with its head, chunked bodies
-  decoded. A longer body is dropped as it arrives, and `body` is empty.
-- `out`, an `http::Reply`, to write one whole response of any size into:
-  `http::respond(out, status, content_type, body)`, or `http::start(out, status)`,
-  `http::field(out, name, value)`, and `http::finish(out, fields, body)`. Clearing
-  `out.keep_alive` before `start` closes the connection after the response.
+`http::Config`: address, port, workers, limits, timeouts, buffer sizes. All have
+defaults.
 
-A handler passed by name, `http::serve(cfg, route)`, is best an `inline fn`, as the
-benchmark server's is (`server/routes.goose`): both loops call it, and as a call it
-keeps `http::start` from folding a constant status, which cost the benchmark server
-about 190 instructions per request.
+A loop returns:
 
-`http::Config` holds the address, port, worker count, limits, timeouts, and buffer
-sizes, with defaults. A loop returns when a call fails, with an `http::Error` that
-`http::report` writes to stderr, or after `http::stop()`, with an error whose code is
-0. A stopped loop closes its listener and idle connections, answers the next request
-on each other connection with `Connection: close`, and returns once they have closed,
-or after `Config.grace_ms`; `http::stop_on_signals()` makes `SIGTERM` and `SIGINT`
-stop the loops (on `main`, after 0.1).
+- when a call fails, with an `http::Error`. `http::report` prints it to stderr.
+- after `http::stop()`, with error code 0. The listener and idle connections close.
+  Each other connection gets `Connection: close` on its next response. The loop returns
+  when they close, or after `Config.grace_ms`.
+
+`http::stop_on_signals()` makes `SIGTERM` and `SIGINT` stop the loops.
 
 ### Routes
-
-`http::router(req)` routes a request through an `if` chain, with method and path
-patterns: a literal segment, `:name` for one segment, and `*name` last for the rest
-of the path. A `GET` route takes `HEAD` too, and a request no route takes gets 405
-with the `Allow` of the routes whose path matched, 204 with it for `OPTIONS`, or 404:
 
 ```goose
 var r = http::router(req);
@@ -194,25 +189,26 @@ else if http::on(r, "GET", "/files/*path") { file(http::param(r, "path"), out); 
 else { http::otherwise(r, out); }
 ```
 
-Parameters are slices of the target, still percent-encoded, and last until the handler
-returns; nothing allocates.
+- `:name` matches one segment, `*name` the rest of the path, last only.
+- A `GET` route takes `HEAD` too.
+- `http::otherwise`: 405 with `Allow` from the routes whose path matched, 204 with it
+  for `OPTIONS`, else 404.
+- Parameters are slices of the target, still encoded, valid until the handler returns.
+  Nothing allocates.
 
 ### Conditional requests and ranges
 
-`http::not_modified(req, etag, modified)` says whether a `GET` gets 304, from
-`If-None-Match` against an entity tag, or else `If-Modified-Since` against a time.
-`http::range_of(req, size, etag)` gives the one byte range `Range` asks for, with 206,
-416, or 200 for the whole (as when `If-Range` names another entity tag), and
-`http::content_range(out, start, end, size)` writes its field. `http::end(out,
-trailers)` ends a chunked response with trailer fields, and a chunked request's come in
-`ev.trailers`, at `END` or with a whole body, where `http::field_in(ev.trailers, name)`
-finds one.
+- `http::not_modified(req, etag, modified)`: whether a `GET` gets 304. `If-None-Match`
+  first, else `If-Modified-Since`.
+- `http::range_of(req, size, etag)`: the one byte range asked for, with 206, 416, or
+  200 for the whole (for example when `If-Range` names another entity tag).
+- `http::content_range(out, start, end, size)`: writes `Content-Range`.
 
-### Bodies and responses of any size
+### Streaming
 
-On `main`, after 0.1, each loop also takes a handler that it calls again for each part
-of an exchange, with state of the program's own type, which starts each request as
-`fresh` and lives in the connection's slot:
+Each loop also takes a handler it calls again for each part of an exchange. `st` is
+state of the program's own type, reset to `fresh` per request, kept in the connection's
+slot.
 
 ```goose
 struct Upload { bytes: i64 = 0 }
@@ -234,73 +230,73 @@ thread_fn worker(cfg: http::Config) {
 }
 ```
 
-- `REQUEST` comes with `ev.req`, and with the body in `ev.data` when `ev.whole` is set,
-  as a body that fits in the read buffer with its head always is. A longer body comes
-  in `BODY` pieces, decoded if chunked, up to `Config.max_body`, and then `END`.
-- A response is whole, as above, or begun with `http::begin(out, status, length)`, with
-  a `Content-Length`, or chunked for a `length` of -1 (HTTP/1.0 then closes at its end).
-  `http::send(out, bytes)` writes each piece, and `http::end(out)` ends it. While it's
-  open and the body has ended, the loop calls the handler with `MORE` each time the
-  connection has room to send, so a response of any size never sits whole in memory.
-- A response that comes before the body has all arrived drops the rest, up to
-  `Config.max_drain`, past which the connection closes. A client that sends `Expect:
-  100-continue` gets `100 Continue` unless the handler answers at `REQUEST`.
-- `http::upgrade_of(req)` is the protocol a request asks to switch to, such as
-  `websocket`, and `http::upgrade(out, protocol)` answers 101 and switches: every byte
-  after the request comes as `BODY`, and `http::send` writes bytes as they are, until
-  `http::end` closes the connection. The protocol itself, WebSocket's framing for one,
-  is the program's.
-- When a connection closes while the handler is still owed a call, a response open or a
-  body unread, the handler gets `CLOSED`, to release what its state holds.
+| Event | When |
+|---|---|
+| `REQUEST` | Head parsed, in `ev.req`. With `ev.whole`, the body is in `ev.data`, as it always is when it fits in the read buffer with the head. |
+| `BODY` | A piece of a longer body, decoded if chunked, up to `Config.max_body`. |
+| `END` | The body is complete. Request trailers are in `ev.trailers`, here or at a whole body's `REQUEST`; `http::field_in` finds one. |
+| `MORE` | A response is open, the body has ended, and the connection has room to send. |
+| `CLOSED` | The connection closed while the handler was owed a call. Release what `st` holds. |
+
+- `http::begin(out, status, length)` opens a response: `Content-Length`, or chunked
+  for -1. HTTP/1.0 then closes at the end.
+- `http::send(out, bytes)` writes a piece. `http::end(out)` ends it;
+  `http::end(out, trailers)` adds trailer fields to a chunked one.
+- A response before the body has arrived drops the rest, up to `Config.max_drain`,
+  then closes.
+- `Expect: 100-continue` gets `100 Continue` unless the handler answers at `REQUEST`.
+- `http::upgrade_of(req)`: the protocol asked for, such as `websocket`.
+  `http::upgrade(out, protocol)` answers 101. After that, bytes come as `BODY`,
+  `http::send` writes them raw, and `http::end` closes.
 
 ### Files
 
-`http::open_file(path)` opens a regular file, with 404 or 403 when it can't.
-`http::serve_file(req, out, f, http::content_type_of(path), st.file)` answers a `GET`
-or `HEAD` for it with 200, 206 for a range, 304, or 416, with `ETag`, `Last-Modified`,
-and `Accept-Ranges`; the handler then calls `http::send_file(out, st.file)` at each
-`MORE` until it returns false, and `http::end(out)`. Each call reads up to 64 KB with
-`pread`, so a file of any size goes out in pieces on every loop, and
-`http::close_body(st.file)` at `CLOSED` closes a file whose client left.
-`http::is_safe_path(path)` rejects a decoded path with a `.` or `..` segment, a
-backslash, or a colon, before it's joined to a directory. The benchmark server serves
-the directory `FILES` names at `/files/`.
+- `http::open_file(path)`: opens a regular file, or 404 or 403.
+- `http::serve_file(req, out, f, http::content_type_of(path), st.file)`: answers `GET`
+  or `HEAD` with 200, 206, 304, or 416, with `ETag`, `Last-Modified`, and
+  `Accept-Ranges`.
+- `http::send_file(out, st.file)` at each `MORE` until false, then `http::end(out)`.
+  Reads up to 64 KB with `pread` per call.
+- `http::close_body(st.file)` at `CLOSED`.
+- `http::is_safe_path(path)`: rejects `.` and `..` segments, backslashes, and colons.
+  Check the decoded path before joining it to a directory.
+
+The benchmark server serves the directory in `FILES` at `/files/`.
 
 ### Event loops
 
-The package has two loops, and a program picks one by calling it. Goose compiles a
-generic function only where it's called, so the other isn't in the program:
+The program calls one. Goose compiles a generic function only where it's called, so the
+other isn't in the binary.
 
-- `http::serve`, the loop to call everywhere: over io_uring on Linux, 9% to 24% faster
-  than the epoll loop in task 011's recheck of task 005's matrix, at 4 to 5 times its
-  peak RSS (about 10 MB with 4 workers). It needs Linux 6.1, and where
-  `io_uring_setup` fails, as under Docker's default seccomp profile, it runs over an
-  emulation of the ring on epoll; `http::ring_probe()` says why. On Windows it's over
-  I/O completion ports, and on macOS over the same emulation on kqueue.
-- `http::serve_epoll`, over epoll on Linux and kqueue on macOS, and failing with
-  `ENOSYS` on Windows: the faster loop on macOS, and on Linux the one with a quarter of
-  the memory. The plaintext and JSON results above measure it.
+| Loop | Linux | macOS | Windows |
+|---|---|---|---|
+| `http::serve` | io_uring, kernel 6.1+ | ring emulated on kqueue | IOCP |
+| `http::serve_epoll` | epoll | kqueue | `ENOSYS` |
 
-The benchmark server in `server/` links both, and `LOOP` picks one: `uring` (`iocp` on
-Windows), `epoll`, or `uring-epoll`, the io_uring loop over its emulation. Both stay
-tested ([architecture](docs/architecture/README.md#the-io_uring-loop-task-005)).
+- `http::serve` is the default. On Linux 9-24% faster than epoll, at 4-5 times the peak
+  RSS, about 10 MB with 4 workers (task 011's recheck of task 005). Where
+  `io_uring_setup` fails, as under Docker's default seccomp profile, it emulates the
+  ring on epoll; `http::ring_probe()` says why.
+- `http::serve_epoll` is faster on macOS, and on Linux uses a quarter of the memory.
+  The plaintext and JSON numbers above are this loop.
+
+The benchmark server links both. `LOOP` picks: `uring` (`iocp` on Windows), `epoll`,
+or `uring-epoll`. See [architecture](docs/architecture/README.md#the-io_uring-loop-task-005).
 
 ## Layout
 
 ```text
-http.goose     the package's entry: the settings, the errors, and what both loops share
-*.goose        its other modules, all namespace http: the parser and the response
-               writers (message.goose), the loops (uring.goose, epoll.goose), the
-               router (router.goose), files (file.goose), and the shim's functions
-               (sys.goose, ring.goose)
+http.goose     the package's entry: settings, errors, what both loops share
+*.goose        other modules, all namespace http: parser and response writers
+               (message.goose), loops (uring.goose, epoll.goose), router
+               (router.goose), files (file.goose), shim functions (sys.goose, ring.goose)
 http.build     the package's sidecar: each platform's shim
-shim/          the C the package calls, linked by goose build: sockets, epoll, io_uring,
-               and kqueue (macOS) and IOCP (Windows) in their place
-server/        the benchmark server, a program that imports the package from "../"
-test/          the package's unit tests
-bench/         the competing servers, the load scripts, and the recorded results
+shim/          C for syscalls: sockets, epoll, io_uring, kqueue, IOCP
+server/        the benchmark server, importing the package from "../"
+test/          unit tests
+bench/         competing servers, load scripts, recorded results
 scripts/       build and run scripts
-docs/          architecture, development setup, results, and the Goose findings log
+docs/          architecture, development setup, results, Goose findings
 tasks/         task tracking (tasks/README.md)
 ```
 
