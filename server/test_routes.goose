@@ -6,7 +6,7 @@ import routes;
 
 let GET = "GET /plaintext HTTP/1.1\r\nHost: x\r\n\r\n";
 // common_fields's, for Config.server's default.
-let COMMON = "Server: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT";
+let COMMON = "Server: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\n";
 
 // Answers a request, whose body follows its head, into out, as the loops do.
 // Returns whether the connection stays open.

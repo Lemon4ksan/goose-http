@@ -216,6 +216,13 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
     let x .= c.x;
     // The req of the events after REQUEST.
     let gone = Request { .. };
+    // Read once per call: gcc can't tell an append to wbuf from a write to
+    // cfg, so a field of cfg read per request is a load per request. Read
+    // there, these cost 10-15 instructions per request.
+    let max_body = cfg.max_body;
+    let max_line = cfg.max_line;
+    let max_fields = cfg.max_fields;
+    let write_buffer = cfg.write_buffer;
 
     // Sends what wbuf holds, and closes.
     fn close() {
@@ -276,7 +283,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
     loop {
         if x.body.place != NO_BODY {
             guard off < rlen else { break; }
-            if wbuf.len >= cfg.write_buffer && !ROOM() {
+            if wbuf.len >= write_buffer && !ROOM() {
                 full = true;
                 break;
             }
@@ -320,7 +327,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
             continue;
         }
         if x.stream.open {
-            if wbuf.len >= cfg.write_buffer && !ROOM() {
+            if wbuf.len >= write_buffer && !ROOM() {
                 full = true;
                 break;
             }
@@ -334,11 +341,11 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
             continue;
         }
         guard off < rlen else { break; }
-        if wbuf.len >= cfg.write_buffer && !ROOM() {
+        if wbuf.len >= write_buffer && !ROOM() {
             full = true;
             break;
         }
-        let req, status = parse(rbuf[off..rlen], rbuf.len, cfg.max_body, cfg.max_line, cfg.max_fields);
+        let req, status = parse(rbuf[off..rlen], rbuf.len, max_body, max_line, max_fields);
         if status == INCOMPLETE { break; }
         if status != 200 {
             refuse(wbuf, status, common);
@@ -373,15 +380,15 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
                 wire = n;
             }
         }
-        // The data and trailers of a chunked body.
-        var blen = wire;
-        var t0 = wire;
-        var t1 = wire;
+        // The data and trailers of a chunked body. The trailers are sliced
+        // only from a chunked body: sliced for every request, as rbuf[b0 +
+        // t0..b0 + t1], they cost 6-11 instructions per request.
+        var data: const u8[:] = rbuf[b0..b0 + wire];
+        var trailers = data[..0];
         if req.chunked && whole {
             let n, t = dechunk(rbuf[b0..b0 + wire]);
-            blen = n;
-            t0 = t;
-            t1 = wire - 2;
+            trailers = data[t..wire - 2];
+            data = data[..n];
         }
         off = b0 + wire;
         // The request's state goes straight into c's slot, whose stream no
@@ -389,8 +396,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
         x.keep_alive = req.keep_alive && !stopping;
         x.state = fresh;
         let before = wbuf.len;
-        H(Event { kind: REQUEST, req: req, data: rbuf[b0..b0 + blen], whole: whole,
-                  trailers: rbuf[b0 + t0..b0 + t1] }, x.state,
+        H(Event { kind: REQUEST, req: req, data: data, whole: whole, trailers: trailers }, x.state,
           Reply { buf: wbuf, common: common, keep_alive: x.keep_alive, minor: req.minor,
                   head: req.method == "HEAD", stream: x.stream });
         done++;

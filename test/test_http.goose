@@ -301,10 +301,10 @@ fn test_date() {
     }
     var common: u8[>..] = [];
     http::common_fields(common, "goose", 1791633600);
-    assert(common == "Server: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT");
+    assert(common == "Server: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\n");
     var bare: u8[>..] = [];
     http::common_fields(bare, "", 1791633600);
-    assert(bare == "Date: Sat, 10 Oct 2026 12:00:00 GMT");
+    assert(bare == "Date: Sat, 10 Oct 2026 12:00:00 GMT\r\n");
     assert(http::is_field_value("") && http::is_field_value("goose/1.0 (x\tz)"));
     assert(!http::is_field_value("a\r\nX: y") && !http::is_field_value(" a") && !http::is_field_value("a\t"));
 }
@@ -696,7 +696,7 @@ fn test_router() {
 }
 
 // common_fields's, for Config.server's default.
-let COMMON = "Server: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT";
+let COMMON = "Server: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\n";
 
 fn same(got: const u8[:], want: const u8[:]) {
     if got != want {

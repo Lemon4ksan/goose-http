@@ -119,7 +119,9 @@ inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_
     // The header fields, up to the blank line.
     var r = Request { method: method, target: target, minor: minor, .. };
     let f0 = pos;
-    var fields = 0;
+    // Counted down, so that max_fields doesn't hold a register through the
+    // loop: counted up, the fields cost 7 more instructions per request.
+    var fields_left = max_fields;
     var hosts = 0;
     var has_length = false;
     var close = false;
@@ -132,8 +134,8 @@ inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_
             pos += 2;
             break;
         }
-        fields++;
-        guard fields <= max_fields else { return Request { .. }, 431; }
+        fields_left--;
+        guard fields_left >= 0 else { return Request { .. }, 431; }
 
         // The name, a token, and a colon right after it. This refuses
         // whitespace before the colon and obsolete line folding (§5.1, §5.2).
@@ -896,9 +898,8 @@ inline fn status_fields<A>(out: A&, status: i32, common: const u8[:], keep_alive
         out.append(" \r\n");
     }
     out.append(common);
-    out.append(if !keep_alive { "\r\nConnection: close\r\n" }
-               else if minor == 0 { "\r\nConnection: keep-alive\r\n" }
-               else { "\r\n" });
+    if !keep_alive { out.append("Connection: close\r\n"); }
+    else if minor == 0 { out.append("Connection: keep-alive\r\n"); }
 }
 
 inline fn write_body<A>(out: A&, fields: const u8[:], body: const u8[:], head_only: bool) {
@@ -968,9 +969,11 @@ fn json_string<A>(out: A&, s: const u8[:]) {
     out.push('"');
 }
 
-// Appends the field lines every response has, but Connection, without the
-// last CRLF: Server, when server isn't empty, and Date at t. The loops render
-// them once a second, so that they cost a response one append.
+// Appends the field lines every response has, but Connection: Server, when
+// server isn't empty, and Date at t. The loops render them once a second, so
+// that they cost a response one append, and an HTTP/1.1 keep-alive response
+// needs no other: a third append, of the CRLF alone, cost 25-30
+// instructions per request.
 fn common_fields<A>(out: A&, server: const u8[:], t: i64) {
     if server.len > 0 {
         out.append("Server: ");
@@ -979,6 +982,7 @@ fn common_fields<A>(out: A&, server: const u8[:], t: i64) {
     }
     out.append("Date: ");
     format_date(out, t);
+    out.append("\r\n");
 }
 
 // Whether s can be a field's value: visible bytes, spaces, and tabs, with
