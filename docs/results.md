@@ -130,8 +130,8 @@ split further. User cycles per request rose from 438-448 to 470-473.
 
 ### The morning's seven servers
 
-`bench/run.sh` with its defaults, on 2026-10-12: plaintext pipelined 16 deep and JSON
-without pipelining, with TechEmpower's request headers; 1 worker on CPU 0 and 4 workers
+`bench/run.sh` with its defaults, on 2026-10-12 in the morning, Goose at `ef09c0f` with
+Goose `5c83a5a`: plaintext pipelined 16 deep and JSON without pipelining, with TechEmpower's request headers; 1 worker on CPU 0 and 4 workers
 on CPUs 0-3; wrk and h2load with 8 threads; a fresh server per cell; 3 runs of 15 s after
 5 s of warm-up, interleaved. Medians of the 3 runs, from
 [2026-10-12-full-plaintext](../bench/results/2026-10-12-full-plaintext/summary.md) and
