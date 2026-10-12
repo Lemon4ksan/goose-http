@@ -131,11 +131,16 @@ if [ -r "/proc/$pid/status" ] && [ -z "$windows" ]; then
     echo "stream: peak RSS $peak kB"
 fi
 $client files "$files_path"
-# Every file a response opened is closed, with its client gone or not. Linux
-# only: elsewhere there's no /proc.
+# Every file a response opened is closed, with its client gone or not. Not on
+# Windows; macOS has no /proc, so there it asks lsof.
 if [ -d "/proc/$pid/fd" ] && [ -z "$windows" ]; then
     sleep 1
     held=$(ls -l "/proc/$pid/fd" | grep -c "$files" || true)
+    [ "$held" = 0 ] || fail "the server holds $held files open"
+    echo "files: none left open"
+elif [ "$(uname -s)" = Darwin ]; then
+    sleep 1
+    held=$(lsof -p "$pid" 2>/dev/null | grep -c "$files" || true)
     [ "$held" = 0 ] || fail "the server holds $held files open"
     echo "files: none left open"
 fi

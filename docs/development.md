@@ -255,7 +255,8 @@ once per loop. It needs curl, wrk, h2load, oha, `nc`, and `python3`
     file whole, by `HEAD`, by `If-None-Match` and `If-Modified-Since`, one range, a
     suffix range, and one past the end; 404 for a missing file, a directory, `..`, and
     a NUL; a 5 MB file twice pipelined; and four clients that leave halfway. After
-    it, on Linux, the server must hold no file of that directory open.
+    it, on Linux and macOS, the server must hold no file of that directory open:
+    the script reads `/proc/PID/fd` on Linux and asks `lsof` on macOS.
   - `chunked`: chunked bodies, with an extension and a trailer field, dropped between
     pipelined requests and sent a byte at a time, and HttpArena's `/baseline11` with no
     body, a `Content-Length` body, and a chunked one.
@@ -462,7 +463,8 @@ The epoll loop runs on macOS through `shim/kqueue.c`, which `http.build` lists u
 `LOOP=uring scripts/build.sh` builds `http::serve` over `shim/ring_epoll.c`, the
 io_uring loop's emulation, on kqueue; both builds hold both loops, and `LOOP` at run
 time picks one. Both loops pass the three scripts there, and the emulation holds at the fd
-limit without spinning (task 011, 2026-10-11).
+limit without spinning (task 011, 2026-10-11). Both loops pass `scripts/test.sh` with
+the graceful stop, the restart, and files too (task 013, 2026-10-12, Goose `5c83a5a`).
 
 | Tool | Where | Version used (2026-10-11) |
 |---|---|---|
@@ -493,7 +495,8 @@ export GOOSE=$PWD/../goose/build-macos/goose
 Then `scripts/build.sh` and the test scripts run as on Linux. On the Mac task 006 used,
 `../goose` is a fork on a feature branch, with `../goose-tcc-fix` a worktree of it:
 leave both alone. The plain checkout at the pin is `../goose-upstream`, so there
-`GOOSE=../goose-upstream/build-macos/goose`.
+`GOOSE=../goose-upstream/build-macos/goose`. Its remote is `upstream`, not `origin`: move
+it to the pin with `git fetch upstream` and `git checkout`, then rebuild.
 
 What differs from Linux:
 
@@ -506,6 +509,9 @@ What differs from Linux:
 - `kern.ipc.somaxconn` is 128, and `listen` cuts the server's backlog of 4,096 to it
   without an error. The tests pass at 128: clients past the backlog retry their `SYN`.
   `sudo sysctl kern.ipc.somaxconn=4096` raises it until the next boot.
+- `/var` and `/tmp` are links into `/private`, and `lsof` prints the resolved path: a
+  file under `mktemp -d`'s `/var/folders/...` shows as `/private/var/folders/...`.
+  Match such paths as substrings, as `test-http.sh` does, not from the line's start.
 - The fd limit's hard maximum is unlimited and `kern.maxfilesperproc` is 122,880, so the
   scripts' `ulimit -n 65536` works without changing a setting.
 - Apple's `nc -N` sets a count of keepalive probes, where OpenBSD's shuts down the socket
