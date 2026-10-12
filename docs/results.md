@@ -5,7 +5,7 @@ numbers come from one machine, which the section names; numbers from different
 machines aren't compared. How each number is taken is in [bench/README.md](../bench/README.md#method), and
 the servers' pins and builds are in its [Servers](../bench/README.md#servers) table. The
 runs behind each section, and the earlier ones, are recorded in task 009
-([tasks/009-more-competitors.md](../tasks/009-more-competitors.md)), but for the WSL2
+([tasks/000-archive/009-more-competitors.md](../tasks/000-archive/009-more-competitors.md)), but for the WSL2
 run of 2026-10-12, which this file alone describes; task 004
 ([archived](../tasks/000-archive/004-benchmark.md)) holds the first matrix and its
 profile, and task 008 ([archived](../tasks/000-archive/008-clang-simd.md)) the compiler

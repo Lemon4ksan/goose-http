@@ -38,7 +38,7 @@ HTTP/1.1 on `main`. The tag `v0.1.0` has fixed-size requests and responses only.
 | 🟢 | Request bodies of any size, in pieces. `Expect: 100-continue`. Trailers. |
 | 🟢 | Responses of any size, streamed or chunked. Trailers. |
 | 🟢 | Conditional `GET` (304), one byte range (206, 416) |
-| 🟢 | Static files |
+| 🟢 | Static files, with `sendfile` on the epoll loop on Linux and macOS |
 | 🟢 | CR, LF, and invalid names kept out of response fields |
 | 🟢 | Cookies, `Authorization` with `Basic`, media types, `Accept` (415, 406) |
 | 🟢 | Form and streamed multipart bodies, JSON responses |
