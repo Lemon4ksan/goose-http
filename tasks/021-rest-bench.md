@@ -327,6 +327,89 @@ the servers. Read latency, in ms, as p50 / p99 over both rounds:
   io_uring's one 4 KB buffer per completion would interleave them; neither is measured
   yet. It is the stall the design above expected, on the epoll loop alone.
 
+io_uring against epoll (2026-10-12), the three losses above. Set up as tier D's
+comparison: Docker Desktop 4.94.0 (engine 29.8.2) on the MacBook Pro M1 Pro, kernel
+7.0.14-linuxkit, image `goose-http-dev3` with wrk 4.1.0, `--security-opt
+seccomp=unconfined --ulimit nofile=1048576:1048576`, 3 workers on CPUs 0-2, the load on
+CPUs 3-9. The experiments ran on `f2fba78`, with the changes under test and temporary
+counters in both loops (completions, receives, ENOBUFS, stalls, sends, and bytes read
+per epoll turn), printed when a worker stopped, and the server's user and system CPU
+time from `/proc/PID/stat` over each run, 2 rounds each:
+
+- Tier C's loss isn't `max_queued`. With it at 64 KB, 1 MB, and 16 MB, io_uring served
+  28.1-28.4K requests per second serialized and 43.4-43.9K templated, and no
+  connection ever stalled: `pump` checks `blocked()` before its last `flush`, so a
+  client that doesn't pipeline never reaches it. Both loops used all 3 CPUs, and
+  io_uring spent about 1.6 µs more user time per request. The epoll loop sent each
+  response, up to 728 KB, in one `send`, with no `EAGAIN`; `ur_send` copied each one,
+  74 KB on average, into its own buffer first.
+- Sending a response inline in `ur_send` (`62e1d45`, `docs/architecture/README.md`)
+  took io_uring to 34.7-34.9K serialized and 59.6-60.4K templated, epoll's 34.9K and
+  59.9-61.2K. Sent inline at every size, tier B fell from 232-234K to 209-211K
+  serialized and from 275-279K to 261-262K templated, epoll's rate; at 64 KB and up
+  it stayed at 231-232K and 279-280K.
+- Uploads alone (`tier-d.lua`'s uploads role, `-t 1 -c 32 -d 10`) didn't show
+  io_uring at a third of epoll's rate: 660 per second against epoll's 429 in the
+  first round, and 755-763 for epoll later with the same loop. The first round's
+  epoll runs may have shared the VM with another load; the cause isn't known. Ring
+  buffers of 16 KB and 64 KB cut io_uring's completions per upload by up to 16 times
+  and its ENOBUFS from 36-45K per worker to under 700, yet took 629-642 uploads a
+  second against 660: the per-buffer completions aren't what limits it.
+- The epoll loop read a whole upload, up to 8.15 MB, in one turn, 457-477 times per
+  worker in 10 s. Bounding a turn at 16 KB (`Config.max_read`, `5ca934f`) kept the
+  mixed run's reads beside uploads at p50 0.42-1.18 ms and p99 1.4-4.0 ms, and 64 KB
+  at p50 1.7-2.5 ms and p99 4.2-5.6 ms. Uploads alone fell 2-3%, to 737-744 per second
+  at either bound.
+
+The committed loops at `5ca934f`, Goose `c38dc0f` (the image's compiler is `5c83a5a`'s;
+the commits between change only docs), hyper at `9d47fba`, with no counters. Tiers A to
+C ran `-t 7 -c 256 -d 5` with each tier's script, 3 rounds alternating the loops; the
+other runs as above. In thousands of requests per second:
+
+| Tier | JSON | Goose io_uring | Goose epoll |
+|---|---|---|---|
+| A | serialize | 616-671 | 608-636 |
+| A | template | 662-672 | 631-654 |
+| B | serialize | 231-233 | 213-219 |
+| B | template | 274-282 | 264-268 |
+| C | serialize | 33.3-33.7 | 35.1-35.2 |
+| C | template | 58.6-59.9 | 58.7-61.4 |
+
+wrk counted 239 and 177 timeouts in two of io_uring's tier A runs, and no other socket
+error. io_uring's loss on tier C fell from 20-30% to 4-5% serialized and 0-3% templated.
+
+Uploads alone, 3 rounds: io_uring 663-667 per second with a p50 of 31-36 ms, epoll
+737-740 with 29-35 ms. io_uring is 10% behind, with the CPUs saturated in both; why
+isn't measured.
+
+Tier D's two roles at once, 3 rounds, in requests per second:
+
+| Server | Uploads | Uploads p50 | Forms role | Forms p99 | Peak RSS |
+|---|---|---|---|---|---|
+| Goose io_uring | 92-95 | 169-192 ms | 4,305-4,317 | 108-112 ms | 239-247 MB |
+| Goose epoll | 76-78 | 193-222 ms | 4,675-4,706 | 120-123 ms | 249-251 MB |
+| hyper | 20-24 | 122-172 ms | 2,832-2,839 | 224-227 ms | 154-175 MB |
+
+The epoll loop no longer favors the uploads: it took 240-289 a second before, beside
+3,570-3,832 forms. Each Goose loop now gives a connection about the same share of the
+worker, and the uploads hold an eighth of the connections. io_uring's uploads at a
+third of epoll's rate beside the forms role came from this difference, not from
+io_uring's receives.
+
+The mixed run, 2 rounds, read latency in ms as p50 / p99:
+
+| Server | Alone: poll | Alone: bookings | Beside uploads: poll | Beside: bookings | Beside: other routes | Uploads |
+|---|---|---|---|---|---|---|
+| Goose io_uring | 0.11-0.13 / 1.0-1.2 | 0.86-0.88 / 1.2-1.3 | 3.9-4.6 / 10.8-42.8 | 3.7-3.9 / 9.5-10.4 | 3.1-4.6 / 9.4-13.0 | 442-448/s |
+| Goose epoll | 0.12 / 0.8-0.9 | 0.88 / 1.1-1.2 | 0.44-0.47 / 1.5-1.7 | 1.15-1.18 / 1.9-2.3 | 0.52-0.79 / 1.6-2.1 | 503-505/s |
+| hyper | 0.12-0.13 / 1.2 | 1.35 / 1.8 | 8.4 / 22.7-23.8 | 8.5-8.6 / 17.5-17.8 | 7.7-8.1 / 16.9-17.4 | 402-406/s |
+
+Every server held the 11,000 reads a second in every run. Beside uploads, the epoll
+loop now keeps every route's p99 under 2.3 ms, and io_uring's medians fell from 8-11 ms
+to 3-5 ms, with one round's poll p99 at 42.8 ms. io_uring hands the worker 256
+completions per wait, each 4 KB of some upload, before it answers the next read; that
+fits its remaining 4 ms, and isn't measured.
+
 ## Acceptance criteria
 
 - [x] Tier D built as A to C are, and its mixed run with tier C
