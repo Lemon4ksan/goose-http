@@ -310,9 +310,24 @@ range of 3 runs:
 | Goose epoll | 983-998 | 20-24 ms | 115-116 | 157-244 ms | **7.3K** | 87-92 ms |
 | hyper | **1,056-1,072** | **15 ms** | 42-73 | 132-148 ms | 4.8-5.0K | 135-172 ms |
 
-- hyper takes uploads alone 6-11% faster than either Goose loop, at a lower median
-  latency. It reads the CSV with a port of Goose's reader and the multipart body with
-  multer; where Goose spends the difference isn't measured yet.
+- hyper took uploads alone 6-11% faster than either Goose loop, at a lower median
+  latency. perf put 19% of Goose's time in the multipart reader's delimiter search,
+  the stdlib's `find`, which compares the delimiter at every byte
+  ([finding](goose-findings.md#the-stdlibs-find-compares-the-whole-subsequence-at-every-offset)).
+  With `http::find_bytes`, which compares only where the delimiter's first byte is, run
+  on 2026-10-13 with `STEPS=2`, 3 rounds, before and after in one session
+  ([before](../bench/results/2026-10-13-uploads-before/summary.md),
+  [after](../bench/results/2026-10-13-uploads-after/summary.md)):
+
+  | Uploads alone, per second | Before | After |
+  |---|---:|---:|
+  | Goose epoll | 1,003-1,015 | **1,127-1,153** |
+  | Goose io_uring | 978-995 | 1,108-1,141 |
+  | hyper | 1,107-1,116 | 1,084-1,095 |
+
+  Goose now takes uploads alone 1-6% faster than hyper. Beside the forms role, nothing
+  changed beyond the runs' spread. Per upload before the change, Goose ran 43.3 M user
+  instructions to hyper's 33.4 M.
 - Beside the forms role, Goose takes 1.6 to 3.6 times hyper's uploads and 1.4-1.5 times
   its forms, at 0.5-0.7 times its forms p99.
 
@@ -535,8 +550,6 @@ are the epoll loop's, which is also the HttpArena entry, and memory.
   tokio 0.11, and Goose calls `recv` once more per connection (task 009).
 - **HttpArena's latency-1m p99**: 230 µs against 159-181 µs, a measure that moves by up
   to 15 times between runs.
-- **REST uploads alone, to hyper, by 6-11%**: 968-998 against 1,056-1,072 per second,
-  at a median of 20-24 ms against 15 ms ([REST APIs](#rest-apis)).
 - **REST memory**: 2 to 5 times hyper's peak RSS on every tier, since each worker loads
   its own copy of the records.
 - **REST reads beside uploads on the io_uring loop**: p99 9-17 ms against the epoll

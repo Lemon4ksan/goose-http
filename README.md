@@ -181,17 +181,19 @@ CPUs 0-3, the load on 4-15. Median of 3 runs of 15 s. Bold is the column's best.
 
 | Server | A | B | C | C, templates | Uploads | Reads beside uploads, p99 |
 |---|---:|---:|---:|---:|---:|---:|
-| Goose io_uring | **572 K/s** | **269 K/s** | **52.5 K/s** | **146 K/s** | 970/s | 9-17 ms |
-| Goose epoll | 441 K/s | 220 K/s | 51.1 K/s | 139 K/s | 993/s | **1.6-2.7 ms** |
-| hyper 1.12 (Rust) | 271 K/s | 149 K/s | 32.2 K/s | 119 K/s | **1,071/s** | 17-21 ms |
+| Goose io_uring | **572 K/s** | **269 K/s** | **52.5 K/s** | **146 K/s** | 1,138/s | 9-17 ms |
+| Goose epoll | 441 K/s | 220 K/s | 51.1 K/s | 139 K/s | **1,153/s** | **1.6-2.7 ms** |
+| hyper 1.12 (Rust) | 271 K/s | 149 K/s | 32.2 K/s | 119 K/s | 1,092/s | 17-21 ms |
 
 - The io_uring loop serves 1.6 to 2.1 times hyper's requests when it writes the JSON,
   and the epoll loop 1.5 to 1.6 times. With templates, which copy prebuilt bytes, the
   lead on C is 1.2 times.
 - At a fixed half of the slowest rate, Goose spends 0.6 to 0.8 times hyper's CPU per
   request, and every route's p99 stays under 1.6 ms.
-- hyper takes uploads alone 6-11% faster. Beside the other writes, Goose takes 1.6 to
-  3.6 times its uploads.
+- Uploads alone come from a run of their own on 2026-10-13, after the multipart reader
+  stopped comparing its delimiter at every byte, which had cost Goose 19% of an upload.
+  Before it, hyper took uploads 6-11% faster; now Goose takes them 1-6% faster. Beside
+  the other writes, Goose takes 1.6 to 3.6 times hyper's uploads.
 - Goose holds 2 to 5 times hyper's memory: each worker loads its own copy of the
   records.
 - Reads beside uploads: tier C's reads at a fixed rate while uploads stream in. The

@@ -424,8 +424,15 @@ the mixed run, 3 rounds of 15 s, Goose `73dd28c` with Goose `6448f3f`
 - Beside uploads, the epoll loop's reads stay at a p99 of 1.6-2.7 ms, io_uring's at
   9-17 ms, and hyper's at 17-21 ms.
 
-Next: where Goose spends the uploads' extra time against hyper (perf on both), and
-whether a smaller completion batch, or a bound per connection as `max_read` is for
+Uploads against hyper (2026-10-13): perf on each server, uploads alone, put 19% of
+Goose's time in the stdlib's `find`, which the multipart reader used for its delimiter
+and which compares the whole delimiter at every byte (`docs/goose-findings.md`). Goose
+ran 43.3 M user instructions per upload to hyper's 33.4 M. `http::find_bytes` compares
+only where the delimiter's first byte is: uploads alone rose 13-14% on both loops, to
+1,108-1,153 a second against hyper's 1,084-1,095 in the same session
+([results](../docs/results.md#rest-apis)).
+
+Next: whether a smaller completion batch, or a bound per connection as `max_read` is for
 epoll, brings io_uring's reads beside uploads down to epoll's.
 
 ## Acceptance criteria
