@@ -258,9 +258,78 @@ hand. multer stops reading at the close delimiter, and hyper closes a connection
 request body wasn't read to its end, as a chunked body's last chunk often isn't by
 then. The handler therefore lends multer the body and drains the rest after.
 
+A quick comparison of tier D (2026-10-12): Docker Desktop 4.94.0 (engine 29.8.2) on the
+MacBook Pro M1 Pro of `docs/development.md`, kernel 7.0.14-linuxkit, image
+`goose-http-dev3` with wrk 4.1.0, `--security-opt seccomp=unconfined --ulimit
+nofile=1048576:1048576`; Goose and hyper at `9d47fba`, Goose `5c83a5a`. Each server ran
+`TIER=d` with 3 workers on CPUs 0-2. On CPUs 3-9, two wrk processes ran at once with
+`-d 10 --timeout 10s -s bench/rest/tier-d.lua`: the uploads role with `-t 1 -c 32`
+and the forms role with `-t 6 -c 224`. There were 3 rounds alternating the servers.
+Peak RSS comes from `VmHWM`. Both servers read the CSV and the multipart body as they
+arrive, and join the batch and the form. Rates are in requests per second, with the
+body bytes they imply (1.96 MB per upload and 210 KB per request of the forms role, on
+average):
+
+| Server | Uploads | Uploads p50 | Forms role | Forms p99 | Peak RSS |
+|---|---|---|---|---|---|
+| Goose io_uring | 91-95 (180 MB/s) | 169-193 ms | 4,214-4,262 (890 MB/s) | 109-115 ms | 243-254 MB |
+| Goose epoll | 240-289 (470-565 MB/s) | 75-78 ms | 3,570-3,832 (750-805 MB/s) | 111-389 ms | 212-227 MB |
+| hyper | 25-62 (48-121 MB/s) | 116-128 ms | 2,600-2,783 (546-585 MB/s) | 272-293 ms | 151-186 MB |
+
+- Goose takes 1.3-1.6 times hyper's batches and forms, and 1.5 to 12 times its uploads.
+- hyper's uploads starve beside the forms role. Alone, on `-c 4` without it, hyper took
+  720 uploads per second to Goose epoll's 598, and each upload took as long on both. A
+  first run with wrk's default 2 s timeout counted 11 of hyper's uploads as timeouts in
+  5 s; the cause isn't measured. Tokio polling each connection's task in turn, an
+  upload's task taking one read per turn, would fit.
+- Goose's io_uring loop takes uploads at a third of its epoll loop's rate, alone too:
+  80 against 229 per second with 2 workers. Its receives come in the ring's 4 KB
+  provided buffers, against epoll's reads into the 8 KB read buffer; whether that is
+  the cause isn't measured yet.
+- Goose holds 1.1-1.7 times hyper's memory. Each of its workers loads its own copy of
+  tier C's records.
+
+The mixed run (2026-10-12), set up as above: tier C's reads at a fixed 11,000 requests
+per second, about half of hyper's tier C saturation and the lowest of the three
+(`tier-c.lua` with `-t 7 -c 256 -d 5`: Goose io_uring 27.9K, Goose epoll 34.4-34.6K,
+hyper 22.6-22.9K, each as with `TIER=c`). The fixed rate comes from HttpArena's zrk
+2.3.0 (its aarch64 release, as `bench/httparena.sh` pins it), which corrects for
+coordinated omission. zrk sends one URL per process, so 6 processes ran, one per
+route at its share of `tier-c.lua`'s mix, on 224 connections:
+
+- version poll: 55%, 64 connections
+- a week of 10 staff's bookings (715 KB): 9%
+- the same week's shifts: 9%
+- encounter 1200: 12%
+- client 42's last 20 visits: 12%
+- client 7: 3%
+
+Every route other than the poll had 32 connections. wrk 4.1.0 has no fixed rate, and
+wrk2 bundles LuaJIT 2.0, which has no arm64 port. Each server ran 15 s alone and 15 s
+beside `tier-d.lua`'s uploads role (`-t 1 -c 32`, closed loop), in 2 rounds alternating
+the servers. Read latency, in ms, as p50 / p99 over both rounds:
+
+| Server | Alone: poll | Alone: bookings | Beside uploads: poll | Beside: bookings | Uploads |
+|---|---|---|---|---|---|
+| Goose io_uring | 0.12 / 1.5-1.6 | 1.01 / 1.3-1.5 | 9.8-10.1 / 23-26 | 10.5-11.0 / 15 | 395-398/s |
+| Goose epoll | 0.11 / 0.8 | 0.86 / 1.0-1.2 | 5,585-5,749 / 11,858-11,964 | 1,897-2,196 / 6,404-6,670 | 606-613/s |
+| hyper | 0.11 / 1.0 | 1.33-1.36 / 1.7-1.8 | 8.4-8.7 / 22-28 | 8.6 / 17-18 | 394-398/s |
+
+- Alone, every server holds the rate with every route's p99 under 2 ms. Goose's epoll
+  loop is the fastest, and hyper's bookings take 0.3-0.5 ms longer at the median.
+- Beside uploads, hyper and Goose's io_uring loop hold the reads' rate. Every route's
+  median rises to 8-11 ms and its p99 to 14-28 ms, hyper's a little lower at the median.
+- Goose's epoll loop doesn't hold it. The reads fell to 637-711 per second on most
+  routes and 1,272-1,364 for the poll, with medians of 2-6 s; only the client route,
+  the smallest rate, kept to 48-50 ms. Meanwhile the loop took 606-613 uploads per
+  second, half again as many as the others. A worker that reads a connection's body for
+  as long as data keeps arriving would starve its other connections this way, and
+  io_uring's one 4 KB buffer per completion would interleave them; neither is measured
+  yet. It is the stall the design above expected, on the epoll loop alone.
+
 ## Acceptance criteria
 
-- [ ] Tier D built as A to C are, and its mixed run with tier C
+- [x] Tier D built as A to C are, and its mixed run with tier C
 - [ ] The generator, writing each tier's dataset files from a fixed seed
 - [ ] Each tier's routes in Goose, loading the files, in both JSON ways
 - [ ] Each tier's wrk script and checker, passing against Goose
