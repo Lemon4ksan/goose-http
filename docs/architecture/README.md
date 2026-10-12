@@ -223,7 +223,9 @@ puts the epoll loop ahead. On Windows the io_uring loop is the only one, over
   buffer of its own. The epoll loop makes neither copy; the kernel's own copy into and
   out of the socket is the same in both. The shims reuse those buffers, the big ones up
   to 4 MB a ring (2026-10-12): freed, a big one went back to the kernel, and faulting
-  the next one's pages in held large responses on io_uring to 1 GB/s (task 013).
+  the next one's pages in held large responses on io_uring to 1 GB/s (task 013). Those
+  of 8 KB or less come in six power-of-two sizes from 256 bytes, so a small response's
+  send in flight holds 256 bytes, not 8 KB (2026-10-12, task 016).
 - A connection has one send in flight, which keeps its responses in order. Responses
   answered meanwhile wait in the spill pool. Past 64 KB waiting, the loop cancels the
   connection's receive and holds what still arrives until the client reads, as the epoll
