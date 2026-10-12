@@ -467,3 +467,47 @@ handler inlined into it: 60-120 more instructions per request.
 
 Workaround: `http::whole_only` takes no function value and returns whether the loop
 should call the handler, and the loops' wrappers call it themselves.
+
+## A data stack takes a 2 MB huge page for its first byte
+
+Found on `5c83a5a`, task 016. Status: open
+
+Where Linux runs transparent huge pages set to `always`, the first write to a data stack
+can fault in a whole 2 MB page. The runtime reserves each stack as a 2 GB anonymous
+mapping (`gs_os_reserve`), and the kernel backs a write into an aligned 2 MB range of it
+with a huge page whenever a free one is available. A worker that writes a few bytes to
+each of its stacks then commits 2 MB a stack, not one 4 KB page. Expected: data stacks
+commit what they hold, for example by `madvise(MADV_NOHUGEPAGE)` on each region, or on
+its first 2 MB.
+
+    import std;
+    import os;
+
+    // One value on each of two data stacks, then the process's huge pages.
+    thread_fn worker(n: i64) {
+        var a: u8[>..] = [];
+        a.push(1);
+        var b: i64[>..] = [];
+        b.push(n);
+        var smaps: u8[>..] = [];
+        if read_file("/proc/self/smaps_rollup", smaps) { print(smaps); }
+    }
+
+    fn main() {
+        thread_wait(thread_spawn(worker, 1));
+    }
+
+    $ cat /sys/kernel/mm/transparent_hugepage/enabled
+    [always] madvise never
+    $ goose build -o thp thp.goose && ./thp | grep -E '^(Rss|AnonHugePages)'
+    Rss:                5544 kB
+    AnonHugePages:      4096 kB
+
+Run with `prctl(PR_SET_THP_DISABLE)` set, the same program has 1,460 KB RSS and no huge
+pages. Measured in Docker Desktop's Linux VM on an M1 Pro (kernel 7.0.14-linuxkit,
+`defrag` set to `madvise`), 2026-10-12. In the benchmark server, one worker held
+6.4-13.1 MB RSS with huge pages and 1.8-5.8 MB without (task 016). WSL2's 2.2-5.4 MB
+suggest its kernel doesn't back these mappings with huge pages.
+
+Workaround: none in the package. Run the server where transparent huge pages are
+`madvise` or `never`, or start it under `PR_SET_THP_DISABLE`.

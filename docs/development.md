@@ -651,7 +651,13 @@ MACHINE=m1pro-docker SERVERS="goose goose-uring tokio vanilla-epoll vanilla-io_u
   record it by hand.
 - The VM runs transparent huge pages set to `always`. An idle Goose server with 4 workers
   holds 22 MB, 20 MB of it in `AnonHugePages`, so peak RSS there doesn't compare with
-  WSL2's.
+  WSL2's. The huge pages back the workers' data stacks and malloc arenas, 2 MB
+  each ([findings](goose-findings.md#a-data-stack-takes-a-2-mb-huge-page-for-its-first-byte)).
+  Run a server under `prctl(PR_SET_THP_DISABLE)` to measure it with 4 KB pages.
+- `docker run --security-opt seccomp=unconfined` lets the server use io_uring in the VM,
+  and `scripts/test.sh` then passes there for all three Linux loops (2026-10-12). Its
+  image needs `wrk`, `nghttp2-client` for `h2load`, `netcat-openbsd`, `python3`, and `oha`
+  at `/root/.cargo/bin/oha` (the release's `oha-linux-arm64` binary works).
 - With 4 workers and wrk on 6 of the 10 CPUs, wrk used 51-58 of its 60 CPU seconds per
   10 s run in the fastest servers' cells. With 3 workers and wrk on 7 CPUs, wrk used
   60-65 of 70 in plaintext and 49-53 in JSON, where the servers used all of theirs.
