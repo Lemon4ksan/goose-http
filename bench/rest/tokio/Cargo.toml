@@ -1,0 +1,20 @@
+[package]
+name = "rest-tokio"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# bench/tokio's crates, and the routes (bench/rest/rust). Cargo.lock started
+# from bench/tokio's.
+[dependencies]
+httpdate = "=1.0.3"
+rest-app = { path = "../rust" }
+socket2 = { version = "0.5", features = ["all"] }
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "time"] }
+
+# The entry's profile.
+[profile.release]
+codegen-units = 1
+lto = "thin"
+opt-level = 3
+panic = "abort"
