@@ -93,24 +93,25 @@ All tables, spreads, and losses: [docs/results.md](docs/results.md).
 Tiny fixed responses. They measure the loop and the parser, nothing else. Goose is at
 the top here. A real program spends its time elsewhere.
 
-Ryzen 7 5800X3D, WSL2, kernel 6.18. `bench/run.sh` defaults, 2026-10-11. Servers on
-CPUs 0-3, wrk on 4-15. Plaintext pipelined 16 deep. Median of 3 runs of 15 s. Goose's
-epoll loop at `b6a26c5`.
+Ryzen 7 5800X3D, WSL2, kernel 6.18. `bench/run.sh` defaults, 2026-10-12. Servers on
+CPUs 0-3, wrk on 4-15. Plaintext pipelined 16 deep. Median of 3 runs of 15 s. Goose at
+`ef09c0f`, Goose compiler `5c83a5a`, both loops.
 
-| | Goose | vanilla-epoll (V) | tokio (Rust) | may-minihttp (Rust) |
-|---|---:|---:|---:|---:|
-| plaintext, 256 conns, 4 workers, req/s | 5.47 M | 5.53 M | 3.55 M | 2.39 M |
-| plaintext, 4,096 conns, 4 workers, req/s | 5.12 M | 5.06 M | 3.35 M | 3.69 M |
-| JSON, 256 conns, 4 workers, req/s | 0.408 M | 0.216 M | 0.377 M | 0.342 M |
-| instructions per request (plaintext, 1 worker) | 2,255-2,371 | 1,756-1,765 | 4,330-4,375 | 2,983-3,011 |
-| peak RSS, any cell | 2.1-2.6 MB | 5.6-57 MB, 15 GB in JSON | 12-184 MB | 40-639 MB |
+| | Goose io_uring | Goose epoll | vanilla-epoll (V) | tokio (Rust) | may-minihttp (Rust) |
+|---|---:|---:|---:|---:|---:|
+| plaintext, 256 conns, 4 workers, req/s | 7.06 M | 5.83 M | 6.10 M | 3.89 M | 2.39 M |
+| plaintext, 4,096 conns, 4 workers, req/s | 6.45 M | 5.53 M | 5.46 M | 3.65 M | 3.95 M |
+| JSON, 256 conns, 4 workers, req/s | 0.513 M | 0.430 M | 0.216 M | 0.394 M | 0.375 M |
+| instructions per request (plaintext, 1 worker) | 2,503-2,517 | 2,418-2,469 | 1,750-1,758 | 4,369-4,399 | 2,999-3,023 |
+| peak RSS, any cell | 4.6-16 MB | 2.4-3.2 MB | 5.6-57 MB, 6-15 GB in JSON | 12-183 MB | 39-621 MB |
 
-- Wins every JSON cell and 4 of 6 plaintext cells.
-- Loses plaintext with 4 workers at 256 and 1,024 connections to vanilla-epoll, by 1%,
-  inside both run spreads. vanilla-epoll answers without parsing the request.
-- p99 latency behind the best in 6 of 10 cells, by 0.05-0.53 ms.
+- The io_uring loop wins every cell, plaintext and JSON.
+- The epoll loop wins every JSON cell, and is within vanilla-epoll's run spread in 5 of
+  6 plaintext cells. It loses plaintext with 4 workers at 256 connections, by 5%.
+  vanilla-epoll answers without parsing the request.
+- The epoll loop's p99 latency trails a competitor's in 4 of 10 cells, by 0.01-2.2 ms.
 - HttpArena's `limited-conn` profile: 2% behind tokio.
-- The streaming handler added since costs 0-3% in these cells.
+- The streaming handler costs nothing measurable in these cells since 2026-10-12.
 
 ### Large responses and files
 
@@ -273,8 +274,8 @@ other isn't in the binary.
 | `http::serve` | io_uring, kernel 6.1+ | ring emulated on kqueue | IOCP |
 | `http::serve_epoll` | epoll | kqueue | `ENOSYS` |
 
-- `http::serve` is the default. On Linux 9-24% faster than epoll, at 4-5 times the peak
-  RSS, about 10 MB with 4 workers. Where
+- `http::serve` is the default. On Linux 12-22% faster than epoll, at 2-5 times the
+  peak RSS, 10-16 MB with 4 workers. Where
   `io_uring_setup` fails, as under Docker's default seccomp profile, it emulates the
   ring on epoll; `http::ring_probe()` says why.
 - `http::serve_epoll` is faster on macOS, and on Linux uses a quarter of the memory.
