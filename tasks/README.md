@@ -55,4 +55,4 @@ designed with task 011. Task 014 plans HTTP/2 and TLS, after tasks 011 and 013. 
 and streaming cost are done (2026-10-12); task 013's large-response items can wait, as an
 API's responses are small. Task 015's answers that wait are designed with task 014's
 HTTP/2. Task 016 accounts for each worker's committed memory, and can start at any
-point.
+point. Task 017 narrows the IOCP loop's gap to io_uring, on the benchmark desktop.
