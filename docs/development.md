@@ -686,6 +686,21 @@ MACHINE=m1pro-docker SERVERS="goose goose-uring tokio vanilla-epoll vanilla-io_u
   cargo build --release`, with a volume such as `-v rest-cargo:/root/.cargo/registry`
   for the crates), and the binary runs unchanged in `goose-http-dev3`, which has the
   checker's `python3` and wrk (2026-10-12).
+- The other REST competitors build in `goose-http-bench2` too (2026-10-12). Of the
+  images, only it has Odin: `/opt/odin/odin`, `dev-2026-10-nightly:84bc3fc`, the version
+  `bench/build.sh` requires, with cargo 1.99.0 and Zig at `/opt/zig`. `goose-http-dev3`
+  has neither Rust nor Odin. The Rust servers (`bench/rest/tokio`, `may-minihttp`,
+  `xitca-web`) build as hyper's does, with a separate `CARGO_TARGET_DIR` per server, since
+  each path-depends on `bench/rest/rust`; xitca-web adds `--cfg tokio_unstable` to
+  `RUSTFLAGS`, as `bench/build.sh` does. The Odin servers build with `odin build
+  bench/rest/odin-http -collection:deps=DIR` and the flags `bench/build.sh` gives each,
+  where `DIR` holds odin-http at `fac113f` and Tina at `a2e8d4d`; Tina adds
+  `-define:HTTP_EGRESS_BUFFER_SIZE=63488` (`bench/rest/tina/main.odin` says why). The
+  volume `goose-http-cargo` holds odin-http at its pin under `deps/`, but not Tina.
+- Tina needs `--security-opt seccomp=unconfined` to start in the VM: without it, a shard
+  fails to map its memory (`[FATAL] Shard 0 failed to hydrate memory: Out_Of_Memory`).
+  It logs its own crashes as lines that start with `[`, such as `[FATAL] Shard 0 caught
+  sig=11`, so don't filter those out of a server log.
 - To test uncommitted changes, export the working tree with one `tar`: `git ls-files
   -co --exclude-standard -z | tar --null -T - -cf - | tar -xf - -C /tmp/work`. Through
   `xargs`, a long list runs several `tar`s, and the extracting one stops at the end of
