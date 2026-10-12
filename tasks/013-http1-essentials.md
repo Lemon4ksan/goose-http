@@ -252,6 +252,12 @@ connections: 12.4 MB against 11.3 MB).
   failed with `CLOSED` ignored; `test_http.goose`'s `test_files` checks the helpers.
   macOS: `shim/kqueue.c`'s functions passed only the syntax check with stub headers.
 
+Neither the move to Goose `5c83a5a` nor files changed the benchmark path's cost
+(`bench/instructions.sh`, 2 runs a build, as above, 2026-10-12): user instructions per
+request were 1,550-1,569 (epoll, `743609f`) and 1,601-1,614 (uring, `61ef340`) on
+`fee060c`, 1,539-1,562 and 1,579-1,601 for `31a1410` on `5c83a5a`, and 1,550-1,572 and 1,602-1,606
+for `a3cf843` on `5c83a5a`, within the runs' spread of about 15.
+
 Next, in order:
 
 1. Run the tests on macOS (`scripts/test.sh`): the kqueue table change, the stop, and
