@@ -1,0 +1,37 @@
+[SYSTEM] Total requested memory: 196491896 bytes (187.39 MB)
+Grand Arena Memory Map (Total: 196491504 bytes):
+  [0x00000000 - 0x000004B0] Arena_Regions_Tracker (1200 bytes)
+  [0x00000500 - 0x00000590] Slice_Headers (144 bytes)
+  [0x00000600 - 0x00000620] Slice_Headers (32 bytes)
+  [0x00000680 - 0x000006A0] Slice_Headers (32 bytes)
+  [0x00000700 - 0x00000800] Slice_Headers (256 bytes)
+  [0x00000800 - 0x00000808] Slice_Headers (8 bytes)
+  [0x00000880 - 0x000008A0] Slice_Headers (32 bytes)
+  [0x00000900 - 0x00000908] Slice_Headers (8 bytes)
+  [0x00000980 - 0x00000988] Slice_Headers (8 bytes)
+  [0x00000A00 - 0x00000A08] Slice_Headers (8 bytes)
+  [0x00000A80 - 0x00000A88] Dispatch_Cursors (8 bytes)
+  [0x00000B00 - 0x00000B08] Dispatch_Credit_Counts (8 bytes)
+  [0x00000B80 - 0x00000BB0] Typed_Arena_0 (48 bytes)
+  [0x00000C00 - 0x00000C08] Dispatchable_Slots_0 (8 bytes)
+  [0x00000C80 - 0x00000E90] SOA_Metadata_0 (528 bytes)
+  [0x00000F00 - 0x00019108] Working_Memory_0 (98824 bytes)
+  [0x00019180 - 0x01311180] Typed_Arena_1 (19890176 bytes)
+  [0x01311180 - 0x01311380] Dispatchable_Slots_1 (512 bytes)
+  [0x01311380 - 0x01353380] SOA_Metadata_1 (270336 bytes)
+  [0x01353380 - 0x07253380] Working_Memory_1 (99614720 bytes)
+  [0x07253380 - 0x07A53380] Message_Pool (8388608 bytes)
+  [0x07A53380 - 0x07A63380] Transfer_Buffer_Pool (65536 bytes)
+  [0x07A63380 - 0x07A633A0] Transfer_Generations (32 bytes)
+  [0x07A63400 - 0x07A83600] Timer_Wheel_Deadlines (131584 bytes)
+  [0x07A83600 - 0x07AA3800] Timer_Wheel_Targets (131584 bytes)
+  [0x07AA3800 - 0x07AAB880] Timer_Wheel_Tags (32896 bytes)
+  [0x07AAB880 - 0x07ABB980] Timer_Wheel_Correlations (65792 bytes)
+  [0x07ABB980 - 0x07ABC188] Timer_Wheel_Armed_Words (2056 bytes)
+  [0x07ABC200 - 0x07ABD200] Log_Ring_Buffer (4096 bytes)
+  [0x07ABD200 - 0x07ABD320] Supervision_Group_Table (288 bytes)
+[SYSTEM] Process running. Watchdog active (interval: 500 ms).
+
+[WATCHDOG] Initiating Graceful Shutdown...
+[SYSTEM] All Shards gracefully drained. Shutting down.
+[SYSTEM] Process Terminated Cleanly.
