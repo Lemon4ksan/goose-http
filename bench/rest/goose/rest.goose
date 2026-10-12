@@ -18,7 +18,16 @@
 //   POST  /api/v1/organizations/:org/timer/start {"id","description",...}
 //   POST  /api/v1/timer/stop                     {"id"}
 //
-//   REST_DATA=DIR TIER=a|b WORKERS=n [LOOP=epoll] [JSON=template] rest [port]
+// Tier C is a clinic's schedule and records, synthetic, behind a bearer JWT:
+//
+//   GET   /api/v2/schedule/version               ?since=, the schedule's poll
+//   GET   /api/v2/schedule/bookings              ?start=&end=&staff=1,2,...
+//   GET   /api/v2/schedule/shifts                ?start=&end=&staff=1,2,...
+//   GET   /api/v2/encounters/:id                 the visit, and its case's notes
+//   GET   /api/v2/clients/:id/encounters         ?limit=, the past visits
+//   GET   /api/v2/clients/:id                    the client
+//
+//   REST_DATA=DIR TIER=a|b|c WORKERS=n [LOOP=epoll] [JSON=template] rest [port]
 //
 // TIER picks the dataset to load, tier A's by default. JSON=template answers
 // from each record's JSON, written once at startup, with the per-request
@@ -372,13 +381,26 @@ fn parse_iso(s: const u8[:]) -> i64, bool {
     let ms = if s.len == 24 && s[19] == '.' { number_at(s, 20, 3) } else if s.len == 20 { 0 } else { -1 };
     guard y >= 0 && m >= 1 && m <= 12 && d >= 1 && d <= 31 && h >= 0 && h < 24 && mi >= 0 && mi < 60 &&
           sec >= 0 && sec < 60 && ms >= 0 else { return 0, false; }
+    return days_from(y, m, d) * DAY + ((h * 60 + mi) * 60 + sec) * 1000 + ms, true;
+}
+
+// "YYYY-MM-DD" as ms since the epoch at its midnight in UTC.
+fn parse_day(s: const u8[:]) -> i64, bool {
+    guard s.len == 10 && s[4] == '-' && s[7] == '-' else { return 0, false; }
+    let y = number_at(s, 0, 4);
+    let m = number_at(s, 5, 2);
+    let d = number_at(s, 8, 2);
+    guard y >= 0 && m >= 1 && m <= 12 && d >= 1 && d <= 31 else { return 0, false; }
+    return days_from(y, m, d) * DAY, true;
+}
+
+// Howard Hinnant's days_from_civil.
+fn days_from(y: i64, m: i64, d: i64) -> i64 {
     let yy = if m <= 2 { y - 1 } else { y };
     let era = (if yy >= 0 { yy } else { yy - 399 }) / 400;
     let yoe = yy - era * 400;
     let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146097 + doe - 719468;
-    return days * DAY + ((h * 60 + mi) * 60 + sec) * 1000 + ms, true;
+    return era * 146097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719468;
 }
 
 fn is_lower_hex(c: u8) -> bool { c >= '0' && c <= '9' || c >= 'a' && c <= 'f' }
@@ -1175,6 +1197,796 @@ fn snow(req: http::Request, body: const u8[:], buf: u8[>..]&, out: http::Reply) 
     else { start_timer(body, u, m, buf, out); }
 }
 
+// Tier C, a clinic's schedule and records, under /api/v2. A request needs a
+// bearer token shaped as a JWT, which isn't verified. Ids are 1, 2, ... in
+// each file, and the schedule's days are UTC's.
+
+struct Staffer { name: u8[..32], title: u8[..32] }
+
+struct Service { code: u8[..8], name: u8[..32], minutes: i64, price: i64 }
+
+struct Client {
+    name: u8[..48],
+    code: u8[..8],
+    born: u8[..10],
+    phone: u8[..16],
+    email: u8[..40],
+    street: u8[..32],
+    city: u8[..16],
+    postcode: u8[..8],
+    channel: u8[..5],
+    language: u8[..2],
+    flags: u8[..12][..3],
+    contact: u8[..48],
+    contact_phone: u8[..16],
+    relation: u8[..8],
+    sms: bool,
+    mail: bool,
+    research: bool,
+    created: i64,
+    updated: i64,
+    first: i64,             // the client's completed visits, newest first: past[first..first + count]
+    count: i64,
+}
+
+struct Line { id: i64, service: i64 }
+
+struct Note { id: i64, visit: i64, kind: i64, author: i64, at: i64, text_at: i64, text_len: i64 }
+
+struct Visit {
+    case_id: i64,
+    client: i64,
+    staff: i64,
+    status: u8[..10],
+    kind: u8[..12],
+    priority: u8[..8],
+    start: i64,
+    end: i64,
+    lines: Line[..3],
+    codes: u8[..8][..3],
+    first_note: i64,        // notes[first_note..first_note + notes], by kind
+    notes: i64,
+    case_first: i64,        // the case's visits, visits[case_first..case_first + case_count]
+    case_count: i64,
+}
+
+struct Reminder { channel: u8[..5], kind: u8[..12], status: u8[..9], at: i64 }
+
+struct Booking {
+    start: i64,
+    end: i64,
+    client: i64,
+    staff: i64,
+    visit: i64,
+    lines: Line[..3],
+    reminders: Reminder[..3],
+    status: u8[..10],
+    source: u8[..8],
+    note_at: i64,           // in text, or -1 for null
+    note_len: i64,
+    created: i64,
+    updated: i64,
+}
+
+struct Shift { staff: i64, start: i64, end: i64, kind: u8[..8], room: i64, room_name: u8[..16], note: u8[..64] }
+
+var staffers: Staffer[>..];
+var services: Service[>..];
+var clients: Client[>..];
+var visits: Visit[>..];
+var notes: Note[>..];
+var text: u8[>..];              // the notes' text, and the bookings'
+var bookings: Booking[>..];     // by start
+var shifts: Shift[>..];         // by start
+var past: i64[>..];             // completed visits, by client, newest first
+var version_epoch: i64;
+// JSON=template's: each booking, shift, and client whole; each visit without
+// its closing brace; and each note as caseNotes lists it.
+var booking_json: u8[>..];
+var booking_at: i64[>..];
+var shift_json: u8[>..];
+var shift_at: i64[>..];
+var client_json: u8[>..];
+var client_at: i64[>..];
+var visit_json: u8[>..];
+var visit_at: i64[>..];
+var note_json: u8[>..];
+var note_at: i64[>..];
+
+fn note_kind(k: i64) -> const u8[:] {
+    return if k == 0 { "intake" } else if k == 1 { "findings" } else if k == 2 { "plan" } else { "internal" };
+}
+
+// An id field: n of 1..n as an index, or abort.
+fn id_in(r: json::Reader&, n: i64, what: const u8[:]) -> i64 {
+    let id = json::read_int(r);
+    guard id >= 1 && id <= n else { abort(str("a ", what, " id that isn't one of 1..", n, ": ", id)); }
+    return id - 1;
+}
+
+// The id of an object such as {"id":3,"name":...}, as an index.
+fn ref_in(r: json::Reader&, n: i64, what: const u8[:]) -> i64 {
+    var i = -1;
+    json::each_member(r) { k => if k == "id" { i = id_in(r, n, what); } else { json::skip(r); } };
+    return i;
+}
+
+fn service_of(code: const u8[:]) -> i64 {
+    for s, i in services { if s.code == code { return i; } }
+    abort(str("a service heavy-services.json lacks: ", code));
+}
+
+fn load_lines(r: json::Reader&, scratch: u8[>..]&, lines: Line[..3]&) {
+    json::each_element(r) {
+        guard lines.len < lines.cap else { abort("more than 3 items"); }
+        let l .= lines.push(Line { .. });
+        json::each_member(r) { k =>
+            if k == "id" { l.id = json::read_int(r); }
+            else if k == "code" { l.service = service_of(string_of(r, scratch, 8)); }
+            else { json::skip(r); }
+        };
+    };
+}
+
+// The reader, for a block: its untyped parameter would be a copy.
+struct Cursor { r: json::Reader& }
+
+// A file's records, each read by F, which pushes it.
+fn load_each<F>(dir: const u8[:], name: const u8[:]) {
+    var text_in: u8[>..] = [];
+    load(dir, name, text_in);
+    var r = json::reader(text_in);
+    json::each_element(r) { F(Cursor { r: r }); };
+    guard json::finish(r) else { abort(str(name, ": ", json::message(r))); }
+}
+
+fn load_heavy(dir: const u8[:]) {
+    var meta: u8[>..] = [];
+    load(dir, "heavy-meta.json", meta);
+    var m = json::reader(meta);
+    json::each_member(m) { k => if k == "versionEpoch" { version_epoch = json::read_int(m); } else { json::skip(m); } };
+    guard json::finish(m) && version_epoch > 0 else { abort("heavy-meta.json has no versionEpoch"); }
+    var scratch: u8[>..] = [];
+    load_each(dir, "heavy-staff.json") { c =>
+        let r .= c.r;
+        let s .= staffers.push(Staffer { .. });
+        json::each_member(r) { k =>
+            if k == "name" { s.name.append(string_of(r, scratch, s.name.cap)); }
+            else if k == "title" { s.title.append(string_of(r, scratch, s.title.cap)); }
+            else if k == "id" { guard json::read_int(r) == staffers.len else { abort("heavy-staff.json's ids aren't 1, 2, ..."); } }
+            else { json::skip(r); }
+        };
+    };
+    load_each(dir, "heavy-services.json") { c =>
+        let r .= c.r;
+        let s .= services.push(Service { .. });
+        json::each_member(r) { k =>
+            if k == "code" { s.code.append(string_of(r, scratch, s.code.cap)); }
+            else if k == "name" { s.name.append(string_of(r, scratch, s.name.cap)); }
+            else if k == "minutes" { s.minutes = json::read_int(r); }
+            else if k == "price" { s.price = json::read_int(r); }
+            else { json::skip(r); }
+        };
+    };
+    load_each(dir, "heavy-clients.json") { c =>
+        let r .= c.r;
+        let c .= clients.push(Client { .. });
+        json::each_member(r) { k =>
+            if k == "id" { guard json::read_int(r) == clients.len else { abort("heavy-clients.json's ids aren't 1, 2, ..."); } }
+            else if k == "name" { c.name.append(string_of(r, scratch, c.name.cap)); }
+            else if k == "code" { c.code.append(string_of(r, scratch, c.code.cap)); }
+            else if k == "born" { c.born.append(string_of(r, scratch, c.born.cap)); }
+            else if k == "phone" { c.phone.append(string_of(r, scratch, c.phone.cap)); }
+            else if k == "email" { c.email.append(string_of(r, scratch, c.email.cap)); }
+            else if k == "address" {
+                json::each_member(r) { kk =>
+                    if kk == "street" { c.street.append(string_of(r, scratch, c.street.cap)); }
+                    else if kk == "city" { c.city.append(string_of(r, scratch, c.city.cap)); }
+                    else if kk == "postcode" { c.postcode.append(string_of(r, scratch, c.postcode.cap)); }
+                    else { json::skip(r); }
+                };
+            } else if k == "preferences" {
+                json::each_member(r) { kk =>
+                    if kk == "channel" { c.channel.append(string_of(r, scratch, c.channel.cap)); }
+                    else if kk == "language" { c.language.append(string_of(r, scratch, c.language.cap)); }
+                    else { json::skip(r); }
+                };
+            } else if k == "flags" {
+                json::each_element(r) {
+                    guard c.flags.len < c.flags.cap else { abort("more than 3 flags"); }
+                    let f .= c.flags.push("");
+                    f.append(string_of(r, scratch, f.cap));
+                };
+            } else if k == "emergencyContact" {
+                json::each_member(r) { kk =>
+                    if kk == "name" { c.contact.append(string_of(r, scratch, c.contact.cap)); }
+                    else if kk == "phone" { c.contact_phone.append(string_of(r, scratch, c.contact_phone.cap)); }
+                    else if kk == "relation" { c.relation.append(string_of(r, scratch, c.relation.cap)); }
+                    else { json::skip(r); }
+                };
+            } else if k == "consents" {
+                json::each_member(r) { kk =>
+                    if kk == "sms" { c.sms = json::read_bool(r); }
+                    else if kk == "email" { c.mail = json::read_bool(r); }
+                    else if kk == "research" { c.research = json::read_bool(r); }
+                    else { json::skip(r); }
+                };
+            } else if k == "createdAt" { c.created = read_time(r, scratch); }
+            else if k == "updatedAt" { c.updated = read_time(r, scratch); }
+            else { json::skip(r); }
+        };
+    };
+    load_each(dir, "heavy-encounters.json") { c =>
+        let r .= c.r;
+        let v .= visits.push(Visit { client: -1, staff: -1, first_note: notes.len, .. });
+        json::each_member(r) { k =>
+            if k == "id" { guard json::read_int(r) == visits.len else { abort("heavy-encounters.json's ids aren't 1, 2, ..."); } }
+            else if k == "caseId" { v.case_id = json::read_int(r); }
+            else if k == "client" { v.client = ref_in(r, clients.len, "client"); }
+            else if k == "staff" { v.staff = ref_in(r, staffers.len, "staff"); }
+            else if k == "status" { v.status.append(string_of(r, scratch, v.status.cap)); }
+            else if k == "kind" { v.kind.append(string_of(r, scratch, v.kind.cap)); }
+            else if k == "priority" { v.priority.append(string_of(r, scratch, v.priority.cap)); }
+            else if k == "start" { v.start = read_time(r, scratch); }
+            else if k == "end" { v.end = read_time(r, scratch); }
+            else if k == "items" { load_lines(r, scratch, v.lines); }
+            else if k == "codes" {
+                json::each_element(r) {
+                    guard v.codes.len < v.codes.cap else { abort("more than 3 codes"); }
+                    let c .= v.codes.push("");
+                    c.append(string_of(r, scratch, c.cap));
+                };
+            } else if k == "notes" {
+                var kind = 0;
+                json::each_member(r) { kk =>
+                    guard kk == note_kind(kind) else { abort(str("notes out of order: ", kk)); }
+                    json::each_element(r) {
+                        let n .= notes.push(Note { visit: visits.len - 1, kind: kind, author: -1, .. });
+                        json::each_member(r) { nk =>
+                            if nk == "id" { n.id = json::read_int(r); }
+                            else if nk == "author" { n.author = ref_in(r, staffers.len, "staff"); }
+                            else if nk == "text" {
+                                n.text_at = text.len;
+                                scratch.clear();
+                                text.append(json::read_string(r, scratch));
+                                n.text_len = text.len - n.text_at;
+                            } else if nk == "at" { n.at = read_time(r, scratch); }
+                            else { json::skip(r); }
+                        };
+                    };
+                    kind++;
+                };
+            } else { json::skip(r); }
+        };
+        v.notes = notes.len - v.first_note;
+        guard v.client >= 0 && v.staff >= 0 else { abort("an encounter without a client or staff"); }
+        // A case's visits are together in the file.
+        if visits.len > 1 && visits[visits.len - 2].case_id == v.case_id {
+            let first = visits[visits.len - 2].case_first;
+            v.case_first = first;
+            for i in first..visits.len { visits[i].case_count = visits.len - first; }
+        } else {
+            guard visits.len == 1 || visits[visits.len - 2].case_id < v.case_id else { abort("a case's encounters apart"); }
+            v.case_first = visits.len - 1;
+            v.case_count = 1;
+        }
+    };
+    load_each(dir, "heavy-bookings.json") { c =>
+        let r .= c.r;
+        let b .= bookings.push(Booking { client: -1, staff: -1, visit: -1, note_at: -1, .. });
+        json::each_member(r) { k =>
+            if k == "id" { guard json::read_int(r) == bookings.len else { abort("heavy-bookings.json's ids aren't 1, 2, ..."); } }
+            else if k == "slot" {
+                json::each_member(r) { kk =>
+                    if kk == "start" { b.start = read_time(r, scratch); }
+                    else if kk == "end" { b.end = read_time(r, scratch); }
+                    else { json::skip(r); }
+                };
+            } else if k == "client" { b.client = ref_in(r, clients.len, "client"); }
+            else if k == "staff" { b.staff = ref_in(r, staffers.len, "staff"); }
+            else if k == "encounter" { b.visit = ref_in(r, visits.len, "encounter"); }
+            else if k == "items" { load_lines(r, scratch, b.lines); }
+            else if k == "reminders" {
+                json::each_element(r) {
+                    guard b.reminders.len < b.reminders.cap else { abort("more than 3 reminders"); }
+                    let m .= b.reminders.push(Reminder { .. });
+                    json::each_member(r) { kk =>
+                        if kk == "channel" { m.channel.append(string_of(r, scratch, m.channel.cap)); }
+                        else if kk == "kind" { m.kind.append(string_of(r, scratch, m.kind.cap)); }
+                        else if kk == "status" { m.status.append(string_of(r, scratch, m.status.cap)); }
+                        else if kk == "at" { m.at = read_time(r, scratch); }
+                        else { json::skip(r); }
+                    };
+                };
+            } else if k == "status" { b.status.append(string_of(r, scratch, b.status.cap)); }
+            else if k == "source" { b.source.append(string_of(r, scratch, b.source.cap)); }
+            else if k == "note" {
+                if json::peek(r) == 'n' { json::skip(r); }
+                else {
+                    b.note_at = text.len;
+                    scratch.clear();
+                    text.append(json::read_string(r, scratch));
+                    b.note_len = text.len - b.note_at;
+                }
+            } else if k == "createdAt" { b.created = read_time(r, scratch); }
+            else if k == "updatedAt" { b.updated = read_time(r, scratch); }
+            else { json::skip(r); }
+        };
+        guard b.client >= 0 && b.staff >= 0 && b.visit >= 0 else { abort("a booking without a client, staff, or encounter"); }
+        guard bookings.len == 1 || bookings[bookings.len - 2].start <= b.start else { abort("bookings out of order"); }
+    };
+    load_each(dir, "heavy-shifts.json") { c =>
+        let r .= c.r;
+        let s .= shifts.push(Shift { staff: -1, .. });
+        json::each_member(r) { k =>
+            if k == "id" { guard json::read_int(r) == shifts.len else { abort("heavy-shifts.json's ids aren't 1, 2, ..."); } }
+            else if k == "staff" { s.staff = ref_in(r, staffers.len, "staff"); }
+            else if k == "start" { s.start = read_time(r, scratch); }
+            else if k == "end" { s.end = read_time(r, scratch); }
+            else if k == "kind" { s.kind.append(string_of(r, scratch, s.kind.cap)); }
+            else if k == "room" {
+                json::each_member(r) { kk =>
+                    if kk == "id" { s.room = json::read_int(r); }
+                    else if kk == "name" { s.room_name.append(string_of(r, scratch, s.room_name.cap)); }
+                    else { json::skip(r); }
+                };
+            } else if k == "note" { s.note.append(read_nullable(r, scratch, s.note.cap)); }
+            else { json::skip(r); }
+        };
+        guard s.staff >= 0 else { abort("a shift without staff"); }
+        guard shifts.len == 1 || shifts[shifts.len - 2].start <= s.start else { abort("shifts out of order"); }
+    };
+    for v, i in visits { if v.status == "completed" { past.push(i); } }
+    // Newest first, and of two at once the later id first.
+    sort(past) { a, b =>
+        let va = visits[a];
+        let vb = visits[b];
+        va.client < vb.client || va.client == vb.client && (va.start > vb.start || va.start == vb.start && a > b)
+    };
+    for i, k in past {
+        let c .= clients[visits[i].client];
+        if c.count == 0 { c.first = k; }
+        c.count++;
+    }
+}
+
+fn staff_ref(out: u8[>..]&, s: i64, title: bool) {
+    out.append("{\"id\":");
+    format(out, s + 1);
+    out.append(",\"name\":");
+    json::format_string(out, staffers[s].name);
+    if title {
+        out.append(",\"title\":");
+        json::format_string(out, staffers[s].title);
+    }
+    out.push('}');
+}
+
+fn client_ref(out: u8[>..]&, c: i64) {
+    out.append("{\"id\":");
+    format(out, c + 1);
+    out.append(",\"name\":");
+    json::format_string(out, clients[c].name);
+    out.append(",\"code\":");
+    json::format_string(out, clients[c].code);
+    out.push('}');
+}
+
+fn lines_full(out: u8[>..]&, lines: Line[:]) {
+    out.push('[');
+    for l, k in lines {
+        let s = services[l.service];
+        if k > 0 { out.push(','); }
+        out.append("{\"id\":");
+        format(out, l.id);
+        out.append(",\"code\":");
+        json::format_string(out, s.code);
+        out.append(",\"name\":");
+        json::format_string(out, s.name);
+        out.append(",\"minutes\":");
+        format(out, s.minutes);
+        out.append(",\"price\":");
+        format(out, s.price);
+        out.push('}');
+    }
+    out.push(']');
+}
+
+fn booking_full(out: u8[>..]&, i: i64) {
+    let b = bookings[i];
+    let v = visits[b.visit];
+    out.append("{\"id\":");
+    format(out, i + 1);
+    out.append(",\"slot\":{\"start\":");
+    iso_or_null(out, b.start);
+    out.append(",\"end\":");
+    iso_or_null(out, b.end);
+    out.append("},\"client\":");
+    client_ref(out, b.client);
+    out.append(",\"staff\":");
+    staff_ref(out, b.staff, false);
+    out.append(",\"encounter\":{\"id\":");
+    format(out, b.visit + 1);
+    out.append(",\"status\":");
+    json::format_string(out, v.status);
+    out.append(",\"start\":");
+    iso_or_null(out, v.start);
+    out.append(",\"end\":");
+    iso_or_null(out, v.end);
+    out.append("},\"items\":");
+    lines_full(out, b.lines);
+    out.append(",\"reminders\":[");
+    for m, k in b.reminders {
+        if k > 0 { out.push(','); }
+        out.append("{\"channel\":");
+        json::format_string(out, m.channel);
+        out.append(",\"kind\":");
+        json::format_string(out, m.kind);
+        out.append(",\"status\":");
+        json::format_string(out, m.status);
+        out.append(",\"at\":");
+        iso_or_null(out, m.at);
+        out.push('}');
+    }
+    out.append("],\"status\":");
+    json::format_string(out, b.status);
+    out.append(",\"source\":");
+    json::format_string(out, b.source);
+    out.append(",\"note\":");
+    if b.note_at < 0 { out.append("null"); } else { json::format_string(out, text[b.note_at..b.note_at + b.note_len]); }
+    out.append(",\"createdAt\":");
+    iso_or_null(out, b.created);
+    out.append(",\"updatedAt\":");
+    iso_or_null(out, b.updated);
+    out.push('}');
+}
+
+fn shift_full(out: u8[>..]&, i: i64) {
+    let s = shifts[i];
+    out.append("{\"id\":");
+    format(out, i + 1);
+    out.append(",\"staff\":");
+    staff_ref(out, s.staff, false);
+    out.append(",\"start\":");
+    iso_or_null(out, s.start);
+    out.append(",\"end\":");
+    iso_or_null(out, s.end);
+    out.append(",\"kind\":");
+    json::format_string(out, s.kind);
+    out.append(",\"room\":{\"id\":");
+    format(out, s.room);
+    out.append(",\"name\":");
+    json::format_string(out, s.room_name);
+    out.append("},\"note\":");
+    string_or_null(out, s.note);
+    out.push('}');
+}
+
+fn client_full(out: u8[>..]&, i: i64) {
+    let c = clients[i];
+    out.append("{\"id\":");
+    format(out, i + 1);
+    out.append(",\"name\":");
+    json::format_string(out, c.name);
+    out.append(",\"code\":");
+    json::format_string(out, c.code);
+    out.append(",\"born\":");
+    json::format_string(out, c.born);
+    out.append(",\"phone\":");
+    json::format_string(out, c.phone);
+    out.append(",\"email\":");
+    json::format_string(out, c.email);
+    out.append(",\"address\":{\"street\":");
+    json::format_string(out, c.street);
+    out.append(",\"city\":");
+    json::format_string(out, c.city);
+    out.append(",\"postcode\":");
+    json::format_string(out, c.postcode);
+    out.append("},\"preferences\":{\"channel\":");
+    json::format_string(out, c.channel);
+    out.append(",\"language\":");
+    json::format_string(out, c.language);
+    out.append("},\"flags\":[");
+    for f, k in c.flags {
+        if k > 0 { out.push(','); }
+        json::format_string(out, f);
+    }
+    out.append("],\"emergencyContact\":{\"name\":");
+    json::format_string(out, c.contact);
+    out.append(",\"phone\":");
+    json::format_string(out, c.contact_phone);
+    out.append(",\"relation\":");
+    json::format_string(out, c.relation);
+    out.append("},\"consents\":{\"sms\":");
+    json::format_bool(out, c.sms);
+    out.append(",\"email\":");
+    json::format_bool(out, c.mail);
+    out.append(",\"research\":");
+    json::format_bool(out, c.research);
+    out.append("},\"createdAt\":");
+    iso_or_null(out, c.created);
+    out.append(",\"updatedAt\":");
+    iso_or_null(out, c.updated);
+    out.push('}');
+}
+
+// A note's members after its id: as a visit's notes list it, the author,
+// text, and time; as caseNotes lists it, its encounter and kind before.
+fn note_body(out: u8[>..]&, n: Note) {
+    out.append(",\"author\":");
+    staff_ref(out, n.author, true);
+    out.append(",\"text\":");
+    json::format_string(out, text[n.text_at..n.text_at + n.text_len]);
+    out.append(",\"at\":");
+    iso_or_null(out, n.at);
+    out.push('}');
+}
+
+fn case_note_full(out: u8[>..]&, n: Note) {
+    out.append("{\"id\":");
+    format(out, n.id);
+    out.append(",\"encounterId\":");
+    format(out, n.visit + 1);
+    out.append(",\"kind\":\"");
+    out.append(note_kind(n.kind));
+    out.push('"');
+    note_body(out, n);
+}
+
+// A visit with its notes by kind, without the closing brace.
+fn visit_open(out: u8[>..]&, i: i64) {
+    let v = visits[i];
+    out.append("{\"id\":");
+    format(out, i + 1);
+    out.append(",\"caseId\":");
+    format(out, v.case_id);
+    out.append(",\"client\":");
+    client_ref(out, v.client);
+    out.append(",\"staff\":");
+    staff_ref(out, v.staff, true);
+    out.append(",\"status\":");
+    json::format_string(out, v.status);
+    out.append(",\"kind\":");
+    json::format_string(out, v.kind);
+    out.append(",\"priority\":");
+    json::format_string(out, v.priority);
+    out.append(",\"start\":");
+    iso_or_null(out, v.start);
+    out.append(",\"end\":");
+    iso_or_null(out, v.end);
+    out.append(",\"items\":");
+    lines_full(out, v.lines);
+    out.append(",\"codes\":[");
+    for c, k in v.codes {
+        if k > 0 { out.push(','); }
+        json::format_string(out, c);
+    }
+    out.append("],\"notes\":{");
+    var j = v.first_note;
+    for kind in 4 {
+        if kind > 0 { out.push(','); }
+        out.push('"');
+        out.append(note_kind(kind));
+        out.append("\":[");
+        var n = 0;
+        while j < v.first_note + v.notes && notes[j].kind == kind {
+            if n > 0 { out.push(','); }
+            out.append("{\"id\":");
+            format(out, notes[j].id);
+            note_body(out, notes[j]);
+            n++;
+            j++;
+        }
+        out.push(']');
+    }
+    out.push('}');
+}
+
+fn prebuild_heavy() {
+    for i in bookings.len {
+        booking_at.push(booking_json.len);
+        booking_full(booking_json, i);
+    }
+    booking_at.push(booking_json.len);
+    for i in shifts.len {
+        shift_at.push(shift_json.len);
+        shift_full(shift_json, i);
+    }
+    shift_at.push(shift_json.len);
+    for i in clients.len {
+        client_at.push(client_json.len);
+        client_full(client_json, i);
+    }
+    client_at.push(client_json.len);
+    for i in visits.len {
+        visit_at.push(visit_json.len);
+        visit_open(visit_json, i);
+    }
+    visit_at.push(visit_json.len);
+    for n in notes {
+        note_at.push(note_json.len);
+        case_note_full(note_json, n);
+    }
+    note_at.push(note_json.len);
+}
+
+fn heavy_error(out: http::Reply, status: i32) {
+    let body = if status == 400 { "{\"error\":\"bad_request\",\"status\":400}" }
+               else if status == 401 { "{\"error\":\"unauthorized\",\"status\":401}" }
+               else { "{\"error\":\"not_found\",\"status\":404}" };
+    http::respond(out, status, "application/json", body);
+}
+
+fn is_base64url(s: const u8[:]) -> bool {
+    guard s.len > 0 else { return false; }
+    for c in s {
+        if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_') { return false; }
+    }
+    return true;
+}
+
+// Whether Authorization is a bearer token of three base64url segments.
+fn has_bearer(req: http::Request) -> bool {
+    let v, has = http::field_of(req, "authorization");
+    guard has && v.len > 7 && v[..7] == "Bearer " else { return false; }
+    let t = v[7..];
+    let a = position(t, '.');
+    guard a > 0 else { return false; }
+    let rest = t[a + 1..];
+    let b = position(rest, '.');
+    return b > 0 && is_base64url(t[..a]) && is_base64url(rest[..b]) && is_base64url(rest[b + 1..]);
+}
+
+// A start and an end day, end after start and at most 31 days on, and the
+// staff of a list of their ids as bits: false for anything else.
+fn range_of(req: http::Request) -> i64, i64, i64, bool {
+    let s, has_start = http::query_of(req.target, "start");
+    let e, has_end = http::query_of(req.target, "end");
+    let ids, has_staff = http::query_of(req.target, "staff");
+    guard has_start && has_end && has_staff else { return 0, 0, 0, false; }
+    let start, start_ok = parse_day(s);
+    let end, end_ok = parse_day(e);
+    guard start_ok && end_ok && end > start && end - start <= 31 * DAY else { return 0, 0, 0, false; }
+    var list: u8[>..] = [];
+    guard http::decode(ids, list) else { return 0, 0, 0, false; }
+    var mask = 0;
+    var ok = list.len > 0;
+    each_split(list, ',') {
+        let n, num = parse_int(it);
+        if num && n >= 1 && n <= staffers.len { mask |= 1 << (n - 1); } else { ok = false; }
+    };
+    return start, end, mask, ok;
+}
+
+fn list_bookings(req: http::Request, buf: u8[>..]&, out: http::Reply) {
+    let start, end, mask, ok = range_of(req);
+    guard ok else { heavy_error(out, 400); return; }
+    buf.append("{\"bookings\":[");
+    var n = 0;
+    var i = lower_bound(bookings) { it.start < start };
+    while i < bookings.len && bookings[i].start < end {
+        if (mask >> bookings[i].staff) & 1 != 0 {
+            if n > 0 { buf.push(','); }
+            if template { buf.append(booking_json[booking_at[i]..booking_at[i + 1]]); } else { booking_full(buf, i); }
+            n++;
+        }
+        i++;
+    }
+    buf.append("],\"count\":");
+    format(buf, n);
+    buf.push('}');
+    http::respond(out, 200, "application/json", buf);
+}
+
+fn list_shifts(req: http::Request, buf: u8[>..]&, out: http::Reply) {
+    let start, end, mask, ok = range_of(req);
+    guard ok else { heavy_error(out, 400); return; }
+    buf.append("{\"shifts\":[");
+    var n = 0;
+    var i = lower_bound(shifts) { it.start < start };
+    while i < shifts.len && shifts[i].start < end {
+        if (mask >> shifts[i].staff) & 1 != 0 {
+            if n > 0 { buf.push(','); }
+            if template { buf.append(shift_json[shift_at[i]..shift_at[i + 1]]); } else { shift_full(buf, i); }
+            n++;
+        }
+        i++;
+    }
+    buf.append("],\"count\":");
+    format(buf, n);
+    buf.push('}');
+    http::respond(out, 200, "application/json", buf);
+}
+
+fn visit_into(buf: u8[>..]&, i: i64) {
+    if template { buf.append(visit_json[visit_at[i]..visit_at[i + 1]]); } else { visit_open(buf, i); }
+}
+
+// The encounter, and the notes of every visit of its case, oldest first.
+fn show_encounter(i: i64, buf: u8[>..]&, out: http::Reply) {
+    let v = visits[i];
+    visit_into(buf, i);
+    buf.append(",\"caseNotes\":[");
+    var n = 0;
+    for c in v.case_first..v.case_first + v.case_count {
+        let w = visits[c];
+        for j in w.first_note..w.first_note + w.notes {
+            if n > 0 { buf.push(','); }
+            if template { buf.append(note_json[note_at[j]..note_at[j + 1]]); } else { case_note_full(buf, notes[j]); }
+            n++;
+        }
+    }
+    buf.append("]}");
+    http::respond(out, 200, "application/json", buf);
+}
+
+// The client's completed visits, newest first, up to limit, and how many
+// there are.
+fn client_history(req: http::Request, c: i64, buf: u8[>..]&, out: http::Reply) {
+    var limit = 20;
+    let v, has = http::query_of(req.target, "limit");
+    if has {
+        let n, ok = parse_int(v);
+        guard ok && n >= 1 && n <= 50 else { heavy_error(out, 400); return; }
+        limit = n;
+    }
+    let cl = clients[c];
+    buf.append("{\"items\":[");
+    for k in min(limit, cl.count) {
+        if k > 0 { buf.push(','); }
+        visit_into(buf, past[cl.first + k]);
+        buf.push('}');
+    }
+    buf.append("],\"total\":");
+    format(buf, cl.count);
+    buf.push('}');
+    http::respond(out, 200, "application/json", buf);
+}
+
+// GET /schedule/version: the schedule's version, the minutes since
+// version_epoch, and when it changed to it.
+fn schedule_version(req: http::Request, buf: u8[>..]&, out: http::Reply) {
+    let since, has = http::query_of(req.target, "since");
+    let n, ok = parse_int(since);
+    guard has && ok && n >= 0 else { heavy_error(out, 400); return; }
+    let version = (now_ms() - version_epoch) / MINUTE;
+    buf.append("{\"version\":");
+    format(buf, version);
+    buf.append(",\"changedAt\":");
+    iso_or_null(buf, version_epoch + version * MINUTE);
+    buf.push('}');
+    http::respond(out, 200, "application/json", buf);
+}
+
+fn heavy(req: http::Request, buf: u8[>..]&, out: http::Reply) {
+    var r = http::router(req);
+    var route = 0;
+    if http::on(r, "GET", "/api/v2/schedule/version") { route = 1; }
+    else if http::on(r, "GET", "/api/v2/schedule/bookings") { route = 2; }
+    else if http::on(r, "GET", "/api/v2/schedule/shifts") { route = 3; }
+    else if http::on(r, "GET", "/api/v2/encounters/:id") { route = 4; }
+    else if http::on(r, "GET", "/api/v2/clients/:id/encounters") { route = 5; }
+    else if http::on(r, "GET", "/api/v2/clients/:id") { route = 6; }
+    guard route > 0 else { heavy_error(out, 404); return; }
+    guard has_bearer(req) else { heavy_error(out, 401); return; }
+    if route == 1 { schedule_version(req, buf, out); }
+    else if route == 2 { list_bookings(req, buf, out); }
+    else if route == 3 { list_shifts(req, buf, out); }
+    else if route == 4 {
+        let i = index_of(http::param(r, "id"), visits.len);
+        guard i >= 0 else { heavy_error(out, 404); return; }
+        show_encounter(i, buf, out);
+    } else {
+        let c = index_of(http::param(r, "id"), clients.len);
+        guard c >= 0 else { heavy_error(out, 404); return; }
+        if route == 5 { client_history(req, c, buf, out); }
+        else {
+            if template { buf.append(client_json[client_at[c]..client_at[c + 1]]); } else { client_full(buf, c); }
+            http::respond(out, 200, "application/json", buf);
+        }
+    }
+}
+
 // Each response's JSON is built in a buffer of the request's own, which the
 // data stack frees at the end of the request with one store: one kept in the
 // worker and cleared per request is refused, the checker taking the loop's
@@ -1182,6 +1994,7 @@ fn snow(req: http::Request, body: const u8[:], buf: u8[>..]&, out: http::Reply) 
 inline fn handle(req: http::Request, body: const u8[:], out: http::Reply) {
     var buf: u8[>..] = [];
     if starts_with(req.target, "/api/v1/") { snow(req, body, buf, out); return; }
+    if starts_with(req.target, "/api/v2/") { heavy(req, buf, out); return; }
     var r = http::router(req);
     if http::on(r, "GET", "/api/items/:id") {
         let i = index_of(http::param(r, "id"), items.len);
@@ -1240,8 +2053,11 @@ fn main() {
         load_people(dir);
         load_entries(dir);
         if template { prebuild_snow(); }
+    } else if tier == "c" {
+        load_heavy(dir);
+        if template { prebuild_heavy(); }
     } else {
-        abort("TIER is a or b");
+        abort("TIER is a, b, or c");
     }
     var workers: u8[>..] = [];
     var n: i64 = 0;
@@ -1255,7 +2071,7 @@ fn main() {
     let s = http::stop_on_signals();
     guard s == 0 else { stopped(http::Error { call: "sigaction", code: -s }); }
     let count = http::worker_count(cfg);
-    print("rest: tier ", tier, ", ", items.len + entries.len, " records, ", count, " workers on port ", port,
+    print("rest: tier ", tier, ", ", items.len + entries.len + bookings.len + visits.len, " records, ", count, " workers on port ", port,
           if epoll { ", epoll" } else { ", uring" }, if template { ", template" } else { ", serialize" });
     var ids: i64[>..] = [];
     for i in count { ids.push(if epoll { thread_spawn(worker_epoll, cfg) } else { thread_spawn(worker, cfg) }); }

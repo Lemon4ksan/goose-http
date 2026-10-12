@@ -13,6 +13,15 @@
 // time entries over the 60 days up to the dataset's moment, T0; and
 // snow-load.txt, for tier-b.lua, a line per user of the Cookie field and the
 // ids and the entries window its requests carry.
+//
+// Tier C, a clinic's schedule and records, synthetic: heavy-staff.json,
+// heavy-services.json, and heavy-clients.json, the records the others name;
+// heavy-bookings.json and heavy-shifts.json, four weeks of 10 staff's
+// schedule from 2026-09-07; heavy-encounters.json, the visits, with their
+// notes, two years of them for 100 clients and one per booking;
+// heavy-meta.json, from when the schedule's version counts; and
+// heavy-load.txt, for tier-c.lua, the staff's bearer tokens and the ranges
+// its requests draw from. Free text is words from WORDS.
 import std;
 import os;
 import json;
@@ -602,6 +611,613 @@ fn snow_load(out: u8[>..]&) {
     }
 }
 
+// Tier C.
+
+let WEEK0: i64 = 1788739200000;     // Monday 2026-09-07, the schedule's first day
+let TODAY: i64 = 1789948800000;     // Monday 2026-09-21: the visits before it happened
+let HISTORY0: i64 = 1725235200000;  // Monday 2024-09-02, the first visit of the history
+let VERSION0: i64 = 1788220800000;  // 2026-09-01: the schedule's version is minutes since
+let SLOT: i64 = 1800000;
+let OPEN: i64 = 5 * 3600000;        // 08:00 in the clinic's zone, UTC+3
+
+let TITLES: const u8[:][] = ["Physiotherapist", "Senior physiotherapist", "Occupational therapist", "Nurse",
+                             "Physician", "Rehabilitation assistant"];
+let STREETS: const u8[:][] = ["Pikk", "Lai", "Kooli", "Metsa", "Mere", "Aia", "Pargi", "Jaama", "Turu", "Vabriku"];
+let CITIES: const u8[:][] = ["Tallinn", "Tartu", "Pärnu", "Narva", "Viljandi", "Rakvere", "Haapsalu"];
+let SERVICES: const u8[:][] = ["Initial assessment", "Follow-up visit", "Manual therapy", "Exercise therapy",
+                               "Gait training", "Balance training", "Hand therapy", "Taping",
+                               "Shockwave treatment", "Ultrasound therapy", "Group exercise", "Home visit",
+                               "Telephone consultation", "Video consultation", "Work ability review",
+                               "Splint fitting", "Lymphatic drainage", "Dry needling", "Massage",
+                               "Hydrotherapy", "Ergonomic advice", "Discharge review", "Pain education",
+                               "Strength testing"];
+let FLAGS: const u8[:][] = ["interpreter", "wheelchair", "allergy", "minor", "hearing", "vip"];
+let KINDS: const u8[:][] = ["treatment", "follow-up", "review", "phone"];
+let ROOMS: const u8[:][] = ["Room 1", "Room 2", "Room 3", "Gym", "Pool", "Treatment 4"];
+let NOTE_KINDS: const u8[:][] = ["intake", "findings", "plan", "internal"];
+// Words for the free text: notes, booking notes, and shift notes.
+let WORDS: const u8[:][] = [
+    "reports", "mild", "moderate", "pain", "since", "last", "week", "improved", "after", "exercise",
+    "advised", "continue", "review", "in", "two", "weeks", "sleep", "stable", "no", "change", "walking",
+    "range", "motion", "left", "right", "shoulder", "knee", "back", "neck", "morning", "evening",
+    "stiffness", "swelling", "plan", "home", "program", "stretching", "daily", "follow", "up",
+    "discussed", "goals", "work", "sitting", "posture", "tolerates", "load", "well", "reduced",
+    "increase", "gradually", "monitor", "symptoms", "noted", "shows", "strength", "balance", "good",
+    "fair", "limited", "tender", "on", "palpation", "with", "without", "the", "and", "to", "of", "a",
+    "for", "at", "is", "was", "has", "not", "more", "less", "than", "before", "during", "stairs",
+    "cycling", "running", "lifting", "carrying", "grip", "ankle", "hip", "wrist", "elbow", "spine",
+    "flexion", "extension", "rotation", "rest", "ice", "heat", "taping", "brace", "night", "day",
+    "steps", "minutes", "sets", "repetitions", "progress", "slowly", "today", "yesterday", "client",
+    "feels", "better", "worse", "same", "able", "unable", "manage", "independently", "support",
+    "family", "job", "return", "plans", "next", "visit", "booked", "phone", "call", "message",
+    "letter", "referral", "scan", "results", "pending", "normal", "small", "large", "short", "long",
+    "walk", "garden", "office", "desk", "chair", "car", "bus", "bike", "stretch", "core", "control",
+    "breathing", "relaxation", "technique", "correct", "repeat", "measure", "score", "questionnaire",
+    "completed", "agreed", "target", "end", "month", "season", "trip", "holiday", "weather", "cold",
+];
+
+struct Staff { name: u8[..32], title: u8[..32] }
+
+struct Service { code: u8[..8], name: u8[..32], minutes: i64, price: i64 }
+
+struct Client { name: u8[..48], code: u8[..8] }
+
+struct Line { id: i64, service: i64 }
+
+struct Note { kind: i64, author: i64, at: i64, text_at: i64, text_len: i64 }
+
+struct Visit {
+    client: i64,
+    staff: i64,
+    case_id: i64,
+    status: u8[..10],
+    kind: u8[..12],
+    priority: u8[..8],
+    start: i64,
+    end: i64,
+    lines: Line[..3],
+    codes: u8[..8][..3],
+    first_note: i64,
+    notes: i64,
+}
+
+struct Reminder { channel: u8[..5], kind: u8[..12], status: u8[..9], at: i64 }
+
+struct Booking {
+    start: i64,
+    staff: i64,
+    client: i64,
+    visit: i64,
+    lines: Line[..3],
+    reminders: Reminder[..3],
+    status: u8[..10],
+    source: u8[..8],
+    note_at: i64,           // in text, or -1 for null
+    note_len: i64,
+    created: i64,
+    updated: i64,
+}
+
+struct Shift { staff: i64, start: i64, end: i64, kind: u8[..8], room: i64, note: u8[..64] }
+
+var staff: Staff[>..];
+var services: Service[>..];
+var clients: Client[>..];
+var visits: Visit[>..];         // the history's, by client then start, then the bookings'
+var history_visits: i64 = 0;
+var notes: Note[>..];           // by visit, each visit's by kind
+var text: u8[>..];
+var bookings: Booking[>..];     // by start, then staff
+var shifts: Shift[>..];         // by start, then staff
+var line_count: i64 = 0;
+var case_count: i64 = 0;
+
+// Sentences of WORDS, about target bytes long and at most hi, onto text.
+fn words_text(target: i64, hi: i64) {
+    let start = text.len;
+    while text.len - start < target {
+        if text.len > start { text.push(' '); }
+        for k in between(5, 16) {
+            let w = pick(WORDS);
+            // The word, a space before it, and the full stop must fit.
+            if k > 0 && text.len - start + w.len + 2 > hi { break; }
+            if k == 0 {
+                text.push(if w[0] >= 'a' { w[0] - 32 } else { w[0] });
+                text.append(w[1..]);
+            } else {
+                text.push(' ');
+                text.append(w);
+            }
+        }
+        text.push('.');
+        if text.len - start + 8 > hi { break; }
+    }
+}
+
+fn add_lines(lines: Line[..3]&) {
+    for k in between(2, 3) {
+        line_count++;
+        lines.push(Line { id: line_count, service: between(0, services.len - 1) });
+    }
+}
+
+// A note of lo to hi bytes, most of them short: the mean of a uniform length
+// and a skewed one.
+fn add_note(kind: i64, author: i64, at: i64, lo: i64, hi: i64) {
+    let start = text.len;
+    let span = hi - lo;
+    words_text(lo + (between(0, span) + between(0, span) * between(0, span) / span) / 2, hi);
+    notes.push(Note { kind: kind, author: author, at: at, text_at: start, text_len: text.len - start });
+}
+
+fn heavy_records() {
+    for i in 10 {
+        let s .= staff.push(Staff { .. });
+        format(s.name, pick(GIVEN), " ", pick(FAMILY));
+        s.title.append(TITLES[if i < 6 { i } else { between(0, 3) }]);
+    }
+    for name, i in SERVICES {
+        let s .= services.push(Service { minutes: between(1, 4) * 15, price: between(20, 120) * 50, .. });
+        format(s.code, "SV-", 101 + i);
+        s.name.append(name);
+    }
+    for i in 1000 {
+        let c .= clients.push(Client { .. });
+        format(c.name, pick(GIVEN), " ", pick(FAMILY));
+        format(c.code, "K-", 10000 + i * 7);
+    }
+}
+
+fn add_codes(codes: u8[..8][..3]&) {
+    for k in between(1, 3) { format(codes.push(""), ['M', 'R', 'S', 'G'][between(0, 3)], between(10, 99), ".", between(0, 9)); }
+}
+
+// Two years of visits for clients 1 to 100, 20 to 28 each, in cases of 2 to
+// 12 visits, each with an intake and findings, most with a plan, and some
+// with an internal note.
+fn heavy_history() {
+    for c in 100 {
+        let n = between(20, 28);
+        var days: i64[>..] = [];
+        for k in n {
+            var d = between(0, (WEEK0 - HISTORY0) / DAY - 3);
+            while weekday(HISTORY0 / DAY + d) > 4 { d++; }
+            days.push(d);
+        }
+        sort(days);
+        let main = between(0, 9);
+        var left = 0;
+        for d, k in days {
+            if left == 0 {
+                case_count++;
+                left = between(2, 12);
+            }
+            left--;
+            let start = HISTORY0 + d * DAY + OPEN + between(0, 15) * SLOT;
+            let who = if between(0, 4) == 0 { between(0, 9) } else { main };
+            let v .= visits.push(Visit { client: c, staff: who, case_id: case_count, start: start, end: start + SLOT,
+                                         first_note: notes.len, .. });
+            v.status.append("completed");
+            v.kind.append(if left == 0 || k == 0 { "assessment" } else { pick(KINDS) });
+            let p = between(0, 99);
+            v.priority.append(if p < 85 { "routine" } else if p < 97 { "soon" } else { "urgent" });
+            add_lines(v.lines);
+            add_codes(v.codes);
+            add_note(0, who, start + between(1, 10) * MINUTE, 200, 2000);
+            add_note(1, who, start + between(10, 25) * MINUTE, 200, 2000);
+            if between(0, 9) < 7 { add_note(2, who, start + between(25, 40) * MINUTE, 200, 2000); }
+            if between(0, 9) < 2 { add_note(3, between(0, 9), start + between(1, 48) * 60 * MINUTE, 200, 1200); }
+            v.notes = notes.len - v.first_note;
+        }
+    }
+    history_visits = visits.len;
+}
+
+// The four weeks' bookings: each 30-minute slot of each staff member's
+// weekdays from 08:00 to 16:00, 85% of them booked, each with its visit.
+fn heavy_schedule() {
+    for w in 4 {
+        for d in 5 {
+            for slot in 16 {
+                for s in 10 {
+                    if between(0, 99) >= 85 { continue; }
+                    let start = WEEK0 + (w * 7 + d) * DAY + OPEN + slot * SLOT;
+                    let client = between(0, 999);
+                    case_count++;
+                    let v .= visits.push(Visit { client: client, staff: s, case_id: case_count, start: start,
+                                                 end: start + SLOT, first_note: notes.len, .. });
+                    let b .= bookings.push(Booking { start: start, staff: s, client: client, visit: visits.len - 1,
+                                                     note_at: -1, .. });
+                    let r = between(0, 99);
+                    if start < TODAY {
+                        let st = if r < 88 { "completed" } else if r < 93 { "no-show" } else { "cancelled" };
+                        v.status.append(st);
+                        b.status.append(st);
+                    } else {
+                        v.status.append("planned");
+                        b.status.append(if r < 60 { "booked" } else { "confirmed" });
+                    }
+                    v.kind.append(if between(0, 4) == 0 { "assessment" } else { "treatment" });
+                    v.priority.append(if between(0, 9) == 0 { "soon" } else { "routine" });
+                    add_lines(v.lines);
+                    for l in v.lines { b.lines.push(l); }
+                    add_codes(v.codes);
+                    if v.status == "completed" {
+                        add_note(0, s, start + between(1, 10) * MINUTE, 200, 1200);
+                        add_note(1, s, start + between(10, 25) * MINUTE, 200, 1200);
+                        if between(0, 1) == 0 { add_note(2, s, start + between(25, 40) * MINUTE, 200, 1200); }
+                    } else if v.status == "planned" && between(0, 9) < 4 {
+                        add_note(0, s, start - between(1, 72) * 60 * MINUTE, 200, 600);
+                    }
+                    v.notes = notes.len - v.first_note;
+                    b.created = start - between(1, 40) * DAY - between(0, 600) * MINUTE;
+                    b.updated = b.created + between(0, (start - b.created) / MINUTE) * MINUTE;
+                    b.source.append(["staff", "online", "phone", "recall"][between(0, 3)]);
+                    let sms = between(0, 4) > 0;
+                    let rm .= b.reminders.push(Reminder { at: b.created + between(1, 5) * MINUTE, .. });
+                    rm.channel.append(if sms { "sms" } else { "email" });
+                    rm.kind.append("confirmation");
+                    rm.status.append(if between(0, 19) == 0 { "failed" } else { "delivered" });
+                    for k, lead in [24, 2] {
+                        if lead == 2 && between(0, 2) == 0 { continue; }
+                        let at = start - lead * 60 * MINUTE;
+                        let rr .= b.reminders.push(Reminder { at: at, .. });
+                        rr.channel.append("sms");
+                        rr.kind.append(if lead == 24 { "reminder-24h" } else { "reminder-2h" });
+                        rr.status.append(if at >= TODAY { "scheduled" } else { "delivered" });
+                    }
+                    if between(0, 9) < 7 {
+                        b.note_at = text.len;
+                        words_text(between(60, 300), 300);
+                        b.note_len = text.len - b.note_at;
+                    }
+                }
+            }
+        }
+        for d in 5 {
+            for s in 10 {
+                let day = WEEK0 + (w * 7 + d) * DAY;
+                let room = between(0, ROOMS.len - 1);
+                if between(0, 1) == 0 {
+                    shifts.push(Shift { staff: s, start: day + OPEN, end: day + OPEN + 16 * SLOT, room: room, .. })
+                        .kind.append("clinic");
+                } else {
+                    shifts.push(Shift { staff: s, start: day + OPEN, end: day + OPEN + 8 * SLOT, room: room, .. })
+                        .kind.append("clinic");
+                    let sh .= shifts.push(Shift { staff: s, start: day + OPEN + 9 * SLOT, end: day + OPEN + 16 * SLOT,
+                                                  room: between(0, ROOMS.len - 1), .. });
+                    sh.kind.append(if between(0, 9) < 3 { "admin" } else { "clinic" });
+                }
+                if between(0, 6) == 0 {
+                    let start = text.len;
+                    words_text(between(10, 60), 60);
+                    last(shifts).note.append(text[start..]);
+                }
+            }
+        }
+    }
+    sort(shifts) { a, b => a.start < b.start || a.start == b.start && a.staff < b.staff };
+}
+
+fn staff_ref(out: u8[>..]&, s: i64, title: bool) {
+    out.append("{\"id\":");
+    format(out, s + 1);
+    out.append(",\"name\":");
+    json::format_string(out, staff[s].name);
+    if title {
+        out.append(",\"title\":");
+        json::format_string(out, staff[s].title);
+    }
+    out.push('}');
+}
+
+fn client_ref(out: u8[>..]&, c: i64) {
+    out.append("{\"id\":");
+    format(out, c + 1);
+    out.append(",\"name\":");
+    json::format_string(out, clients[c].name);
+    out.append(",\"code\":");
+    json::format_string(out, clients[c].code);
+    out.push('}');
+}
+
+fn lines_json(out: u8[>..]&, lines: Line[:]) {
+    out.push('[');
+    for l, k in lines {
+        let s = services[l.service];
+        if k > 0 { out.push(','); }
+        out.append("{\"id\":");
+        format(out, l.id);
+        out.append(",\"code\":");
+        json::format_string(out, s.code);
+        out.append(",\"name\":");
+        json::format_string(out, s.name);
+        out.append(",\"minutes\":");
+        format(out, s.minutes);
+        out.append(",\"price\":");
+        format(out, s.price);
+        out.push('}');
+    }
+    out.push(']');
+}
+
+fn heavy_staff_json(out: u8[>..]&) {
+    out.push('[');
+    for s, i in staff {
+        if i > 0 { out.push(','); }
+        staff_ref(out, i, true);
+    }
+    out.push(']');
+}
+
+fn heavy_services_json(out: u8[>..]&) {
+    out.push('[');
+    for s, i in services {
+        if i > 0 { out.push(','); }
+        out.append("{\"id\":");
+        format(out, i + 1);
+        out.append(",\"code\":");
+        json::format_string(out, s.code);
+        out.append(",\"name\":");
+        json::format_string(out, s.name);
+        out.append(",\"minutes\":");
+        format(out, s.minutes);
+        out.append(",\"price\":");
+        format(out, s.price);
+        out.push('}');
+    }
+    out.push(']');
+}
+
+fn heavy_clients_json(out: u8[>..]&) {
+    out.push('[');
+    for c, i in clients {
+        if i > 0 { out.push(','); }
+        out.append("{\"id\":");
+        format(out, i + 1);
+        out.append(",\"name\":");
+        json::format_string(out, c.name);
+        out.append(",\"code\":");
+        json::format_string(out, c.code);
+        out.append(",\"born\":\"");
+        format_date(out, (HISTORY0 / DAY) - between(18 * 365, 85 * 365));
+        out.append("\",\"phone\":\"+372 5");
+        digits(out, between(0, 9999999), 7);
+        out.append("\",\"email\":");
+        json::format_string(out, str("client", i + 1, "@mail.example.com"));
+        out.append(",\"address\":{\"street\":");
+        json::format_string(out, str(pick(STREETS), " ", between(1, 120)));
+        out.append(",\"city\":");
+        json::format_string(out, pick(CITIES));
+        out.append(",\"postcode\":\"");
+        digits(out, between(10000, 99999), 5);
+        out.append("\"},\"preferences\":{\"channel\":");
+        let ch = between(0, 9);
+        json::format_string(out, if ch < 6 { "sms" } else if ch < 9 { "email" } else { "none" });
+        out.append(",\"language\":");
+        let lang = between(0, 9);
+        json::format_string(out, if lang < 6 { "et" } else if lang < 8 { "ru" } else { "en" });
+        out.append("},\"flags\":[");
+        var used: u64 = 0;
+        for k in between(0, 2) {
+            let f = between(0, FLAGS.len - 1);
+            if (used >> f) & 1 != 0 { continue; }
+            if used != 0 { out.push(','); }
+            used |= 1 << f;
+            json::format_string(out, FLAGS[f]);
+        }
+        out.append("],\"emergencyContact\":{\"name\":");
+        json::format_string(out, str(pick(GIVEN), " ", pick(FAMILY)));
+        out.append(",\"phone\":\"+372 5");
+        digits(out, between(0, 9999999), 7);
+        out.append("\",\"relation\":");
+        json::format_string(out, ["spouse", "parent", "child", "sibling", "friend"][between(0, 4)]);
+        out.append("},\"consents\":{\"sms\":");
+        json::format_bool(out, between(0, 9) > 1);
+        out.append(",\"email\":");
+        json::format_bool(out, between(0, 9) > 3);
+        out.append(",\"research\":");
+        json::format_bool(out, between(0, 9) > 6);
+        let created = HISTORY0 - between(0, 900) * DAY - between(0, 1439) * MINUTE;
+        out.append("},\"createdAt\":");
+        iso_or_null(out, created);
+        out.append(",\"updatedAt\":");
+        iso_or_null(out, created + between(0, 700) * DAY);
+        out.push('}');
+    }
+    out.push(']');
+}
+
+fn heavy_bookings_json(out: u8[>..]&) {
+    out.push('[');
+    for b, i in bookings {
+        let v = visits[b.visit];
+        if i > 0 { out.push(','); }
+        out.append("{\"id\":");
+        format(out, i + 1);
+        out.append(",\"slot\":{\"start\":");
+        iso_or_null(out, b.start);
+        out.append(",\"end\":");
+        iso_or_null(out, b.start + SLOT);
+        out.append("},\"client\":");
+        client_ref(out, b.client);
+        out.append(",\"staff\":");
+        staff_ref(out, b.staff, false);
+        out.append(",\"encounter\":{\"id\":");
+        format(out, b.visit + 1);
+        out.append(",\"status\":");
+        json::format_string(out, v.status);
+        out.append(",\"start\":");
+        iso_or_null(out, v.start);
+        out.append(",\"end\":");
+        iso_or_null(out, v.end);
+        out.append("},\"items\":");
+        lines_json(out, b.lines);
+        out.append(",\"reminders\":[");
+        for rm, k in b.reminders {
+            if k > 0 { out.push(','); }
+            out.append("{\"channel\":");
+            json::format_string(out, rm.channel);
+            out.append(",\"kind\":");
+            json::format_string(out, rm.kind);
+            out.append(",\"status\":");
+            json::format_string(out, rm.status);
+            out.append(",\"at\":");
+            iso_or_null(out, rm.at);
+            out.push('}');
+        }
+        out.append("],\"status\":");
+        json::format_string(out, b.status);
+        out.append(",\"source\":");
+        json::format_string(out, b.source);
+        out.append(",\"note\":");
+        if b.note_at < 0 { out.append("null"); } else { json::format_string(out, text[b.note_at..b.note_at + b.note_len]); }
+        out.append(",\"createdAt\":");
+        iso_or_null(out, b.created);
+        out.append(",\"updatedAt\":");
+        iso_or_null(out, b.updated);
+        out.push('}');
+    }
+    out.push(']');
+}
+
+fn heavy_shifts_json(out: u8[>..]&) {
+    out.push('[');
+    for s, i in shifts {
+        if i > 0 { out.push(','); }
+        out.append("{\"id\":");
+        format(out, i + 1);
+        out.append(",\"staff\":");
+        staff_ref(out, s.staff, false);
+        out.append(",\"start\":");
+        iso_or_null(out, s.start);
+        out.append(",\"end\":");
+        iso_or_null(out, s.end);
+        out.append(",\"kind\":");
+        json::format_string(out, s.kind);
+        out.append(",\"room\":{\"id\":");
+        format(out, s.room + 1);
+        out.append(",\"name\":");
+        json::format_string(out, ROOMS[s.room]);
+        out.append("},\"note\":");
+        string_or_null(out, s.note);
+        out.push('}');
+    }
+    out.push(']');
+}
+
+fn heavy_encounters_json(out: u8[>..]&) {
+    out.push('[');
+    for v, i in visits {
+        if i > 0 { out.push(','); }
+        out.append("{\"id\":");
+        format(out, i + 1);
+        out.append(",\"caseId\":");
+        format(out, v.case_id);
+        out.append(",\"client\":");
+        client_ref(out, v.client);
+        out.append(",\"staff\":");
+        staff_ref(out, v.staff, true);
+        out.append(",\"status\":");
+        json::format_string(out, v.status);
+        out.append(",\"kind\":");
+        json::format_string(out, v.kind);
+        out.append(",\"priority\":");
+        json::format_string(out, v.priority);
+        out.append(",\"start\":");
+        iso_or_null(out, v.start);
+        out.append(",\"end\":");
+        iso_or_null(out, v.end);
+        out.append(",\"items\":");
+        lines_json(out, v.lines);
+        out.append(",\"codes\":[");
+        for c, k in v.codes {
+            if k > 0 { out.push(','); }
+            json::format_string(out, c);
+        }
+        out.append("],\"notes\":{");
+        for kind, k in NOTE_KINDS {
+            if k > 0 { out.push(','); }
+            json::format_string(out, kind);
+            out.append(":[");
+            var n = 0;
+            for j in v.first_note..v.first_note + v.notes {
+                let note = notes[j];
+                if note.kind != k { continue; }
+                if n > 0 { out.push(','); }
+                n++;
+                out.append("{\"id\":");
+                format(out, j + 1);
+                out.append(",\"author\":");
+                staff_ref(out, note.author, true);
+                out.append(",\"text\":");
+                json::format_string(out, text[note.text_at..note.text_at + note.text_len]);
+                out.append(",\"at\":");
+                iso_or_null(out, note.at);
+                out.push('}');
+            }
+            out.push(']');
+        }
+        out.append("}}");
+    }
+    out.push(']');
+}
+
+fn base64url(out: u8[>..]&, data: const u8[:]) {
+    var b: u8[>..] = [];
+    base64::encode(b, data);
+    for c in b {
+        if c == '+' { out.push('-'); }
+        else if c == '/' { out.push('_'); }
+        else if c != '=' { out.push(c); }
+    }
+}
+
+// A bearer token for staff member s: a JWT signed with ES512 in form, its
+// signature 132 random bytes, as long as a P-521 signature's.
+fn token(out: u8[>..]&, s: i64) {
+    base64url(out, "{\"alg\":\"ES512\",\"typ\":\"JWT\"}");
+    out.push('.');
+    var id: u8[..36] = "";
+    uuid(id, VERSION0 + s * MINUTE);
+    var claims: u8[>..] = [];
+    format(claims, "{\"sub\":\"staff:", 4100 + s, "\",\"uid\":\"", id, "\",\"name\":");
+    json::format_string(claims, staff[s].name);
+    format(claims, ",\"org\":{\"id\":1207,\"unit\":\"north-", 1 + s % 3,
+           "\"},\"auth\":{\"roles\":[\"clinician\",\"scheduler\"]}",
+           ",\"scope\":\"schedule:rw records:r clients:r\",\"env\":\"bench\",\"tid\":\"clinic-north\"",
+           ",\"exp\":1823299200}");
+    base64url(out, claims);
+    out.push('.');
+    var sig: u8[>..] = [];
+    for k in 132 { sig.push((next() & 0xFF) as u8); }
+    base64url(out, sig);
+}
+
+fn heavy_load(out: u8[>..]&) {
+    for s in 10 {
+        out.append("token\t");
+        token(out, s);
+        out.push('\n');
+    }
+    for w in 4 {
+        out.append("week\t");
+        format_date(out, WEEK0 / DAY + w * 7);
+        out.push('\t');
+        format_date(out, WEEK0 / DAY + w * 7 + 7);
+        out.push('\n');
+    }
+    out.append("month\t");
+    format_date(out, WEEK0 / DAY);
+    out.push('\t');
+    format_date(out, WEEK0 / DAY + 28);
+    out.push('\n');
+    format(out, "encounters\t1\t", history_visits, "\n");
+    format(out, "history\t1\t100\n");
+    format(out, "clients\t1\t", clients.len, "\n");
+    format(out, "version0\t", VERSION0, "\n");
+}
+
 fn write(dir: const u8[:], name: const u8[:], data: const u8[:]) {
     let path = str(dir, "/", name);
     guard write_file(path, data) else { abort(str("can't write ", path)); }
@@ -636,4 +1252,33 @@ fn main() {
     out.clear();
     snow_load(out);
     write(dir, "snow-load.txt", out);
+
+    seed = 0x5EED0000000000C;
+    heavy_records();
+    heavy_history();
+    heavy_schedule();
+    out.clear();
+    heavy_staff_json(out);
+    write(dir, "heavy-staff.json", out);
+    out.clear();
+    heavy_services_json(out);
+    write(dir, "heavy-services.json", out);
+    out.clear();
+    heavy_clients_json(out);
+    write(dir, "heavy-clients.json", out);
+    out.clear();
+    heavy_bookings_json(out);
+    write(dir, "heavy-bookings.json", out);
+    out.clear();
+    heavy_shifts_json(out);
+    write(dir, "heavy-shifts.json", out);
+    out.clear();
+    heavy_encounters_json(out);
+    write(dir, "heavy-encounters.json", out);
+    out.clear();
+    format(out, "{\"versionEpoch\":", VERSION0, ",\"versionMs\":60000}");
+    write(dir, "heavy-meta.json", out);
+    out.clear();
+    heavy_load(out);
+    write(dir, "heavy-load.txt", out);
 }

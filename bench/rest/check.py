@@ -1,7 +1,7 @@
 """Checks a REST benchmark server's answers against the generator's dataset
 files (task 021), before its load runs, as HttpArena's validate.sh does.
 
-    python3 bench/rest/check.py PORT DATADIR [TIER]    (TIER: a, the default, or b)
+    python3 bench/rest/check.py PORT DATADIR [TIER]    (TIER: a, the default, b, or c)
 
 Tier A, HttpArena's production-stack: items and users by id, each with
 servedAt within 2 s of now, 404 and 401 where the id or the user is missing,
@@ -12,6 +12,11 @@ Tier B, snowtime's k6 hot path: every user's session, timer, 14-day entries,
 and projects, member for member and in order; other windows, and an admin's
 look at another user's entries; PATCH echoing the description, trimmed;
 timer start and stop as of now; and snowtime's errors, from 400 to 409.
+
+Tier C, a clinic's schedule and records: the version as of now; each week's
+bookings and shifts, and other ranges and staff, with their counts; a sample
+of encounters with their case's notes; every client, and the past visits of
+the first 100 and others, at three limits; and 400, 401, and 404.
 
 Exits non-zero with a message on the first failure.
 """
@@ -40,6 +45,7 @@ class Server:
     def ask(self, method, path, body=None, headers=None):
         h = {"Authorization": TOKEN, "Accept-Encoding": "br;q=1, gzip;q=0.8"}
         h.update(headers or {})
+        h = {k: v for k, v in h.items() if v is not None}
         if body is not None:
             h["Content-Type"] = "application/json"
         self.conn.request(method, path, body=body, headers=h)
@@ -334,10 +340,118 @@ def tier_b(port, data):
     print("tier b: ok")
 
 
+NOTE_KINDS = ["intake", "findings", "plan", "internal"]
+
+
+def tier_c(port, data):
+    rd = lambda name: json.load(open(os.path.join(data, name)))
+    bookings, shifts = rd("heavy-bookings.json"), rd("heavy-shifts.json")
+    encounters, clients = rd("heavy-encounters.json"), rd("heavy-clients.json")
+    epoch = rd("heavy-meta.json")["versionEpoch"]
+    load = [line.split("\t") for line in open(os.path.join(data, "heavy-load.txt")).read().splitlines()]
+    tokens = [f[1] for f in load if f[0] == "token"]
+    weeks = [(f[1], f[2]) for f in load if f[0] == "week"]
+    s = Server(port)
+    rng = random.Random(3)
+
+    def ask(path, auth=True, headers=None):
+        h = {"Authorization": "Bearer " + rng.choice(tokens) if auth else None}
+        h.update(headers or {})
+        status, ctype, raw = s.ask("GET", path, headers=h)
+        if not (ctype or "").startswith("application/json"):
+            fail(f"GET {path}: {status} {ctype}")
+        return status, json.loads(raw)
+
+    def ok(path):
+        status, got = ask(path)
+        if status != 200:
+            fail(f"GET {path}: {status} {got}")
+        return got
+
+    def refused(path, want, **kw):
+        status, got = ask(path, **kw)
+        if status != want or got.get("status") != want:
+            fail(f"GET {path}: {status} {got}, want {want}")
+
+    got = ok("/api/v2/schedule/version?since=0")
+    v = (int(time.time() * 1000) - epoch) // 60000
+    if list(got) != ["version", "changedAt"] or abs(got["version"] - v) > 1 or \
+            got["changedAt"] != iso(epoch + got["version"] * 60000):
+        fail(f"version: {got}, want about {v}")
+
+    def select(records, start, end, staff, at):
+        return [r for r in records if start <= at(r)[:10] < end and r["staff"]["id"] in staff]
+
+    def check_range(start, end, staff):
+        q = f"start={start}&end={end}&staff={','.join(map(str, staff))}"
+        want = select(bookings, start, end, set(staff), lambda r: r["slot"]["start"])
+        same(ok(f"/api/v2/schedule/bookings?{q}"), dict(bookings=want, count=len(want)), f"bookings {q}")
+        want = select(shifts, start, end, set(staff), lambda r: r["start"])
+        same(ok(f"/api/v2/schedule/shifts?{q}"), dict(shifts=want, count=len(want)), f"shifts {q}")
+
+    for start, end in weeks:
+        check_range(start, end, list(range(1, 11)))
+    for staff in range(1, 11):
+        check_range("2026-09-07", "2026-10-05", [staff])
+    days = ["2026-09-%02d" % d for d in range(1, 31)] + ["2026-10-%02d" % d for d in range(1, 10)]
+    for _ in range(30):
+        a, b = sorted(rng.sample(range(len(days)), 2))
+        if b - a <= 31:
+            check_range(days[a], days[b], rng.sample(range(1, 11), rng.randint(1, 10)))
+    print(f"tier c: version, bookings, and shifts ok")
+
+    by_case = {}
+    for e in encounters:
+        by_case.setdefault(e["caseId"], []).append(e)
+    history = len([e for e in encounters if e["start"] < "2026-09-07"])
+    for i in [1, history, history + 1, len(encounters)] + rng.sample(range(1, history + 1), 250) + \
+            rng.sample(range(history + 1, len(encounters) + 1), 100):
+        e = encounters[i - 1]
+        case = [dict(id=n["id"], encounterId=c["id"], kind=k, author=n["author"], text=n["text"], at=n["at"])
+                for c in by_case[e["caseId"]] for k in NOTE_KINDS for n in c["notes"][k]]
+        same(ok(f"/api/v2/encounters/{i}"), dict(e, caseNotes=case), f"encounter {i}")
+    print(f"tier c: encounters ok")
+
+    past = {}
+    for e in encounters:
+        if e["status"] == "completed":
+            past.setdefault(e["client"]["id"], []).append(e)
+    for c, client in enumerate(clients, 1):
+        same(ok(f"/api/v2/clients/{c}"), client, f"client {c}")
+    for c in list(range(1, 101)) + rng.sample(range(101, len(clients) + 1), 50):
+        mine = sorted(past.get(c, []), key=lambda e: (e["start"], e["id"]), reverse=True)
+        for limit, q in [(20, ""), (20, "?limit=20"), (5, "?limit=5"), (50, "?limit=50")]:
+            same(ok(f"/api/v2/clients/{c}/encounters{q}"), dict(items=mine[:limit], total=len(mine)),
+                 f"client {c}'s encounters{q}")
+    print(f"tier c: clients ok")
+
+    week = "start=2026-09-07&end=2026-09-14&staff=1,2,3"
+    refused("/api/v2/schedule/version?since=0", 401, auth=False)
+    refused("/api/v2/clients/1", 401, auth=False, headers={"Authorization": "Bearer abc"})
+    refused("/api/v2/clients/1", 401, auth=False, headers={"Authorization": "Basic YTpi"})
+    refused("/api/v2/nothing", 404)
+    for path in [f"/api/v2/encounters/{len(encounters) + 1}", "/api/v2/encounters/0", "/api/v2/encounters/x",
+                 f"/api/v2/clients/{len(clients) + 1}", f"/api/v2/clients/{len(clients) + 1}/encounters"]:
+        refused(path, 404)
+    for q in ["since=", "since=x", "since=-1", ""]:
+        refused(f"/api/v2/schedule/version?{q}", 400)
+    for q in ["start=2026-09-07&end=2026-09-07&staff=1", "start=2026-09-01&end=2026-10-05&staff=1",
+              "start=2026-09-07&end=2026-09-14&staff=", "start=2026-09-07&end=2026-09-14&staff=11",
+              "start=2026-09-07&end=2026-09-14&staff=1,x", "start=2026-09-07&staff=1", "start=7&end=8&staff=1",
+              "end=2026-09-14&staff=1", "start=2026-09-07&end=2026-09-14"]:
+        refused(f"/api/v2/schedule/bookings?{q}", 400)
+        refused(f"/api/v2/schedule/shifts?{q}", 400)
+    for q in ["limit=0", "limit=51", "limit=x"]:
+        refused(f"/api/v2/clients/1/encounters?{q}", 400)
+    same(ok(f"/api/v2/schedule/bookings?{week.replace(',', '%2C')}"), ok(f"/api/v2/schedule/bookings?{week}"),
+         "a staff list with escaped commas")
+    print("tier c: ok")
+
+
 def main():
     port, data = int(sys.argv[1]), sys.argv[2]
     tier = sys.argv[3] if len(sys.argv) > 3 else "a"
-    {"a": tier_a, "b": tier_b}[tier](port, data)
+    {"a": tier_a, "b": tier_b, "c": tier_c}[tier](port, data)
 
 
 if __name__ == "__main__":
