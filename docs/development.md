@@ -359,7 +359,12 @@ and `goose-gcc-native` (`-march=native`). `bench/run.sh` runs any server whose n
 starts with `goose` as a Goose build, so `SERVERS="goose-gcc goose-clang"` compares
 them. `bench/instructions.sh`, as root, counts instructions per request with
 `perf stat`, and `bench/parse.sh` times `http::parse` alone on the requests in
-`bench/parse/` (task 008).
+`bench/parse/` (task 008). `bench/count.sh`, as root, counts the user instructions
+a server spends on exactly 10 million requests from h2load. The count repeats to
+within 0.1 instruction per request, where `bench/instructions.sh`'s spreads by about
+15, so it shows a change of 2 or 3 instructions in one run (task 013). Compare builds
+with it, not servers: h2load brings fewer requests per read than wrk, which puts its
+totals about 300 higher.
 
 What the benchmark has to work around on this machine:
 

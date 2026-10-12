@@ -9,6 +9,7 @@ bench/build.sh         # the servers into build/bench/, in release mode
 bench/run.sh           # the matrix, into bench/results/<date>-<machine>/ (about 80 minutes)
 bench/compilers.sh     # the Goose server built by gcc and clang, into build/bench/
 bench/instructions.sh  # instructions per request of servers in build/bench/, with perf
+bench/count.sh         # user instructions over a fixed request count, to compare builds
 bench/parse.sh         # http::parse alone on the requests in bench/parse/
 bench/httparena.sh     # HttpArena's harness, in Docker, with Goose as an entry
 bench/run-macos.sh     # a short matrix natively on macOS, into bench/results/<date>-<machine>/
