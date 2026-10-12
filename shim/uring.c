@@ -61,13 +61,23 @@ typedef struct { ur_completion *data; int64_t len; } ur_completions;
 #define UR_BIG 65536
 #define UR_KEEP (4u << 20)
 struct ur_send {
-    struct ur_send *next;
+    struct ur_send *next;   /* behind it on its fd, or on a free list */
     uint64_t tag;
     int32_t fd;
     uint32_t gen;           /* fd's generation when the send was queued */
     uint32_t len, off;
     uint32_t cap;           /* data's size */
     unsigned char data[];
+};
+
+/* Per fd, its sends in order, the first in flight, and the number of times
+   this ring closed it. One send at a time keeps a connection's bytes in
+   order. A send's rest, or the next send, goes out only while its fd's
+   generation is the send's: once the ring closes fd, the next accept, on any
+   ring, may reuse the number. */
+struct ur_fd {
+    struct ur_send *head, *last;
+    uint32_t gen;
 };
 
 struct ur {
@@ -79,11 +89,8 @@ struct ur {
     struct ur_send *free[UR_CLASSES];
     struct ur_send *big;
     uint32_t kept;          /* the bytes of big's records */
-    /* Per fd, the number of times this ring closed it. A short send's rest
-       goes out only while its fd's generation is the send's: once the ring
-       closes fd, the next accept, on any ring, may reuse the number. */
-    uint32_t *gens;
-    uint32_t ngens;
+    struct ur_fd *fds;
+    uint32_t nfds;
     /* The waker (ur_waker), its eventfd, and its completions' tag. */
     int64_t waker;
     int32_t wfd;
@@ -209,20 +216,35 @@ void ur_recv(int64_t h, int32_t fd, uint64_t tag) {
     io_uring_sqe_set_data64(sqe, tag << 2 | UR_TAGGED);
 }
 
-/* Copies data and queues a send of it, with MSG_NOSIGNAL. A short send is
+static void ur_prep_send(struct ur *u, struct ur_send *s) {
+    struct io_uring_sqe *sqe = ur_sqe(u);
+    io_uring_prep_send(sqe, s->fd, s->data + s->off, s->len - s->off, MSG_NOSIGNAL);
+    io_uring_sqe_set_data64(sqe, (uint64_t)(uintptr_t)s | UR_SEND);
+}
+
+/* Copies data and queues a send of it, with MSG_NOSIGNAL, behind the sends
+   on fd before it. One that waits takes data into its own record when it
+   has room, and then reports both: one copy, one send. A short send is
    queued again for the rest inside ur_wait, which reports the send once. */
 int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
     if (UR_EMULATED(h)) return urp_send(UR_POLL(h), fd, tag, data);
     struct ur *u = (struct ur *)(intptr_t)h;
     struct ur_send *s;
-    if ((uint32_t)fd >= u->ngens) {
-        uint32_t n = u->ngens ? u->ngens : 1024;
+    if ((uint32_t)fd >= u->nfds) {
+        uint32_t n = u->nfds ? u->nfds : 1024;
         while (n <= (uint32_t)fd) n *= 2;
-        uint32_t *g = realloc(u->gens, n * sizeof *g);
+        struct ur_fd *g = realloc(u->fds, n * sizeof *g);
         if (!g) return -ENOMEM;
-        memset(g + u->ngens, 0, (n - u->ngens) * sizeof *g);
-        u->gens = g;
-        u->ngens = n;
+        memset(g + u->nfds, 0, (n - u->nfds) * sizeof *g);
+        u->fds = g;
+        u->nfds = n;
+    }
+    struct ur_fd *f = &u->fds[fd];
+    s = f->last;
+    if (s && s != f->head && s->cap - s->len >= data.len) {
+        memcpy(s->data + s->len, data.data, (size_t)data.len);
+        s->len += (uint32_t)data.len;
+        return 0;
     }
     s = NULL;
     int k = 0;
@@ -250,13 +272,18 @@ int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
     }
     s->tag = tag;
     s->fd = fd;
-    s->gen = u->gens[fd];
+    s->gen = f->gen;
     s->len = (uint32_t)data.len;
     s->off = 0;
+    s->next = NULL;
     memcpy(s->data, data.data, (size_t)data.len);
-    struct io_uring_sqe *sqe = ur_sqe(u);
-    io_uring_prep_send(sqe, fd, s->data, s->len, MSG_NOSIGNAL);
-    io_uring_sqe_set_data64(sqe, (uint64_t)(uintptr_t)s | UR_SEND);
+    if (f->last) {
+        f->last->next = s;
+        f->last = s;
+        return 0;
+    }
+    f->head = f->last = s;
+    ur_prep_send(u, s);
     return 0;
 }
 
@@ -290,14 +317,26 @@ void ur_cancel(int64_t h, uint64_t tag) {
 
 /* Queues a cancel of every request on fd, then its close. A queued request
    holds a reference to the socket, so closing fd alone would leave the
-   connection open until its receive ended. */
+   connection open until its receive ended. The sends waiting behind the one
+   in flight are dropped, with no completion. */
 void ur_close(int64_t h, int32_t fd) {
     if (UR_EMULATED(h)) {
         urp_close(UR_POLL(h), fd);
         return;
     }
     struct ur *u = (struct ur *)(intptr_t)h;
-    if ((uint32_t)fd < u->ngens) u->gens[fd]++;
+    if ((uint32_t)fd < u->nfds) {
+        struct ur_fd *f = &u->fds[fd];
+        if (f->head) {
+            for (struct ur_send *s = f->head->next, *next; s; s = next) {
+                next = s->next;
+                ur_send_free(u, s);
+            }
+            f->head->next = NULL;
+        }
+        f->head = f->last = NULL;
+        f->gen++;
+    }
     struct io_uring_sqe *sqe = ur_sqe(u);
     io_uring_prep_cancel_fd(sqe, fd, IORING_ASYNC_CANCEL_ALL);
     io_uring_sqe_set_data64(sqe, UR_QUIET);
@@ -386,12 +425,12 @@ int32_t ur_wait(int64_t h, ur_completions out, int32_t timeout_ms) {
         ur_completion *c = &out.data[n];
         if ((ud & 3) == UR_SEND) {
             struct ur_send *s = (struct ur_send *)(uintptr_t)(ud & ~(uint64_t)3);
+            struct ur_fd *f = &u->fds[s->fd];
+            int live = s->gen == f->gen;
             int rest = cqe->res > 0 && s->off + (uint32_t)cqe->res < s->len;
-            if (rest && s->gen == u->gens[s->fd]) {
+            if (rest && live) {
                 s->off += (uint32_t)cqe->res;
-                struct io_uring_sqe *sqe = ur_sqe(u);
-                io_uring_prep_send(sqe, s->fd, s->data + s->off, s->len - s->off, MSG_NOSIGNAL);
-                io_uring_sqe_set_data64(sqe, ud);
+                ur_prep_send(u, s);
                 continue;
             }
             c->tag = s->tag;
@@ -399,6 +438,11 @@ int32_t ur_wait(int64_t h, ur_completions out, int32_t timeout_ms) {
             c->buf = -1;
             c->more = 0;
             c->send = 1;
+            if (live) {
+                f->head = s->next;
+                if (f->head) ur_prep_send(u, f->head);
+                else f->last = NULL;
+            }
             ur_send_free(u, s);
         } else if (u->waker && ud >> 2 == u->wtag) {
             /* The poll ends on an error or an overflow of the completion
@@ -424,8 +468,8 @@ int32_t ur_wait(int64_t h, ur_completions out, int32_t timeout_ms) {
 }
 
 /* Tears the ring down, with whatever is still queued on it. The records of
-   sends still in flight aren't freed: only a completion says when the kernel
-   is done with one. */
+   sends in flight aren't freed: only a completion says when the kernel is
+   done with one. Those waiting behind them are. */
 void ur_destroy(int64_t h) {
     if (UR_EMULATED(h)) {
         urp_destroy(UR_POLL(h));
@@ -434,6 +478,13 @@ void ur_destroy(int64_t h) {
     struct ur *u = (struct ur *)(intptr_t)h;
     io_uring_free_buf_ring(&u->ring, u->br, u->nbufs, 0);
     io_uring_queue_exit(&u->ring);
+    for (uint32_t fd = 0; fd < u->nfds; fd++) {
+        if (!u->fds[fd].head) continue;
+        for (struct ur_send *s = u->fds[fd].head->next, *next; s; s = next) {
+            next = s->next;
+            free(s);
+        }
+    }
     for (int k = 0; k < UR_CLASSES; k++) {
         while (u->free[k]) {
             struct ur_send *s = u->free[k];
@@ -447,6 +498,6 @@ void ur_destroy(int64_t h) {
         free(s);
     }
     free(u->bufs);
-    free(u->gens);
+    free(u->fds);
     free(u);
 }

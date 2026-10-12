@@ -20,20 +20,19 @@ let RING_LISTENER: u64 = 0xFFFFFFFF;
 // The tag of the waker's completions (ring_waker): mail in the box, or a stop.
 let RING_WAKE: u64 = 0xFFFFFFFE;
 
-// Between completions, a connection holds what it couldn't answer yet and
-// the responses its send in flight left waiting, as runs of the worker's
-// spill pool.
+// Between completions, a connection holds what it couldn't answer yet as a
+// run of the worker's spill pool. Its responses wait in the ring, which
+// sends them in order.
 struct RingConn<S> {
     fd: i32,            // -1 while the slot is free
     tag: u64,
     state: u8,
-    sending: bool,      // a send is in flight
+    queued: i64,        // bytes given to ring_send and not yet sent
     reading: bool,      // its multishot receive is queued
     stalled: bool,      // stopped reading at cfg.max_queued, with held to answer
     deadline: i64,      // the time after which the sweep closes it
     x: Exchange<S>,     // the request in progress past its handler's REQUEST call
     held: u8[:],        // received and not yet answered
-    out: u8[:],         // answered, behind the send in flight
 }
 
 // Serves HTTP as cfg says, answering each request with H, until a call fails
@@ -143,27 +142,19 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         c.fd = -1;
         c.tag = 0;
         if c.held.len > 0 { spill.free_slice(c.held); }
-        if c.out.len > 0 { spill.free_slice(c.out); }
         conns.free(i);
         open--;
         closed = true;
     }
 
-    fn blocked(c: RingConn<S>&) -> bool { c.out.len >= cfg.max_queued }
+    fn blocked(c: RingConn<S>&) -> bool { c.queued >= cfg.max_queued }
 
-    // Queues wbuf to send, or keeps it behind the send in flight: one send
-    // at a time keeps a connection's responses in order.
+    // Queues wbuf to send, behind the connection's sends before it.
     fn flush(c: RingConn<S>&) {
         guard wbuf.len > 0 else { return; }
-        if c.sending {
-            let m = c.out.len;
-            c.out = spill.realloc_slice(c.out, m + wbuf.len);
-            copy_into(c.out[m..], wbuf);
-        } else {
-            let e = ring_send(r, c.fd, c.tag, wbuf);
-            guard e >= 0 else { return Error { call: "send", code: -e } from spin; }
-            c.sending = true;
-        }
+        let e = ring_send(r, c.fd, c.tag, wbuf);
+        guard e >= 0 else { return Error { call: "send", code: -e } from spin; }
+        c.queued += wbuf.len;
         wbuf.clear();
     }
 
@@ -294,21 +285,15 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
 
     // A send's completion. False when the connection is done.
     fn sent(c: RingConn<S>&, res: i32) -> bool {
-        c.sending = false;
         guard res >= 0 else { return false; }   // EPIPE, ECONNRESET: the client left
+        c.queued -= res as i64;
         progress = true;
-        if c.out.len > 0 {
-            let e = ring_send(r, c.fd, c.tag, c.out);
-            guard e >= 0 else { return Error { call: "send", code: -e } from spin; }
-            c.sending = true;
-            spill.free_slice(c.out);
-            c.out = c.out[..0];
-        } else if c.state == CLOSING {
+        if c.queued == 0 && c.state == CLOSING {
             net_shutdown(c.fd, SHUT_WR);
             c.state = DRAINING;
             c.deadline = now + cfg.linger_ms;
         }
-        if c.stalled {
+        if c.stalled && !blocked(c) {
             c.stalled = false;
             let src = c.held;
             c.held = c.held[..0];
@@ -328,9 +313,10 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     // shorten it.
     fn touch(c: RingConn<S>&) {
         guard c.state != DRAINING else { return; }
-        let idle = idle(c) && !c.sending;
-        if progress { c.deadline = now + (if idle { cfg.idle_ms } else { busy_ms(c, c.sending, cfg) }); }
-        else if !idle { c.deadline = min(c.deadline, now + busy_ms(c, c.sending, cfg)); }
+        let sending = c.queued > 0;
+        let idle = idle(c) && !sending;
+        if progress { c.deadline = now + (if idle { cfg.idle_ms } else { busy_ms(c, sending, cfg) }); }
+        else if !idle { c.deadline = min(c.deadline, now + busy_ms(c, sending, cfg)); }
     }
 
     // Closes the connections past their deadline. One still waiting for the
@@ -342,7 +328,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         for i in conns.len {
             let c .= conns[i];
             if c.fd < 0 || c.deadline > now || c.x.stream.waiting { continue; }
-            if owes_408(c) && !c.sending {
+            if owes_408(c, c.queued > 0) {
                 wbuf.clear();
                 refuse(wbuf, 408, common);
                 flush(c);
@@ -365,7 +351,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         lfd = -1;
         for i in conns.len {
             let c .= conns[i];
-            if c.fd >= 0 && c.state == OPEN && idle(c) && !c.sending && c.out.len == 0 { close_conn(i); }
+            if c.fd >= 0 && c.state == OPEN && idle(c) && c.queued == 0 { close_conn(i); }
             else if c.fd >= 0 && c.x.stream.waiting { c.x.keep_alive = false; }
         }
     }

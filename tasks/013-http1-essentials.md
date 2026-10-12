@@ -291,6 +291,40 @@ again. Gathering the pieces in `wbuf` and moving them to `c.out` once changed no
 (1.66-1.67 GB/s). The fix is in the shims: queue a send behind the one in flight per
 connection, in the shim, so `flush` always hands bytes over once.
 
+Sends queued in the shim (2026-10-12). `shim/uring.c` and `shim/iocp.c` now keep each
+fd's sends in order behind the one in flight, as `shim/ring_epoll.c` did, and a send
+that waits takes later ones into its record while it has room. The loop calls
+`ring_send` for every piece and counts the bytes not yet sent; `max_queued` now counts
+the send in flight too. Measured on the Windows laptop (AMD Ryzen 7 PRO 6850U, 8 cores,
+16 threads), WSL2 Ubuntu 26.04, kernel 6.18.40.1-microsoft-standard-WSL2, gcc 15.2.0,
+Goose `5c83a5a`: one worker on CPU 0, wrk on CPUs 4-15 with 8 threads and 64
+connections for 10 s, 2 runs each, files on tmpfs. Before is `59740a7`; these compare
+only with each other, not with the desktop's numbers above.
+
+| Loop | Path | Before | After |
+|---|---|---|---|
+| epoll (unchanged) | `/bytes?n=1048576` | 1.61-1.62 GB/s | 1.86-1.87 GB/s |
+| epoll (unchanged) | `/files/` 64 KB | 0.96-1.04 GB/s | 1.05-1.08 GB/s |
+| epoll (unchanged) | `/files/` 1 MB | 2.29-2.34 GB/s | 2.37-2.44 GB/s |
+| uring | `/bytes?n=1048576` | 1.14-1.17 GB/s | 1.25-1.42 GB/s |
+| uring | `/files/` 64 KB | 1.19-1.21 GB/s | 1.20-1.22 GB/s |
+| uring | `/files/` 1 MB | 0.65-0.86 GB/s | 1.16-1.23 GB/s |
+| uring-epoll | `/bytes?n=1048576` | 0.64-0.80 GB/s | 1.04-1.05 GB/s |
+| uring-epoll | `/files/` 64 KB | 0.36-0.78 GB/s | 0.98-1.01 GB/s |
+| uring-epoll | `/files/` 1 MB | 0.58-0.68 GB/s | 1.09-1.11 GB/s |
+
+The epoll loop didn't change and still moved 2-15% between the two sessions, so only
+the larger gains count: io_uring's 1 MB file +40-80%, and the emulated ring's every
+path. The laptop's runs spread far wider than the desktop's. Small responses didn't
+regress: `bench/instructions.sh`, 2 runs, as above on this laptop, gave
+1,598-1,628 user instructions and 2,799-2,844 cycles per request on io_uring before,
+and 1,540-1,556 and 2,651-2,708 after; epoll, unchanged, 1,440-1,521 and 1,484-1,502.
+`bench/run.sh` with `SERVERS="goose goose-uring" WORKER_COUNTS=1 TESTS="plaintext:256
+json:256" RUNS=1 DURATION=5 WARMUP=2 LATENCY=0`: plaintext 0.956 M and then 0.974 M on
+io_uring, 0.735 M and 0.722 M on epoll; JSON 0.072 M and 0.071 M, 0.054 M and
+0.051 M. `scripts/test.sh` passes in WSL, and in Git Bash on the laptop with the IOCP
+loop. Measuring `shim/iocp.c`'s queue on Windows waits for the desktop.
+
 `shim/ring_epoll.c`, the ring on macOS and under Docker's seccomp profile, allocated
 every send's record, small ones too. It now reuses them as `shim/uring.c` does. With
 `LOOP=uring-epoll`, as above: `/bytes?n=1048576` went from 0.99 to 1.58-1.60 GB/s,

@@ -99,9 +99,10 @@ struct Config {
     // where io_uring_setup fails, as in Docker's default seccomp profile: for
     // testing that fallback.
     emulate_ring: bool = false,
-    // The responses a serve connection may have waiting behind its send in
-    // flight. Past this, the loop stops reading from it until the client
-    // takes what it was sent, as serve_epoll does when a send would block.
+    // The bytes of responses a serve connection may have queued and not yet
+    // sent, its send in flight's too. Past this, the loop stops reading from
+    // it until the client takes what it was sent, as serve_epoll does when a
+    // send would block.
     max_queued: i64 = 65536,
     // Call the handler given state with DONE after each response, for an
     // access log.
@@ -624,9 +625,10 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
 }
 
 // Whether c's request has stopped short, for the sweep: the start of one in
-// held, or a body not all arrived, that the handler hasn't answered yet.
-fn owes_408(c) -> bool {
-    return c.state == OPEN && !c.x.stream.open && !c.x.stream.waiting && c.out.len == 0 &&
+// held, or a body not all arrived, that the handler hasn't answered yet,
+// with nothing still to send.
+fn owes_408(c, sending: bool) -> bool {
+    return c.state == OPEN && !c.x.stream.open && !c.x.stream.waiting && !sending &&
         (c.held.len > 0 && c.x.body.place == NO_BODY || c.x.body.place != NO_BODY && !c.x.answered);
 }
 

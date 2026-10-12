@@ -95,6 +95,9 @@ struct ur_sock {
     uint64_t tag;              /* the receive's */
     int refs;
     uint8_t reading, cancel, closed;
+    /* Its sends in order, the first posted: one at a time keeps a
+       connection's bytes in order. */
+    struct ur_send *head, *last;
 };
 
 /* A send's bytes, owned by the ring until the send completes. Records of
@@ -112,7 +115,7 @@ struct ur_sock {
 struct ur_send {
     struct ur_req rq;
     struct ur_sock *sock;
-    struct ur_send *next;      /* on the free list */
+    struct ur_send *next;      /* behind it on its socket, or on the free list */
     uint64_t tag;
     uint32_t len, off;
     uint32_t cap;              /* data's size */
@@ -403,11 +406,21 @@ void ur_recv(int64_t h, int32_t fd, uint64_t tag) {
     ur_post_recv(u, k);
 }
 
-/* Copies data and posts a send of it. A short send is posted again for the
+/* Copies data and posts a send of it behind the sends on fd before it. One
+   that waits takes data into its own record when it has room, and then
+   reports both, as in shim/uring.c. A short send is posted again for the
    rest inside ur_wait, which reports the send once. */
 int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
     struct ur *u = (struct ur *)(intptr_t)h;
-    struct ur_send *s = NULL;
+    struct ur_sock *sock = ur_sock_of(u, fd);
+    if (!sock) return -UR_ENOMEM;
+    struct ur_send *s = sock->last;
+    if (s && s != sock->head && s->cap - s->len >= data.len) {
+        memcpy(s->data + s->len, data.data, (size_t)data.len);
+        s->len += (uint32_t)data.len;
+        return 0;
+    }
+    s = NULL;
     int k = 0;
     if (data.len <= UR_SMALL) {
         while ((UR_MIN << k) < data.len) k++;
@@ -432,15 +445,18 @@ int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
         s->cap = (uint32_t)cap;
     }
     s->rq.kind = UR_SEND;
-    s->sock = ur_sock_of(u, fd);
+    s->sock = sock;
     s->tag = tag;
     s->len = (uint32_t)data.len;
-    if (!s->sock) {
-        ur_send_free(u, s);
-        return -UR_ENOMEM;
-    }
     s->off = 0;
+    s->next = NULL;
     memcpy(s->data, data.data, (size_t)data.len);
+    if (sock->last) {
+        sock->last->next = s;
+        sock->last = s;
+        return 0;
+    }
+    sock->head = sock->last = s;
     ur_post_send(u, s);
     return 0;
 }
@@ -462,12 +478,21 @@ void ur_cancel(int64_t h, uint64_t tag) {
 }
 
 /* Closes fd, which ends every request on it with an error. Their
-   completions still come, and are reported with their tags. */
+   completions still come, and are reported with their tags. The sends
+   waiting behind the one posted are dropped, with no completion. */
 void ur_close(int64_t h, int32_t fd) {
     struct ur *u = (struct ur *)(intptr_t)h;
     struct ur_sock *k = ur_map_get(&u->socks, (uint32_t)fd);
     closesocket((SOCKET)(intptr_t)fd);
     if (!k) return;
+    if (k->head) {
+        for (struct ur_send *s = k->head->next, *next; s; s = next) {
+            next = s->next;
+            ur_send_free(u, s);
+        }
+        k->head->next = NULL;
+    }
+    k->head = k->last = NULL;
     ur_map_del(&u->socks, (uint32_t)fd);
     if (k->reading && ur_map_get(&u->reads, k->tag) == k) ur_map_del(&u->reads, k->tag);
     k->closed = 1;
@@ -612,6 +637,11 @@ static int ur_finish_send(struct ur *u, struct ur_send *s, int32_t res, ur_compl
         res = -UR_ECANCELED;
     }
     ur_fill(c, s->tag, res < 0 ? res : (int32_t)s->len, -1, 0, 1);
+    if (!k->closed) {
+        k->head = s->next;
+        if (k->head) ur_post_send(u, k->head);
+        else k->last = NULL;
+    }
     ur_send_free(u, s);
     ur_unref(k);
     return 1;

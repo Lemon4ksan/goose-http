@@ -10,7 +10,9 @@ namespace http;
 // buf is the provided buffer holding its res bytes, or -1 for none, and the
 // buffer goes back to the ring with ring_give. more is whether a multishot
 // request goes on. A send's completion has send set, and res is every byte
-// it was given, or its error: the shim queues a short send's rest itself.
+// it was given, or its error: the shim queues a short send's rest itself. A
+// send waiting behind another on its fd may take in the ones after it, and
+// then res counts their bytes too.
 struct Completion { tag: u64, res: i32, buf: i32, more: bool, send: bool }
 
 // The errno values of completions, beyond sys.goose's. shim/uring.c asserts
@@ -35,9 +37,11 @@ extern "ur_probe" fn ring_probe() -> i32;
 // Queue requests, which go to the kernel at the next wait.
 extern "ur_accept" fn ring_accept(r: i64, fd: i32, tag: u64);
 extern "ur_recv" fn ring_recv(r: i64, fd: i32, tag: u64);
+// A send goes out after those queued before it on fd, one at a time.
 extern "ur_send" fn ring_send(r: i64, fd: i32, tag: u64, data: const u8[:]) -> i32;
 extern "ur_cancel" fn ring_cancel(r: i64, tag: u64);
-// Cancels every request on fd, then closes it.
+// Cancels every request on fd, then closes it. Sends not yet started are
+// dropped, with no completion.
 extern "ur_close" fn ring_close(r: i64, fd: i32);
 // Writes dst.len bytes of provided buffer buf, from off, into dst.
 extern "ur_take" fn ring_take(r: i64, buf: i32, off: i64, dst: u8[:]);

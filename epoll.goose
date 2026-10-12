@@ -268,7 +268,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
         for i in conns.len {
             let c .= conns[i];
             if c.fd < 0 || c.deadline > now || c.x.stream.waiting { continue; }
-            if owes_408(c) {
+            if owes_408(c, c.out.len > 0) {
                 wbuf.clear();
                 refuse(wbuf, 408, common);
                 let sent = net_send(c.fd, wbuf) == wbuf.len;

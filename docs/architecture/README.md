@@ -252,10 +252,18 @@ puts the epoll loop ahead. On Windows the io_uring loop is the only one, over
   the next one's pages in held large responses on io_uring to 1 GB/s (task 013). Those
   of 8 KB or less come in six power-of-two sizes from 256 bytes, so a small response's
   send in flight holds 256 bytes, not 8 KB (2026-10-12, task 016).
-- A connection has one send in flight, which keeps its responses in order. Responses
-  answered meanwhile wait in the spill pool. Past 64 KB waiting, the loop cancels the
-  connection's receive and holds what still arrives until the client reads, as the epoll
-  loop stops reading when a send would block.
+- A connection has one send in flight, which keeps its responses in order. The shim
+  queues the sends behind it per fd, as `shim/ring_epoll.c` always did, and a send
+  that waits takes the next ones into its own buffer while it has room, so the loop
+  hands each response's bytes over once and pipelined responses still go out
+  together (2026-10-12, task 013). The loop had kept them in the spill pool behind the
+  send in flight, then copied them to the shim: that copy and the pool's bookkeeping
+  took 47% of the worker's CPU on 1 MB responses. Each send reports once, with its
+  bytes, and the loop counts what it gave and what came back. Past `max_queued`
+  (64 KB) not yet sent, counting the send in flight, the loop cancels the
+  connection's receive and holds what still arrives until the client reads, as the
+  epoll loop stops reading when a send would block. `ring_close` drops the sends not
+  yet started.
 - A request's tag is the connection's slot and a generation, so a completion that
   arrives after its connection closed isn't taken for the slot's next connection.
   The shim queues the rest of a short send itself, so it keeps a generation per fd as
