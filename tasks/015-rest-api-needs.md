@@ -79,7 +79,8 @@ as task 013's did.
       `test/test_api.goose` and `scripts/http_client.py`; item 9 in
       `scripts/http_client.py`. See "Helpers" and "The access log")
 - [x] The benchmark routes keep their rate (2026-10-12, on the Mac and in Docker on it,
-      `288c868` against `26e073f`; see "The benchmark routes' rate")
+      `288c868` against `26e073f`; see "The benchmark routes' rate"; and after answers
+      that wait, `af23e84` against `1265886`, 2026-10-12, in the same section)
 
 ## Answers that wait: a proposal (2026-10-12)
 
@@ -582,3 +583,54 @@ the builds. In thousands of requests per second:
 Docker Desktop's VM exposes no hardware counters (`perf stat` finds no supported
 events), so `bench/count.sh` can't run there. On WSL2, `bench/count.sh` against
 `26e073f` would put a number on the few instructions these runs can't see.
+
+### After answers that wait (2026-10-12)
+
+No regression shows, with waiting off, the default: in every cell, `af23e84`'s runs
+overlap `1265886`'s, the commit before phase 1 of "Answers that wait", on the Mac and
+in Docker on it. What reaches the routes' path when nothing waits: a check of
+`Stream.waiting` after each `REQUEST` call, and of `Stream.later`'s box before it, in
+`answer`, and 40 more bytes in each connection's slot. The server binary grew from
+242 KB to 415 KB, with the routes and the backend thread of `/later` and `/events`.
+
+macOS, on the MacBook Pro M1 Pro of `docs/development.md`, macOS 26.3.1 (Darwin 25.3.0),
+Goose `5c83a5a`, each build with `scripts/build.sh`, at a load average of 4.7-6.3 from
+other work on the machine. wrk 4.2.0 on the same machine, `-t 4 -c 64 -d 5 -s
+scripts/pipeline.lua -- 16`, against `WORKERS=4`, 5 rounds alternating the builds. In
+thousands of requests per second, median and range:
+
+| Loop, route | `1265886` | `af23e84` |
+|---|---|---|
+| epoll, plaintext | 571.2 (566.1-575.0) | 571.9 (569.4-576.3) |
+| epoll, JSON | 573.2 (561.6-575.1) | 571.8 (567.0-578.7) |
+| uring, plaintext | 572.1 (569.0-576.9) | 569.4 (566.0-577.9) |
+| uring, JSON | 571.8 (564.5-575.8) | 570.2 (561.5-571.6) |
+
+Instructions per request with `bench/count.sh`'s load on macOS, as above: `WORKERS=1`,
+h2load 1.70.0 `--h1 -n 2000000 -c 256 -m 16 -t 8` on `/plaintext`, the server's
+instructions retired from `/usr/bin/time -l`, kernel included, 3 rounds alternating the
+builds. The third column is `af23e84` with `MAIL_SLOTS=64`, so with a box and a timer
+table in the loop and nothing waiting:
+
+| Loop | `1265886` | `af23e84` | `af23e84`, `MAIL_SLOTS=64` |
+|---|---|---|---|
+| epoll | 17,547-17,600 | 17,568-17,580 | 17,587-17,602 |
+| uring | 17,807-17,823 | 17,825-17,828 | 17,819-17,830 |
+
+The uring build's 5-20 more, about 0.1%, is within the 30 a run varies.
+
+Docker Desktop 29.8.2 on the same Mac, kernel 7.0.14-linuxkit, 10 CPUs, image
+`goose-http-dev3` (Goose `5c83a5a`, wrk 4.1.0), `--security-opt seccomp=unconfined`, so
+`uring` is io_uring. The server with `WORKERS=3` on CPUs 0-2, wrk on CPUs 3-9, `-t 7 -c
+256 -d 5 -s scripts/pipeline.lua -- 16`, 5 rounds alternating the builds. In thousands of
+requests per second:
+
+| Loop, route | `1265886` | `af23e84` |
+|---|---|---|
+| epoll, plaintext | 6,494 (6,452-6,542) | 6,447 (6,368-6,495) |
+| epoll, JSON | 6,364 (6,315-6,446) | 6,449 (6,330-6,456) |
+| uring, plaintext | 6,229 (6,180-6,311) | 6,181 (6,167-6,246) |
+| uring, JSON | 6,130 (6,118-6,227) | 6,061 (6,047-6,235) |
+
+The medians move by 0.7-1.3% either way, inside the ranges; these runs resolve a few
+percent.
