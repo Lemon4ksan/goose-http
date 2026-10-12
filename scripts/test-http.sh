@@ -134,6 +134,7 @@ connects=$(curl -sS -o /dev/null -o /dev/null -w '%{num_connects} ' "$url/plaint
 echo "curl: ok"
 
 $client tfb
+$client forms
 $client pipeline
 $client large
 $client stream
@@ -198,6 +199,16 @@ $client requests
 kill -0 "$pid" || fail "the server died"
 stop
 unset MAX_REQUESTS
+# One worker with room for 8 connections: the ninth waits for one to close.
+export MAX_CONNS=8
+saved_workers=$WORKERS
+WORKERS=1
+start
+$client max-conns 8
+kill -0 "$pid" || fail "the server died"
+stop
+WORKERS=$saved_workers
+unset MAX_CONNS
 # The access log, on the server's output.
 export ACCESS_LOG=1
 start

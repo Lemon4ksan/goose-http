@@ -39,6 +39,7 @@ HTTP/1.1 on `main`. The tag `v0.1.0` has fixed-size requests and responses only.
 | 🟢 | Responses of any size, streamed or chunked. Trailers. |
 | 🟢 | Conditional `GET` (304), one byte range (206, 416) |
 | 🟢 | Static files, with `sendfile` on the epoll loop on Linux and macOS |
+| 🟡 | Static files without copying on io_uring and IOCP. Soon. |
 | 🟢 | CR, LF, and invalid names kept out of response fields |
 | 🟢 | Cookies, `Authorization` with `Basic`, media types, `Accept` (415, 406) |
 | 🟢 | Form and streamed multipart bodies, JSON responses |
@@ -145,6 +146,8 @@ REST benchmark is next.
   - `http::field_of(req, name)`: a field's value, and whether it's there. Name is
     case-insensitive.
   - `http::each_field(req) { name, value => }`: all fields, repeats included.
+  - `http::authority(req)`: the host and port, from an absolute-form target before
+    `Host` (RFC 9112 §3.2.2).
   - `http::path_of(req.target)`, `http::query_of(req.target, key)`,
     `http::each_query(req.target) { key, value => }`: still percent-encoded.
   - `http::decode(s, out)`: decodes one. With `plus` set, `+` is a space.
@@ -203,8 +206,13 @@ else { http::otherwise(r, out); }
 
 - `:name` matches one segment, `*name` the rest of the path, last only.
 - A `GET` route takes `HEAD` too.
-- `http::otherwise`: 405 with `Allow` from the routes whose path matched, 204 with it
-  for `OPTIONS`, else 404.
+- A literal segment matches an escape of an unreserved character (`/%75sers` is
+  `/users`); an escaped `/` doesn't split a segment.
+- A path with a `.` or `..` segment, escaped or not, or an escaped control byte, matches
+  no route: a handler that checks access by a path's prefix can't be walked around.
+- `http::otherwise`: 501 for a method the server doesn't know, 400 for a path the
+  router refused, 204 for `OPTIONS *`, 405 with `Allow` from the routes whose path
+  matched, 204 with it for `OPTIONS`, else 404.
 - Parameters are slices of the target, still encoded, valid until the handler returns.
   Nothing allocates.
 
@@ -271,8 +279,11 @@ thread_fn worker(cfg: http::Config) {
   or `HEAD` with 200, 206, 304, or 416, with `ETag`, `Last-Modified`, and
   `Accept-Ranges`.
 - `http::send_file(out, st.file)` at each `MORE` until false, then `http::end(out)`.
-  Reads up to 64 KB with `pread` per call; on the epoll loop on Linux, hands the
-  file to the loop, which sends it with `sendfile`.
+  On the epoll loop on Linux and macOS, it hands the file to the loop, which sends it
+  with `sendfile`, without copying it through the program. On `http::serve` (io_uring,
+  IOCP, and the emulated ring) it reads up to 64 KB with `pread` per call, which the
+  ring then copies to send: a 1 MB file went out at about a sixth of the epoll loop's
+  rate on Linux, on the laptop of task 013 ([Large responses and files](#large-responses-and-files)).
 - `http::close_body(st.file)` at `CLOSED`.
 - `http::is_safe_path(path)`: rejects `.` and `..` segments, backslashes, and colons.
   Check the decoded path before joining it to a directory.
@@ -351,7 +362,8 @@ other isn't in the binary.
   peak RSS, 10-16 MB with 4 workers. Where
   `io_uring_setup` fails, as under Docker's default seccomp profile, it emulates the
   ring on epoll; `http::ring_probe()` says why.
-- `http::serve_epoll` is faster on macOS, and on Linux uses a quarter of the memory.
+- `http::serve_epoll` is faster on macOS, and on Linux uses a quarter of the memory
+  and sends files with `sendfile`, so it's the loop for serving large files.
   The plaintext and JSON numbers above are this loop.
 
 The benchmark server links both. `LOOP` picks: `uring` (`iocp` on Windows), `epoll`,

@@ -407,7 +407,10 @@ fn chunked_len(buf: const u8[:], room: i64 = 1 << 62) -> i64, i32 {
         while pos < buf.len && is_hex(buf[pos]) { pos++; }
         guard pos - s0 <= 15 else { return 0, 400; }
         guard pos < buf.len else { return 0, INCOMPLETE; }
-        guard pos > s0 && (buf[pos] == ';' || buf[pos] == '\r') else { return 0, 400; }
+        // Whitespace may come before an extension's ';' (BWS, RFC 9112 §7.1.1),
+        // which is_chunk_ext checks.
+        guard pos > s0 && (buf[pos] == ';' || buf[pos] == '\r' || buf[pos] == ' ' || buf[pos] == '\t')
+        else { return 0, 400; }
         let size, ok = parse_int(buf[s0..pos], 16);
         let e = line_end(buf, pos);
         guard e > 0 else { return 0, if e == 0 { INCOMPLETE } else { 400 }; }
@@ -525,7 +528,8 @@ fn read_body(buf: const u8[:], r: BodyReader&) -> i64, i64, i32 {
             while p < buf.len && is_hex(buf[p]) { p++; }
             guard p - s0 <= 15 else { return 0, 0, 400; }
             guard p < buf.len else { break; }
-            guard p > s0 && (buf[p] == ';' || buf[p] == '\r') else { return 0, 0, 400; }
+            guard p > s0 && (buf[p] == ';' || buf[p] == '\r' || buf[p] == ' ' || buf[p] == '\t')
+            else { return 0, 0, 400; }
             let e = line_end(buf, p);
             guard e >= 0 else { return 0, 0, 400; }
             guard e > 0 else { break; }
@@ -599,6 +603,23 @@ fn path_of(target: const u8[:]) -> const u8[:] {
     }
     let q = position(t, '?');
     return if q >= 0 { t[..q] } else { t };
+}
+
+// The request's authority, host and port: an absolute-form target's, which
+// a server uses instead of Host (RFC 9112 §3.2.2), or else Host's, or "".
+fn authority(req: Request) -> const u8[:] {
+    let t = req.target;
+    if t.len > 0 && t[0] != '/' && t != "*" {
+        let s = position(t, ':');
+        if s >= 0 && t.len - s >= 3 {
+            let rest = t[s + 3..];
+            var p = 0;
+            while p < rest.len && rest[p] != '/' && rest[p] != '?' { p++; }
+            return rest[..p];
+        }
+    }
+    let host, has = field_of(req, "host");
+    return if has { host } else { t[..0] };
 }
 
 // Whether method is one that RFC 9110 §9 defines, or PATCH (RFC 5789). A

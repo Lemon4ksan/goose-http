@@ -189,6 +189,15 @@ fn test_refused() {
     expect("GET / HTTP/1.1\r\nHost: x\r\nX: a\x00b\r\n\r\n", 400);
     expect("GET / HTTP/1.1\r\nHost: x\rX: y\r\n\r\n", 400);
     expect("GET /a\x01b HTTP/1.1\r\nHost: x\r\n\r\n", 400);
+    // A tab as the request line's separator, whitespace before the first
+    // field line, an invalid name, bytes before the request line, and a bare
+    // CR starting a line; a value with obs-text is allowed (RFC 9110 §5.5).
+    expect("GET\t/ HTTP/1.1\r\nHost: x\r\n\r\n", 400);
+    expect("GET / HTTP/1.1\r\n Host: x\r\n\r\n", 400);
+    expect("GET / HTTP/1.1\r\nHost: x\r\nX-Invalid[]: y\r\n\r\n", 400);
+    expect("Extra lineGET / HTTP/1.1\r\nHost: x\r\n\r\n", 400);
+    expect("GET / HTTP/1.1\r\nHost: x\r\n\rSome-Header: y\r\n\r\n", 400);
+    expect("GET / HTTP/1.1\r\nHost: x\r\nX: caf\xc3\xa9\r\n\r\n", 200);
     // Host: required once in 1.1.
     expect("GET / HTTP/1.1\r\n\r\n", 400);
     expect("GET / HTTP/1.1\r\nHost: x\r\nHost: y\r\n\r\n", 400);
@@ -197,6 +206,10 @@ fn test_refused() {
     expect("GET / HTTP/1.1\r\nHost: x\r\nContent-Length: 1x\r\n\r\n", 400);
     expect("GET / HTTP/1.1\r\nHost: x\r\nContent-Length:\r\n\r\n", 400);
     expect("GET / HTTP/1.1\r\nHost: x\r\nContent-Length: 1, 1\r\n\r\n", 400);
+    expect("GET / HTTP/1.1\r\nHost: x\r\nContent-Length: +1\r\n\r\n", 400);
+    expect("GET / HTTP/1.1\r\nHost: x\r\nContent-Length: 1 2\r\n\r\n", 400);
+    expect("GET / HTTP/1.1\r\nHost: x\r\nContent-Length: 12345678901234567890\r\n\r\n", 400);
+    expect("GET / HTTP/1.1\r\nHost: x\r\nContent-Length: -123456789012345678901234567\r\n\r\n", 400);
     expect("GET / HTTP/1.1\r\nHost: x\r\nContent-Length: 1\r\nContent-Length: 2\r\n\r\n", 400);
     expect("GET / HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\nContent-Length: 3\r\n\r\n", 200);
     // Other versions, transfer codings, and the size limits.
@@ -243,6 +256,13 @@ fn test_refused() {
     assert(http::path_of("http://x:80/a/b?c") == "/a/b");
     assert(http::path_of("http://x?c") == "/");
     assert(http::path_of("*") == "*");
+    // The authority: an absolute-form target's over Host (RFC 9112 §3.2.2).
+    let abs, sa = http::parse("GET http://a:81/x?y HTTP/1.1\r\nHost: b\r\n\r\n");
+    assert(sa == 200 && http::authority(abs) == "a:81");
+    let org, so = http::parse("GET /x HTTP/1.1\r\nHost: b:8080\r\n\r\n");
+    assert(so == 200 && http::authority(org) == "b:8080");
+    let star, ss = http::parse("OPTIONS * HTTP/1.1\r\nHost: c\r\n\r\n");
+    assert(ss == 200 && http::authority(star) == "c");
 
     var line: u8[>..] = [];
     line.append("GET /");
@@ -349,6 +369,13 @@ fn test_chunked() {
     assert(dechunked("2\r\nabc\r\n0\r\n\r\n", out) == 400);
     assert(dechunked("2\nab\r\n0\r\n\r\n", out) == 400);
     assert(dechunked("0;a\x01\r\n\r\n", out) == 400);
+    // Whitespace before an extension's ';' (BWS, RFC 9112 §7.1.1), but not
+    // after the size alone.
+    out.clear();
+    assert(dechunked("5 ;a=b\r\nhello\r\n0\r\n\r\n", out) == 200);
+    same(out, "hello");
+    assert(dechunked("5\t;a\r\nhello\r\n0 ;z\r\n\r\n", out) == 200);
+    assert(dechunked("5 \r\nhello\r\n0\r\n\r\n", out) == 400);
     // Extensions: a token, an optional value, a token or a quoted string.
     assert(dechunked("1;a=\"b;\\\"c\" ; d = e\r\nx\r\n0;z\r\n\r\n", out) == 200);
     assert(dechunked("5;\r\nhello\r\n0\r\n\r\n", out) == 400);
@@ -700,6 +727,26 @@ fn test_router() {
     routes_to("GET /users/1/posts HTTP/1.1\r\nHost: x\r\n\r\n", missing);
     routes_to("GET /files HTTP/1.1\r\nHost: x\r\n\r\n", missing);
     routes_to("GET //users/1 HTTP/1.1\r\nHost: x\r\n\r\n", missing);
+    // An escaped unreserved byte matches a literal; an escaped '/' doesn't
+    // split a segment, and parameters stay as sent.
+    routes_to("GET /%75sers/4%32 HTTP/1.1\r\nHost: x\r\n\r\n", "user 4%32");
+    routes_to("GET /users%2F42 HTTP/1.1\r\nHost: x\r\n\r\n", missing);
+    // Dot-segments, escaped or not, and escaped control bytes: 400.
+    let bad = "HTTP/1.1 400 Bad Request\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Length: 0\r\n\r\n";
+    routes_to("GET /files/../secret HTTP/1.1\r\nHost: x\r\n\r\n", bad);
+    routes_to("GET /files/%2e%2E/secret HTTP/1.1\r\nHost: x\r\n\r\n", bad);
+    routes_to("GET /files/./a HTTP/1.1\r\nHost: x\r\n\r\n", bad);
+    routes_to("GET /files/a/.. HTTP/1.1\r\nHost: x\r\n\r\n", bad);
+    routes_to("GET /files/a%00b HTTP/1.1\r\nHost: x\r\n\r\n", bad);
+    routes_to("GET /files/a%7fb HTTP/1.1\r\nHost: x\r\n\r\n", bad);
+    routes_to("GET /files/...x HTTP/1.1\r\nHost: x\r\n\r\n", "file ...x");
+    // A method the server doesn't know: 501 (RFC 9110 §9.1), methods being
+    // case-sensitive. OPTIONS *: 204, for the server as a whole (§9.3.7).
+    let unknown = "HTTP/1.1 501 Not Implemented\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Length: 0\r\n\r\n";
+    routes_to("FOO /users/42 HTTP/1.1\r\nHost: x\r\n\r\n", unknown);
+    routes_to("get / HTTP/1.1\r\nHost: x\r\n\r\n", unknown);
+    routes_to("OPTIONS * HTTP/1.1\r\nHost: x\r\n\r\n",
+              "HTTP/1.1 204 No Content\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\n\r\n");
 }
 
 // common_fields's, for Config.server's default.

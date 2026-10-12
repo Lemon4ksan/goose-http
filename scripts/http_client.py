@@ -1,6 +1,7 @@
 """Test clients for the HTTP server, run by scripts/test-http.sh.
 
     http_client.py PORT tfb         TechEmpower's plaintext and JSON checks
+    http_client.py PORT forms       absolute-form targets and OPTIONS *
     http_client.py PORT pipeline    pipelined requests and request bodies
     http_client.py PORT large       responses larger than the write buffer
     http_client.py PORT chunked     chunked request bodies, and HttpArena's /baseline11
@@ -12,6 +13,7 @@
     http_client.py PORT slow        slow clients, against the server's timeouts
     http_client.py PORT many N      N connections at once, each pipelining
     http_client.py PORT emfile N    N connections to a server with fewer fds
+    http_client.py PORT max-conns N one worker with MAX_CONNS=N: the next waits
     http_client.py PORT later       answers that wait: /later and /events, for a
                                     server started with MAIL_SLOTS
     http_client.py PORT later-off   /later's 503, for a server without them
@@ -203,11 +205,6 @@ def tfb(port):
     check_tfb(r, "text/plain", time.time())
     if r.body != b"Hello, World!":
         fail(f"plaintext body {r.body!r}")
-    # Absolute-form, which a server must take (RFC 9112 §3.2.2).
-    c.send(request(b"http://tfb-server/plaintext"))
-    r = c.response()
-    if r.status != 200 or r.body != b"Hello, World!":
-        fail(f"absolute-form: {r.status} {r.body!r}")
     c.send(request(b"/json"))
     r = c.response()
     check_tfb(r, "application/json", time.time())
@@ -221,6 +218,23 @@ def tfb(port):
         fail("Date didn't change after a second")
     c.close()
     print("tfb: ok")
+
+
+def forms(port):
+    """Request targets beyond origin-form, which TechEmpower doesn't send:
+    absolute-form, which a server must take (RFC 9112 §3.2.2), and OPTIONS *,
+    for the server as a whole (RFC 9110 §9.3.7)."""
+    c = Conn(port)
+    c.send(request(b"http://tfb-server/plaintext"))
+    r = c.response()
+    if r.status != 200 or r.body != b"Hello, World!":
+        fail(f"absolute-form: {r.status} {r.body!r}")
+    c.send(request(b"*", b"OPTIONS"))
+    r = c.response()
+    if r.status // 100 != 2:
+        fail(f"OPTIONS *: {r.status}")
+    c.close()
+    print("forms: ok")
 
 
 def pipeline(port):
@@ -246,10 +260,21 @@ def pipeline(port):
     for i in range(0, len(body), 30000):
         c.send(body[i:i + 30000])
     c.send(request(b"/plaintext"))
-    for want in (405, 405, 200):
-        r = c.response()
-        if r.status != want:
-            fail(f"after a body: {r.status}, want {want}")
+    r = c.response()
+    # Goose drains a body it answered without reading, up to max_drain, and
+    # keeps the connection; RFC 9112 §9.6 lets a server close instead, after
+    # a 405 that says so, as some servers in bench/ do.
+    closing = [v for n, v in r.headers if n == "connection"] == ["close"]
+    if r.status != 405 or (closing and SERVER_NAME == "goose"):
+        fail(f"after a body: {r.status} {r.headers}, want 405 on an open connection")
+    if closing:
+        c.close()
+        c = Conn(port)
+    else:
+        for want in (405, 200):
+            r = c.response()
+            if r.status != want:
+                fail(f"after a body: {r.status}, want {want}")
     # More pipelined responses than the write buffer holds at once.
     c.send(request(b"/json") * 500)
     for i in range(500):
@@ -888,6 +913,31 @@ def client(port):
     print("client: ok")
 
 
+def max_conns(port, n):
+    """Against one worker started with MAX_CONNS=n: n connections are served,
+    the next waits in the backlog unanswered, and is served once one of the n
+    closes."""
+    held = [Conn(port) for _ in range(n)]
+    for c in held:
+        c.send(request(b"/plaintext"))
+        if c.response().status != 200:
+            fail("a connection within max_conns wasn't served")
+    extra = Conn(port, timeout=1)
+    extra.send(request(b"/plaintext"))
+    try:
+        extra.response()
+        fail(f"connection {n + 1} was served past max_conns={n}")
+    except (socket.timeout, TimeoutError):
+        pass
+    held.pop().close()
+    extra.sock.settimeout(5)
+    if extra.response().status != 200:
+        fail("the waiting connection wasn't served after one closed")
+    for c in held + [extra]:
+        c.close()
+    print("max-conns: ok")
+
+
 def later(port):
     """Against a server started with MAIL_SLOTS: /later's answer comes from
     the backend thread after its delay, and 504 when the time limit passes
@@ -1061,8 +1111,8 @@ def access_log(port, path):
 def main():
     port = int(sys.argv[1])
     mode = sys.argv[2]
-    if mode in ("many", "emfile", "stop"):
-        {"many": many, "emfile": emfile, "stop": stop}[mode](port, int(sys.argv[3]))
+    if mode in ("many", "emfile", "stop", "max-conns"):
+        {"many": many, "emfile": emfile, "stop": stop, "max-conns": max_conns}[mode](port, int(sys.argv[3]))
     elif mode == "files":
         files(port, sys.argv[3])
     elif mode == "log":
@@ -1074,7 +1124,7 @@ def main():
     else:
         {"tfb": tfb, "pipeline": pipeline, "large": large, "chunked": chunked, "keepalive": keepalive,
          "hostile": hostile, "slow": slow, "stream": stream, "requests": requests,
-         "client": client, "later": later, "later-off": later_off}[mode](port)
+         "client": client, "later": later, "later-off": later_off, "forms": forms}[mode](port)
 
 
 if __name__ == "__main__":

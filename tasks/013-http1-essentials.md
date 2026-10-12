@@ -451,6 +451,33 @@ Both items that were next are done (2026-10-12): sends queued in the ring shims,
 `sendfile` on the epoll loop. Left: measuring both on the desktop, and `shim/iocp.c`'s
 queue under load on Windows.
 
+Checked against Tina's tests (2026-10-12). Tina's HTTP server (`a2e8d4d`) tests its
+parser, router, and connection states in `test_*` procedures, and reports 33 of 33 on
+uNetworking's h1spec. Its suite and ours compared, by reading both, found:
+
+- Fixed: the router's `otherwise` answered a method the server doesn't know with 404
+  or 405; it now answers 501 (RFC 9110 §9.1). `OPTIONS *` got 404 through the router;
+  now 204 (§9.3.7). Both chunk-size parsers refused whitespace before an extension's
+  `;`, which RFC 9112 §7.1.1 allows (BWS); now taken, while a size with trailing
+  whitespace and no extension is still 400.
+- Decided (2026-10-12): the router refuses a path with a `.` or `..` segment, escaped
+  or not, or an escaped control byte, with 400 from `otherwise`, and a literal segment
+  matches an escape of an unreserved character, as Tina's canonicalizer does before
+  matching. Parameters stay encoded slices, so the router allocates nothing.
+- Added: `http::authority`, an absolute-form target's authority before `Host` (RFC 9112
+  §3.2.2); `scripts/http_client.py`'s `forms` (absolute-form and `OPTIONS *`, out of
+  `tfb`, which TechEmpower's requests alone now make) and `max-conns`; and unit cases
+  for a tab separator, whitespace before the first field line, an invalid name, bytes
+  before the request line, a bare CR, obs-text, and four malformed `Content-Length`s,
+  among them h1spec's 4 cases that no test covered.
+- Where Tina differs and we keep ours, as the RFCs have it: it refuses absolute-form,
+  HTTP/1.0, and obs-text, and answers `Transfer-Encoding: gzip` with 501 where RFC 9112
+  §6.3 asks for 400.
+- `pipeline` now takes a 405 with `Connection: close` from a server other than Goose,
+  which RFC 9112 §9.6 allows; Goose still has to drain the body and stay open.
+
+`scripts/test.sh` passed on macOS and in Docker on all three Linux loops after them.
+
 ## Streaming design (2026-10-12)
 
 How servers with a streaming API shape it, read in their sources:

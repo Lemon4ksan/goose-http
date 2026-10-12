@@ -37,6 +37,7 @@ fn run(default_loop: const u8[:]) {
         cfg.body_ms = positive("BODY_MS", cfg.body_ms);
         cfg.write_ms = positive("WRITE_MS", cfg.write_ms);
         cfg.max_requests = positive("MAX_REQUESTS", cfg.max_requests);
+        cfg.max_conns = positive("MAX_CONNS", cfg.max_conns);
         var logging: u8[>..] = [];
         cfg.log = env("ACCESS_LOG", logging);
         // MAIL_SLOTS turns on answers that wait, for /later and /events,
