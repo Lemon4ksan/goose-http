@@ -410,6 +410,24 @@ to 3-5 ms, with one round's poll p99 at 42.8 ms. io_uring hands the worker 256
 completions per wait, each 4 KB of some upload, before it answers the next read; that
 fits its remaining 4 ms, and isn't measured.
 
+On the desktop (2026-10-12), `bench/rest.sh run` ran every tier: at saturation with wrk,
+tier D's two roles, at a fixed rate with zrk 2.3.0 per route (`bench/rest/rate.py`), and
+the mixed run, 3 rounds of 15 s, Goose `73dd28c` with Goose `6448f3f`
+([results](../docs/results.md#rest-apis)). What it settles from the runs above:
+
+- Tier C's io_uring loss is gone here: io_uring serves 3% more than epoll serialized
+  (52.5K against 51.1K) and 5% more templated (146K against 139K). On tiers A and B
+  io_uring leads epoll by 22-31%, where in Docker on the Mac the two were even.
+- Uploads alone: epoll 983-998 a second, io_uring 968-977, so io_uring's 10% loss on the
+  Mac shrinks to 1-3%. hyper takes 1,056-1,072, 6-11% more than Goose, as on the Mac
+  with `-c 4` (720 against epoll's 598).
+- Beside uploads, the epoll loop's reads stay at a p99 of 1.6-2.7 ms, io_uring's at
+  9-17 ms, and hyper's at 17-21 ms.
+
+Next: where Goose spends the uploads' extra time against hyper (perf on both), and
+whether a smaller completion batch, or a bound per connection as `max_read` is for
+epoll, brings io_uring's reads beside uploads down to epoll's.
+
 ## Acceptance criteria
 
 - [x] Tier D built as A to C are, and its mixed run with tier C
@@ -417,5 +435,5 @@ fits its remaining 4 ms, and isn't measured.
 - [x] Each tier's routes in Goose, loading the files, in both JSON ways
 - [x] Each tier's wrk script and checker, passing against Goose
 - [ ] The competitors serving the same tiers, built in release mode, passing the checker
-- [ ] Each tier at saturation and at a fixed rate on the desktop, in `docs/results.md`
-      with how it was measured
+- [x] Each tier at saturation and at a fixed rate on the desktop, in `docs/results.md`
+      with how it was measured (2026-10-12, `bench/rest.sh`)

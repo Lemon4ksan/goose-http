@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v2/schedule/version?since=60256", "method": "GET" },
+  "config": { "connections": 140, "launched": 140, "duration_s": 15.000, "closed": false, "target_rate": 8800, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 131848,
+  "bytes": 23600792,
+  "achieved_rate": 8789.43,
+  "target_rate": 8800,
+  "target_rate_end": 8800,
+  "rate_ratio": 0.9988,
+  "bytes_per_sec": 1573307.41,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 19632,
+  "latency_us": {
+    "min": 22, "mean": 117.8, "stdev": 585.5, "max": 35551,
+    "p50": 96, "p75": 104, "p90": 117, "p99": 221, "p99_9": 9868, "p99_99": 22920
+  },
+  "status_codes": { "1xx": 0, "2xx": 131848, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAxB4nC1RXUhVWRQ+6zv7/Nxzvfee29XUHDO1siy0yRmc/saouEaFXcL+TJwfJCJImHpIHBkmkVtESJMhTJiVRMR9CBEDi+iPCLGIHipMepCIiIgKH8qHiL59bnufvdfa3/ettdfa54fu3oRhmCNGdpjfrQSH3qNG3ccssASe8qKe68+dV7msqbE1LR0XJSNnZEieyZjMyE104TGe4Lo5YGbURXVbDVsD1rj13pq2r9iv7B4n44w6E1yTbl/odGjSe+s9DJ+PnIz1+NfjU7Me5/YVZPL750wVTc4dmDdY/qksU/GmsnvpUPXxmte/vKwbXz9SP13ft3G6fjw5tvbLqle1T2rGqo4vvr/gRunX4pnCN3kncp/FJ/0X0e7IVPhYuN+76w44J5xBe8I6Y41al9Soume+MwfNYbPL/IiveIQZGcEn+SLv2MEEO3nEji5Lv7zg3ieDkpZT0v6vtHceTEuXdHS0df6Zlv090tktHQfbLskxOS0nqe/R7DCdtPyzL9XS1LwttallXTK16femLc2plr2Ne5OtqV1tjY3JHbtam5tWNzSv3NDa8GvD0qq1yY3rqpZX/VS2rHLR/OVzFhaUFbhluVF/lpfj+9Go7/meG53tu36OZys7B66toDzYyoBSMKCH4SI7lA0NheAoxQ+2ARMWcb2U5kzNm4GxYKkAgaM1UI72VYQYcxtaTVYRLEI+eUfVBnHl+E9QjTA2ow7b8VlQjEIqPggeCI4AT01cE9RTeAe4CqzHc6CUVR3GIRwVRp7V9HZEUKKVf7CAPE6T+RK4ILgArEGvYCvBzdjJ2L8YfUtQiyOCvyn8kZkOII4FTF7CoHNCyMFu1NCaDPhNt4f/hfXuZH1LGL8CP5OwWKuW5vO0hn6CtpznIuwJenOojqBchXRBKoYKonGyIcToxchHOBMIqzzmWsWIYrIlrGQr/QSxhH7QBFeIlL6IWB4oigTPF2aSSMAHZDYrUb55HDEV/CJ6FWRLyIQ4eRsrNfnoOjDE3WJHYVqHO39aNUEje4mFzy5Fuq18fAPb0q9h"
+}

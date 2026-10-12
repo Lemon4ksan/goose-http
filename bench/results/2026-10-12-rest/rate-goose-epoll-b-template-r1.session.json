@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v1/session", "method": "GET" },
+  "config": { "connections": 64, "launched": 64, "duration_s": 15.000, "closed": false, "target_rate": 18500, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 277320,
+  "bytes": 456191400,
+  "achieved_rate": 18487.36,
+  "target_rate": 18500,
+  "target_rate_end": 18500,
+  "rate_ratio": 0.9993,
+  "bytes_per_sec": 30411703.84,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 14628,
+  "latency_us": {
+    "min": 17, "mean": 107.2, "stdev": 276.2, "max": 18095,
+    "p50": 101, "p75": 115, "p90": 129, "p99": 167, "p99_9": 423, "p99_99": 15564
+  },
+  "status_codes": { "1xx": 0, "2xx": 277320, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAzR4nD1SXUgUURide+bOndmd3XVM193VVVtM137E/kuW1uy/LMnMkHroNYqiiCCoh5DNwkKieliCLGTxQYKWkIiIkpCIiLAIiQgTiRCfLBax6KEzY7R3Zu495/vO+b5778Yzt0o0TZrawk//NwsP3LqiNc8uEAloEqpqxZKuQ6euijvirZgSeQxiDjO4pL/Wc7JH/tafy1H5Rk4YGWPa6Ffj6p36aBbMHt+8b9B+EBgLDoaehSacXmfGyRf3lU6WZMNPwvmy7ujz6LPY4/jN+GDVbPVo4mPtjbqp5PCyl8tzjXOrCmvfbhxuupH6lrqeHkkXNl/f8n3rzI7CrqE93a2je3/uG2jPdGQPPur41jnVOX4wf2ioa7a9sP9lW0/b09anu97syG3JpieaXjXdXvdhVaZhbFl//Vzt55pc4n71dOWTik/l3yPjkUL4Z+mDRVcXDTgDRWPBmcAf+3Gg3x6yP/le+4atrDVkjphfVK+aN7qNjOozbspZPSvH9Ff6PL5gEn+QxzD6MS3GxYT4IHJiRGRFn+jlSZ2/ePz0gWOHD3fVt21bn96YXr+ybvHquLOkPhotL68qi4eioZAKRaXfcUr9fqdMWgGpAirkL7WUcvxAQPklYFnQpYL7WBywpK40QkkgwRUUDEBK3pMmNQq4YrJmGYySYiIY50tsUgOdkCHOBgzJkE7oOhExZnOt6OFyXi5nXcLnpbkmMCnUIU0ow3MyKVNF7j+lBLZ061a4idIGIowXwaU0OhiIMdVdu98kcYSsz61COYq9BjS0UO+KgrgmOCVxkmYbSFWjEruZf5ZNtuOhQAPChGyohU6t5PbhCGJ4L/EDOEH2l0ACaMJXYCnO4CjuCjQyrwEvgHuC8gjLbkAnVTbHTqToFuTokJuwiXkmLrC/IlwW6KAwQWo7+6sldRLNTDQoMmlSSS5FZitt6LuGhMZwMxtsd4/tnEyxSIxQwzrQopJSH4UmTXW+Nd7+NO9eimkva2XSO+mzhEkGTTBrjbvhGFnTa1njnjRKa/gNe96mJw6DR7mU9WvYQSN32eJZBSkKesIK75rc/gxvEwuDN+H7f1m216BBr796ubI4"
+}

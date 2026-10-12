@@ -363,6 +363,11 @@ harness, in Docker, with the Goose server as an entry: `validate` runs its
 `pipelined` profiles for Goose and HttpArena's tokio, dusty, and vanilla-epoll entries
 (task 009). The comment at its top lists what it changes in the checkout.
 
+`bench/rest.sh build` writes task 021's datasets into `build/rest/`, builds the Goose
+REST server and hyper's, and fetches zrk 2.3.0. `bench/rest.sh run` checks each server
+with `bench/rest/check.py` and then measures every tier: about 10 minutes of checks and
+65 of runs. Its header lists the steps and settings.
+
 `bench/compilers.sh` adds Goose builds to `build/bench/`: `goose-gcc`, `goose-clang`,
 and `goose-gcc-native` (`-march=native`). `bench/run.sh` runs any server whose name
 starts with `goose` as a Goose build, so `SERVERS="goose-gcc goose-clang"` compares
@@ -457,6 +462,10 @@ from Windows:
 - `pkill -f PATTERN` inside `wsl.exe -- bash -c '...'` matches that `bash -c` too, whose
   command line holds the pattern, and kills it. Kill by PID instead.
 - Killing `strace` doesn't stop the server it started; kill the server's PID.
+- WSL's git rereads every file of the checkout the first time it runs after Windows'
+  git, because the two record file stats differently. `bench/run.sh` and `bench/rest.sh`
+  call `git diff --quiet` for `env.txt`, which then takes a few minutes before the first
+  cell.
 - Git for Windows 2.45 writes a worktree's `.git` file with a Windows path, which WSL's
   git can't follow, so `bench/run.sh` can't record the commit there. It has no
   `--relative-paths`; write the file by hand, for example

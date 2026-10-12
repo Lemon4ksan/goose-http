@@ -161,6 +161,95 @@ Server CPU per request, in µs:
 - WSL2's kernel costs most of a small file: 12-20 µs a request at 4 KB for Goose and
   nginx, against 5.8 µs for an unpipelined JSON response.
 
+## REST APIs
+
+Task 021's four tiers, run by `bench/rest.sh run` on 2026-10-12: Goose at `73dd28c` with
+Goose `6448f3f`, on each loop, against hyper 1.12.0 on Tokio 1.53.2 (`bench/rest/hyper`,
+`-C target-cpu=native`). Each server with 4 workers on CPUs 0-3, the load on CPUs 4-15, a
+fresh server per cell warmed up for 5 s, 3 rounds of 15 s interleaved.
+`bench/rest/check.py` passed against every server on every tier first. Results in
+[2026-10-12-rest](../bench/results/2026-10-12-rest/summary.md), which also has every
+cell's range, each route's latency, and peak RSS. No run counted a socket error or an
+unexpected status.
+
+Tiers A to C at saturation: wrk 4.1.0 with each tier's script, 8 threads, 256
+connections. Requests per second, the median of 3 runs, and the server's CPU time per
+request:
+
+| Tier, JSON | Goose io_uring | Goose epoll | hyper |
+|---|---:|---:|---:|
+| A (items, 0.2 KB), serialize | **572K**, 6.9 µs | 441K, 9.1 µs | 271K, 14.8 µs |
+| A, template | **588K**, 6.8 µs | 459K, 8.7 µs | 290K, 13.8 µs |
+| B (snowtime, 0.3-13 KB), serialize | **269K**, 14.8 µs | 220K, 18.3 µs | 149K, 27.0 µs |
+| B, template | **372K**, 10.7 µs | 283K, 14.1 µs | 194K, 20.6 µs |
+| C (clinic, up to 728 KB), serialize | **52.5K**, 76 µs | 51.1K, 79 µs | 32.2K, 125 µs |
+| C, template | **146K**, 27 µs | 139K, 29 µs | 119K, 33 µs |
+
+- Every run fell within 4% of its cell's median.
+- Goose's io_uring loop serves 2.0-2.1 times hyper's rate on tier A, 1.8-1.9 times on
+  B, and 1.6 times on C serialized. With templates, which copy prebuilt bytes, C's lead
+  shrinks to 1.2 times.
+- io_uring leads epoll on every tier: by 28-30% on A, 22-31% on B, and 3-5% on C. Tier
+  C's 4-5% loss to epoll in Docker on the Mac (task 021) doesn't appear here.
+- Goose uses 2 to 5 times hyper's memory: peak RSS 26-49 MB on A, 87-221 MB on B, and
+  129-387 MB on C, against hyper's 13-17, 29-46, and 37-75 MB. Each Goose worker loads
+  its own copy of the records, and templates add a copy of their JSON.
+
+Tier D, request bodies of 2 KB to 8 MB (`tier-d.lua`): the uploads role, chunked CSV
+imports and multipart attachments, on 1 thread and 32 connections, alone and beside
+the forms role, JSON batches and forms, on 7 threads and 224. Requests per second, the
+range of 3 runs:
+
+| Server | Uploads alone | p50 | Uploads beside forms | p50 | Forms role | p99 |
+|---|---:|---:|---:|---:|---:|---:|
+| Goose io_uring | 968-977 | 21-23 ms | **151-152** | 136-137 ms | 6.9-7.1K | **78-79 ms** |
+| Goose epoll | 983-998 | 20-24 ms | 115-116 | 157-244 ms | **7.3K** | 87-92 ms |
+| hyper | **1,056-1,072** | **15 ms** | 42-73 | 132-148 ms | 4.8-5.0K | 135-172 ms |
+
+- hyper takes uploads alone 6-11% faster than either Goose loop, at a lower median
+  latency. It reads the CSV with a port of Goose's reader and the multipart body with
+  multer; where Goose spends the difference isn't measured yet.
+- Beside the forms role, Goose takes 1.6 to 3.6 times hyper's uploads and 1.4-1.5 times
+  its forms, at 0.5-0.7 times its forms p99.
+
+Tiers A to C at a fixed rate, half the lowest median above: 140K requests per second on
+A, 74K on B, and 16K on C, from zrk 2.3.0, one process per route at its share of the
+tier's mix (`bench/rest/rate.py`), corrected for coordinated omission. Every server
+held every rate. The server's CPU time per request, and each tier's highest route p99
+over the 3 runs:
+
+| Tier, JSON | Goose io_uring | Goose epoll | hyper |
+|---|---:|---:|---:|
+| A, serialize | 17.9-18.3 µs, 0.91 ms | **17.5-18.0 µs, 0.19 ms** | 22.6-23.0 µs, 0.80 ms |
+| A, template | 17.9-18.5 µs, 0.71 ms | **17.3-17.9 µs, 0.26 ms** | 22.4 µs, 9.6 ms |
+| B, serialize | **28.4-29.3 µs, 0.20 ms** | 29.0-29.8 µs, 0.38 ms | 38.9-39.5 µs, 2.1 ms |
+| B, template | 26.7-27.0 µs, 0.19 ms | **26.1-26.9 µs, 0.17 ms** | 35.6-35.7 µs, 0.24 ms |
+| C, serialize | 86.8-89.2 µs, 1.6 ms | **86.7-87.1 µs, 0.93 ms** | 141-144 µs, 2.1 ms |
+| C, template | 43.3-43.7 µs, 0.39 ms | **42.7-43.2 µs, 0.35 ms** | 54.0-54.4 µs, 0.42 ms |
+
+- At a fixed rate the two Goose loops spend the same CPU per request, 0.6 to 0.8 times
+  hyper's. Each request wakes an idle loop: on tier A that costs 1.9 times the epoll
+  loop's saturated figure and 2.6 times io_uring's.
+- Every route's median stays at 0.09-0.18 ms on every server, except C's 715 KB
+  bookings: 0.67 ms on Goose serialized, 1.15 ms on hyper, and 0.25-0.26 ms with
+  templates.
+
+The mixed run: a server with `TIER=d` takes tier C's reads at 16K requests per second,
+alone and beside the uploads role. Read latency in ms, p50 / p99, the range over the
+6 routes and 3 runs:
+
+| Server | Reads alone | Reads beside uploads | Uploads |
+|---|---:|---:|---:|
+| Goose io_uring | 0.10-0.67 / 0.65-1.0 | 2.6-3.6 / 8.9-17 | 636-650/s |
+| Goose epoll | 0.10-0.68 / 0.36-0.94 | **0.32-0.94 / 1.6-2.7** | 627-651/s |
+| hyper | 0.12-1.17 / 0.50-38 | 5.9-7.0 / 17-21 | 555-567/s |
+
+- The epoll loop keeps reads beside uploads under 2.7 ms at p99, since it reads at most
+  `Config.max_read` (16 KB) from a connection per turn. io_uring's p99 there is 9-17 ms
+  and hyper's 17-21 ms.
+- hyper's reads alone had p99s of 19-38 ms in one of the 3 rounds, and under 1.5 ms in
+  the other two.
+
 ## Instructions per request
 
 `bench/instructions.sh`, on 2026-10-12 in the evening, Goose at `47876ad`: one worker on
@@ -331,6 +420,14 @@ losses are the epoll loop's, which is also the HttpArena entry, and memory.
   tokio 0.11, and Goose calls `recv` once more per connection (task 009).
 - **HttpArena's latency-1m p99**: 230 µs against 159-181 µs, a measure that moves by up
   to 15 times between runs.
+- **REST uploads alone, to hyper, by 6-11%**: 968-998 against 1,056-1,072 per second,
+  at a median of 20-24 ms against 15 ms ([REST APIs](#rest-apis)).
+- **REST memory**: 2 to 5 times hyper's peak RSS on every tier, since each worker loads
+  its own copy of the records.
+- **REST reads beside uploads on the io_uring loop**: p99 9-17 ms against the epoll
+  loop's 1.6-2.7 ms. The epoll loop bounds its reads per connection turn. The io_uring
+  loop takes up to 256 completions per wait, each up to 4 KB of an upload, which would
+  fit; not measured yet.
 
 ## M1 Pro, Linux in Docker
 

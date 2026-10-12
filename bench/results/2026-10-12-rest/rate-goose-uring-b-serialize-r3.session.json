@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v1/session", "method": "GET" },
+  "config": { "connections": 64, "launched": 64, "duration_s": 15.000, "closed": false, "target_rate": 18500, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 277320,
+  "bytes": 456191400,
+  "achieved_rate": 18487.21,
+  "target_rate": 18500,
+  "target_rate_end": 18500,
+  "rate_ratio": 0.9993,
+  "bytes_per_sec": 30411460.71,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 14070,
+  "latency_us": {
+    "min": 20, "mean": 113.5, "stdev": 254.7, "max": 17535,
+    "p50": 107, "p75": 122, "p90": 141, "p99": 183, "p99_9": 358, "p99_99": 15052
+  },
+  "status_codes": { "1xx": 0, "2xx": 277320, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAyV4nC1RXWhURxS+883cn929dzf743bNrokx3SYmJiWEEP/whxIl2CZdH4oUCr6o+CDom09qy2KWkIaQQFlCUFkkyBpCCYsPQdpUJIgUCXZblhAWCaWoSJASgwQNfvduZu6ZmfOd73znzNxUdiKqafJvrTbk9i48Z2JIO/q2BrTAH6yr39164szlnBgVBbEkqiKHHObwCCtYRRkjckT+InPyN/lYjqtZtaiqqqKXjAVz2Zz0jfs++HOBir1i55yKMxMcDz0M5usWw+Xwg8hWpBB7EfsvPpV4tnMpOd1QbnjUlG9eTS+2lts2O4udc13T3Q96tnrWeouHNg9vHSkdrR4v9hX63pxc79889fLrwuD66fnBsUw18/T08uBUZiGzNlAceN9fPpk9MdaXP3b3WOXw7P6tnpddY13DHbc6/mmZ/ny2eWNPoelO4+PUQjKbHK+vJp7sXE9k46uxlehaZCb6MLIUngnn64brXgdHgjedGXvUrgZ+Dfzve+Kb8/1pPTdvWE/NnJE1Jo3n+rxe0kuqoubVutyQObUh/+U73JTLqKKAPIq0EbwVz8QLURJz4o64J4bFtZ/E2fNXv/t+4NvOffsPHmxrrU/taUvs3hdrSNVHvojb8UjKiiUith2z48GEP275DeWP+A3DsC3Dr6CUZXAFLKXoG5oVtKAMuJDSLBhKc8OaUsqviLmo53PRLQ0aoBk8S0ilE1Ie5A7No2qMwOB0d2YR1aFMLvCY0sAO1GiMEta8TFdD90y659C2sENTgVpmCCb7DCCgpGpR7egmeS8+g4lBpMk00cPkXbQmvBIM3BcYEvgDaMRx/Ai0k8LttkvqZxzvBCVCwBVcwoRAH76hqA/NOEXBDnqH8BXFr+MjcF+SFsBFej8gihZcQKPSiaRpDsJcD+BLJGlNfJpe6uzlTXX0ktGO3wX+ElR3cA4/C2TQrbq8njUSpSfBL6mi7K32Ou6Z4C5K72DJi16JdjaeJube3GFmmFTTvaDnhegl+Yg+Nqh7mia5UU43P0B2mpWbSXd5IZZw3P/Ihr2guZ3CSIiow6lv1+9g65pX4ROribqu"
+}

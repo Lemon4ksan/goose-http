@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/items/7", "method": "POST" },
+  "config": { "connections": 15, "launched": 15, "duration_s": 15.000, "closed": false, "target_rate": 8400, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.000,
+  "requests": 125994,
+  "bytes": 9953526,
+  "achieved_rate": 8399.33,
+  "target_rate": 8400,
+  "target_rate_end": 8400,
+  "rate_ratio": 0.9999,
+  "bytes_per_sec": 663547.26,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 6787,
+  "latency_us": {
+    "min": 25, "mean": 113.2, "stdev": 163.4, "max": 8575,
+    "p50": 105, "p75": 120, "p90": 138, "p99": 182, "p99_9": 2421, "p99_99": 7198
+  },
+  "status_codes": { "1xx": 0, "2xx": 125994, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAzt4nDWRUWgcVRSGZ/45c+fundnJ7ma3s2m6ye7OphG1jYtWFGP7ElTQvCgWFRRFVCj0RRQVFbUusZQgJYUS+iSllCCh5KmEUkKJUqRUKEsJIiIlD0HyUEoRkSDif+/Gmblzz/3Pf7575s6+3plhz5O3vMEV7M6+W5z5xjtybyB04YlOUrNnf2fs8Seem56eeeW1F5+ZeffYnP/+Z6f86/73/o5/HhfwI5aC9aAn87Im8+F8uB1uhv+oG9H9aDO6q38rnDXL8ankZHo77ZX6lRPVS9Wd2tXsu/r83nONxbH+2Nb42ea/za3WWr7RXszX87nOlXyrc6N9p73S3shXJ/7OVzprE5c7a50/8qX8p9ZCa6m5M3a6cXHf/dH+3u36Yr2X3amtV69WrpdOpnPFe8mt9ObQctpPrpgvzbJZjRfi22ancLfQ0yf0L9Fq9Ge0EG2obbUVXlN/hRthX27J78E5uRj8ips4jQVs+tf8Ff9b/4OP3zz2xtGjLxye2T/98GOPHHzwYKfTbj6wp1mpmqqpV0sVo0taVGoSRpWSNqWKlNJETF1VKCZGa6MVJIFSxs4JoIwAkupEQSsRrZQoLdYlREmiEk1vwqRSzi2evYHEMx4V4QUtoAgWwdMYiKLhGYvT2rHsrkzRqkIq0M7G/6o4uIb2lEXDcizZcuA5GgIJOHtcFqkpqtFu2joDSEBT0bltgoqLPfdEDkMC6RFTng2cI5DQIuznuErPuSKELjewWFa8SwtcxM2GELOUcRkYoj2WGMPWVEaBN/PR/5XWVWAyQkEyNLia4rAc++YtDSI8ZNZuN47ZTiZFxmXLG8YoXRZ4nI5QRuwbX/noYtI19Akm8DKjMmr42cfTOOTIGV0ZWngST3HXcXK+IGWc6g8+X8VB99Z5AJ+z/HViCoSWWUHzFEZYZo/EtU7DKF4CxUmOjFKNqQaTRTxERtGeeYD3uAG1Gjfo4iOSba/jeJWAIscU2TGepzrhvpnJHB/KLOURkGP9GedDzLbor7lTCmXQQovZKfC4umAzZXoK5NQwKwdYZb+mQUcXz7pchK99TqOU3uEoyttwh3Scy4jdfIpHWRNhFpP8ef8BKdaOnQ=="
+}

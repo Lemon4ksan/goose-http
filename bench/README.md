@@ -15,6 +15,8 @@ bench/httparena.sh     # HttpArena's harness, in Docker, with Goose as an entry
 bench/run-macos.sh     # a short matrix natively on macOS, into bench/results/<date>-<machine>/
 bench/files.sh         # static files, and /bytes from memory, against nginx and Caddy
 bench/oha.sh           # Goose builds with oha, on Windows (Git Bash) or Linux, for IOCP
+bench/rest.sh          # task 021's REST tiers against hyper: build, then run (about 75 minutes)
+bench/table.py         # README.md's plaintext and JSON table from run.sh's runs.tsv files
 ```
 
 `bench/files.sh` compares static files with the usual file servers rather than the
