@@ -29,7 +29,7 @@ refuses each kind in `scripts/http_client.py hostile`; HttpArena's own validatio
 them hasn't run yet.
 
 So for HTTP/1.1 without TLS, compression is the one feature missing, and it is the
-next HTTP/1.1 work, done elsewhere. Serving a precompressed `.gz` next to a static
+next HTTP/1.1 work, in task 022. Serving a precompressed `.gz` next to a static
 file, chosen by `Accept-Encoding`, is the cheap half of it.
 
 ## async
@@ -61,4 +61,4 @@ and 32 overlapping delays in 0.52 s.
 - [x] `/delay/{ms}` in the benchmark server, passing `validate.sh`'s checks by hand
 - [x] async and latency-10k in the entry's `meta.json` and `bench/httparena.sh`
 - [ ] `bench/httparena.sh validate` and `run` with them on the desktop
-- [ ] Compression (elsewhere), then json-comp
+- [ ] Compression (task 022), then json-comp
