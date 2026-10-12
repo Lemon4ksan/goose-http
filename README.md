@@ -133,7 +133,8 @@ epoll.
 
 ### REST APIs
 
-Not measured yet. Soon, with the API features above.
+Not measured yet. The helpers are in, under [Helpers for APIs](#helpers-for-apis); a
+REST benchmark is next.
 
 ## API
 
