@@ -721,3 +721,85 @@ Workaround: `examples/c` is off `main`, on the `examples-c` branch, until a pack
 can leave a program under its root out (2026-10-12). Any `.goose` file under the root
 with an `extern fn` that the package's own C doesn't define breaks in-process runs of
 every program that imports the package.
+
+## A block given a local struct writes to a copy of it
+
+Found on `5c83a5a`, task 021. Status: open
+
+A function that calls its block with a local struct variable, `F(c)`, gives the block a
+copy, so whatever the block changes through it is lost, without an error. Called with a
+reference parameter instead, the same block writes through to the caller's value. A
+block's parameters can't be typed, so it can't ask for a reference either. The REST
+server met this with `json::Reader`: a loader that read each file's records with
+`json::each_element(r) { F(r); }` saw the cursor never move, and the parse failed at
+byte 1. Expected: the block's parameter binds the argument as a call to an untyped
+function parameter does, or the compiler refuses the write to a copy.
+
+    struct Cursor { pos: i64 }
+
+    fn advance(c: Cursor&) { c.pos++; }
+
+    fn each_twice<F>() {
+        var c = Cursor { pos: 0 };
+        F(c);
+        F(c);
+        print(c.pos);       // 0, and the block printed 1 twice
+    }
+
+    fn main() { each_twice() { it => advance(it); print(it.pos); }; }
+
+Workaround: pass the block a struct that holds a reference, `struct Cursor { r:
+json::Reader& }`, and bind it in the block with `let r .= c.r;`
+(`bench/rest/goose/rest.goose`, `load_each`).
+
+## A worker can't read a string constant
+
+Found on `5c83a5a`, task 021. Status: open
+
+A `let` global holding a string literal is a slice, so a thread program refuses it as a
+global that isn't flat (spec §11.2), though the literal is read-only static data that
+every thread shares. Expected: a `const u8[:]` into static data counts as flat.
+
+    let NAME = "goose";
+
+    thread_fn worker() { print(NAME); }   // error: thread programs may access only
+                                          // flat globals (§11.2): NAME holds references
+    fn main() { thread_wait(thread_spawn(worker)); }
+
+Workaround: a function that returns the literal, `fn app_url() -> const u8[:] {
+"https://..." }` (`bench/rest/goose/rest.goose`).
+
+## `format_uint` and `format_int` don't take a limited array
+
+Found on `5c83a5a`, task 021. Status: open
+
+`format` appends to a `u8[..k]` as to a builder, but `format_uint` and `format_int`
+take only a `u8[>..]&`, so a padded or hexadecimal number can't go straight into a
+struct's inline string. Expected: the same destinations as `format`.
+
+    var s: u8[..16] = "";
+    format(s, 255);                     // fine
+    format_uint(s, 255, 16, 2, '0');    // error: cannot pass u8[..16] as u8[>..]&
+
+Workaround: format into a `u8[>..]` and append that (`bench/rest/gen.goose`, `uuid`).
+
+## A call's two results can't be assigned to existing variables
+
+Found on `5c83a5a`, task 021. Status: open
+
+Several results are received only by `let a, b = f();` (spec §7.1). Assigning them to
+variables declared earlier, as a loop or block that updates outer state needs, is an
+error whose message speaks of a block's value instead. Expected: `a, b = f();` assigns
+both, or an error that says a call's results need a `let`.
+
+    fn two() -> i64, bool { return 1, true; }
+
+    fn main() {
+        var a = 0;
+        var ok = false;
+        a, ok = two();      // error: several values exist only in `return a, b;` and in
+        print(a, ok);       // a call's results, so a block or branch cannot end in `a, b`
+    }
+
+Workaround: `let d, fits = description_of(r, scratch);` and assign each
+(`bench/rest/goose/rest.goose`, `patch_entry`).
