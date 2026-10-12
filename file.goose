@@ -14,15 +14,22 @@
 //   } else if ev.kind == http::CLOSED {
 //       http::close_body(st.file);
 //   }
+//
+// open_precompressed in place of open_file serves a .br, .zst, or .gz copy
+// made beforehand, by the request's Accept-Encoding; content_type_of still
+// takes the original's name.
 namespace http;
 
 import std;
 import message;
+import media;
 import sys;
 
 // A file open_file opened: its handle, size in bytes, and modification time
-// in seconds since the epoch.
-struct File { fd: i64 = -1, size: i64 = 0, modified: i64 = 0 }
+// in seconds since the epoch. open_precompressed also sets the content coding
+// it holds, "" for none, and vary, since its choice depends on the request's
+// Accept-Encoding.
+struct File { fd: i64 = -1, size: i64 = 0, modified: i64 = 0, coding: const u8[:] = "", vary: bool = false }
 
 // The part of a file a response still has to send, kept in the handler's
 // state between MORE events. fd is -1 once closed.
@@ -54,6 +61,38 @@ fn open_file(path: const u8[:]) -> File, i32 {
     return File { fd: fd, size: info[0], modified: info[1] }, 200;
 }
 
+// Opens path as open_file does, or in its place the precompressed copy beside
+// it that req's Accept-Encoding weighs highest: path.br, path.zst, or path.gz,
+// of equal weights in that order, as Caddy's precompressed prefers. A copy
+// older than path is passed over, since it may hold what path held before.
+fn open_precompressed(req: Request, path: const u8[:]) -> File, i32 {
+    let f, status = open_file(path);
+    guard status == 200 else { return f, status; }
+    let codings = ["br", "zstd", "gzip"];
+    let exts = [".br", ".zst", ".gz"];
+    var qs: i64[3] = [0; 3];
+    for c, i in codings { qs[i] = coding_q(req, c); }
+    loop {
+        var best = -1;
+        for q, i in qs {
+            if q > 0 && (best < 0 || q > qs[best]) { best = i; }
+        }
+        guard best >= 0 else { break; }
+        qs[best] = 0;
+        var name: u8[>..] = [];
+        name.append(path);
+        name.append(exts[best]);
+        let v, s = open_file(name);
+        guard s == 200 else { continue; }
+        if v.modified >= f.modified {
+            net_file_close(f.fd);
+            return File { fd: v.fd, size: v.size, modified: v.modified, coding: codings[best], vary: true }, 200;
+        }
+        net_file_close(v.fd);
+    }
+    return File { fd: f.fd, size: f.size, modified: f.modified, vary: true }, 200;
+}
+
 // Closes b's file, if open, and leaves nothing to send.
 fn close_body(b: FileBody&) {
     if b.fd >= 0 { net_file_close(b.fd); }
@@ -64,7 +103,9 @@ fn close_body(b: FileBody&) {
 // Answers a GET or HEAD for f, which open_file opened, as content_type: with
 // 304 when not_modified, 416 for a range past its end, 206 for one range of
 // it, or 200 with all of it, each with an ETag of its size and modification
-// time, Last-Modified, and Accept-Ranges. body becomes the bytes still to
+// time, Last-Modified, and Accept-Ranges; and with f's Content-Encoding and
+// Vary from open_precompressed, the range taken of the coded bytes, as RFC
+// 9110 §14 has it. body becomes the bytes still to
 // send, which the handler sends with send_file at each MORE until it returns
 // false, and then ends the response with end. With none to send, as for
 // HEAD, the response has ended and f is closed.
@@ -74,13 +115,17 @@ fn serve_file(req: Request, out: Reply, f: File, content_type: const u8[:], body
     hex_size(tag, f.size);
     tag.push('-');
     hex_size(tag, max(f.modified, 0));
+    if f.coding.len > 0 {
+        tag.push('-');
+        tag.append(f.coding);
+    }
     tag.push('"');
     body.fd = f.fd;
     body.off = 0;
     body.left = 0;
     if not_modified(req, tag, f.modified) {
         start(out, 304);
-        file_fields(out, tag, f.modified);
+        file_fields(out, f, tag);
         finish(out, "", "");
         close_body(body);
         return;
@@ -96,7 +141,8 @@ fn serve_file(req: Request, out: Reply, f: File, content_type: const u8[:], body
     begin(out, status, e - a);
     if status == 206 { content_range(out, a, e, f.size); }
     field(out, "Content-Type", content_type);
-    file_fields(out, tag, f.modified);
+    if f.coding.len > 0 { field(out, "Content-Encoding", f.coding); }
+    file_fields(out, f, tag);
     body.off = a;
     body.left = e - a;
     if out.head || body.left == 0 {
@@ -105,12 +151,13 @@ fn serve_file(req: Request, out: Reply, f: File, content_type: const u8[:], body
     }
 }
 
-inline fn file_fields(out: Reply, tag: const u8[:], modified: i64) {
+inline fn file_fields(out: Reply, f: File, tag: const u8[:]) {
     out.buf.append("ETag: ");
     out.buf.append(tag);
     out.buf.append("\r\nLast-Modified: ");
-    format_date(out.buf, max(modified, 0));
+    format_date(out.buf, max(f.modified, 0));
     out.buf.append("\r\nAccept-Ranges: bytes\r\n");
+    if f.vary { out.buf.append("Vary: Accept-Encoding\r\n"); }
 }
 
 // Sends the next piece of b, at most FILE_PIECE bytes, into the response

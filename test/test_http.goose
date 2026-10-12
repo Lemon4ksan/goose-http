@@ -896,6 +896,71 @@ fn test_files() {
     assert(delete_file(name));
 }
 
+// Accept-Encoding fields, and the weight coding_q gives coding by them.
+struct Coded { fields: const u8[:], coding: const u8[:], q: i64 }
+
+fn test_codings() {
+    let mixed = "Accept-Encoding: gzip;q=2, br;level=1, zstd\r\n";
+    let cases = [
+        Coded { fields: "", coding: "gzip", q: 0 },
+        Coded { fields: "Accept-Encoding: gzip, br\r\n", coding: "br", q: 1000 },
+        Coded { fields: "Accept-Encoding: br;q=1, gzip;q=0.8\r\n", coding: "gzip", q: 800 },
+        Coded { fields: "Accept-Encoding: x-gzip\r\n", coding: "gzip", q: 1000 },
+        Coded { fields: "Accept-Encoding: GZIP ; Q=0.3\r\n", coding: "gzip", q: 300 },
+        Coded { fields: "Accept-Encoding: *;q=0.5, gzip;q=0\r\n", coding: "gzip", q: 0 },
+        Coded { fields: "Accept-Encoding: *;q=0.5, gzip;q=0\r\n", coding: "br", q: 500 },
+        Coded { fields: "Accept-Encoding: identity\r\n", coding: "gzip", q: 0 },
+        Coded { fields: "Accept-Encoding:\r\n", coding: "gzip", q: 0 },
+        Coded { fields: "Accept-Encoding: deflate\r\nAccept-Encoding: gzip;q=0.1\r\n", coding: "gzip", q: 100 },
+        Coded { fields: mixed, coding: "gzip", q: 0 },
+        Coded { fields: mixed, coding: "br", q: 0 },
+        Coded { fields: mixed, coding: "zstd", q: 1000 },
+    ];
+    for c in cases {
+        var rb: u8[>..] = [];
+        let q = http::coding_q(get_with(c.fields, rb), c.coding);
+        if q != c.q { print("coding_q: ", c.fields, c.coding, " got ", q, ", want ", c.q); }
+        assert(q == c.q);
+    }
+
+    // A file with a gzip and a br copy, none older than it.
+    let name = "test_codings.tmp";
+    assert(write_file(name, "plain"));
+    assert(write_file(str(name, ".gz"), "gz"));
+    assert(write_file(str(name, ".br"), "br"));
+    let picks = [
+        Coded { fields: "", coding: "", q: 5 },
+        Coded { fields: "Accept-Encoding: gzip, br\r\n", coding: "br", q: 2 },
+        Coded { fields: "Accept-Encoding: br;q=0.4, gzip;q=0.5\r\n", coding: "gzip", q: 2 },
+        Coded { fields: "Accept-Encoding: zstd, gzip;q=0.1\r\n", coding: "gzip", q: 2 },
+        Coded { fields: "Accept-Encoding: zstd\r\n", coding: "", q: 5 },
+    ];
+    for p in picks {
+        var rb: u8[>..] = [];
+        let req = get_with(p.fields, rb);
+        let f, s = http::open_precompressed(req, name);
+        assert(s == 200 && f.coding == p.coding && f.size == p.q && f.vary);
+        var out: u8[>..] = [];
+        var keep = true;
+        var st = http::Stream { .. };
+        var body = http::FileBody { .. };
+        let reply = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: st };
+        http::serve_file(req, reply, f, "text/plain", body);
+        while http::send_file(reply, body) {}
+        http::end(reply);
+        assert(find(out, "Vary: Accept-Encoding\r\n") >= 0);
+        assert((find(out, "Content-Encoding: ") >= 0) == (p.coding.len > 0));
+        if p.coding.len > 0 {
+            assert(find(out, str("Content-Encoding: ", p.coding, "\r\n")) >= 0);
+            assert(find(out, str("-", p.coding, "\"\r\n")) >= 0);
+        }
+    }
+    var rb: u8[>..] = [];
+    let none, missing = http::open_precompressed(get_with("Accept-Encoding: gzip\r\n", rb), "no such file here");
+    assert(missing == 404 && none.fd < 0);
+    for suffix in ["", ".gz", ".br"] { assert(delete_file(str(name, suffix))); }
+}
+
 fn main() {
     test_parse();
     test_fields();
@@ -914,5 +979,6 @@ fn main() {
     test_upgrade();
     test_conditional();
     test_files();
+    test_codings();
     print("test_http: ok");
 }

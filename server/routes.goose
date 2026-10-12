@@ -208,7 +208,8 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
     }
 }
 
-// /files/NAME: the file NAME, percent-decoded, in the directory FILES names.
+// /files/NAME: the file NAME, percent-decoded, in the directory FILES names,
+// or a precompressed copy of it.
 fn serve_static(req: http::Request, name: const u8[:], st: Transfer&, out: http::Reply) {
     var dir: u8[>..] = [];
     var decoded: u8[>..] = [];
@@ -218,7 +219,7 @@ fn serve_static(req: http::Request, name: const u8[:], st: Transfer&, out: http:
         full.append(dir);
         full.push('/');
         full.append(decoded);
-        let f, s = http::open_file(full);
+        let f, s = http::open_precompressed(req, full);
         if s == 200 {
             st.route = FILE;
             http::serve_file(req, out, f, http::content_type_of(decoded), st.file);

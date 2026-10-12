@@ -31,6 +31,7 @@ is the Server field tfb expects (goose), for checking the servers in bench/.
 
 import asyncio
 import email.utils
+import gzip
 import json
 import os
 import signal
@@ -748,15 +749,22 @@ def graceful_stop(port, send):
 
 def files(port, root):
     """/files/NAME, the server's static files: whole, by HEAD, conditional, one
-    range, larger than the write buffer, pipelined, and to a client that
-    leaves halfway, after which test-http.sh checks the server holds no file
-    open."""
+    range, larger than the write buffer, pipelined, to a client that leaves
+    halfway, after which test-http.sh checks the server holds no file open,
+    and precompressed copies by Accept-Encoding."""
     small = b"hello, file\n"
     big = bytes(range(256)) * 20000 + b"end"
+    small_gz = gzip.compress(small)
+    small_br = b"stands in for brotli"
     os.makedirs(os.path.join(root, "sub"), exist_ok=True)
-    for name, data in (("a.txt", small), ("sub/big.bin", big), ("sp ace.html", b"<p>")):
+    for name, data in (("a.txt", small), ("sub/big.bin", big), ("sp ace.html", b"<p>"),
+                       ("a.txt.gz", small_gz), ("a.txt.br", small_br), ("sub/big.bin.gz", b"stale")):
         with open(os.path.join(root, name), "wb") as f:
             f.write(data)
+    # A copy older than its file, as one left behind when the file changed.
+    stale = os.path.join(root, "sub/big.bin.gz")
+    then = os.stat(os.path.join(root, "sub/big.bin")).st_mtime - 100
+    os.utime(stale, (then, then))
 
     def get(path, extra=b"", method=b"GET"):
         c = Conn(port, timeout=30)
@@ -815,6 +823,41 @@ def files(port, root):
         c.sock.recv(1000)
         c.close()
     check(get(b"/files/a.txt"), 200, small, "/files/ after clients left")
+
+    def coded(r):
+        return [v for n, v in r.headers if n == "content-encoding"]
+
+    r = get(b"/files/a.txt")
+    if coded(r) or r.header("vary") != "Accept-Encoding":
+        fail(f"/files/a.txt without Accept-Encoding: {r.headers}")
+    r = get(b"/files/a.txt", b"Accept-Encoding: gzip, deflate\r\n")
+    check(r, 200, small_gz, "a gzip copy")
+    if gzip.decompress(r.body) != small or coded(r) != ["gzip"] or r.header("vary") != "Accept-Encoding":
+        fail(f"a gzip copy's fields: {r.headers}")
+    if r.header("content-type") != "text/plain; charset=utf-8":
+        fail(f"a gzip copy's Content-Type: {r.headers}")
+    gz_tag = r.header("etag")
+    if gz_tag == etag or not gz_tag.endswith('-gzip"'):
+        fail(f"a gzip copy's ETag {gz_tag}, the file's {etag}")
+    r = get(b"/files/a.txt", b"Accept-Encoding: br;q=1, gzip;q=0.8\r\n")
+    check(r, 200, small_br, "a br copy")
+    if coded(r) != ["br"]:
+        fail(f"a br copy's fields: {r.headers}")
+    r = get(b"/files/a.txt", b"Accept-Encoding: br;q=0, gzip\r\nRange: bytes=0-1\r\n")
+    check(r, 206, b"\x1f\x8b", "a range of a gzip copy")
+    if r.header("content-range") != f"bytes 0-1/{len(small_gz)}":
+        fail(f"a range of a gzip copy's Content-Range: {r.headers}")
+    r = get(b"/files/a.txt", b"Accept-Encoding: gzip\r\nIf-None-Match: " + gz_tag.encode() + b"\r\n")
+    check(r, 304, b"", "If-None-Match with a gzip copy's ETag")
+    if r.header("vary") != "Accept-Encoding":
+        fail(f"304 for a gzip copy: {r.headers}")
+    check(get(b"/files/a.txt", b"Accept-Encoding: gzip\r\nIf-None-Match: " + etag.encode() + b"\r\n"), 200,
+          small_gz, "If-None-Match with the file's ETag, for a gzip copy")
+    check(get(b"/files/a.txt", b"Accept-Encoding: zstd, identity\r\n"), 200, small, "no copy taken")
+    r = get(b"/files/sub/big.bin", b"Accept-Encoding: gzip\r\n")
+    check(r, 200, big, "a copy older than its file")
+    if coded(r):
+        fail(f"a copy older than its file was sent: {r.headers}")
     print("files: ok")
 
 

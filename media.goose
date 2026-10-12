@@ -207,14 +207,7 @@ fn weigh(list: const u8[:], offers: const u8[:][:], weights: i64[>..]&, ranks: i
         var next = stop;
         if next < list.len && list[next] != ',' {
             good = false;
-            while next < list.len && list[next] != ',' {
-                if list[next] == '"' {
-                    let qe = quoted_end(list, next);
-                    next = if qe > 0 { qe } else { list.len };
-                } else {
-                    next++;
-                }
-            }
+            next = element_end(list, next);
         }
         at = next;
         guard good else { continue; }
@@ -245,6 +238,57 @@ fn weigh(list: const u8[:], offers: const u8[:][:], weights: i64[>..]&, ranks: i
             }
         }
     }
+}
+
+// Where the element of list that i is in ends: the next ',' outside a quoted
+// string, or the end.
+fn element_end(list: const u8[:], i: i64) -> i64 {
+    var at = i;
+    while at < list.len && list[at] != ',' {
+        if list[at] == '"' {
+            let qe = quoted_end(list, at);
+            at = if qe > 0 { qe } else { list.len };
+        } else {
+            at++;
+        }
+    }
+    return at;
+}
+
+// The weight req's Accept-Encoding gives coding (RFC 9110 §12.5.3), 0 to
+// 1000: its own, or else that of "*", or else 0. A request without
+// Accept-Encoding gets 0 for every coding, so it is answered without one,
+// as clients that send none expect. x-gzip counts as gzip (§8.4.1.3). An
+// element whose weight or parameters can't be read is skipped.
+fn coding_q(req: Request, coding: const u8[:]) -> i64 {
+    var own = -1;
+    var any = -1;
+    each_field(req) { name, value =>
+        var at = if same_name(name, "accept-encoding") { 0 } else { value.len };
+        while at < value.len {
+            var s = at;
+            while s < value.len && (value[s] == ' ' || value[s] == '\t' || value[s] == ',') { s++; }
+            guard s < value.len else { break; }
+            var e = s;
+            while e < value.len && is_tchar(value[e]) { e++; }
+            let c = value[s..e];
+            var q = 1000;
+            var good = e > s;
+            let stop = e + each_param_until(value[e..], true) { n, v =>
+                let w, ok = qvalue(v);
+                if same_name(n, "q") && ok { q = w; } else { good = false; }
+            };
+            at = stop;
+            if at < value.len && value[at] != ',' {
+                good = false;
+                at = element_end(value, at);
+            }
+            guard good else { continue; }
+            if same_name(c, coding) || coding == "gzip" && same_name(c, "x-gzip") { own = max(own, q); }
+            else if c == "*" { any = max(any, q); }
+        }
+    };
+    return if own >= 0 { own } else { max(any, 0) };
 }
 
 // Whether each parameter in params, as "; a=1", is m's too, with the name

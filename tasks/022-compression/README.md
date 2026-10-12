@@ -1,6 +1,7 @@
 # 022: Compression
 
-Status: todo (asked for 2026-10-12; the split below is a proposal, not a decision)
+Status: in progress (asked for 2026-10-12; the split below is a proposal, not a
+decision, but for the package's name)
 
 Compress responses by `Accept-Encoding`. It is the one HTTP/1.1 feature HttpArena's
 plaintext profiles still need (task 018): json-comp sends `Accept-Encoding: gzip, br`
@@ -20,7 +21,8 @@ the request had no `Accept-Encoding`. The static profiles send
 
 ## Proposed split
 
-- The codecs go in a package of their own, `goose-compress`, that imports nothing of
+- The codecs go in a package of their own, `goose-compress` (named 2026-10-12, over
+  `goose-deflate`, so that zstd joins it without a rename), that imports nothing of
   HTTP: CRC-32, Adler-32, a DEFLATE encoder, the gzip and zlib wrappers, and later
   zstd. Its API takes bytes in and gives bytes out, with a flush that ends a chunk on a
   byte boundary, so a streamed response or SSE event goes out whole.
@@ -45,7 +47,6 @@ zstd follows as a subtask of its own once gzip is measured.
 
 ## Open questions
 
-- The package's name: `goose-compress`, or `goose-deflate` that grows zstd later.
 - Whether a C-backed encoder is kept beside the Goose one for comparison, or
   libdeflate and zlib-ng are only measured against it.
 
