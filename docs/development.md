@@ -251,13 +251,15 @@ once per loop. It needs curl, wrk, h2load, oha, `nc`, and `python3`
     `Content-Length` and chunked, bodies the handler doesn't read below and past
     `max_drain`, `Expect: 100-continue`, 10 MB echoed with each framing, 10 MB and
     100 MB downloads, a body to HTTP/1.0 that ends at the close, and an `Upgrade` to
-    an echo. After it, on Linux, the server's peak RSS must be under 64 MB.
+    an echo. After it, on Linux and Windows, the server's peak RSS must be under 64 MB:
+    `VmHWM` on Linux, the peak working set on Windows.
   - `files`: `/files/`, from a temporary directory the script names in `FILES`: a
     file whole, by `HEAD`, by `If-None-Match` and `If-Modified-Since`, one range, a
     suffix range, and one past the end; 404 for a missing file, a directory, `..`, and
     a NUL; a 5 MB file twice pipelined; and four clients that leave halfway. After
-    it, on Linux and macOS, the server must hold no file of that directory open:
-    the script reads `/proc/PID/fd` on Linux and asks `lsof` on macOS.
+    it, the server must hold no file of that directory open: the script reads
+    `/proc/PID/fd` on Linux, asks `lsof` on macOS, and on Windows opens each file
+    sharing nothing, which fails while the server holds it.
   - `chunked`: chunked bodies, with an extension and a trailer field, dropped between
     pipelined requests and sent a byte at a time, and HttpArena's `/baseline11` with no
     body, a `Content-Length` body, and a chunked one.
@@ -732,7 +734,11 @@ in Git Bash. The epoll loop doesn't build on Windows. Windows isn't for benchmar
 | Python | on `PATH` as `python3` | 3.14.6 |
 
 Build the compiler as in [Set up the Goose compiler](#set-up-the-goose-compiler), step 3.
-Then, in Git Bash:
+It needs the Visual Studio 2026 Build Tools (`winget install
+Microsoft.VisualStudio.BuildTools` with the `Microsoft.VisualStudio.Workload.VCTools`
+workload). With only Visual Studio 2022 17.6, MSBuild rejects Goose's C standard:
+`Element <LanguageStandard_C> has an invalid value of "stdclatest"` (2026-10-12). Then,
+in Git Bash:
 
 ```sh
 export GOOSE=$PWD/../goose/build/Release/goose.exe
@@ -749,6 +755,13 @@ clang-cl. `test-http.sh` leaves out the load runs and `emfile` on Windows, and
 
 Traps in Git Bash:
 
+- <a id="line-endings-on-windows"></a>Line endings on Windows: with
+  `core.autocrlf=true`, `.c`, `.goose`, and `.md` files are CRLF on disk and LF in git,
+  while `.gitattributes` keeps `.sh` and `.py` LF. A scripted search and replace that
+  assumes LF finds nothing in a CRLF file, and one that writes `\n` turns a whole CRLF
+  file into a one-line-per-change diff. `\r`, `\n`, and `\` inside a heredoc pass
+  through two rounds of escaping and come out as raw control bytes or literal text. The
+  Edit tool keeps each file's endings and needs no escaping, so use it.
 - `nice -n 19` starts a native program in the Idle priority class, which keeps a test
   run from slowing other work on the machine.
 - A Linux build in the same tree leaves an ELF `build/server` beside `build/server.exe`,

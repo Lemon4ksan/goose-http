@@ -51,6 +51,9 @@ directory.
   of that code needs: why, a constraint, or a contract the code can't show. Don't restate
   the next line, and don't describe earlier versions or the task that added the code;
   history belongs in git.
+- Edit files with the Edit tool, not with `sed` or a Python or PowerShell script. On
+  Windows, line endings differ by file type and a shell adds a layer of escaping, and
+  scripted edits break on both (`docs/development.md`, "Line endings on Windows").
 - An `extern fn` whose C side keeps or writes more than the spec's default (§7.10) says
   so in a comment.
 
