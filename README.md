@@ -18,7 +18,7 @@ Early work. No TLS yet.
 | 🟢 | HTTP/1.1 | Keep-alive, pipelining, chunked. HTTP/1.0 too. |
 | 🔴 | HTTP/2 | Later. |
 | 🔴 | TLS | Later, likely as a separate package. |
-| 🟡 | Compression | Precompressed `.br`, `.zst`, and `.gz` files. gzip on the fly next (task 022). |
+| 🟡 | Compression | Precompressed `.br`, `.zst`, and `.gz` files. gzip and deflate on the fly next, with [goose-compress](https://github.com/kaitk/goose-compress), a pure-Goose encoder (task 022). |
 | 🔴 | WebSocket | Out of scope for now. `Upgrade` hands the connection to the program. |
 | 🔴 | HTTP/3 | Out of scope for now. |
 
@@ -294,7 +294,8 @@ thread_fn worker(cfg: http::Config) {
 - `http::open_precompressed(req, path)`: the same, or in its place `path.br`,
   `path.zst`, or `path.gz`, whichever the request's `Accept-Encoding` weighs highest,
   and not older than `path`. `serve_file` then adds `Content-Encoding`, `Vary`, and an
-  `ETag` of the copy's own. Responses aren't compressed on the fly yet (task 022).
+  `ETag` of the copy's own. Responses aren't compressed on the fly yet: task 022 adds
+  gzip and deflate through [goose-compress](https://github.com/kaitk/goose-compress).
 - `http::serve_file(req, out, f, http::content_type_of(path), st.file)`: answers `GET`
   or `HEAD` with 200, 206, 304, or 416, with `ETag`, `Last-Modified`, and
   `Accept-Ranges`.
