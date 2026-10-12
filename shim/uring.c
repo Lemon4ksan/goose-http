@@ -48,11 +48,15 @@ typedef struct { ur_completion *data; int64_t len; } ur_completions;
 #define UR_QUIET 2
 
 /* A send's bytes, owned by the ring until the send's last completion.
-   Records of UR_SMALL bytes go back to a free list. Bigger ones, sized in
-   UR_BIG steps, go back to another while it holds under UR_KEEP bytes: freed
-   to malloc, a record that size goes back to the kernel, and the next one
-   faults its pages in again. */
-#define UR_SMALL 8192
+   Records of up to UR_SMALL bytes come in UR_CLASSES powers of two from
+   UR_MIN, each with its own free list, so that a ring's records of small
+   responses, one for each send in flight, pack into few pages. Bigger ones,
+   sized in UR_BIG steps, go back to another while it holds under UR_KEEP
+   bytes: freed to malloc, a record that size goes back to the kernel, and
+   the next one faults its pages in again. */
+#define UR_MIN 256
+#define UR_CLASSES 6
+#define UR_SMALL (UR_MIN << (UR_CLASSES - 1))
 #define UR_BIG 65536
 #define UR_KEEP (4u << 20)
 struct ur_send {
@@ -71,7 +75,7 @@ struct ur {
     unsigned char *bufs;
     uint32_t nbufs, buflen;
     int given;              /* buffers given back since the last ur_wait */
-    struct ur_send *free;
+    struct ur_send *free[UR_CLASSES];
     struct ur_send *big;
     uint32_t kept;          /* the bytes of big's records */
     /* Per fd, the number of times this ring closed it. A short send's rest
@@ -210,10 +214,12 @@ int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
         u->ngens = n;
     }
     s = NULL;
+    int k = 0;
     if (data.len <= UR_SMALL) {
-        if (u->free) {
-            s = u->free;
-            u->free = s->next;
+        while ((UR_MIN << k) < data.len) k++;
+        if (u->free[k]) {
+            s = u->free[k];
+            u->free[k] = s->next;
         }
     } else {
         for (struct ur_send **p = &u->big; *p; p = &(*p)->next) {
@@ -226,7 +232,7 @@ int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
         }
     }
     if (!s) {
-        size_t cap = data.len <= UR_SMALL ? UR_SMALL : ((size_t)data.len + UR_BIG - 1) / UR_BIG * UR_BIG;
+        size_t cap = data.len <= UR_SMALL ? (size_t)UR_MIN << k : ((size_t)data.len + UR_BIG - 1) / UR_BIG * UR_BIG;
         s = malloc(sizeof *s + cap);
         if (!s) return -ENOMEM;
         s->cap = (uint32_t)cap;
@@ -244,9 +250,11 @@ int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
 }
 
 static void ur_send_free(struct ur *u, struct ur_send *s) {
-    if (s->cap == UR_SMALL) {
-        s->next = u->free;
-        u->free = s;
+    if (s->cap <= UR_SMALL) {
+        int k = 0;
+        while ((UR_MIN << k) < s->cap) k++;
+        s->next = u->free[k];
+        u->free[k] = s;
     } else if (u->kept + s->cap <= UR_KEEP) {
         s->next = u->big;
         u->big = s;
@@ -383,10 +391,12 @@ void ur_destroy(int64_t h) {
     struct ur *u = (struct ur *)(intptr_t)h;
     io_uring_free_buf_ring(&u->ring, u->br, u->nbufs, 0);
     io_uring_queue_exit(&u->ring);
-    while (u->free) {
-        struct ur_send *s = u->free;
-        u->free = s->next;
-        free(s);
+    for (int k = 0; k < UR_CLASSES; k++) {
+        while (u->free[k]) {
+            struct ur_send *s = u->free[k];
+            u->free[k] = s->next;
+            free(s);
+        }
     }
     while (u->big) {
         struct ur_send *s = u->big;

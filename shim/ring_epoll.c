@@ -80,11 +80,14 @@ struct rp_send {
     unsigned char data[];
 };
 
-/* Sent records go back to a free list: those of RP_SMALL bytes always, and
-   bigger ones, sized in RP_BIG steps, while the list holds under RP_KEEP
-   bytes. Freed to malloc, a big record goes back to the kernel, and the next
-   one faults its pages in again, as in shim/uring.c. */
-#define RP_SMALL 8192
+/* Sent records go back to free lists: those of up to RP_SMALL bytes, in
+   RP_CLASSES powers of two from RP_MIN, always, and bigger ones, sized in
+   RP_BIG steps, while the list holds under RP_KEEP bytes. Freed to malloc, a
+   big record goes back to the kernel, and the next one faults its pages in
+   again, as in shim/uring.c. */
+#define RP_MIN 256
+#define RP_CLASSES 6
+#define RP_SMALL (RP_MIN << (RP_CLASSES - 1))
 #define RP_BIG 65536
 #define RP_KEEP (4u << 20)
 
@@ -116,16 +119,18 @@ struct rp {
     uint64_t ltag;
     uint8_t ladded, accepting, acceptable;
     int32_t err;                    /* -ENOMEM once the bookkeeping ran out, for ur_wait */
-    struct rp_send *small, *big;    /* sent records, to reuse */
+    struct rp_send *small[RP_CLASSES], *big;  /* sent records, to reuse */
     uint32_t kept;                  /* the bytes of big's records */
 };
 
 static struct rp_send *rp_send_alloc(struct rp *u, int64_t len) {
     struct rp_send *s = NULL;
+    int k = 0;
     if (len <= RP_SMALL) {
-        if (u->small) {
-            s = u->small;
-            u->small = s->next;
+        while ((RP_MIN << k) < len) k++;
+        if (u->small[k]) {
+            s = u->small[k];
+            u->small[k] = s->next;
         }
     } else {
         for (struct rp_send **p = &u->big; *p; p = &(*p)->next) {
@@ -138,7 +143,7 @@ static struct rp_send *rp_send_alloc(struct rp *u, int64_t len) {
         }
     }
     if (!s) {
-        size_t cap = len <= RP_SMALL ? RP_SMALL : ((size_t)len + RP_BIG - 1) / RP_BIG * RP_BIG;
+        size_t cap = len <= RP_SMALL ? (size_t)RP_MIN << k : ((size_t)len + RP_BIG - 1) / RP_BIG * RP_BIG;
         s = malloc(sizeof *s + cap);
         if (!s) return NULL;
         s->cap = (uint32_t)cap;
@@ -147,9 +152,11 @@ static struct rp_send *rp_send_alloc(struct rp *u, int64_t len) {
 }
 
 static void rp_send_free(struct rp *u, struct rp_send *s) {
-    if (s->cap == RP_SMALL) {
-        s->next = u->small;
-        u->small = s;
+    if (s->cap <= RP_SMALL) {
+        int k = 0;
+        while ((RP_MIN << k) < s->cap) k++;
+        s->next = u->small[k];
+        u->small[k] = s;
     } else if (u->kept + s->cap <= RP_KEEP) {
         s->next = u->big;
         u->big = s;
@@ -501,10 +508,12 @@ void RP(destroy)(int64_t h) {
             s = next;
         }
     }
-    while (u->small) {
-        struct rp_send *s = u->small;
-        u->small = s->next;
-        free(s);
+    for (int k = 0; k < RP_CLASSES; k++) {
+        while (u->small[k]) {
+            struct rp_send *s = u->small[k];
+            u->small[k] = s->next;
+            free(s);
+        }
     }
     while (u->big) {
         struct rp_send *s = u->big;
