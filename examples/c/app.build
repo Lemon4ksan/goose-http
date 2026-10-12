@@ -1,5 +1,0 @@
-// The handler, in C, which goose build compiles and links with the program.
-c_sources = ["handler.c"];
-output = "app";
-// MSVC needs C11 for _Static_assert, and a flag for <stdatomic.h>.
-c_flags_msvc = ["/std:c11", "/experimental:c11atomics"];

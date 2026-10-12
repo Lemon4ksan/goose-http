@@ -41,8 +41,7 @@ drain() {
 
 for f in "$root"/server/server.goose "$root"/server/server_epoll.goose \
     "$root"/test/test_*.goose "$root"/server/test_*.goose \
-    "$root"/examples/hello/hello.goose "$root"/examples/routes/routes.goose \
-    "$root"/examples/c/app.goose; do
+    "$root"/examples/hello/hello.goose "$root"/examples/routes/routes.goose; do
     step "check ${f#"$root"/}"
     "$goose" --check "$f"
 done

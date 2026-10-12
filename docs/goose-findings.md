@@ -717,5 +717,7 @@ own `.build`, isn't part of the package.
     // A program that imports pkg's lib and runs with `goose main.goose` fails:
     // undefined symbol: app_g
 
-Workaround: none committed yet; `scripts/test-unit.sh` fails with `examples/c` in the
-tree. Task 020's tests ran with `examples/c` moved out of it.
+Workaround: `examples/c` is off `main`, on the `examples-c` branch, until a package
+can leave a program under its root out (2026-10-12). Any `.goose` file under the root
+with an `extern fn` that the package's own C doesn't define breaks in-process runs of
+every program that imports the package.
