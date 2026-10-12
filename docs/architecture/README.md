@@ -123,6 +123,33 @@ until the task named beside it confirms or replaces it.
   - The `Date` header is rendered when the second changes, at most once a second per
     worker, after the worker's `epoll_wait` returns. Responses are literals around the
     date and the length.
+- **A handler called again, with state in the slot** (task 013, 2026-10-12). A Goose
+  handler can't be suspended or stored (spec §7.6), so bodies and responses of any
+  size come from calling it again, as h2o calls its generators and body callbacks,
+  with the request's state, a flat value of the program's type, kept in the
+  connection's slot (`http::Exchange`). Task 013's file records how the servers
+  read for it shape the same thing.
+  - `http::serve(cfg, fresh)` and `http::serve_epoll(cfg, fresh)` call the handler
+    with an `http::Event`: `REQUEST`, `BODY`, `END`, and `MORE`. `serve(cfg)` is a
+    wrapper that answers `REQUEST` alone. A body that fits in the read buffer with
+    its head comes whole at `REQUEST`, which keeps the benchmarks' path one call per
+    request.
+  - A longer body comes in pieces as each read brings it, decoded in the read buffer
+    by `http::read_body`, whose place and remaining length are the slot's. A response
+    begun with `http::begin` is asked for more (`MORE`) only while the connection's
+    queued output is under the write buffer's size, or under `max_queued` in the
+    io_uring loop: the loops' own backpressure on pipelined requests is the
+    streams' too, and no response sits whole in memory.
+  - A response finished before its body arrived drops the rest, up to
+    `Config.max_drain`, and closes past it. Under `Expect: 100-continue`, a body that
+    fits in the read buffer gets `100 Continue` at once, and a longer one only once
+    the handler has seen the head and not answered, as hyper sends it.
+    `http::upgrade` uses the same machinery: after 101, every byte is a `BODY`, and
+    `send` writes bytes as they are.
+  - The cost, measured with `bench/instructions.sh`: 60-80 more user instructions per
+    request than before it, of about 1,460, and 1-2% more cycles; in
+    `bench/run.sh`'s cells, 0-3% fewer requests per second, the most with 4 workers
+    on plaintext. Task 013 records the measurements.
 - **Graceful shutdown by a counter, not a wakeup** (task 013, 2026-10-12).
   `http::stop()`, and `SIGTERM` or `SIGINT` once a program calls
   `http::stop_on_signals()` (Ctrl+C and Ctrl+Break on Windows), add one to a counter

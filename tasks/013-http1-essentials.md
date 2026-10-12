@@ -137,15 +137,44 @@ change the per-connection state, in both of task 011's loops, `http::serve` and
     and gcc kept the wrapper's out of line, which cost 60-120 instructions per request
     until the loops called the program's handler themselves.
 
-Open: the streaming loop costs about 50 user instructions per request on the
-benchmark routes. `bench/instructions.sh`, 2 runs each, as above, after the request's
-state went straight into the slot: 1,511-1,524 (epoll) and 1,560-1,571 (uring),
-against 1,460-1,484 and 1,513-1,517 at `1e9dddb`, with cycles per request within 1-2%.
-`serve(cfg)`, the wrapper, measured the same as the server's own streaming handler:
-1,526-1,531 and 1,565-1,571. Isolating parts of it before that: the `Expect` field's
-check in `parse` is about 14, and the server's new routes 10-25; the rest is the
-loop's per-request state (the handler's state, and the checks for a body or a
-response still open).
+Open: the streaming loop costs 60-80 user instructions per request on the benchmark
+routes. `bench/instructions.sh`, 2 runs each, as above, all built with Goose at
+`fee060c`:
+
+| Build | epoll | uring | epoll cycles | epoll req/s |
+|---|---|---|---|---|
+| `1e9dddb`, before streaming | 1,459-1,465 | 1,513 | 1,900-1,904 | 1.934-1.939 M |
+| `d80d662` | 1,545-1,546 | 1,582-1,591 | 1,942-1,943 | 1.864-1.883 M |
+| `d80d662`, through `serve(cfg)` | 1,546-1,557 | 1,601-1,602 | 1,927 | 1.886-1.904 M |
+| `66f28eb` | 1,525-1,539 | 1,579-1,585 | 1,931-1,939 | 1.864-1.886 M |
+
+`66f28eb` compares the benchmark's two paths before the server's other routes, which
+saved 5-15. Earlier, isolating parts of it: the `Expect` field's check in `parse` was
+about 14, and the server's new routes 10-25; the rest is the loop's per-request state
+(the handler's state, and the checks for a body or a response still open). A profile
+by line of the generated C, built with `-g`, spread the difference too thin to name
+one cause. Under `perf` and one worker, the epoll build's rate is 3% lower.
+
+In the benchmark's cells, that is 0-3%, and outside the runs' spread only with 4
+workers on plaintext. `bench/run.sh` (2026-10-12, `bench/results/2026-10-12-streaming/`):
+WSL2, kernel 6.18.40.1, Ryzen 7 5800X3D; the server on CPUs 0-3 and wrk and h2load on
+4-15 with 8 threads; plaintext pipelined 16 deep, JSON not; 15 s runs after a 5 s
+warm-up, 3 runs a cell, the median. `goose-v-start` and `goose-v-start-uring` are
+`915c34f`, before items 7 and 8; `goose-v-end` and `goose-v-end-uring` are `03c7b67`;
+all built with Goose at `fee060c` and cc 15.2.
+
+| Cells | epoll, end / start | uring, end / start |
+|---|---|---|
+| plaintext, 1 worker, 256 / 1,024 / 4,096 connections | 0.99 / 0.99 / 1.00 | 0.99 / 1.00 / 1.02 |
+| plaintext, 4 workers, 256 / 1,024 / 4,096 | 0.97 / 0.97 / 0.98 | 0.98 / 0.98 / 0.98 |
+| JSON, 1 worker, 256 / 1,024 | 1.01 / 0.98 | 0.99 / 0.99 |
+| JSON, 4 workers, 256 / 1,024 | 1.00 / 0.99 | 1.00 / 0.98 |
+
+Three cells' spreads don't overlap: epoll plaintext with 4 workers and 1,024
+connections (5.53 M against 5.71 M requests per second), and uring plaintext with 4
+workers and 256 and 1,024 connections (6.90 M against 7.04 M, and 6.77 M against
+6.89 M). Peak RSS grew by at most 1.1 MB in a cell (uring JSON, 4 workers, 1,024
+connections: 12.4 MB against 11.3 MB).
 
 - Item 10 (2026-10-12): `Config.max_line`, `max_fields`, `body_ms`, and `write_ms`,
   beside `max_head`, `max_body`, `request_ms`, and `idle_ms`. A connection waits
@@ -203,9 +232,13 @@ response still open).
 
 Next, in order:
 
-1. Run the tests on macOS: the kqueue table change, and the stop.
+1. Run the tests on macOS (`scripts/test.sh`): the kqueue table change, the stop, and
+   the restart, none of which has run there yet.
 2. Split the streaming loop's cost further, and remove what can go.
-3. The rest of item 16.
+3. The rest of item 16. A configurable `Server` field could cost nothing per request:
+   render it into the buffer the `Date` field is rendered into once a second, and drop
+   it from the status lines' literals.
+4. The stop on Windows, by Ctrl+Break, which no test sends yet.
 
 ## Streaming design (2026-10-12)
 
@@ -267,8 +300,8 @@ slot. So:
   fit in the read buffer gets `100 Continue` at once; a longer one gets it after the
   handler's `REQUEST` call, unless the handler responded, which closes the connection
   once the response is sent (hyper's lazy `100 Continue`).
-- Not yet: request trailers, which the decoder checks and skips (item 14), and an
-  event for a connection closed mid-stream: the state is flat data, with nothing to free.
+- Not yet: an event for a connection closed mid-stream: the state is flat data, with
+  nothing to free. (Request trailers came later, in `Event.trailers`.)
 
 ## Acceptance criteria
 
@@ -296,6 +329,8 @@ slot. So:
       (2026-10-12)
 - [x] `SIGTERM` drains and stops every worker within the grace period, in `serve` and
       `serve_epoll` (2026-10-12, Linux; Windows and macOS untested)
-- [ ] Every item above has a check in `scripts/http_client.py` or `src/test_http.goose`
+- [x] Every item above has a check in `scripts/http_client.py` or `test/test_http.goose`
+      (2026-10-12; item 11's on Linux only)
 - [ ] The benchmark routes, served through the handler, keep their rate in
-      `bench/run.sh`'s closest cells within the runs' spread
+      `bench/run.sh`'s closest cells within the runs' spread (2026-10-12: not met in
+      three plaintext cells with 4 workers, 2-3% lower; see Progress)

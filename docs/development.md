@@ -368,6 +368,8 @@ What the benchmark has to work around on this machine:
   times on a monotonic clock, summarized by `bench/latency.c` through a FIFO.
 - `mkfifo` fails on `/mnt/c` ("File exists"), so the FIFO goes in a Linux temporary
   directory.
+- `bench/run.sh` writes the host name into `env.txt` unless `MACHINE` is set, and
+  results name no machines, so a run on WSL sets `MACHINE=wsl2-5800x3d`.
 - The load generator needs more CPU than the server. wrk spends about 1.4 times the
   server's CPU time per pipelined request, and h2load more: 6.4 CPUs of system time and
   2.4 of user time at 3.1 million requests per second. With 8 CPUs each, wrk was the bottleneck at 8 workers,
