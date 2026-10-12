@@ -86,6 +86,8 @@ The first build fetches the package into `~/.goose` and compiles the shim. Linux
 liburing (`liburing-dev`), Windows the Visual Studio Build Tools. Setup:
 [docs/development.md](docs/development.md).
 
+More in [examples/](examples/README.md): the router, JSON, and a handler written in C.
+
 ## Benchmarks
 
 All tables, spreads, and losses: [docs/results.md](docs/results.md).
@@ -453,6 +455,7 @@ http.goose     the package's entry: settings, errors, what both loops share
 http.build     the package's sidecar: each platform's shim
 shim/          C for syscalls: sockets, epoll, io_uring, kqueue, IOCP, and mailboxes
 server/        the benchmark server, importing the package from "../"
+examples/      small servers, one with its handler in C
 test/          unit tests
 bench/         competing servers, load scripts, recorded results
 scripts/       build and run scripts
