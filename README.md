@@ -150,8 +150,38 @@ client Windows runs two at a time (task 020).
 
 ### REST APIs
 
-Not measured yet. The helpers are in, under [Helpers for APIs](#helpers-for-apis); a
-REST benchmark is next.
+Three API workloads and one of uploads (task 021), against hyper, the HTTP layer under
+axum. Records loaded from JSON files at startup, a bearer token or cookie on every
+request, and responses computed per request, which `bench/rest/check.py` verifies before
+each run. Same machine, `bench/rest.sh`, 2026-10-12, Goose at `73dd28c`. 4 workers on
+CPUs 0-3, the load on 4-15. Median of 3 runs of 15 s. Bold is the column's best.
+
+- **A**: HttpArena's `production-stack` API, items of 0.2 KB.
+- **B**: a time tracker's hot path, 0.3-13 KB of JSON.
+- **C**: a clinic's schedule and records, up to 728 KB.
+- **Uploads**: chunked CSVs of 2-8 MB and multipart files up to 1 MB, read as they arrive.
+
+| Server | A | B | C | C, templates | Uploads | Reads beside uploads, p99 |
+|---|---:|---:|---:|---:|---:|---:|
+| Goose io_uring | **572 K/s** | **269 K/s** | **52.5 K/s** | **146 K/s** | 970/s | 9-17 ms |
+| Goose epoll | 441 K/s | 220 K/s | 51.1 K/s | 139 K/s | 993/s | **1.6-2.7 ms** |
+| hyper 1.12 (Rust) | 271 K/s | 149 K/s | 32.2 K/s | 119 K/s | **1,071/s** | 17-21 ms |
+
+- The io_uring loop serves 1.6 to 2.1 times hyper's requests when it writes the JSON,
+  and the epoll loop 1.5 to 1.6 times. With templates, which copy prebuilt bytes, the
+  lead on C is 1.2 times.
+- At a fixed half of the slowest rate, Goose spends 0.6 to 0.8 times hyper's CPU per
+  request, and every route's p99 stays under 1.6 ms.
+- hyper takes uploads alone 6-11% faster. Beside the other writes, Goose takes 1.6 to
+  3.6 times its uploads.
+- Goose holds 2 to 5 times hyper's memory: each worker loads its own copy of the
+  records.
+- Reads beside uploads: tier C's reads at a fixed rate while uploads stream in. The
+  epoll loop reads at most 16 KB from a connection per turn (`Config.max_read`, since
+  2026-10-12). Without that bound, reads waited seconds behind a multi-megabyte upload.
+- io_uring sends a response of 64 KB or more straight from the handler's buffer and
+  copies only what the socket doesn't take. Before that change, it lost 20-30% to epoll
+  on tier C in Docker on the Mac. Here it leads by 3-5%.
 
 ## API
 
