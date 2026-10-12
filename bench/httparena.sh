@@ -41,7 +41,9 @@
 #
 # Settings, from the environment:
 #   FRAMEWORKS  goose tokio dusty vanilla-epoll
-#   PROFILES    baseline limited-conn latency-1m pipelined
+#   PROFILES    baseline limited-conn latency-1m pipelined latency-10k async.
+#               latency-500k-8cpu is left out: with its cpuset rewritten to
+#               SERVER_CPUS as well, it would be latency-1m again.
 #   SERVER_CPUS 0-3, LOAD_CPUS 4-15, and THREADS 4, as above
 #   MACHINE     a short name for the machine (the host name), for OUT
 #   RUNS 3 (the harness keeps the best), DURATION 5s,
@@ -52,7 +54,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 cache=${CACHE:-$HOME/.cache/goose-http-bench}
 arena=$cache/httparena
 frameworks=${FRAMEWORKS:-goose tokio dusty vanilla-epoll}
-profiles=${PROFILES:-baseline limited-conn latency-1m pipelined}
+profiles=${PROFILES:-baseline limited-conn latency-1m pipelined latency-10k async}
 server_cpus=${SERVER_CPUS:-0-3}
 machine=${MACHINE:-$(hostname -s)}
 out=${OUT:-$root/bench/results/httparena-$(date -u +%Y-%m-%dT%H%M)-$machine}

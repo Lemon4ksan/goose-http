@@ -29,5 +29,7 @@ RUN apt-get update -qq && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=build /server/build/server /server
 EXPOSE 8080
-# One worker per CPU of the container's cpuset, which nproc reads.
-CMD ["/bin/sh", "-c", "WORKERS=${WORKERS:-$(nproc)} exec /server http 8080"]
+# One worker per CPU of the container's cpuset, which nproc reads. Waiting
+# on, for the async profile's /delay: up to 16,384 timers a worker, as many
+# as its connections. It left plaintext's instructions per request unchanged.
+CMD ["/bin/sh", "-c", "WORKERS=${WORKERS:-$(nproc)} MAIL_SLOTS=256 MAX_WAITING=16384 exec /server http 8080"]

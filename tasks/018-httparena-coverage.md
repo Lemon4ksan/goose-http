@@ -1,0 +1,56 @@
+# 018: HttpArena's profiles beyond the four we run
+
+Status: in-progress
+
+HttpArena (`MDA2AV/HttpArena`, at `0720ee5`, the commit `bench/httparena.sh` pins) has
+27 profiles. This task records which of them HTTP/1.1 without TLS covers, what the
+package lacks for the rest, and enters the ones it already serves (2026-10-12).
+
+## The profiles
+
+| Profile | Needs | Goose |
+|---|---|---|
+| baseline, pipelined, limited-conn, latency-1m | `GET`/`POST` with a query | entered (task 009) |
+| latency-10k | latency-1m's endpoint at 10,000 requests per second | entered here |
+| latency-500k-8cpu | latency-1m's endpoint on 8 CPUs | left out: `bench/httparena.sh` puts every profile on `SERVER_CPUS`, so it would repeat latency-1m |
+| async | `GET /delay/{ms}`, 32,000 connections each waiting 10 ms | entered here |
+| json-comp | gzip responses by `Accept-Encoding` | missing: compression |
+| static-tls, static-h2, static-h3 | files, with precompressed gzip variants | missing: TLS, HTTP/2 and 3; compression for the variants |
+| json-tls, 8gbit | TLS | task 014 |
+| baseline-h2, baseline-h2c, json-h2c, baseline-h3 | HTTP/2, HTTP/3 | task 014; HTTP/3 out of scope |
+| fortunes, async-db, production-stack | a database | out of scope |
+| gateway-64, gateway-h3 | a proxy in front | out of scope |
+| unary-grpc, unary-grpc-tls | gRPC over HTTP/2 | out of scope |
+| echo-ws, echo-ws-pipeline, echo-ws-limited | WebSocket | out of scope for now; `Upgrade` hands the connection over |
+
+Its request set also has malformed requests (`noise-*.raw`: bare CR, obs-fold, NUL,
+a bad `Content-Length`, a huge header, binary), which `validate.sh` sends. The parser
+refuses each kind in `scripts/http_client.py hostile`; HttpArena's own validation of
+them hasn't run yet.
+
+So for HTTP/1.1 without TLS, compression is the one feature missing, and it is the
+next HTTP/1.1 work, done elsewhere. Serving a precompressed `.gz` next to a static
+file, chosen by `Accept-Encoding`, is the cheap half of it.
+
+## async
+
+`validate.sh` asks `GET /delay/{ms}` for 200, `text/plain`, and `{ms}` as the body,
+after at least 90% of the delay; `/delay/0` too, and 32 overlapping requests with 32
+delays. The benchmark server answers it from the worker's timer table
+(`http::later` with no other thread): `server/routes.goose`, `delay`. The entry's
+Dockerfile turns waiting on (`MAIL_SLOTS=256 MAX_WAITING=16384`).
+
+Checked by hand on the Windows laptop of task 013, WSL2, with `validate.sh`'s
+requests and 4 workers: every check passed on epoll and io_uring. wrk with 4,000
+connections on `/delay/10` for 5 s: 144K requests per second and 27 ms mean latency
+on epoll, 129K and 30 ms on io_uring, with the server unpinned and sharing CPUs with
+wrk. `bench/instructions.sh`, 2 runs, epoll: 1,491-1,523 user instructions per
+plaintext request with waiting on, 1,499-1,521 off; peak RSS 3.7 MB against 2.4 MB.
+
+## Acceptance criteria
+
+- [x] The profiles mapped to what they need, and the gap for HTTP/1.1 named
+- [x] `/delay/{ms}` in the benchmark server, passing `validate.sh`'s checks by hand
+- [x] async and latency-10k in the entry's `meta.json` and `bench/httparena.sh`
+- [ ] `bench/httparena.sh validate` and `run` with them on the desktop
+- [ ] Compression (elsewhere), then json-comp
