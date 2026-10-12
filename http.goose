@@ -38,9 +38,12 @@ import mail;
 // The server's settings. Each worker gets a copy, as thread_spawn copies
 // flat values.
 struct Config {
-    // An IPv4 address to listen on, or empty for every address (127.0.0.1 on
-    // Windows).
-    address: u8[..16] = "",
+    // Where to listen: an IPv4 address, an IPv6 one, bare or in brackets,
+    // "::" for every address, IPv6 and, unless ipv6_only, IPv4, or
+    // "unix:PATH" for a Unix socket at PATH, on Linux and macOS. Empty is
+    // every IPv4 address (127.0.0.1 on Windows).
+    address: u8[..112] = "",
+    ipv6_only: bool = false,
     port: i32 = 8080,
     // 0 for one per hardware thread, or on macOS one per performance core
     // (worker_count).
@@ -132,24 +135,29 @@ fn worker_count(cfg: Config) -> i64 {
     return if n > 0 { n } else { max(1, hardware_threads()) };
 }
 
-// An address as net_listen takes it: -1 for none, or an IPv4 address in host
-// byte order. False if text isn't one.
-fn ipv4(text: const u8[:]) -> i64, bool {
-    guard text.len > 0 else { return -1, true; }
-    let parts = split(text, '.');
-    guard parts.len == 4 else { return 0, false; }
-    var ip = 0;
-    for p in parts {
-        guard p.len > 0 && p.len <= 3 else { return 0, false; }
-        var n = 0;
-        for c in p {
-            guard c >= '0' && c <= '9' else { return 0, false; }
-            n = n * 10 + (c - '0');
-        }
-        guard n <= 255 else { return 0, false; }
-        ip = ip * 256 + n;
+// Opens a worker's listener where cfg.address says. Returns its fd, or the
+// error, for an address that isn't one or a listen that fails.
+fn listen_on(cfg: const Config&) -> i32, Error {
+    let flags = NONBLOCK | REUSEPORT;
+    let text = cfg.address;
+    if starts_with(text, "unix:") {
+        guard text.len > 5 else { return -1, Error { call: "address", code: EINVAL }; }
+        let fd = net_listen(text[5..], 0, cfg.backlog, flags | UNIX);
+        guard fd >= 0 else { return -1, Error { call: "listen", code: -fd }; }
+        return fd, Error { call: "", code: 0 };
     }
-    return ip, true;
+    var host = text;
+    if text.len >= 2 && text[0] == '[' && text[text.len - 1] == ']' { host = text[1..text.len - 1]; }
+    var fd: i32 = 0;
+    if host.len == 0 {
+        fd = net_listen("", cfg.port, cfg.backlog, flags);
+    } else {
+        let a, ok = address(host);
+        guard ok else { return -1, Error { call: "address", code: EINVAL }; }
+        fd = net_listen(a.ip, cfg.port, cfg.backlog, if cfg.ipv6_only { flags | V6ONLY } else { flags });
+    }
+    guard fd >= 0 else { return -1, Error { call: "listen", code: -fd }; }
+    return fd, Error { call: "", code: 0 };
 }
 
 // A connection's states, in both loops.

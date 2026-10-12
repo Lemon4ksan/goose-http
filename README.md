@@ -47,7 +47,7 @@ HTTP/1.1 on `main`. The tag `v0.1.0` has fixed-size requests and responses only.
 | 🟡 | Large responses on io_uring without the extra copy | Very soon |
 | 🟢 | Answers that wait: another thread, a timer, long polling, SSE | |
 | 🟢 | Client address. `Forwarded` from trusted proxies. | |
-| 🔴 | IPv6, dual-stack, Unix sockets | Soon |
+| 🟢 | IPv6, dual-stack, Unix sockets (Linux and macOS) | IPv6 not run on Windows yet |
 | 🟢 | Access log, as a `DONE` event | |
 
 CORS, sessions, middleware, and an HTTP client are out of scope. They belong to a
@@ -175,6 +175,12 @@ package function
 
 `http::Config`: address, port, workers, limits, timeouts, buffer sizes. All have
 defaults.
+
+`Config.address` is where to listen: empty for every IPv4 address (127.0.0.1 on
+Windows), an IPv4 or IPv6 address, `"::"` for every address, IPv4 too unless
+`Config.ipv6_only`, or `"unix:/run/app.sock"` for a Unix socket on Linux and macOS,
+whose path fits in 104 bytes on macOS and 108 on Linux. The server removes a socket file
+left at the path before it binds, and its own when it stops.
 
 A loop returns:
 

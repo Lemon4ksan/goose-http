@@ -60,13 +60,16 @@ limit_fds() {
     [ -n "$windows" ] || ulimit -n "$1"
 }
 
-# Whether the server listens. Windows has no nc.
-probe='import socket, sys; socket.create_connection(("127.0.0.1", int(sys.argv[1])), 1)'
+# Whether the server listens, on ::1 for one that takes IPv6 only. Windows has
+# no nc.
+probe='import socket, sys; socket.create_connection((sys.argv[2], int(sys.argv[1])), 1)'
 listening() {
+    host=127.0.0.1
+    [ -z "${IPV6_ONLY:-}" ] || host=::1
     if [ -n "$windows" ]; then
-        python3 -c "$probe" "$port" 2>/dev/null
+        python3 -c "$probe" "$port" "$host" 2>/dev/null
     else
-        nc -z 127.0.0.1 "$port" 2>/dev/null
+        nc -z "$host" "$port" 2>/dev/null
     fi
 }
 
@@ -91,6 +94,16 @@ start() {
     (limit_fds "${1:-65536}" && exec "$server" http "$port") >"$log" 2>&1 &
     pid=$!
     tries=0
+    # A server on a Unix socket listens once its file is there.
+    case ${ADDRESS:-} in
+    unix:*) until [ -S "${ADDRESS#unix:}" ]; do
+            kill -0 "$pid" 2>/dev/null || fail "the server exited at start"
+            tries=$((tries + 1))
+            [ $tries -lt 100 ] || fail "the server isn't listening after 10 s"
+            sleep 0.1
+        done
+        return ;;
+    esac
     until listening; do
         kill -0 "$pid" 2>/dev/null || fail "the server exited at start"
         tries=$((tries + 1))
@@ -199,6 +212,28 @@ $client later
 kill -0 "$pid" || fail "the server died"
 stop
 unset MAIL_SLOTS
+# Where it listens: "::", dual-stack, then IPv6 only, and on Linux and macOS a
+# Unix socket, whose file the server removes when it stops. The socket's path
+# must fit sun_path, 104 bytes on macOS, which mktemp's directory does.
+export ADDRESS=::
+start
+$client listen "$ADDRESS"
+stop
+export IPV6_ONLY=1
+start
+$client listen "$ADDRESS" v6only
+stop
+unset IPV6_ONLY
+if [ -z "$windows" ]; then
+    export ADDRESS="unix:$files/http.sock"
+    start
+    $client listen "$ADDRESS"
+    kill -TERM "$pid"
+    wait "$pid" || fail "the server exited with status $? after a stop on a Unix socket"
+    pid=
+    [ ! -e "$files/http.sock" ] || fail "the server left its Unix socket's file"
+fi
+unset ADDRESS
 start
 
 if [ -n "$windows" ]; then

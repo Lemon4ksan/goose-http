@@ -1,6 +1,7 @@
 # 015: What a REST and JSON API needs from the package
 
-Status: in-progress (asked for 2026-10-12)
+Status: done (asked for 2026-10-12, done 2026-10-12; IPv6 on IOCP waits for a Windows
+run)
 
 A REST and JSON API, such as a Goose port of snowtime-native's, needs more from the
 package than task 013 gave it. TLS, HTTP/2, and compression are task 014's or later.
@@ -71,7 +72,10 @@ as task 013's did.
       from trusted proxies only. (Done on kqueue and the ring over it, and in Docker on
       io_uring, the ring over epoll, and epoll, 2026-10-12; on IOCP in Git Bash on
       Windows, 2026-10-12. See "The client's address".)
-- [ ] The server listens on IPv6, dual-stack, and on a Unix socket on Linux and macOS.
+- [x] The server listens on IPv6, dual-stack, and on a Unix socket on Linux and macOS.
+      (2026-10-12, on kqueue and the ring over it, and in Docker on io_uring, the ring
+      over epoll, and epoll; IPv6 on IOCP compiles and waits for a Windows run. See
+      "Where the server listens".)
 - [x] A field with CR, LF, or an invalid name never reaches the client (2026-10-12; see
       "Checked fields")
 - [x] Helpers for items 5 to 11, each with a check in `scripts/http_client.py` or
@@ -637,3 +641,27 @@ requests per second:
 
 The medians move by 0.7-1.3% either way, inside the ranges; these runs resolve a few
 percent.
+
+## Where the server listens (2026-10-12)
+
+`Config.address` takes an IPv4 address, an IPv6 one, bare or in brackets, `::` for
+every address, or `unix:PATH`; empty stays every IPv4 address (127.0.0.1 on Windows).
+`listen_on` (`http.goose`) parses it with `forwarded.goose`'s `address` and gives
+`net_listen` the 16 bytes of `Address.ip`, or the path with the `UNIX` flag. An
+IPv4-mapped address listens on IPv4, and any other on IPv6, with `IPV6_V6ONLY` off, so
+`::` is dual-stack, unless `Config.ipv6_only` sets `V6ONLY`: nginx's `listen [::]:80
+ipv6only=off`, recalled, not checked in code.
+
+- Unix sockets: Linux has no `SO_REUSEPORT` for them, so the workers share one per path,
+  as on macOS, where the shared-listener table now takes any socket address. The
+  listener removes a socket file left at the path before it binds, and leaves any other
+  file, failing with `EADDRINUSE`; the last worker's `net_close` removes its own. A Unix
+  socket's peer has no address, so `http::peer` finds none and the access log writes
+  `-`.
+- Windows: `net_win.c` listens on IPv6, and `iocp.c`'s `AcceptEx` makes its socket in
+  the listener's family, from `getsockname`, with room for IPv6 addresses. A Unix socket
+  is `EAFNOSUPPORT` there; the criterion asks for Linux and macOS.
+- Checks: `scripts/http_client.py`'s `listen`, against servers started with
+  `ADDRESS=::`, with `IPV6_ONLY` too, and with `ADDRESS=unix:PATH`: pipelined answers
+  over IPv6, IPv4, and the Unix socket, `/client`'s peer for each, an IPv4 client refused
+  with `IPV6_ONLY`, and the socket's file gone after the stop.

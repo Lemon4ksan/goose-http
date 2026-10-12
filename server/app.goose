@@ -44,6 +44,18 @@ fn run(default_loop: const u8[:]) {
         cfg.mail_slots = positive("MAIL_SLOTS", 0) as i32;
         cfg.max_waiting = positive("MAX_WAITING", if cfg.mail_slots > 0 { 1024 } else { 0 });
         cfg.mail_size = JOB_SIZE;
+        // ADDRESS is where to listen, as Config.address takes it: an IPv4 or
+        // IPv6 address, "::", or "unix:PATH". IPV6_ONLY keeps "::" off IPv4.
+        var address: u8[>..] = [];
+        if env("ADDRESS", address) {
+            guard address.len <= 112 else {
+                write_stderr("ADDRESS is longer than 112 bytes\n");
+                exit(2);
+            }
+            cfg.address.append(address);
+        }
+        var v6only: u8[>..] = [];
+        cfg.ipv6_only = env("IPV6_ONLY", v6only);
         serve_http(cfg, default_loop);
     }
     else if mode == "echo-blocking" { echo_blocking(port); }
@@ -98,7 +110,7 @@ fn serve_http(given: http::Config, default_loop: const u8[:]) {
     // again. Not RUNS, which the benchmark scripts set for themselves.
     for run in positive("SERVER_RUNS", 1) {
         print("http: ", n, if n == 1 { " worker" } else { " workers" }, " on port ", cfg.port,
-              ", ", name, " loop", ring);
+              if cfg.address.len > 0 { " at " } else { "" }, cfg.address, ", ", name, " loop", ring);
         var ids: i64[>..] = [];
         for i in n {
             ids.push(if epoll { thread_spawn(worker_epoll, cfg) } else { thread_spawn(worker, cfg) });

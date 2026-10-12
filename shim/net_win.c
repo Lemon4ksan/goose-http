@@ -104,9 +104,12 @@ typedef struct { net_event *data; int64_t len; } net_events;
 /* A u8[:]: a pointer and a length, passed by value. */
 typedef struct { uint8_t *data; int64_t len; } net_bytes;
 
-/* Flags of net_listen and net_accept; sys::NONBLOCK and sys::REUSEPORT. */
+/* Flags of net_listen and net_accept; sys::NONBLOCK, REUSEPORT, UNIX, and
+   V6ONLY. */
 #define NET_NONBLOCK 1
 #define NET_REUSEPORT 2
+#define NET_UNIX 4
+#define NET_V6ONLY 8
 
 /* src/sys.goose spells SHUT_WR out as Linux's 1, which is SD_SEND. */
 _Static_assert(SD_SEND == 1, "shutdown's how differs from src/sys.goose");
@@ -131,28 +134,50 @@ int32_t net_win_init(void) {
 
 static SOCKET net_socket(int32_t fd) { return (SOCKET)(intptr_t)fd; }
 
-/* A TCP listener on IPv4 address ip, in host byte order, or on 127.0.0.1
-   for -1. Windows Defender Firewall asks the user whether to allow each new
-   program that listens on another address, so the default is loopback, where
-   the tests run. SO_EXCLUSIVEADDRUSE keeps a
-   second server from binding the port, as Linux refuses it without
-   SO_REUSEPORT; Windows' SO_REUSEADDR would let it take the port over. */
-static int32_t net_open_listener(int64_t ip, int32_t port, int32_t backlog, int32_t flags) {
-    SOCKET s = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0,
+/* The socket address net_listen's addr and port name, into ss: an
+   IPv4-mapped address as IPv4, another 16 bytes as IPv6, or none as
+   127.0.0.1. Windows Defender Firewall asks the user whether to allow each
+   new program that listens on another address, so the default is loopback,
+   where the tests run. Returns 0, or a Winsock error. */
+static int net_sockaddr(net_bytes addr, int32_t port, struct sockaddr_storage *ss, int *len) {
+    static const uint8_t mapped[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff };
+    memset(ss, 0, sizeof *ss);
+    if (addr.len == 0 || (addr.len == 16 && memcmp(addr.data, mapped, 12) == 0)) {
+        struct sockaddr_in *a = (struct sockaddr_in *)ss;
+        a->sin_family = AF_INET;
+        a->sin_port = htons((uint16_t)port);
+        if (addr.len) memcpy(&a->sin_addr, addr.data + 12, 4);
+        else a->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        *len = (int)sizeof *a;
+        return 0;
+    }
+    if (addr.len != 16) return WSAEINVAL;
+    struct sockaddr_in6 *a = (struct sockaddr_in6 *)ss;
+    a->sin6_family = AF_INET6;
+    a->sin6_port = htons((uint16_t)port);
+    memcpy(&a->sin6_addr, addr.data, 16);
+    *len = (int)sizeof *a;
+    return 0;
+}
+
+/* A TCP listener on ss, which takes IPv4 clients too when it's IPv6, unless
+   NET_V6ONLY. SO_EXCLUSIVEADDRUSE keeps a second server from binding the
+   port, as Linux refuses it without SO_REUSEPORT; Windows' SO_REUSEADDR
+   would let it take the port over. */
+static int32_t net_open_listener(struct sockaddr_storage *ss, int len, int32_t backlog, int32_t flags) {
+    SOCKET s = WSASocketW(ss->ss_family, SOCK_STREAM, IPPROTO_TCP, NULL, 0,
                           WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
     if (s == INVALID_SOCKET) return -net_win_err(WSAGetLastError());
     BOOL one = TRUE;
+    DWORD v6only = (flags & NET_V6ONLY) != 0;
     u_long nb = (flags & NET_NONBLOCK) != 0;
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof addr);
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((uint16_t)port);
-    addr.sin_addr.s_addr = htonl(ip < 0 ? INADDR_LOOPBACK : (uint32_t)ip);
     /* A backlog above 200 needs SOMAXCONN_HINT; a plain one is cut to 200. */
     if (setsockopt(s, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (const char *)&one, sizeof one) ||
         setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof one) ||
+        (ss->ss_family == AF_INET6 &&
+         setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, (const char *)&v6only, sizeof v6only)) ||
         ioctlsocket(s, FIONBIO, &nb) ||
-        bind(s, (struct sockaddr *)&addr, sizeof addr) ||
+        bind(s, (struct sockaddr *)ss, len) ||
         listen(s, SOMAXCONN_HINT(backlog))) {
         int err = WSAGetLastError();
         closesocket(s);
@@ -167,29 +192,36 @@ static int32_t net_open_listener(int64_t ip, int32_t port, int32_t backlog, int3
    state the shim keeps between calls. */
 #define NET_MAX_SHARED 16
 static SRWLOCK net_shared_lock = SRWLOCK_INIT;
-static struct { int64_t ip; int32_t port, fd, refs; } net_shared[NET_MAX_SHARED];
+static struct { struct sockaddr_storage addr; int len; int32_t fd, refs; } net_shared[NET_MAX_SHARED];
 static int net_shared_count;
 
-/* With NET_REUSEPORT, every call on an address and port returns the same
-   listener, which the callers share: net_close closes it after the last
-   caller closes it. */
-int32_t net_listen(int64_t ip, int32_t port, int32_t backlog, int32_t flags) {
+/* A listener where addr, port, and flags say (src/sys.goose); no Unix
+   socket, which AcceptEx doesn't take. With NET_REUSEPORT, every call on an
+   address and port returns the same listener, which the callers share:
+   net_close closes it after the last caller closes it. */
+int32_t net_listen(net_bytes addr, int32_t port, int32_t backlog, int32_t flags) {
     int32_t r = net_win_init();
     if (r < 0) return r;
-    if (!(flags & NET_REUSEPORT)) return net_open_listener(ip, port, backlog, flags);
+    if (flags & NET_UNIX) return -net_win_err(WSAEAFNOSUPPORT);
+    struct sockaddr_storage ss;
+    int len;
+    int err = net_sockaddr(addr, port, &ss, &len);
+    if (err) return -net_win_err(err);
+    if (!(flags & NET_REUSEPORT)) return net_open_listener(&ss, len, backlog, flags);
     AcquireSRWLockExclusive(&net_shared_lock);
     int i = 0;
-    while (i < net_shared_count && (net_shared[i].port != port || net_shared[i].ip != ip)) i++;
+    while (i < net_shared_count &&
+           (net_shared[i].len != len || memcmp(&net_shared[i].addr, &ss, (size_t)len) != 0)) i++;
     if (i < net_shared_count) {
         r = net_shared[i].fd;
         net_shared[i].refs++;
     } else if (net_shared_count == NET_MAX_SHARED) {
         r = -net_win_err(WSAENOBUFS);
     } else {
-        r = net_open_listener(ip, port, backlog, flags);
+        r = net_open_listener(&ss, len, backlog, flags);
         if (r >= 0) {
-            net_shared[net_shared_count].ip = ip;
-            net_shared[net_shared_count].port = port;
+            net_shared[net_shared_count].addr = ss;
+            net_shared[net_shared_count].len = len;
             net_shared[net_shared_count].fd = r;
             net_shared[net_shared_count].refs = 1;
             net_shared_count++;

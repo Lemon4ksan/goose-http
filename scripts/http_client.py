@@ -15,6 +15,9 @@
     http_client.py PORT later       answers that wait: /later and /events, for a
                                     server started with MAIL_SLOTS
     http_client.py PORT later-off   /later's 503, for a server without them
+    http_client.py PORT listen ADDRESS [v6only]
+                                    a server started with ADDRESS (and IPV6_ONLY):
+                                    "::" over IPv6 and IPv4, or a Unix socket
     http_client.py PORT stop PID    a graceful stop, by SIGTERM to the server's PID
     http_client.py PORT stop-break SERVER
                                     on Windows, a graceful stop by Ctrl+Break, of a
@@ -78,13 +81,15 @@ class Response:
 class Conn:
     """A blocking connection that reads responses one at a time."""
 
-    def __init__(self, port, timeout=5, rcvbuf=0):
-        self.sock = socket.socket()
+    def __init__(self, port, timeout=5, rcvbuf=0, family=socket.AF_INET, addr=None):
+        """A connection to HOST and port, or to addr in family: an IPv6
+        address and port, or a Unix socket's path."""
+        self.sock = socket.socket(family, socket.SOCK_STREAM)
         # Before connecting, so that the window starts small.
         if rcvbuf:
             self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, rcvbuf)
         self.sock.settimeout(timeout)
-        self.sock.connect((HOST, port))
+        self.sock.connect(addr if addr is not None else (HOST, port))
         # A bytearray, which drops a prefix without copying the rest.
         self.buf = bytearray()
 
@@ -952,6 +957,43 @@ def later(port):
     print("later: ok")
 
 
+def listen_where(port, address, v6only):
+    """Against a server started with ADDRESS set to address: on "::", IPv6
+    and IPv4 clients, or IPv6 only with IPV6_ONLY; on "unix:PATH", clients of
+    the Unix socket at PATH. Each gets its answers, pipelined too, and /client
+    says who the peer is: the connection's own address, or 500 for a Unix
+    socket's peer, which has none."""
+    def check(c, peer):
+        c.send(request(b"/plaintext") * 3)
+        for _ in range(3):
+            r = c.response()
+            if r.status != 200 or r.body != b"Hello, World!":
+                fail(f"listening at {address}: {r.status} {r.body!r}")
+        c.send(request(b"/client"))
+        r = c.response()
+        want = f"peer {peer[0]} {peer[1]}\nclient {peer[0]}\n".encode() if peer else None
+        if (r.status, r.body) != ((200, want) if peer else (500, b"")):
+            fail(f"/client listening at {address}: {r.status} {r.body!r}")
+        c.close()
+
+    if address.startswith("unix:"):
+        check(Conn(0, family=socket.AF_UNIX, addr=address[5:]), None)
+        print("unix: ok")
+        return
+    c = Conn(port, family=socket.AF_INET6, addr=("::1", port))
+    check(c, c.sock.getsockname()[:2])
+    try:
+        c = Conn(port)
+    except OSError:
+        if not v6only:
+            fail("a dual-stack listener refused an IPv4 client")
+    else:
+        if v6only:
+            fail("an IPV6_ONLY listener took an IPv4 client")
+        check(c, c.sock.getsockname())
+    print("v6only: ok" if v6only else "dual-stack: ok")
+
+
 def later_off(port):
     """Against a server without MAIL_SLOTS: /later can't hand its job on, and
     answers 503 at once."""
@@ -1025,6 +1067,8 @@ def main():
         files(port, sys.argv[3])
     elif mode == "log":
         access_log(port, sys.argv[3])
+    elif mode == "listen":
+        listen_where(port, sys.argv[3], len(sys.argv) > 4 and sys.argv[4] == "v6only")
     elif mode == "stop-break":
         stop_break(port, sys.argv[3])
     else:

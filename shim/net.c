@@ -11,6 +11,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdatomic.h>
 #include <stdint.h>
@@ -20,6 +21,7 @@
 #include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -45,37 +47,138 @@ typedef struct __attribute__((packed)) { uint32_t events; uint64_t tag; } net_ev
 _Static_assert(sizeof(net_event) == 12, "net_event is not packed");
 typedef struct { net_event *data; int64_t len; } net_events;
 
-/* Flags of net_listen and net_accept; sys::NONBLOCK and sys::REUSEPORT. */
+/* Flags of net_listen and net_accept; sys::NONBLOCK, REUSEPORT, UNIX, and
+   V6ONLY. */
 #define NET_NONBLOCK 1
 #define NET_REUSEPORT 2
+#define NET_UNIX 4
+#define NET_V6ONLY 8
 
 /* epoll_wait converts this many kernel events per call at most. */
 #define NET_MAX_EVENTS 1024
 
-/* A TCP listener on IPv4 address ip, in host byte order, or on every address
-   for -1. Linux copies TCP_NODELAY from the listener to each accepted socket,
-   so accept needs no setsockopt. */
-int32_t net_listen(int64_t ip, int32_t port, int32_t backlog, int32_t flags) {
-    int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC |
+/* The socket address net_listen's addr, port, and flags name, into ss: a
+   Unix socket's path, an IPv4-mapped address as IPv4, another 16 bytes as
+   IPv6, or none as every IPv4 address. Returns 0, or an errno value. */
+static int net_sockaddr(net_bytes addr, int32_t port, int32_t flags, struct sockaddr_storage *ss,
+                        socklen_t *len) {
+    static const uint8_t mapped[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff };
+    memset(ss, 0, sizeof *ss);
+    if (flags & NET_UNIX) {
+        struct sockaddr_un *u = (struct sockaddr_un *)ss;
+        if (addr.len == 0 || memchr(addr.data, 0, (size_t)addr.len)) return EINVAL;
+        if (addr.len >= (int64_t)sizeof u->sun_path) return ENAMETOOLONG;
+        u->sun_family = AF_UNIX;
+        memcpy(u->sun_path, addr.data, (size_t)addr.len);
+        *len = sizeof *u;
+        return 0;
+    }
+    if (addr.len == 0 || (addr.len == 16 && memcmp(addr.data, mapped, 12) == 0)) {
+        struct sockaddr_in *a = (struct sockaddr_in *)ss;
+        a->sin_family = AF_INET;
+        a->sin_port = htons((uint16_t)port);
+        if (addr.len) memcpy(&a->sin_addr, addr.data + 12, 4);
+        else a->sin_addr.s_addr = htonl(INADDR_ANY);
+        *len = sizeof *a;
+        return 0;
+    }
+    if (addr.len != 16) return EINVAL;
+    struct sockaddr_in6 *a = (struct sockaddr_in6 *)ss;
+    a->sin6_family = AF_INET6;
+    a->sin6_port = htons((uint16_t)port);
+    memcpy(&a->sin6_addr, addr.data, 16);
+    *len = sizeof *a;
+    return 0;
+}
+
+/* A listener on ss. A TCP one has TCP_NODELAY, which Linux copies to each
+   accepted socket, so accept needs no setsockopt, and an IPv6 one takes IPv4
+   clients unless NET_V6ONLY. A Unix socket's path is cleared first of a
+   socket a server left there; anything else there fails the bind. */
+static int32_t net_open_listener(struct sockaddr_storage *ss, socklen_t len, int32_t backlog,
+                                 int32_t flags) {
+    int fd = socket(ss->ss_family, SOCK_STREAM | SOCK_CLOEXEC |
                     (flags & NET_NONBLOCK ? SOCK_NONBLOCK : 0), 0);
     if (fd < 0) return -errno;
-    int one = 1;
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof addr);
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((uint16_t)port);
-    addr.sin_addr.s_addr = htonl(ip < 0 ? INADDR_ANY : (uint32_t)ip);
-    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one) < 0 ||
-        (flags & NET_REUSEPORT &&
-         setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &one, sizeof one) < 0) ||
-        setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one) < 0 ||
-        bind(fd, (struct sockaddr *)&addr, sizeof addr) < 0 ||
-        listen(fd, backlog) < 0) {
+    int one = 1, v6only = (flags & NET_V6ONLY) != 0;
+    int ok = 1;
+    if (ss->ss_family == AF_UNIX) {
+        struct stat st;
+        const char *path = ((struct sockaddr_un *)ss)->sun_path;
+        if (lstat(path, &st) == 0 && S_ISSOCK(st.st_mode)) unlink(path);
+    } else {
+        ok = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one) == 0 &&
+             (!(flags & NET_REUSEPORT) ||
+              setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &one, sizeof one) == 0) &&
+             setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one) == 0 &&
+             (ss->ss_family != AF_INET6 ||
+              setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &v6only, sizeof v6only) == 0);
+    }
+    if (!ok || bind(fd, (struct sockaddr *)ss, len) < 0 || listen(fd, backlog) < 0) {
         int err = errno;
         close(fd);
         return -err;
     }
     return fd;
+}
+
+/* Linux has no SO_REUSEPORT for Unix sockets, so with NET_REUSEPORT the
+   workers share one per path, as on macOS, each with an fd of its own for
+   it. The table holds the listener's own fd, and the last worker's net_close
+   closes it and removes the socket's file. A worker serves one listener. */
+#define NET_MAX_SHARED 16
+static pthread_mutex_t net_shared_lock = PTHREAD_MUTEX_INITIALIZER;
+static struct {
+    struct sockaddr_un addr;
+    int32_t fd, sharers;    /* fd -1: a free entry */
+} net_shared[NET_MAX_SHARED];
+static int net_shared_count;
+static _Thread_local int32_t net_my_lfd = -1;
+static _Thread_local int net_my_entry;
+
+static int32_t net_listen_shared(struct sockaddr_storage *ss, socklen_t len, int32_t backlog,
+                                 int32_t flags) {
+    const struct sockaddr_un *u = (struct sockaddr_un *)ss;
+    pthread_mutex_lock(&net_shared_lock);
+    int i = 0;
+    while (i < net_shared_count &&
+           (net_shared[i].fd < 0 || strcmp(net_shared[i].addr.sun_path, u->sun_path) != 0)) i++;
+    int32_t r = 0;
+    if (i == net_shared_count) {
+        i = 0;
+        while (i < net_shared_count && net_shared[i].fd >= 0) i++;
+        if (i == NET_MAX_SHARED) {
+            r = -ENOBUFS;
+        } else {
+            r = net_open_listener(ss, len, backlog, flags);
+            if (r >= 0) {
+                net_shared[i].addr = *u;
+                net_shared[i].fd = r;
+                net_shared[i].sharers = 0;
+                if (i == net_shared_count) net_shared_count++;
+            }
+        }
+    }
+    if (r >= 0) {
+        int fd = fcntl(net_shared[i].fd, F_DUPFD_CLOEXEC, 0);
+        r = fd < 0 ? -errno : fd;
+    }
+    if (r >= 0) {
+        net_shared[i].sharers++;
+        net_my_lfd = r;
+        net_my_entry = i;
+    }
+    pthread_mutex_unlock(&net_shared_lock);
+    return r;
+}
+
+int32_t net_listen(net_bytes addr, int32_t port, int32_t backlog, int32_t flags) {
+    struct sockaddr_storage ss;
+    socklen_t len;
+    int err = net_sockaddr(addr, port, flags, &ss, &len);
+    if (err) return -err;
+    if (flags & NET_UNIX && flags & NET_REUSEPORT) return net_listen_shared(&ss, len, backlog, flags);
+    return net_open_listener(&ss, len, backlog, flags);
 }
 
 int32_t net_accept(int32_t fd, int32_t flags) {
@@ -100,7 +203,18 @@ int32_t net_shutdown(int32_t fd, int32_t how) {
     return shutdown(fd, how) < 0 ? -errno : 0;
 }
 
+/* A worker's fd for a shared Unix socket goes back to the table (above). */
 int32_t net_close(int32_t fd) {
+    if (fd == net_my_lfd) {
+        pthread_mutex_lock(&net_shared_lock);
+        if (--net_shared[net_my_entry].sharers == 0) {
+            close(net_shared[net_my_entry].fd);
+            unlink(net_shared[net_my_entry].addr.sun_path);
+            net_shared[net_my_entry].fd = -1;
+        }
+        pthread_mutex_unlock(&net_shared_lock);
+        net_my_lfd = -1;
+    }
     return close(fd) < 0 ? -errno : 0;
 }
 

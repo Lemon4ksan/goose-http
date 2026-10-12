@@ -39,6 +39,7 @@
    address of its struct ur, and belongs to the thread that created it. */
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
+#include <ws2tcpip.h>
 #include <mswsock.h>
 #include <windows.h>
 #include <stdint.h>
@@ -129,7 +130,8 @@ struct ur_accept {
     uint64_t tag;
     HANDLE port, event, wait;
     uint8_t active, cancel;
-    char addrs[2 * (sizeof(struct sockaddr_in) + 16)];
+    int family;                /* the listener's, which as must have */
+    char addrs[2 * (sizeof(struct sockaddr_in6) + 16)];
 };
 
 /* An open-addressing hash map from a nonzero key to a pointer. */
@@ -249,7 +251,7 @@ static VOID CALLBACK ur_accepted(PVOID ctx, BOOLEAN timed_out) {
 
 static void ur_post_accept(struct ur *u) {
     struct ur_accept *a = &u->acc;
-    a->as = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0,
+    a->as = WSASocketW(a->family, SOCK_STREAM, IPPROTO_TCP, NULL, 0,
                        WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
     a->active = 1;
     if (a->as == INVALID_SOCKET) {
@@ -388,6 +390,9 @@ void ur_accept(int64_t h, int32_t fd, uint64_t tag) {
     a->ls = (SOCKET)(intptr_t)fd;
     a->tag = tag;
     a->cancel = 0;
+    struct sockaddr_storage ss;
+    int len = (int)sizeof ss;
+    a->family = getsockname(a->ls, (struct sockaddr *)&ss, &len) == 0 ? ss.ss_family : AF_INET;
     ur_post_accept(u);
 }
 

@@ -20,6 +20,8 @@ struct PollEvent { events: u32, tag: u64 }
 // Flags of net_listen and net_accept.
 let NONBLOCK: i32 = 1;
 let REUSEPORT: i32 = 2;   // net_listen only
+let UNIX: i32 = 4;        // net_listen only: addr is a Unix socket's path
+let V6ONLY: i32 = 8;      // net_listen only: an IPv6 listener takes no IPv4 clients
 
 // The error codes the loops tell apart, Linux's errno values. shim/net.c
 // asserts each one, shim/kqueue.c translates macOS's errno to them, and
@@ -56,13 +58,18 @@ let EPOLL_CTL_MOD: i32 = 3;
 // shutdown's how, asserted in shim/net.c.
 let SHUT_WR: i32 = 1;
 
-// A TCP listener on IPv4 address ip, in host byte order, with SO_REUSEADDR
-// and TCP_NODELAY, which accepted sockets inherit. An ip of -1 is every
-// address, or 127.0.0.1 on Windows, where the listener has
-// SO_EXCLUSIVEADDRUSE. With REUSEPORT, each worker gets a listener of its own
-// on Linux, and the workers share one on macOS and Windows, which net_close
-// closes after the last worker closes it.
-extern fn net_listen(ip: i64, port: i32, backlog: i32, flags: i32) -> i32;
+// A TCP listener on addr, 16 bytes as Address.ip holds them, with
+// SO_REUSEADDR and TCP_NODELAY, which accepted sockets inherit. An
+// IPv4-mapped address listens on IPv4, any other on IPv6, where :: takes IPv4
+// clients too unless V6ONLY; an empty addr is every IPv4 address, or
+// 127.0.0.1 on Windows, where the listener has SO_EXCLUSIVEADDRUSE. With
+// UNIX, addr is a path, and the listener a Unix socket there, made after
+// removing a socket file left at the path; port is unused. With REUSEPORT,
+// each worker gets a TCP listener of its own on Linux, and the workers share
+// one on macOS and Windows, and for a Unix socket everywhere, which net_close
+// closes after the last worker closes it, removing a Unix socket's file.
+// EAFNOSUPPORT for a Unix socket on Windows.
+extern fn net_listen(addr: const u8[:], port: i32, backlog: i32, flags: i32) -> i32;
 // flags must be the listener's NONBLOCK: macOS takes it from the listener. On
 // macOS a shared listener's net_accept also fails with EAGAIN while the
 // calling worker has taken more than its share of the connections.

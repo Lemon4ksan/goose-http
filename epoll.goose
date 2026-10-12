@@ -38,11 +38,9 @@ fn serve_epoll<H>(cfg: Config) -> Error {
 // request, with the request's state, which starts as fresh.
 fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     net_worker_start();
-    let ip, ok = ipv4(cfg.address);
-    guard ok else { return Error { call: "address", code: EINVAL }; }
     guard is_field_value(cfg.server) else { return Error { call: "server", code: EINVAL }; }
-    var lfd = net_listen(ip, cfg.port, cfg.backlog, NONBLOCK | REUSEPORT);
-    guard lfd >= 0 else { return Error { call: "listen", code: -lfd }; }
+    var lfd, listening = listen_on(cfg);
+    guard lfd >= 0 else { return listening; }
     let ep = net_epoll_create();
     guard ep >= 0 else {
         net_close(lfd);

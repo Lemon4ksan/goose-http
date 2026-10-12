@@ -18,7 +18,7 @@ fn check(what: const u8[:], r) {
 let BUF_SIZE = 16384;
 
 fn echo_blocking(port: i32) {
-    let lfd = check("listen", http::net_listen(-1, port, 128, 0));
+    let lfd = check("listen", http::net_listen("", port, 128, 0));
     print("echo-blocking: listening on ", port);
     var buf: u8[BUF_SIZE] = [0; BUF_SIZE];
     loop {
@@ -59,7 +59,7 @@ fn echo_until_closed(fd: i32, buf: u8[:]) {
 struct EchoConn { off: i64, len: i64, buf: u8[BUF_SIZE] }
 
 fn echo_epoll(port: i32) {
-    let lfd = check("listen", http::net_listen(-1, port, 4096, http::NONBLOCK));
+    let lfd = check("listen", http::net_listen("", port, 4096, http::NONBLOCK));
     let ep = check("epoll_create", http::net_epoll_create());
     check("epoll_ctl", http::net_epoll_ctl(ep, http::EPOLL_CTL_ADD, lfd,
                                          http::EPOLLIN | http::EPOLLET, lfd as u64));
