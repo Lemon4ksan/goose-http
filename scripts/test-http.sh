@@ -124,16 +124,32 @@ $client pipeline
 $client large
 $client stream
 # The stream run sends and takes hundreds of MB; a server that held them whole
-# would grow by as much. Linux only: elsewhere there's no /proc.
-if [ -r "/proc/$pid/status" ] && [ -z "$windows" ]; then
+# would grow by as much. Linux reads it from /proc and Windows from the peak
+# working set; macOS has neither.
+peak=
+if [ -n "$windows" ]; then
+    peak=$(powershell.exe -NoProfile -Command \
+        "[int]((Get-Process -Id $(cat "/proc/$pid/winpid")).PeakWorkingSet64 / 1024)" | tr -d '\r')
+elif [ -r "/proc/$pid/status" ]; then
     peak=$(awk '/^VmHWM/ {print $2}' "/proc/$pid/status")
+fi
+if [ -n "$peak" ]; then
     [ "$peak" -lt 65536 ] || fail "the server's peak RSS reached $peak kB"
     echo "stream: peak RSS $peak kB"
 fi
 $client files "$files_path"
-# Every file a response opened is closed, with its client gone or not. Not on
-# Windows; macOS has no /proc, so there it asks lsof.
-if [ -d "/proc/$pid/fd" ] && [ -z "$windows" ]; then
+# Every file a response opened is closed, with its client gone or not. macOS
+# has no /proc, so there it asks lsof. On Windows an open that shares nothing
+# fails while any handle to the file is open.
+if [ -n "$windows" ]; then
+    sleep 1
+    held=$(powershell.exe -NoProfile -Command \
+        "@(Get-ChildItem -LiteralPath '$files_path' -File -Recurse | Where-Object {
+            try { [IO.File]::Open(\$_.FullName, 'Open', 'Read', 'None').Close(); \$false } catch { \$true }
+        }).Count" | tr -d '\r')
+    [ "$held" = 0 ] || fail "the server holds $held files open"
+    echo "files: none left open"
+elif [ -d "/proc/$pid/fd" ]; then
     sleep 1
     held=$(ls -l "/proc/$pid/fd" | grep -c "$files" || true)
     [ "$held" = 0 ] || fail "the server holds $held files open"
