@@ -2,8 +2,8 @@
 // liburing, on Windows in shim/iocp.c over a completion port, and on macOS in
 // shim/ring_epoll.c over kqueue. A ring is the shim's, and owns every buffer
 // the kernel reads or writes after a call returns: receives land in its
-// provided buffers, and a send copies its bytes. Calls that can fail return
-// -errno, as net_*'s do.
+// provided buffers, and a send copies what of its bytes the socket didn't take
+// during the call. Calls that can fail return -errno, as net_*'s do.
 namespace http;
 
 // One completion. tag is what its request was queued with. For a receive,

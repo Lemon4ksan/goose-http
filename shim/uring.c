@@ -12,8 +12,11 @@
    a call. So the ring owns every buffer the kernel touches: receives land in
    its provided buffers, which ur_take copies out of, ur_send copies the
    bytes it's given, and ur_send_file splices a file through a pipe of its
-   own. A ring is a number to Goose, the address of its struct
-   ur, and belongs to the thread that created it (IORING_SETUP_SINGLE_ISSUER).
+   own. A send of UR_INLINE bytes or more that finds nothing queued on its
+   fd first goes out with send(2) inside the call, and only what the socket
+   doesn't take is copied. A ring is a number to Goose, the address of its
+   struct ur, and belongs to the thread that created it
+   (IORING_SETUP_SINGLE_ISSUER).
 
    Where io_uring_setup fails, as under Docker's default seccomp profile, or
    when asked, a ring is shim/ring_epoll.c's emulation over epoll instead:
@@ -65,12 +68,17 @@ typedef struct { ur_completion *data; int64_t len; } ur_completions;
 #define UR_SMALL (UR_MIN << (UR_CLASSES - 1))
 #define UR_BIG 65536
 #define UR_KEEP (4u << 20)
+/* Below this, a syscall per send costs more than the copy it saves: sent
+   inline at every size, tier B's responses of 0.3-13 KB lost 6-10% of their
+   rate, and at 64 KB nothing (task 021). */
+#define UR_INLINE 65536
 struct ur_send {
     struct ur_send *next;   /* behind it on its fd, or on a free list */
     uint64_t tag;
     int32_t fd;
     uint32_t gen;           /* fd's generation when the send was queued */
     uint32_t len, off;
+    uint32_t pre;           /* bytes ur_send sent itself, before data */
     uint32_t cap;           /* data's size */
     /* A file's send (ur_send_file) has no data: it splices the file into
        its pipe, and the pipe into the socket, one step at a time. */
@@ -115,6 +123,9 @@ struct ur {
     uint32_t nfds;
     struct ur_pipe *pipes;  /* empty, to reuse */
     uint32_t npipes;
+    /* Sends ur_send finished itself, for the next ur_wait to report. */
+    ur_completion *sent;
+    int32_t nsent, capsent;
     /* The waker (ur_waker), its eventfd, and its completions' tag. */
     int64_t waker;
     int32_t wfd;
@@ -303,6 +314,26 @@ int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
         return 0;
     }
     s = NULL;
+    uint32_t pre = 0;
+    if (!f->head && data.len >= UR_INLINE) {
+        ssize_t w = send(fd, data.data, (size_t)data.len, MSG_NOSIGNAL | MSG_DONTWAIT);
+        if (w == data.len) {
+            if (u->nsent == u->capsent) {
+                int32_t cap = u->capsent ? u->capsent * 2 : 64;
+                ur_completion *g = realloc(u->sent, (size_t)cap * sizeof *g);
+                if (!g) return -ENOMEM;
+                u->sent = g;
+                u->capsent = cap;
+            }
+            u->sent[u->nsent++] = (ur_completion){ .tag = tag, .res = (int32_t)w, .buf = -1, .more = 0, .send = 1 };
+            return 0;
+        }
+        if (w > 0) {
+            pre = (uint32_t)w;
+            data.data += w;
+            data.len -= w;
+        }
+    }
     int k = 0;
     if (data.len <= UR_SMALL) {
         while ((UR_MIN << k) < data.len) k++;
@@ -330,6 +361,7 @@ int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
     s->fd = fd;
     s->len = (uint32_t)data.len;
     s->off = 0;
+    s->pre = pre;
     s->file = -1;
     memcpy(s->data, data.data, (size_t)data.len);
     ur_enqueue(u, f, s);
@@ -402,7 +434,7 @@ int32_t ur_send_file(int64_t h, int32_t fd, uint64_t tag, int64_t file, int64_t 
     }
     s->tag = tag;
     s->fd = fd;
-    s->len = s->off = 0;
+    s->len = s->off = s->pre = 0;
     s->file = (int32_t)file;
     s->foff = off;
     s->fleft = len;
@@ -579,14 +611,19 @@ int32_t ur_wait(int64_t h, ur_completions out, int32_t timeout_ms) {
     }
     struct io_uring_cqe *cqe;
     int r;
-    if (timeout_ms < 0) {
+    if (u->nsent > 0) {
+        r = io_uring_submit_and_get_events(&u->ring);
+    } else if (timeout_ms < 0) {
         r = io_uring_submit_and_wait(&u->ring, 1);
     } else {
         struct __kernel_timespec ts = { timeout_ms / 1000, (long long)(timeout_ms % 1000) * 1000000 };
         r = io_uring_submit_and_wait_timeout(&u->ring, &cqe, 1, &ts, NULL);
     }
     if (r < 0 && r != -ETIME) return r;
-    int32_t n = 0;
+    int32_t n = u->nsent < out.len ? u->nsent : (int32_t)out.len;
+    memcpy(out.data, u->sent, (size_t)n * sizeof *u->sent);
+    u->nsent -= n;
+    memmove(u->sent, u->sent + n, (size_t)u->nsent * sizeof *u->sent);
     unsigned head, seen = 0;
     io_uring_for_each_cqe(&u->ring, head, cqe) {
         if (n == out.len) break;
@@ -609,7 +646,7 @@ int32_t ur_wait(int64_t h, ur_completions out, int32_t timeout_ms) {
                 continue;
             }
             c->tag = s->tag;
-            c->res = rest ? -ECANCELED : cqe->res < 0 ? cqe->res : (int32_t)s->len;
+            c->res = rest ? -ECANCELED : cqe->res < 0 ? cqe->res : (int32_t)(s->len + s->pre);
             c->buf = -1;
             c->more = 0;
             c->send = 1;
@@ -688,5 +725,6 @@ void ur_destroy(int64_t h) {
     }
     free(u->bufs);
     free(u->fds);
+    free(u->sent);
     free(u);
 }

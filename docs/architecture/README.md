@@ -257,7 +257,13 @@ puts the epoll loop ahead. On Windows the io_uring loop is the only one, over
   forbids C to keep a Goose argument past a call. So the loop copies each receive out of
   a provided buffer into its read buffer, and the shim copies each send's bytes into a
   buffer of its own. The epoll loop makes neither copy; the kernel's own copy into and
-  out of the socket is the same in both. The shims reuse those buffers, the big ones up
+  out of the socket is the same in both. A send of 64 KB or more that finds nothing
+  queued on its socket goes out with `send(2)` inside `ur_send`, which keeps no Goose
+  argument past the call, and the shim copies only what the socket didn't take; it
+  reports a send that went out whole at the next wait (2026-10-12, task 021). The copy
+  had held tier C's responses of up to 728 KB to 80% of the epoll loop's rate, and 72%
+  with templates; the inline send closed both gaps. Below 64 KB, the syscall per
+  response cost tier B 6-10% of its rate. The shims reuse those buffers, the big ones up
   to 4 MB a ring (2026-10-12): freed, a big one went back to the kernel, and faulting
   the next one's pages in held large responses on io_uring to 1 GB/s (task 013). Those
   of 8 KB or less come in six power-of-two sizes from 256 bytes, so a small response's
