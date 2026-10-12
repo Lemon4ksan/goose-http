@@ -168,4 +168,13 @@ xitca-http that `bench/` doesn't build.
   a growable array: it holds at most `MAX_PART_HEAD`, 2,048 bytes, between pieces, and a
   part's head longer than that fails the body. That cap is the reader's only limit;
   `Config.max_body` bounds the whole.
+- JSON responses (`respond_json`, `media.goose`). odin-http's `respond_json` marshals
+  through a 128-byte writer and closes with 500 on a marshal error (`responses.odin`);
+  xitca-web's `Json` serializes with `serde_json::to_vec` (`handler/types/json.rs`).
+  Both, and every benchmark route in `bench/`, send `application/json` with no
+  charset, which RFC 8259 §11 doesn't define. Here, `respond_json` calls its block with
+  a buffer for the stdlib's `json::format_*` writers, then answers with that body and
+  `application/json`. The stdlib's parser and reader take only a whole text, so a body
+  that comes in `BODY` pieces must be joined first
+  ([findings](../docs/goose-findings.md#the-stdlibs-json-parser-and-reader-take-only-a-whole-text)).
 

@@ -1,7 +1,8 @@
 // Unit tests for the package's helpers for APIs: media types and Accept,
-// cookies, Authorization, and form bodies.
+// cookies, Authorization, form bodies, and JSON responses.
 // scripts/test-unit.sh runs them through TinyCC.
 import std;
+import json;
 import http from "../";
 
 // The request text's head, parsed: text holds its field lines.
@@ -307,6 +308,23 @@ fn test_multipart() {
     assert(parts_in_pieces(req, "--XyZ\r\n\r\nab", 100) == "[,]ab");
 }
 
+fn test_json() {
+    var out: u8[>..] = [];
+    var keep = true;
+    var st = http::Stream { .. };
+    let name = "a \"b\"";
+    http::respond_json(http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: st }, 201) { b =>
+        b.push('{');
+        json::format_key(b, "name");
+        json::format_string(b, name);
+        b.push(',');
+        json::format_key(b, "n");
+        json::format_int(b, 7);
+        b.push('}');
+    };
+    same(out, "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: 24\r\n\r\n{\"name\":\"a \\\"b\\\"\",\"n\":7}");
+}
+
 fn main() {
     test_media_type();
     test_accept();
@@ -315,5 +333,6 @@ fn main() {
     test_auth();
     test_form();
     test_multipart();
+    test_json();
     print("test_api: ok");
 }

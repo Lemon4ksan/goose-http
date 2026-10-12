@@ -617,3 +617,36 @@ caller's meets it.
 Workaround: the helper shrinks only an array of its own and appends that to the
 caller's (`basic_auth`, `auth.goose`), or is done with the request before it shrinks
 anything. A limited array, as `Multipart.held` is, isn't refused.
+
+## The stdlib's JSON parser and reader take only a whole text
+
+Found on `5c83a5a`, task 015. Status: open
+
+`json::parse` and `json::reader` read one slice that holds the whole JSON text. A
+request body longer than the read buffer reaches the handler in `BODY` pieces, and
+neither can take one piece and resume with the next: a piece that ends inside a value
+fails as malformed. Expected, for a server: a parser that takes a body in pieces, or
+one that says it needs more, so that a large JSON body needn't sit whole in memory.
+
+    import std;
+    import json;
+
+    fn main() {
+        // A body that came in two BODY pieces: each fails on its own, and
+        // neither the parser nor the reader can be resumed with the next.
+        let first = "{\"name\": \"goo";
+        let second = "se\", \"n\": 1}";
+        var doc: json::Node[>..] = [];
+        var decoded: u8[>..] = [];
+        let root, err = json::parse(first, doc, decoded);
+        print(err);
+        var r = json::reader(first);
+        var scratch: u8[>..] = [];
+        json::each_member(r) { key => print(key, " = ", json::read_string(r, scratch)); };
+        print(json::finish(r), " ", json::message(r));
+    }
+
+It prints `json: bad string at byte 9` twice.
+
+Workaround: a handler joins the pieces, up to a limit of its own, and
+parses at `END`; a body that fits the read buffer comes whole at `REQUEST`.

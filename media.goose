@@ -282,3 +282,20 @@ fn accept_or_406(req: Request, out: Reply, offers: const u8[:][:]) -> i64 {
     finish(out, "Content-Length: ", "");
     return -1;
 }
+
+// A whole response whose body W writes as JSON, W(body), with json.goose's
+// writers, and its content type: application/json, which takes no charset
+// (RFC 8259 §11).
+//
+//   http::respond_json(out, 200) { b =>
+//       b.push('{');
+//       json::format_key(b, "id");
+//       json::format_int(b, id);
+//       b.push('}');
+//   };
+fn respond_json<W>(out: Reply, status: i32) {
+    var body: u8[>..] = [];
+    W(&body);
+    respond(out, status, "application/json", body);
+}
+
