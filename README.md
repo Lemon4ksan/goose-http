@@ -16,11 +16,11 @@ Early work. No TLS yet.
 | | Protocol | Notes |
 |---|---|---|
 | 🟢 | HTTP/1.1 | Keep-alive, pipelining, chunked. HTTP/1.0 too. |
-| 🟡 | WebSocket | `Upgrade` and 101 only. The framing is the program's. |
-| 🔴 | HTTP/2 | Proposed in task 014. |
-| 🔴 | TLS | Proposed in task 014, as a separate `goose-tls` package. |
-| 🔴 | Compression | Task 014 or later. |
-| 🔴 | HTTP/3 | Not planned. |
+| 🔴 | HTTP/2 | Later. |
+| 🔴 | TLS | Later, likely as a separate package. |
+| 🔴 | Compression | Later. |
+| 🔴 | WebSocket | Out of scope for now. `Upgrade` hands the connection to the program. |
+| 🔴 | HTTP/3 | Out of scope for now. |
 
 | | Platform | Notes |
 |---|---|---|
@@ -30,7 +30,7 @@ Early work. No TLS yet.
 
 HTTP/1.1 on `main`. The tag `v0.1.0` has fixed-size requests and responses only.
 
-| | Feature | Task |
+| | Feature | When |
 |---|---|---|
 | 🟢 | Strict parser: smuggling, 414, 431, 505, 501 | |
 | 🟢 | Header fields, path, query, percent-decoding | |
@@ -40,14 +40,14 @@ HTTP/1.1 on `main`. The tag `v0.1.0` has fixed-size requests and responses only.
 | 🟢 | Conditional `GET` (304), one byte range (206, 416) | |
 | 🟢 | Static files | |
 | 🟢 | Limits and timeouts. Graceful shutdown. | |
-| 🟡 | `sendfile` on the epoll loop | 013 |
-| 🟡 | Large responses on io_uring without the extra copy | 013 |
-| 🔴 | Answers that wait: another thread, a timer, long polling, SSE | 015 |
-| 🔴 | Client address. `Forwarded` from trusted proxies. | 015 |
-| 🔴 | IPv6, dual-stack, Unix sockets | 015 |
-| 🔴 | CR and LF checked in response fields | 015 |
-| 🔴 | Cookies, `Authorization`, media types, `Accept` | 015 |
-| 🔴 | Form and multipart bodies, JSON responses, access log | 015 |
+| 🟡 | `sendfile` on the epoll loop | Very soon |
+| 🟡 | Large responses on io_uring without the extra copy | Very soon |
+| 🔴 | Answers that wait: another thread, a timer, long polling, SSE | Soon |
+| 🔴 | Client address. `Forwarded` from trusted proxies. | Soon |
+| 🔴 | IPv6, dual-stack, Unix sockets | Soon |
+| 🔴 | CR and LF checked in response fields | Soon |
+| 🔴 | Cookies, `Authorization`, media types, `Accept` | Soon |
+| 🔴 | Form and multipart bodies, JSON responses, access log | Soon |
 
 CORS, sessions, middleware, and an HTTP client are out of scope. They belong to a
 framework.
@@ -110,7 +110,7 @@ epoll loop at `b6a26c5`.
   inside both run spreads. vanilla-epoll answers without parsing the request.
 - p99 latency behind the best in 6 of 10 cells, by 0.05-0.53 ms.
 - HttpArena's `limited-conn` profile: 2% behind tokio.
-- The streaming handler added since costs 0-3% in these cells (task 013).
+- The streaming handler added since costs 0-3% in these cells.
 
 ### Large responses and files
 
@@ -126,12 +126,12 @@ Same machine, 2026-10-12, `4a65d96`, Goose `5c83a5a`. One worker on CPU 0, wrk o
 | `/bytes?n=1048576` | 2.32 GB/s (1 run) | 1.02-1.05 GB/s |
 
 Since then the io_uring shim reuses large send records: `/bytes` at 1.72-1.73 GB/s.
-Files not measured again. Next (task 013): no extra copy on io_uring, `sendfile` on
+Files not measured again. Very soon: no extra copy on io_uring, `sendfile` on
 epoll.
 
 ### REST APIs
 
-Not measured. After task 015.
+Not measured yet. Soon, with the API features above.
 
 ## API
 
@@ -274,7 +274,7 @@ other isn't in the binary.
 | `http::serve_epoll` | epoll | kqueue | `ENOSYS` |
 
 - `http::serve` is the default. On Linux 9-24% faster than epoll, at 4-5 times the peak
-  RSS, about 10 MB with 4 workers (task 011's recheck of task 005). Where
+  RSS, about 10 MB with 4 workers. Where
   `io_uring_setup` fails, as under Docker's default seccomp profile, it emulates the
   ring on epoll; `http::ring_probe()` says why.
 - `http::serve_epoll` is faster on macOS, and on Linux uses a quarter of the memory.
