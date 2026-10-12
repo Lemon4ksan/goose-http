@@ -62,15 +62,15 @@ as task 013's did.
 
 ## Acceptance criteria
 
-- [ ] A handler hands a request to another thread and answers it from there, without
+- [x] A handler hands a request to another thread and answers it from there, without
       blocking its worker, on every loop. The handle of a closed connection is refused,
       and an exchange can wait for a timer. (Done on kqueue and the ring over it, and in
-      Docker on io_uring, the ring over epoll, and epoll, 2026-10-12; the IOCP waker
-      compiles but waits for a Windows run. See "Answers that wait: a proposal".)
-- [ ] A handler reads the client's address on every loop, and a proxied request's,
+      Docker on io_uring, the ring over epoll, and epoll, 2026-10-12; on IOCP in Git
+      Bash on Windows, 2026-10-12. See "Answers that wait: a proposal".)
+- [x] A handler reads the client's address on every loop, and a proxied request's,
       from trusted proxies only. (Done on kqueue and the ring over it, and in Docker on
-      io_uring, the ring over epoll, and epoll, 2026-10-12; the IOCP loop's `net_peer`
-      compiles but waits for a Windows run. See "The client's address".)
+      io_uring, the ring over epoll, and epoll, 2026-10-12; on IOCP in Git Bash on
+      Windows, 2026-10-12. See "The client's address".)
 - [ ] The server listens on IPv6, dual-stack, and on a Unix socket on Linux and macOS.
 - [x] A field with CR, LF, or an invalid name never reaches the client (2026-10-12; see
       "Checked fields")
@@ -134,8 +134,10 @@ Status: agreed as a proof of concept (2026-10-12); see "Decided". Being built:
   thread's `mail_wait`; a ring's waker is never freed, since a packet may still be
   queued, as the ring itself isn't. It compiles under MinGW-w64 (`docs/development.md`,
   "Checking the Windows shims compile"), with `mail.c`'s MSVC atomics type-checked
-  there with stand-ins for `winnt.h`'s `ReadAcquire` family; it waits for a run on
-  Windows.
+  there with stand-ins for `winnt.h`'s `ReadAcquire` family. On Windows 11 with MSVC
+  19.51 and Goose `5c83a5a`, `test-unit.sh` (`test_mail`, `test_timers`),
+  `test-http.sh` (`client`, `later`, `later-off`, and the Ctrl+Break stop), and
+  `test-echo.sh` passed in Git Bash (2026-10-12).
 
 ### What constrains it
 

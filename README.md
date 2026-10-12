@@ -45,8 +45,8 @@ HTTP/1.1 on `main`. The tag `v0.1.0` has fixed-size requests and responses only.
 | 🟢 | Limits and timeouts, per connection and per route. Graceful shutdown. | |
 | 🟡 | `sendfile` on the epoll loop | Very soon |
 | 🟡 | Large responses on io_uring without the extra copy | Very soon |
-| 🟢 | Answers that wait: another thread, a timer, long polling, SSE | Not run on Windows yet |
-| 🟢 | Client address. `Forwarded` from trusted proxies. | Not run on Windows yet |
+| 🟢 | Answers that wait: another thread, a timer, long polling, SSE | |
+| 🟢 | Client address. `Forwarded` from trusted proxies. | |
 | 🔴 | IPv6, dual-stack, Unix sockets | Soon |
 | 🟢 | Access log, as a `DONE` event | |
 
