@@ -15,7 +15,10 @@
 #                 nginx is the system's, caddy bench/build.sh's.
 #   WORKER_COUNTS 1 and the number of SERVER_CPUS ("1 4"). nginx runs that
 #                 many worker processes, Caddy that many GOMAXPROCS.
-#   SIZES         4096 65536 1048576, the files in bytes
+#   SIZES         4096 65536 1048576, the files in bytes. bytes:N asks the
+#                 Goose server's /bytes?n=N instead, N bytes from memory, to
+#                 compare a response built in memory with a file; other
+#                 servers skip it.
 #   CONNS         64
 #   SERVER_CPUS   0-3, CLIENT_CPUS 4-15, CLIENT_THREADS 8
 #   RUNS 3, DURATION 10, WARMUP 3, PORT 29380, MACHINE as bench/run.sh's
@@ -47,7 +50,7 @@ mkdir -p "$www/files"
 pid=
 trap '[ -z "$pid" ] || kill "$pid" 2>/dev/null; rm -rf "$tmp" "$www"' EXIT
 for size in $sizes; do
-    head -c "$size" /dev/urandom >"$www/files/f$size"
+    case $size in bytes:*) ;; *) head -c "$size" /dev/urandom >"$www/files/f$size" ;; esac
 done
 
 {
@@ -137,7 +140,19 @@ for workers in $worker_counts; do
     if [ "$workers" = 1 ]; then cpus=${server_cpus%%[-,]*}; else cpus=$server_cpus; fi
     for server in $servers; do
     for size in $sizes; do
-        name=$server-w$workers-s$size-r$run
+        case $size in
+        bytes:*)
+            case $server in goose*) ;; *) continue ;; esac
+            n=${size#bytes:}
+            path="/bytes?n=$n"
+            name=$server-w$workers-b$n-r$run
+            ;;
+        *)
+            n=$size
+            path=/files/f$size
+            name=$server-w$workers-s$size-r$run
+            ;;
+        esac
         echo "$name"
         if nc -z 127.0.0.1 "$port" 2>/dev/null; then
             echo "bench/files.sh: port $port is taken; set PORT"
@@ -150,8 +165,8 @@ for workers in $worker_counts; do
             [ $tries -lt 100 ] || { echo "bench/files.sh: $server isn't listening"; exit 1; }
             sleep 0.1
         done
-        url=http://127.0.0.1:$port/files/f$size
-        [ "$(curl -s -o /dev/null -w '%{size_download}' "$url")" = "$size" ] ||
+        url=http://127.0.0.1:$port$path
+        [ "$(curl -s -o /dev/null -w '%{size_download}' "$url")" = "$n" ] ||
             { echo "bench/files.sh: $server doesn't serve $url whole"; exit 1; }
 
         wrk="taskset -c $client_cpus wrk -t $threads -c $conns --timeout 8"
@@ -181,7 +196,7 @@ for workers in $worker_counts; do
         }' "$out/$name.times")
         printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
             "$server" "$workers" "$size" "$conns" "$run" "$rps" \
-            "$(echo "$rps $size" | awk '{printf "%.3f", $1 * $2 / 1e9}')" "${errors:-0}" \
+            "$(echo "$rps $n" | awk '{printf "%.3f", $1 * $2 / 1e9}')" "${errors:-0}" \
             "${non2xx:-0}" "$(echo "$c0 $c1 $hz" | awk '{printf "%.2f", ($2 - $1) / $3}')" \
             "$wrk_cpu" >>"$out/runs.tsv"
     done
@@ -196,13 +211,13 @@ dur = float(sys.argv[2])
 cells = defaultdict(list)
 order = []
 for r in csv.DictReader(open(sys.argv[1]), delimiter="\t"):
-    k = (int(r["size"]), int(r["workers"]), r["server"])
+    k = (r["size"], int(r["workers"]), r["server"])
     if k not in cells:
         order.append(k)
     cells[k].append(r)
 print("| Size | Workers | Server | GB/s, median (spread) | req/s | server CPU µs/req | wrk CPU s | errors |")
 print("|---:|---:|---|---|---:|---:|---:|---:|")
-for k in sorted(order, key=lambda k: (k[0], k[1], order.index(k))):
+for k in sorted(order, key=lambda k: (int(k[0].split(":")[-1]), k[0], k[1], order.index(k))):
     rs = cells[k]
     g = sorted(float(r["gbps"]) for r in rs)
     rps = statistics.median(float(r["rps"]) for r in rs)
