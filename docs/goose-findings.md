@@ -511,3 +511,46 @@ suggest its kernel doesn't back these mappings with huge pages.
 
 Workaround: none in the package. Run the server where transparent huge pages are
 `madvise` or `never`, or start it under `PR_SET_THP_DISABLE`.
+
+## A closure that keeps a slice through two nested blocks doesn't settle
+
+Found on `5c83a5a`, task 015. Status: open
+
+A function that stores a slice its block was given into a variable of its own, where
+the block is called from a block nested two deep, fails to check: "this loop's
+checking does not settle (internal limit of 16 passes)", pointing at the innermost
+loop. It checks when the slices point at a literal instead of a growable array, and
+when only one block sits between the loop and the store. Expected: it checks, as the
+one-block version does.
+
+    import std;
+
+    fn each_pair<F>(text: const u8[:]) {
+        var pos = 0;
+        while pos < text.len {
+            F(text[pos..pos + 1]);
+            pos++;
+        }
+    }
+
+    fn each_part<F>(text: const u8[:]) {
+        each_pair(text) { p =>
+            each_split(p, ';') { F(it); };
+        };
+    }
+
+    fn final_part(text: const u8[:]) -> const u8[:] {
+        var v = text[..0];
+        each_part(text) { p => v = p; };
+        return v;
+    }
+
+    fn main() {
+        var buf: u8[>..] = [];
+        buf.append("a;b");
+        print(final_part(buf));
+    }
+
+Workaround: `each_cookie` (`cookie.goose`) reads the `Cookie` fields with its own loops
+over `field_at` instead of `each_field` and `each_split`, so `cookie_of`'s block is the
+only one.

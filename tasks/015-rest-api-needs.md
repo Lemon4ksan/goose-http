@@ -125,3 +125,17 @@ xitca-http that `bench/` doesn't build.
   offers by `Accept` (RFC 9110 §12.5.1): the most specific matching range sets an
   offer's weight, ties go to the first offer, and a range that can't be read is
   skipped. `accept_or_406` answers 406 when no offer is acceptable.
+- Cookies (`cookie.goose`). odin-http splits `Cookie` on `"; "` exactly, keeps the
+  quotes, and lets the last of a repeated name win (`cookie.odin`); xitca-web, through
+  the `cookie` crate 0.18, splits on `;`, percent-decodes, and answers 400 for a pair
+  without `=` (`handler/types/cookie.rs`). Here, `each_cookie` and `cookie_of` split on
+  `;`, trim spaces and tabs, drop the quotes, and skip a pair without `=`, as RFC 6265
+  §5.2 has a user agent do. `cookie_of` takes the first of a repeated name, because a
+  user agent sends the cookie with the longest path first (§5.4). Values stay as sent:
+  RFC 6265 encodes none. `set_cookie` writes a `Cookie` with its attributes, `Expires`
+  as an HTTP date; one that `is_cookie` refuses (a name that isn't a token, a value
+  outside RFC 6265's cookie octets, a `;` or control byte in `Path` or `Domain`, or a
+  `SameSite` other than `Strict`, `Lax`, or `None`) is dropped, as `field` drops a field.
+  odin-http writes any cookie, escaping LF only. `each_cookie` reads the fields with its
+  own loops because of a checker limit
+  ([findings](../docs/goose-findings.md#a-closure-that-keeps-a-slice-through-two-nested-blocks-doesnt-settle)).

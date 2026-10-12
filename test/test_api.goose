@@ -1,4 +1,5 @@
-// Unit tests for the package's helpers for APIs: media types and Accept.
+// Unit tests for the package's helpers for APIs: media types and Accept,
+// and cookies.
 // scripts/test-unit.sh runs them through TinyCC.
 import std;
 import http from "../";
@@ -111,9 +112,53 @@ fn test_refusals() {
     assert(out.len == 0 && keep);
 }
 
+fn test_cookies() {
+    var buf: u8[>..] = [];
+    let req = request("Cookie: a=1; b=\"two\";c=3 ;bad; =x; d=\r\nCookie: a=9; e = 5\r\n", buf);
+    var got: u8[>..] = [];
+    http::each_cookie(req) { n, v =>
+        got.append(n);
+        got.push('=');
+        got.append(v);
+        got.push('|');
+    };
+    same(got, "a=1|b=two|c=3|d=|a=9|e=5|");
+    let a, ha = http::cookie_of(req, "a");
+    let b, hb = http::cookie_of(req, "b");
+    let d, hd = http::cookie_of(req, "d");
+    let z, hz = http::cookie_of(req, "A");
+    assert(ha && a == "1" && hb && b == "two" && hd && d == "" && !hz);
+
+    var out: u8[>..] = [];
+    var keep = true;
+    var st = http::Stream { .. };
+    let reply = http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: st };
+    http::set_cookie(reply, http::Cookie { name: "sid", value: "abc", max_age: 3600, expires: 1791633600,
+                                           path: "/", domain: "example.com", secure: true, http_only: true,
+                                           same_site: "Lax" });
+    http::set_cookie(reply, http::Cookie { name: "q", value: "\"x y\"", .. });
+    http::set_cookie(reply, http::Cookie { name: "gone", value: "", max_age: -5, .. });
+    http::set_cookie(reply, http::Cookie { name: "q", value: "\"x\"", .. });
+    same(out, "Set-Cookie: sid=abc; Max-Age=3600; Expires=Sat, 10 Oct 2026 12:00:00 GMT; Path=/; Domain=example.com; Secure; HttpOnly; SameSite=Lax\r\nSet-Cookie: gone=; Max-Age=0\r\nSet-Cookie: q=\"x\"\r\n");
+    // A cookie set_cookie can't write is dropped.
+    out.clear();
+    let bad = [http::Cookie { name: "", value: "x", .. }, http::Cookie { name: "a b", value: "x", .. },
+               http::Cookie { name: "a", value: "x;y", .. }, http::Cookie { name: "a", value: "x\r\nB: c", .. },
+               http::Cookie { name: "a", value: "x,y", .. }, http::Cookie { name: "a", value: "\"x", .. },
+               http::Cookie { name: "a", value: "x", path: "/;Secure", .. },
+               http::Cookie { name: "a", value: "x", domain: "a\nb", .. },
+               http::Cookie { name: "a", value: "x", same_site: "lax", .. }];
+    for c in bad {
+        assert(!http::is_cookie(c));
+        http::set_cookie(http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: st }, c);
+    }
+    assert(out.len == 0);
+}
+
 fn main() {
     test_media_type();
     test_accept();
     test_refusals();
+    test_cookies();
     print("test_api: ok");
 }
