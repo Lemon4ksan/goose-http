@@ -72,15 +72,24 @@ int32_t net_epoll_create(void);
 int32_t net_epoll_ctl(int32_t ep, int32_t op, int32_t fd, uint32_t events, uint64_t tag);
 int32_t net_epoll_wait(int32_t ep, rp_events out, int32_t timeout_ms);
 int64_t net_waker(int32_t ep, uint64_t tag);
+int64_t net_sendfile(int32_t s, int64_t fd, int64_t off, int64_t len);
+void net_file_close(int64_t fd);
 
-/* A send's bytes, owned by the ring until they're sent. */
+/* A send's bytes, owned by the ring until they're sent, or a file's send
+   (RP(send_file)), which has none. */
 struct rp_send {
     struct rp_send *next;
     uint64_t tag;
     uint32_t len, off;
     uint32_t cap;           /* data's size */
+    int64_t file;           /* -1 for a send of data */
+    int64_t foff, fleft;
     unsigned char data[];
 };
+
+/* sendfile's most per call, so a completion's count fits its res. */
+#define RP_FILE_PIECE (1 << 30)
+#define RP_EIO 5
 
 /* Sent records go back to free lists: those of up to RP_SMALL bytes, in
    RP_CLASSES powers of two from RP_MIN, always, and bigger ones, sized in
@@ -155,6 +164,8 @@ static struct rp_send *rp_send_alloc(struct rp *u, int64_t len) {
 }
 
 static void rp_send_free(struct rp *u, struct rp_send *s) {
+    if (s->file >= 0) net_file_close(s->file);
+    s->file = -1;
     if (s->cap <= RP_SMALL) {
         int k = 0;
         while ((RP_MIN << k) < s->cap) k++;
@@ -324,7 +335,33 @@ int32_t RP(send)(int64_t h, int32_t fd, uint64_t tag, rp_bytes data) {
     s->tag = tag;
     s->len = (uint32_t)data.len;
     s->off = 0;
+    s->file = -1;
     memcpy(s->data, data.data, (size_t)data.len);
+    if (f->last) f->last->next = s;
+    else f->sends = s;
+    f->last = s;
+    rp_queue(u, fd);
+    return 0;
+}
+
+/* Sends len bytes of file from off with sendfile, in the next ur_wait after
+   any sends queued before it on fd, with a completion for each call that
+   sends some. The ring owns file from here on, also when this fails. */
+int32_t RP(send_file)(int64_t h, int32_t fd, uint64_t tag, int64_t file, int64_t off, int64_t len) {
+    struct rp *u = (struct rp *)(intptr_t)h;
+    struct rp_fd *f = rp_fd_of(u, fd);
+    int32_t r = f ? rp_add(u, fd, f) : -RP_ENOMEM;
+    struct rp_send *s = r < 0 ? NULL : rp_send_alloc(u, 0);
+    if (!s) {
+        net_file_close(file);
+        return r < 0 ? r : -RP_ENOMEM;
+    }
+    s->next = NULL;
+    s->tag = tag;
+    s->len = s->off = 0;
+    s->file = file;
+    s->foff = off;
+    s->fleft = len;
     if (f->last) f->last->next = s;
     else f->sends = s;
     f->last = s;
@@ -419,6 +456,27 @@ static void rp_work(struct rp *u, rp_completions out, int32_t *n) {
         f->queued = 0;
         while (f->sends && f->writable) {
             struct rp_send *s = f->sends;
+            if (s->file >= 0) {
+                int64_t want = s->fleft < RP_FILE_PIECE ? s->fleft : RP_FILE_PIECE;
+                int64_t r = net_sendfile(fd, s->file, s->foff, want);
+                if (r == -RP_EAGAIN) {
+                    f->writable = 0;
+                    break;
+                }
+                if (r == -RP_EINTR) continue;
+                if (r > 0) {
+                    s->foff += r;
+                    s->fleft -= r;
+                }
+                int more = r > 0 && s->fleft > 0;
+                /* 0 is the file's end, short of what's left. */
+                rp_emit(u, out, n, s->tag, r > 0 ? (int32_t)r : r == 0 ? -RP_EIO : (int32_t)r, -1, more, 1);
+                if (more) continue;
+                f->sends = s->next;
+                if (!f->sends) f->last = NULL;
+                rp_send_free(u, s);
+                continue;
+            }
             rp_bytes rest = { s->data + s->off, (int64_t)(s->len - s->off) };
             int64_t r = rest.len > 0 ? net_send(fd, rest) : 0;
             if (r == -RP_EAGAIN) {
@@ -520,6 +578,7 @@ void RP(destroy)(int64_t h) {
         struct rp_send *s = u->fds[fd].sends;
         while (s) {
             struct rp_send *next = s->next;
+            if (s->file >= 0) net_file_close(s->file);
             free(s);
             s = next;
         }

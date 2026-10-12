@@ -1,6 +1,6 @@
 # 020: Files without copying on io_uring and IOCP
 
-Status: todo (asked for 2026-10-12)
+Status: in progress (asked for 2026-10-12)
 
 `http::serve` reads a file with `pread`, 64 KB at a time, into the write buffer at each
 `MORE`, and the ring copies that into a send record: two copies through the program,
@@ -18,8 +18,31 @@ has a way without the copies:
 
 ## Acceptance criteria
 
-- [ ] `http::send_file` hands a `Content-Length` body to the ring, as it does to the
+- [x] `http::send_file` hands a `Content-Length` body to the ring, as it does to the
       epoll loop (`Stream.direct`), on io_uring, IOCP, and the emulated ring
-- [ ] `scripts/test.sh`'s `files` passes on each, with no file left open
+- [x] `scripts/test.sh`'s `files` passes on each, with no file left open
 - [ ] The 64 KB and 1 MB file rates on the desktop before and after, with how they were
       measured, and the README's row turned green
+
+## Notes (2026-10-12)
+
+`ring_send_file` (`ring.goose`) queues a file behind a connection's sends, and the ring
+owns the file from then on. The io_uring loop hands it over in `pump` as soon as
+`answer` stops for it, and goes on answering, since the ring keeps the order.
+
+- io_uring (`shim/uring.c`): `IORING_OP_SPLICE` from the file into a pipe, then from
+  the pipe into the socket, one step at a time, not linked: a short first splice
+  would leave a linked second one waiting for bytes that don't come. Pipes are asked
+  for 1 MB (`F_SETPIPE_SZ`) and up to 64 empty ones are kept per ring. A send
+  completes once per piece, so the loop's deadline moves as a long file goes out.
+- Emulation (`shim/ring_epoll.c`): `net_sendfile`, as the epoll loop does.
+- IOCP (`shim/iocp.c`): `TransmitFile`, 1 MB per call. Client Windows runs two
+  TransmitFiles at a time system-wide and queues the rest, so many concurrent
+  downloads on a desktop may be slower than the copying path; measure it.
+
+Tested 2026-10-12: `scripts/test.sh` passed in WSL2 (Ubuntu 26.04, uring, uring over
+epoll, epoll) and on Windows (IOCP), with `examples/c` moved out of the tree for the
+run: it breaks every JIT test ([findings](../docs/goose-findings.md#a-packages-jit-library-links-the-externs-of-every-file-under-its-root)).
+macOS (the emulation over kqueue) isn't built or tested yet.
+
+Left: the benchmark, a macOS run, and a fix for the `examples/c` breakage.

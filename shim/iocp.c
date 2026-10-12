@@ -120,8 +120,15 @@ struct ur_send {
     uint64_t tag;
     uint32_t len, off;
     uint32_t cap;              /* data's size */
+    /* A file's send (ur_send_file) has no data: TransmitFile sends it, a
+       piece of up to UR_FILE_PIECE bytes at a time. */
+    HANDLE file;               /* NULL for a send of data */
+    int64_t foff, fleft;
+    uint32_t piece;            /* the bytes of the TransmitFile posted */
     unsigned char data[];
 };
+#define UR_FILE_PIECE (1u << 20)
+#define UR_EIO 5
 
 /* The ring's AcceptEx. as is the socket it accepts into. */
 struct ur_accept {
@@ -292,7 +299,33 @@ static void ur_post_recv(struct ur *u, struct ur_sock *k) {
     }
 }
 
+/* Posts the next piece of file send s. TransmitFile reads a handle opened
+   without FILE_FLAG_OVERLAPPED from its file pointer, so that's set too. */
+static void ur_post_piece(struct ur *u, struct ur_send *s) {
+    s->piece = s->fleft < UR_FILE_PIECE ? (uint32_t)s->fleft : UR_FILE_PIECE;
+    memset(&s->rq.ov, 0, sizeof s->rq.ov);
+    s->rq.ov.Offset = (DWORD)s->foff;
+    s->rq.ov.OffsetHigh = (DWORD)((uint64_t)s->foff >> 32);
+    s->sock->refs++;
+    LARGE_INTEGER at;
+    at.QuadPart = s->foff;
+    if (!SetFilePointerEx(s->file, at, NULL, FILE_BEGIN)) {
+        ur_ready(u, &s->rq, (int)GetLastError());
+        return;
+    }
+    if (!TransmitFile(s->sock->s, s->file, s->piece, 0, &s->rq.ov, NULL, 0)) {
+        int err = WSAGetLastError();
+        if (err != WSA_IO_PENDING) ur_ready(u, &s->rq, err);
+    } else if (u->skip) {
+        ur_ready_res(u, &s->rq, (int32_t)s->rq.ov.InternalHigh);
+    }
+}
+
 static void ur_post_send(struct ur *u, struct ur_send *s) {
+    if (s->file) {
+        ur_post_piece(u, s);
+        return;
+    }
     WSABUF b = { s->len - s->off, (char *)s->data + s->off };
     DWORD sent = 0;
     memset(&s->rq.ov, 0, sizeof s->rq.ov);
@@ -306,6 +339,8 @@ static void ur_post_send(struct ur *u, struct ur_send *s) {
 }
 
 static void ur_send_free(struct ur *u, struct ur_send *s) {
+    if (s->file) CloseHandle(s->file);
+    s->file = NULL;
     if (s->cap <= UR_SMALL) {
         int k = 0;
         while ((UR_MIN << k) < s->cap) k++;
@@ -411,6 +446,18 @@ void ur_recv(int64_t h, int32_t fd, uint64_t tag) {
     ur_post_recv(u, k);
 }
 
+/* Appends s to sock's sends, and posts it if it's first. */
+static void ur_enqueue(struct ur *u, struct ur_sock *sock, struct ur_send *s) {
+    s->next = NULL;
+    if (sock->last) {
+        sock->last->next = s;
+        sock->last = s;
+        return;
+    }
+    sock->head = sock->last = s;
+    ur_post_send(u, s);
+}
+
 /* Copies data and posts a send of it behind the sends on fd before it. One
    that waits takes data into its own record when it has room, and then
    reports both, as in shim/uring.c. A short send is posted again for the
@@ -420,7 +467,7 @@ int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
     struct ur_sock *sock = ur_sock_of(u, fd);
     if (!sock) return -UR_ENOMEM;
     struct ur_send *s = sock->last;
-    if (s && s != sock->head && s->cap - s->len >= data.len) {
+    if (s && s != sock->head && !s->file && s->cap - s->len >= data.len) {
         memcpy(s->data + s->len, data.data, (size_t)data.len);
         s->len += (uint32_t)data.len;
         return 0;
@@ -454,15 +501,39 @@ int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
     s->tag = tag;
     s->len = (uint32_t)data.len;
     s->off = 0;
-    s->next = NULL;
+    s->file = NULL;
     memcpy(s->data, data.data, (size_t)data.len);
-    if (sock->last) {
-        sock->last->next = s;
-        sock->last = s;
-        return 0;
+    ur_enqueue(u, sock, s);
+    return 0;
+}
+
+/* Sends len bytes of file from off with TransmitFile, behind the sends on fd
+   before it, with a completion for each piece. The ring owns file from here
+   on, also when this fails. Windows other than Server runs two
+   TransmitFiles at a time, system-wide, and queues the rest. */
+int32_t ur_send_file(int64_t h, int32_t fd, uint64_t tag, int64_t file, int64_t off, int64_t len) {
+    struct ur *u = (struct ur *)(intptr_t)h;
+    struct ur_sock *sock = ur_sock_of(u, fd);
+    struct ur_send *s = NULL;
+    if (sock && u->spare[0]) {
+        s = u->spare[0];
+        u->spare[0] = s->next;
+    } else if (sock) {
+        s = malloc(sizeof *s + UR_MIN);
+        if (s) s->cap = UR_MIN;
     }
-    sock->head = sock->last = s;
-    ur_post_send(u, s);
+    if (!s) {
+        CloseHandle((HANDLE)(intptr_t)file);
+        return -UR_ENOMEM;
+    }
+    s->rq.kind = UR_SEND;
+    s->sock = sock;
+    s->tag = tag;
+    s->len = s->off = 0;
+    s->file = (HANDLE)(intptr_t)file;
+    s->foff = off;
+    s->fleft = len;
+    ur_enqueue(u, sock, s);
     return 0;
 }
 
@@ -632,7 +703,21 @@ static int ur_finish_recv(struct ur *u, struct ur_sock *k, int32_t res, ur_compl
 
 static int ur_finish_send(struct ur *u, struct ur_send *s, int32_t res, ur_completion *c) {
     struct ur_sock *k = s->sock;
-    if (res >= 0 && s->off + (uint32_t)res < s->len) {
+    if (s->file) {
+        /* 0 is the file's end, short of what's left. */
+        if (res == 0 && s->fleft > 0) res = -UR_EIO;
+        if (res > 0) {
+            s->foff += res;
+            s->fleft -= res;
+        }
+        int more = res > 0 && s->fleft > 0 && !k->closed;
+        ur_fill(c, s->tag, k->closed ? -UR_ECANCELED : res, -1, more, 1);
+        if (more) {
+            ur_post_piece(u, s);
+            ur_unref(k);
+            return 1;
+        }
+    } else if (res >= 0 && s->off + (uint32_t)res < s->len) {
         if (!k->closed) {
             s->off += (uint32_t)res;
             ur_post_send(u, s);
@@ -641,7 +726,7 @@ static int ur_finish_send(struct ur *u, struct ur_send *s, int32_t res, ur_compl
         }
         res = -UR_ECANCELED;
     }
-    ur_fill(c, s->tag, res < 0 ? res : (int32_t)s->len, -1, 0, 1);
+    if (!s->file) ur_fill(c, s->tag, res < 0 ? res : (int32_t)s->len, -1, 0, 1);
     if (!k->closed) {
         k->head = s->next;
         if (k->head) ur_post_send(u, k->head);

@@ -126,6 +126,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         let i = conns.alloc_index(RingConn<S> { fd: fd, reading: true, deadline: now + cfg.request_ms, .. });
         let c .= conns[i];
         c.tag = (generation << 32) | (i as u64);
+        c.x.stream.direct = true;
         if waiting { c.x.stream.later = MailAddress { box: box.handle, key: later_base(i, generation) }; }
         ring_recv(r, fd, c.tag);
         open++;
@@ -138,6 +139,10 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         cancel(timers, c.x.timer);
         ring_close(r, c.fd);
         c.fd = -1;
+        if c.x.stream.file >= 0 {
+            net_file_close(c.x.stream.file);
+            c.x.stream.file = -1;
+        }
         c.tag = 0;
         if c.held.len > 0 { spill.free_slice(c.held); }
         conns.free(i);
@@ -154,6 +159,18 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         guard e >= 0 else { return Error { call: "send", code: -e } from spin; }
         c.queued += wbuf.len;
         wbuf.clear();
+    }
+
+    // Queues wbuf and then the file send_file gave the exchange
+    // (Stream.direct), which the ring then owns.
+    fn send_file(c: RingConn<S>&) {
+        flush(c);
+        let s .= c.x.stream;
+        let e = ring_send_file(r, c.fd, c.tag, s.file, s.file_off, s.file_left);
+        s.file = -1;
+        guard e >= 0 else { return Error { call: "send", code: -e } from spin; }
+        c.queued += s.file_left;
+        s.file_left = 0;
     }
 
     // Answers n received bytes after rbuf[..rlen]: those of provided buffer
@@ -178,6 +195,11 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
             ev.kind = NO_EVENT;
             rlen = rest;
             if done > 0 { progress = true; }
+            // The ring sends the file in order, so answering goes on.
+            if c.x.stream.file >= 0 {
+                send_file(c);
+                if c.state == OPEN && !blocked(c) && !c.x.stream.waiting { continue; }
+            }
             if c.state != OPEN {
                 rlen = 0;
                 break;

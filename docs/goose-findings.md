@@ -695,3 +695,27 @@ already places it.
 
 Workaround: bind the literal to a local first (`let ev = Event { ... }; resume(c, ev);`
 in the loops' `delivered` and `timed_out`).
+
+## A package's JIT library links the externs of every file under its root
+
+Found on `5c83a5a`, task 020. Status: open
+
+`PackageExternNames` (`src/native.h`) collects the extern fns of every `.goose` file
+under a library package's root, examples included, and the package's JIT library must
+link each one. `examples/c/app.goose` declares `extern fn gh_handle`, which its own
+`handler.c` defines, not the package. So every `goose file.goose` that imports the
+package fails, on Linux at load (`undefined symbol: gh_handle`) and on Windows at link
+(`lld-link: error: undefined symbol: gh_handle`). A cached library built before the
+example was added hides it until the cache under `~/.goose/build/pkg/local/` is
+cleared. Expected: a program under the root that the package doesn't import, with its
+own `.build`, isn't part of the package.
+
+    // pkg/lib.build: c_sources = ["lib.c"];
+    // pkg/lib.goose:  extern fn lib_f() -> i32;
+    // pkg/ex/app.goose, with pkg/ex/app.build naming its own app.c:
+    extern fn app_g() -> i32;
+    // A program that imports pkg's lib and runs with `goose main.goose` fails:
+    // undefined symbol: app_g
+
+Workaround: none committed yet; `scripts/test-unit.sh` fails with `examples/c` in the
+tree. Task 020's tests ran with `examples/c` moved out of it.

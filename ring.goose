@@ -12,7 +12,8 @@ namespace http;
 // request goes on. A send's completion has send set, and res is every byte
 // it was given, or its error: the shim queues a short send's rest itself. A
 // send waiting behind another on its fd may take in the ones after it, and
-// then res counts their bytes too.
+// then res counts their bytes too. A file's send (ring_send_file) completes
+// once per piece that went out, with more set until its last.
 struct Completion { tag: u64, res: i32, buf: i32, more: bool, send: bool }
 
 // The errno values of completions, beyond sys.goose's. shim/uring.c asserts
@@ -39,6 +40,13 @@ extern "ur_accept" fn ring_accept(r: i64, fd: i32, tag: u64);
 extern "ur_recv" fn ring_recv(r: i64, fd: i32, tag: u64);
 // A send goes out after those queued before it on fd, one at a time.
 extern "ur_send" fn ring_send(r: i64, fd: i32, tag: u64, data: const u8[:]) -> i32;
+// Sends len bytes of file, a handle net_file_open returned, from off, after
+// those queued before it on fd, without copying them through the program:
+// with splice through a pipe on io_uring, TransmitFile on Windows, and
+// sendfile on the emulation. The ring keeps file, and closes it after the
+// last piece, on an error, at ring_close of fd, or at ring_destroy, also
+// when this fails. A file that ends early fails the send with EIO.
+extern "ur_send_file" fn ring_send_file(r: i64, fd: i32, tag: u64, file: i64, off: i64, len: i64) -> i32;
 extern "ur_cancel" fn ring_cancel(r: i64, tag: u64);
 // Cancels every request on fd, then closes it. Sends not yet started are
 // dropped, with no completion.

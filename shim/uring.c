@@ -10,15 +10,20 @@
    The kernel writes a receive's bytes and reads a send's after the call that
    queued them returns, and spec §7.10 forbids C to keep a Goose argument past
    a call. So the ring owns every buffer the kernel touches: receives land in
-   its provided buffers, which ur_take copies out of, and ur_send copies the
-   bytes it's given. A ring is a number to Goose, the address of its struct
+   its provided buffers, which ur_take copies out of, ur_send copies the
+   bytes it's given, and ur_send_file splices a file through a pipe of its
+   own. A ring is a number to Goose, the address of its struct
    ur, and belongs to the thread that created it (IORING_SETUP_SINGLE_ISSUER).
 
    Where io_uring_setup fails, as under Docker's default seccomp profile, or
    when asked, a ring is shim/ring_epoll.c's emulation over epoll instead:
    its address with the low bit set, which a struct ur's never has, and each
    call here passes it on. */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE         /* F_SETPIPE_SZ */
+#endif
 #include <errno.h>
+#include <fcntl.h>
 #include <liburing.h>
 #include <poll.h>
 #include <stdint.h>
@@ -67,8 +72,25 @@ struct ur_send {
     uint32_t gen;           /* fd's generation when the send was queued */
     uint32_t len, off;
     uint32_t cap;           /* data's size */
+    /* A file's send (ur_send_file) has no data: it splices the file into
+       its pipe, and the pipe into the socket, one step at a time. */
+    int32_t file;           /* -1 for a send of data */
+    int32_t err;            /* why it failed before it started, or 0 */
+    struct ur_pipe *pipe;
+    int64_t foff, fleft;    /* what's left of the file to put in the pipe */
+    uint32_t piped;         /* bytes in the pipe, still to send */
     unsigned char data[];
 };
+
+/* A pipe, which a file's send holds while it lasts. Empty ones are kept for
+   the next file. */
+struct ur_pipe {
+    struct ur_pipe *next;
+    int32_t rd, wr;
+    uint32_t cap;
+};
+#define UR_PIPES 64
+#define UR_PIPE_SIZE (1 << 20)
 
 /* Per fd, its sends in order, the first in flight, and the number of times
    this ring closed it. One send at a time keeps a connection's bytes in
@@ -91,6 +113,8 @@ struct ur {
     uint32_t kept;          /* the bytes of big's records */
     struct ur_fd *fds;
     uint32_t nfds;
+    struct ur_pipe *pipes;  /* empty, to reuse */
+    uint32_t npipes;
     /* The waker (ur_waker), its eventfd, and its completions' tag. */
     int64_t waker;
     int32_t wfd;
@@ -107,6 +131,7 @@ int64_t urp_create(int32_t entries, int32_t nbufs, int32_t buflen, int32_t flags
 void urp_accept(int64_t h, int32_t fd, uint64_t tag);
 void urp_recv(int64_t h, int32_t fd, uint64_t tag);
 int32_t urp_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data);
+int32_t urp_send_file(int64_t h, int32_t fd, uint64_t tag, int64_t file, int64_t off, int64_t len);
 void urp_cancel(int64_t h, uint64_t tag);
 void urp_close(int64_t h, int32_t fd);
 void urp_take(int64_t h, int32_t buf, int64_t off, ur_bytes dst);
@@ -216,10 +241,49 @@ void ur_recv(int64_t h, int32_t fd, uint64_t tag) {
     io_uring_sqe_set_data64(sqe, tag << 2 | UR_TAGGED);
 }
 
+/* Queues s's next step: for data, a send of the rest; for a file, a splice
+   of the file into the pipe while it's empty, else of the pipe into the
+   socket, or a no-op to report err. */
 static void ur_prep_send(struct ur *u, struct ur_send *s) {
     struct io_uring_sqe *sqe = ur_sqe(u);
-    io_uring_prep_send(sqe, s->fd, s->data + s->off, s->len - s->off, MSG_NOSIGNAL);
+    if (s->file < 0) {
+        io_uring_prep_send(sqe, s->fd, s->data + s->off, s->len - s->off, MSG_NOSIGNAL);
+    } else if (s->err) {
+        io_uring_prep_nop(sqe);
+    } else if (s->piped > 0) {
+        io_uring_prep_splice(sqe, s->pipe->rd, -1, s->fd, -1, s->piped, 0);
+    } else {
+        uint32_t n = s->fleft < s->pipe->cap ? (uint32_t)s->fleft : s->pipe->cap;
+        io_uring_prep_splice(sqe, s->file, s->foff, s->pipe->wr, -1, n, 0);
+    }
     io_uring_sqe_set_data64(sqe, (uint64_t)(uintptr_t)s | UR_SEND);
+}
+
+/* fd's record, or NULL when out of memory. */
+static struct ur_fd *ur_fd_of(struct ur *u, int32_t fd) {
+    if ((uint32_t)fd >= u->nfds) {
+        uint32_t n = u->nfds ? u->nfds : 1024;
+        while (n <= (uint32_t)fd) n *= 2;
+        struct ur_fd *g = realloc(u->fds, n * sizeof *g);
+        if (!g) return NULL;
+        memset(g + u->nfds, 0, (n - u->nfds) * sizeof *g);
+        u->fds = g;
+        u->nfds = n;
+    }
+    return &u->fds[fd];
+}
+
+/* Appends s to f's sends, and queues it if it's first. */
+static void ur_enqueue(struct ur *u, struct ur_fd *f, struct ur_send *s) {
+    s->gen = f->gen;
+    s->next = NULL;
+    if (f->last) {
+        f->last->next = s;
+        f->last = s;
+        return;
+    }
+    f->head = f->last = s;
+    ur_prep_send(u, s);
 }
 
 /* Copies data and queues a send of it, with MSG_NOSIGNAL, behind the sends
@@ -230,18 +294,10 @@ int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
     if (UR_EMULATED(h)) return urp_send(UR_POLL(h), fd, tag, data);
     struct ur *u = (struct ur *)(intptr_t)h;
     struct ur_send *s;
-    if ((uint32_t)fd >= u->nfds) {
-        uint32_t n = u->nfds ? u->nfds : 1024;
-        while (n <= (uint32_t)fd) n *= 2;
-        struct ur_fd *g = realloc(u->fds, n * sizeof *g);
-        if (!g) return -ENOMEM;
-        memset(g + u->nfds, 0, (n - u->nfds) * sizeof *g);
-        u->fds = g;
-        u->nfds = n;
-    }
-    struct ur_fd *f = &u->fds[fd];
+    struct ur_fd *f = ur_fd_of(u, fd);
+    if (!f) return -ENOMEM;
     s = f->last;
-    if (s && s != f->head && s->cap - s->len >= data.len) {
+    if (s && s != f->head && s->file < 0 && s->cap - s->len >= data.len) {
         memcpy(s->data + s->len, data.data, (size_t)data.len);
         s->len += (uint32_t)data.len;
         return 0;
@@ -272,19 +328,133 @@ int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
     }
     s->tag = tag;
     s->fd = fd;
-    s->gen = f->gen;
     s->len = (uint32_t)data.len;
     s->off = 0;
-    s->next = NULL;
+    s->file = -1;
     memcpy(s->data, data.data, (size_t)data.len);
-    if (f->last) {
-        f->last->next = s;
-        f->last = s;
-        return 0;
-    }
-    f->head = f->last = s;
-    ur_prep_send(u, s);
+    ur_enqueue(u, f, s);
     return 0;
+}
+
+/* An empty pipe, as big as the system lets it grow up to UR_PIPE_SIZE, or
+   NULL with errno set. */
+static struct ur_pipe *ur_pipe_get(struct ur *u) {
+    struct ur_pipe *p = u->pipes;
+    if (p) {
+        u->pipes = p->next;
+        u->npipes--;
+        return p;
+    }
+    p = malloc(sizeof *p);
+    if (!p) return NULL;
+    int fds[2];
+    if (pipe2(fds, O_CLOEXEC) < 0) {
+        int e = errno;
+        free(p);
+        errno = e;
+        return NULL;
+    }
+    p->rd = fds[0];
+    p->wr = fds[1];
+    fcntl(p->wr, F_SETPIPE_SZ, UR_PIPE_SIZE);
+    int cap = fcntl(p->wr, F_GETPIPE_SZ);
+    p->cap = cap > 0 ? (uint32_t)cap : 65536;
+    return p;
+}
+
+/* Ends a file's send: closes the file, and keeps its pipe if it's empty. */
+static void ur_file_end(struct ur *u, struct ur_send *s) {
+    close(s->file);
+    s->file = -1;
+    struct ur_pipe *p = s->pipe;
+    s->pipe = NULL;
+    if (!p) return;
+    if (s->piped == 0 && u->npipes < UR_PIPES) {
+        p->next = u->pipes;
+        u->pipes = p;
+        u->npipes++;
+        return;
+    }
+    close(p->rd);
+    close(p->wr);
+    free(p);
+}
+
+/* Queues a send of len bytes of file from off behind the sends on fd before
+   it, spliced through a pipe, so the bytes never reach the program. The ring
+   owns file from here on, also when this fails. Without a pipe, the send
+   still goes in the queue, to fail in its turn. */
+int32_t ur_send_file(int64_t h, int32_t fd, uint64_t tag, int64_t file, int64_t off, int64_t len) {
+    if (UR_EMULATED(h)) return urp_send_file(UR_POLL(h), fd, tag, file, off, len);
+    struct ur *u = (struct ur *)(intptr_t)h;
+    struct ur_fd *f = ur_fd_of(u, fd);
+    struct ur_send *s = NULL;
+    if (f && u->free[0]) {
+        s = u->free[0];
+        u->free[0] = s->next;
+    } else if (f) {
+        s = malloc(sizeof *s + UR_MIN);
+        if (s) s->cap = UR_MIN;
+    }
+    if (!s) {
+        close((int)file);
+        return -ENOMEM;
+    }
+    s->tag = tag;
+    s->fd = fd;
+    s->len = s->off = 0;
+    s->file = (int32_t)file;
+    s->foff = off;
+    s->fleft = len;
+    s->piped = 0;
+    s->pipe = ur_pipe_get(u);
+    s->err = s->pipe ? 0 : -errno;
+    ur_enqueue(u, f, s);
+    return 0;
+}
+
+static void ur_send_free(struct ur *u, struct ur_send *s);
+
+/* A step of file send s completed with res. Queues the next, or ends the
+   send. Returns whether it wrote a completion into c: one for each piece
+   that went out, and one for an error. */
+static int ur_file_step(struct ur *u, struct ur_send *s, int32_t res, ur_completion *c) {
+    struct ur_fd *f = &u->fds[s->fd];
+    int live = s->gen == f->gen;
+    int32_t err = live ? s->err : -ECANCELED;
+    int more = 0;
+    if (!err && s->piped == 0) {
+        if (res > 0) {
+            s->piped = (uint32_t)res;
+            s->foff += res;
+            s->fleft -= res;
+            ur_prep_send(u, s);
+            return 0;
+        }
+        err = res < 0 ? res : -EIO;     /* the file ended early */
+    } else if (!err) {
+        if (res <= 0) {
+            err = res < 0 ? res : -EPIPE;
+        } else {
+            s->piped -= (uint32_t)res;
+            more = s->piped > 0 || s->fleft > 0;
+            if (more) ur_prep_send(u, s);
+        }
+    }
+    c->tag = s->tag;
+    c->res = err ? err : res;
+    c->buf = -1;
+    c->more = (uint8_t)more;
+    c->send = 1;
+    if (more) return 1;
+    ur_file_end(u, s);
+    if (live) {
+        f->head = s->next;
+        if (f->head) ur_prep_send(u, f->head);
+        else f->last = NULL;
+    }
+    ur_send_free(u, s);
+    return 1;
 }
 
 static void ur_send_free(struct ur *u, struct ur_send *s) {
@@ -330,6 +500,7 @@ void ur_close(int64_t h, int32_t fd) {
         if (f->head) {
             for (struct ur_send *s = f->head->next, *next; s; s = next) {
                 next = s->next;
+                if (s->file >= 0) ur_file_end(u, s);
                 ur_send_free(u, s);
             }
             f->head->next = NULL;
@@ -425,6 +596,10 @@ int32_t ur_wait(int64_t h, ur_completions out, int32_t timeout_ms) {
         ur_completion *c = &out.data[n];
         if ((ud & 3) == UR_SEND) {
             struct ur_send *s = (struct ur_send *)(uintptr_t)(ud & ~(uint64_t)3);
+            if (s->file >= 0) {
+                n += ur_file_step(u, s, cqe->res, c);
+                continue;
+            }
             struct ur_fd *f = &u->fds[s->fd];
             int live = s->gen == f->gen;
             int rest = cqe->res > 0 && s->off + (uint32_t)cqe->res < s->len;
@@ -469,7 +644,9 @@ int32_t ur_wait(int64_t h, ur_completions out, int32_t timeout_ms) {
 
 /* Tears the ring down, with whatever is still queued on it. The records of
    sends in flight aren't freed: only a completion says when the kernel is
-   done with one. Those waiting behind them are. */
+   done with one. Those waiting behind them are. Their files and pipes are
+   closed, as the kernel holds its own reference to one in use, except those
+   of a file's send in flight when ur_close dropped its fd. */
 void ur_destroy(int64_t h) {
     if (UR_EMULATED(h)) {
         urp_destroy(UR_POLL(h));
@@ -480,10 +657,22 @@ void ur_destroy(int64_t h) {
     io_uring_queue_exit(&u->ring);
     for (uint32_t fd = 0; fd < u->nfds; fd++) {
         if (!u->fds[fd].head) continue;
+        if (u->fds[fd].head->file >= 0) {
+            u->fds[fd].head->piped = 1;     /* not empty: close the pipe */
+            ur_file_end(u, u->fds[fd].head);
+        }
         for (struct ur_send *s = u->fds[fd].head->next, *next; s; s = next) {
             next = s->next;
+            if (s->file >= 0) ur_file_end(u, s);
             free(s);
         }
+    }
+    while (u->pipes) {
+        struct ur_pipe *p = u->pipes;
+        u->pipes = p->next;
+        close(p->rd);
+        close(p->wr);
+        free(p);
     }
     for (int k = 0; k < UR_CLASSES; k++) {
         while (u->free[k]) {

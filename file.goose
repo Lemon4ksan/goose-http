@@ -1,7 +1,7 @@
-// Files as response bodies, read in pieces with pread, as h2o reads them by
-// default, so that the same code serves every loop: the io_uring and IOCP
-// loops have no sendfile. serve_epoll on Linux and macOS sends them with
-// sendfile instead (send_file). A handler opens a file at REQUEST, answers with
+// Files as response bodies. A body with a Content-Length goes to the loop,
+// which sends it without copying (send_file): serve_epoll with sendfile, and
+// serve's ring with splice, TransmitFile, or sendfile. Others are read in
+// pieces with pread, as h2o reads them by default. A handler opens a file at REQUEST, answers with
 // serve_file, and sends the body with send_file at each MORE, with the
 // FileBody in its state:
 //
