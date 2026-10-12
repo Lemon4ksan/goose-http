@@ -15,9 +15,9 @@ comparison.
 
 - AMD Ryzen 7 5800X3D, 8 cores, 16 logical CPUs, 15 GB of memory for WSL2.
 - Windows 11, WSL2 kernel 6.18.40.1-microsoft-standard-WSL2, Ubuntu 26.04.1.
-- The Goose server at `ef09c0f`, built by Goose `5c83a5a` and gcc 15.2.0 (`-O2`), in
-  both of the package's loops: epoll, and io_uring. rustc 1.99.0, Zig 0.16.0, and V 0.5.2
-  for the others.
+- The Goose server built by gcc 15.2.0 (`-O2`), in both of the package's loops: epoll,
+  and io_uring, at the commit and Goose compiler each section names. rustc 1.99.0, Zig
+  0.16.0, and V 0.5.2 for the others.
 - Every server runs on CPUs 0-3 (two cores with both SMT threads), with the same worker
   count as Goose; the load generators run on CPUs 4-15.
 
