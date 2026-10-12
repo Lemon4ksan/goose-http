@@ -74,7 +74,8 @@ as task 013's did.
       `test/test_http.goose`. (Items 5-8, 10, and 11 have theirs, in
       `test/test_api.goose` and `scripts/http_client.py`, 2026-10-12; item 9 waits for
       item 2.)
-- [ ] The benchmark routes keep their rate, measured as task 013's were.
+- [x] The benchmark routes keep their rate (2026-10-12, on the Mac and in Docker on it,
+      `288c868` against `26e073f`; see "The benchmark routes' rate")
 
 ## Checked fields (2026-10-12)
 
@@ -194,20 +195,52 @@ xitca-http that `bench/` doesn't build.
 
 Item 9, the log after each response, waits for item 2's client address.
 
-## What WSL2 should measure
+## The benchmark routes' rate (2026-10-12)
 
-The criterion that the benchmark routes keep their rate needs the WSL2 machine, as
-task 013's did; a Mac number doesn't count. No benchmark route calls the helpers of
-items 5 to 11. Two changes reach the routes' path:
+No regression shows on the Mac or in Docker on it: in every cell, `288c868`'s runs
+overlap `26e073f`'s, the commit before this task's changes, and the medians differ by
+less than the spread of either. These runs resolve a few percent, not a few
+instructions; task 013 counted changes of this size at 5-15 user instructions per
+request. Two changes reach the routes' path: `answer` counts each connection's
+requests against `Config.max_requests` (item 11), which adds 8 bytes to each slot, and
+`field` checks its name and value (item 4), which `/bytes`, `/stream`, `/echo`, and
+`/upgrade` call; plaintext and JSON write their fields through `finish`. No benchmark
+route calls the helpers of items 5 to 11.
 
-- `answer` (`http.goose`) counts each connection's requests and compares the count with
-  `Config.max_requests` for each request (item 11). The count adds 8 bytes to each
-  connection's slot.
-- `field` checks its name and value (item 4). The plaintext and JSON routes write their
-  fields through `finish`, which isn't checked; `/bytes`, `/stream`, `/echo`, and
-  `/upgrade` call `field`.
+macOS, on the MacBook Pro M1 Pro of `docs/development.md`, Darwin 25.3.0, Goose
+`5c83a5a`, each build with `scripts/build.sh`, at a load average of 6-12: another
+project's benchmark ran on the machine meanwhile, so these runs are noisy. wrk 4.2.0 on the same machine, `-t 4 -c 64 -d 5 -s scripts/pipeline.lua -- 16`,
+against `WORKERS=4`, 5 rounds alternating the builds. In thousands of requests per
+second, median and range:
 
-Measure against `26e073f`, the commit before this task's changes, with task 013's
-method: `bench/count.sh` for user instructions per plaintext request on each loop, and
-`bench/run.sh`'s 4-worker cells for the rate, in the configuration task 013 recorded.
+| Loop, route | `26e073f` | `288c868` |
+|---|---|---|
+| epoll, plaintext | 565.6 (549.0-575.5) | 551.0 (550.0-574.1) |
+| epoll, JSON | 566.9 (551.7-577.7) | 556.7 (540.1-573.2) |
+| uring, plaintext | 549.9 (546.4-565.7) | 561.7 (544.8-569.7) |
+| uring, JSON | 560.4 (546.5-571.4) | 560.4 (554.7-573.4) |
 
+Plaintext and JSON run at the same rate there, which the loopback limits
+(`docs/development.md`, "macOS"), so the counts below say more. `bench/count.sh`'s load
+on macOS: `WORKERS=1`, h2load 1.70.0 `--h1 -n 2000000 -c 256 -m 16 -t 8` on
+`/plaintext`, and the server's instructions retired from `/usr/bin/time -l`, which
+counts the kernel's too, divided by the requests; 3 rounds alternating the builds.
+Instructions per request: epoll 17,531-17,560 (`26e073f`) and 17,548-17,558
+(`288c868`); uring 17,787-17,801 and 17,780-17,790.
+
+Docker Desktop 29.8.2 on the same Mac, kernel 7.0.14-linuxkit, 10 CPUs, the
+`ubuntu:26.04` image of `docs/development.md` with wrk 4.1.0, `--security-opt
+seccomp=unconfined`, so `uring` is io_uring. The server with `WORKERS=3` on CPUs 0-2,
+wrk on CPUs 3-9, `-t 7 -c 256 -d 5 -s scripts/pipeline.lua -- 16`, 5 rounds alternating
+the builds. In thousands of requests per second:
+
+| Loop, route | `26e073f` | `288c868` |
+|---|---|---|
+| epoll, plaintext | 6,074 (5,744-6,726) | 6,383 (5,927-6,804) |
+| epoll, JSON | 6,296 (5,739-6,378) | 6,223 (5,819-6,443) |
+| uring, plaintext | 6,250 (5,619-6,451) | 5,775 (5,211-6,477) |
+| uring, JSON | 5,744 (5,612-6,385) | 6,043 (5,523-6,350) |
+
+Docker Desktop's VM exposes no hardware counters (`perf stat` finds no supported
+events), so `bench/count.sh` can't run there. On WSL2, `bench/count.sh` against
+`26e073f` would put a number on the few instructions these runs can't see.

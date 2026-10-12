@@ -39,15 +39,16 @@ HTTP/1.1 on `main`. The tag `v0.1.0` has fixed-size requests and responses only.
 | 🟢 | Responses of any size, streamed or chunked. Trailers. | |
 | 🟢 | Conditional `GET` (304), one byte range (206, 416) | |
 | 🟢 | Static files | |
-| 🟢 | Limits and timeouts. Graceful shutdown. | |
+| 🟢 | CR, LF, and invalid names kept out of response fields | |
+| 🟢 | Cookies, `Authorization` with `Basic`, media types, `Accept` (415, 406) | |
+| 🟢 | Form and streamed multipart bodies, JSON responses | |
+| 🟢 | Limits and timeouts, per connection and per route. Graceful shutdown. | |
 | 🟡 | `sendfile` on the epoll loop | Very soon |
 | 🟡 | Large responses on io_uring without the extra copy | Very soon |
 | 🔴 | Answers that wait: another thread, a timer, long polling, SSE | Soon |
 | 🔴 | Client address. `Forwarded` from trusted proxies. | Soon |
 | 🔴 | IPv6, dual-stack, Unix sockets | Soon |
-| 🔴 | CR and LF checked in response fields | Soon |
-| 🔴 | Cookies, `Authorization`, media types, `Accept` | Soon |
-| 🔴 | Form and multipart bodies, JSON responses, access log | Soon |
+| 🔴 | Access log | Soon, after the client address |
 
 CORS, sessions, middleware, and an HTTP client are out of scope. They belong to a
 framework.
@@ -154,6 +155,9 @@ Not measured yet. Soon, with the API features above.
   - `http::respond(out, status, content_type, body)`, or
   - `http::start(out, status)`, `http::field(out, name, value)`,
     `http::finish(out, fields, body)`.
+  - `http::field` drops a field with CR, LF, or an invalid name, so request data can't
+    split the response; `http::is_field(name, value)` checks one first. `finish`'s
+    `fields` are written as they are, for constant text.
   - Clear `out.keep_alive` before `start` to close after the response.
 
 A handler passed by name, `http::serve(cfg, route)`, should be an `inline fn`, as in
@@ -263,6 +267,26 @@ thread_fn worker(cfg: http::Config) {
   Check the decoded path before joining it to a directory.
 
 The benchmark server serves the directory in `FILES` at `/files/`.
+
+### Helpers for APIs
+
+- Media types: `http::require_type(req, out, "application/json")` answers 415 for
+  another `Content-Type`; `http::accept_or_406(req, out, ["application/json",
+  "text/csv"])` picks an offer by `Accept`, or answers 406. `http::media_type` and
+  `http::param_of` parse a type and its parameters.
+- Cookies: `http::cookie_of(req, name)`, `http::each_cookie(req) { name, value => }`,
+  and `http::set_cookie(out, http::Cookie { name: "sid", value: id, max_age: 3600,
+  http_only: true, same_site: "Lax", .. })`.
+- `http::authorization(req)`: the scheme and credentials. `http::basic_auth(req,
+  decoded)`: the user and password. `http::challenge(out, "Basic realm=\"api\"")`:
+  401.
+- Forms: `http::form_value(body, key, out)` and `http::each_form(body) { key, value =>
+  }`. Multipart: `http::start_multipart(req, st.parts)` at `REQUEST`, then
+  `http::each_part(st.parts, ev.data) { kind, data => }` for each piece of the body, with
+  `http::disposition` for a part's name and filename.
+- `http::respond_json(out, status) { b => json::format_key(b, "id"); ... }`.
+- `Config.max_requests` caps a connection's requests. `http::body_within(st.taken, ev,
+  out, limit)` at `REQUEST` and each `BODY` answers 413 past a route's own limit.
 
 ### Event loops
 

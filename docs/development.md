@@ -562,6 +562,11 @@ macOS (task 012). Traps found running it, 2026-10-11:
   it before and after.
 - `sample PID 5` profiles a running server without `sudo`. Its counts include time
   blocked in `kevent`; read the rest for where a request's time goes.
+- macOS has no `perf`, but `/usr/bin/time -l` prints a process's "instructions retired"
+  and "cycles elapsed" when it exits, the kernel's included. Run the server under it,
+  send a fixed number of requests with h2load, and stop it with `SIGTERM` to count
+  instructions per request without `sudo` (task 015). The count spreads by about 30
+  per request between runs, so it can't tell apart builds a few instructions apart.
 
 ### Linux in Docker on macOS
 
@@ -611,6 +616,9 @@ docker run --rm --security-opt seccomp=unconfined --ulimit nofile=1048576:104857
   with `bench/build.sh` and `bench/run.sh`.
 - The VM is no benchmark machine: its CPUs are shared with macOS, and the load runs share
   them with the server.
+- The VM exposes no hardware counters: `perf stat -e instructions:u`, from apt
+  `linux-perf` in a `--privileged` container, finds no supported events, so
+  `bench/count.sh` and `bench/instructions.sh` can't run there (2026-10-12).
 
 To run `bench/run.sh` there (task 012), the image also needs Rust, Zig 0.16.0, and Odin
 `dev-2026-10` for the servers, the tools libreactorng's build uses, `util-linux` and
