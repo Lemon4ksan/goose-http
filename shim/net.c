@@ -19,6 +19,7 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
+#include <sys/sendfile.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -282,7 +283,15 @@ int64_t net_time_s(void) {
     return (int64_t)ts.tv_sec;
 }
 
-void net_worker_start(void) {}
+/* Blocks SIGPIPE in the loop's thread: sendfile, unlike send, has no
+   MSG_NOSIGNAL, and a client that leaves mid-file would kill the process. A
+   blocked SIGPIPE raised by the thread's own call stays pending, harmless. */
+void net_worker_start(void) {
+    sigset_t s;
+    sigemptyset(&s);
+    sigaddset(&s, SIGPIPE);
+    pthread_sigmask(SIG_BLOCK, &s, NULL);
+}
 
 int32_t net_default_workers(void) {
     return 0;
@@ -452,4 +461,13 @@ int64_t net_file_read(int64_t fd, net_bytes buf, int64_t off) {
 
 void net_file_close(int64_t fd) {
     close((int)fd);
+}
+
+/* Sends up to len bytes of file fd from off on socket s, without copying them
+   through the program. Returns the bytes sent, 0 at the file's end, or -errno:
+   EAGAIN when s takes no more now. */
+int64_t net_sendfile(int32_t s, int64_t fd, int64_t off, int64_t len) {
+    off_t o = (off_t)off;
+    ssize_t n = sendfile(s, (int)fd, &o, (size_t)len);
+    return n < 0 ? -ERR(errno) : n;
 }

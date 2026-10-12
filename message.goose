@@ -727,6 +727,14 @@ struct Stream {
     rearm: bool = false,
     wait_ms: i64 = 0,
     later: MailAddress = MailAddress { .. },
+    // direct: the loop sends files itself (serve_epoll on Linux, with
+    // sendfile). send_file then gives it file, open, and file_left bytes of
+    // it from file_off, which follow buf; the loop answers nothing more
+    // until they're sent, and closes file.
+    direct: bool = false,
+    file: i64 = -1,
+    file_off: i64 = 0,
+    file_left: i64 = 0,
 }
 
 // The writers below are inline, so that a handler's constant status picks

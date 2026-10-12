@@ -1,6 +1,7 @@
 // Files as response bodies, read in pieces with pread, as h2o reads them by
 // default, so that the same code serves every loop: the io_uring and IOCP
-// loops have no sendfile. A handler opens a file at REQUEST, answers with
+// loops have no sendfile. serve_epoll on Linux sends them with sendfile
+// instead (send_file). A handler opens a file at REQUEST, answers with
 // serve_file, and sends the body with send_file at each MORE, with the
 // FileBody in its state:
 //
@@ -34,6 +35,9 @@ let FILE_PIECE = 65536;
 extern fn net_file_open(path: const u8[:], info: i64[:]) -> i64;
 extern fn net_file_read(fd: i64, buf: u8[:], off: i64) -> i64;
 extern fn net_file_close(fd: i64);
+// Sends up to len bytes of file fd from off on socket s: the bytes sent, 0 at
+// the file's end, or -code. ENOSYS where the platform's loop doesn't use it.
+extern fn net_sendfile(s: i32, fd: i64, off: i64, len: i64) -> i64;
 
 // Opens the regular file at path for reading. Returns it and 200; or 404 for
 // a path that names no file, or a directory; 403 where permission is denied;
@@ -110,7 +114,9 @@ inline fn file_fields(out: Reply, tag: const u8[:], modified: i64) {
 
 // Sends the next piece of b, at most FILE_PIECE bytes, into the response
 // begin started. Returns whether more is left; after the last piece, it
-// closes the file. A read that fails, or ends early as for a file cut short
+// closes the file. Where the loop sends files itself (Stream.direct) and
+// the response has a Content-Length, it gives the loop the file and the rest
+// of b at once, and returns false. A read that fails, or ends early as for a file cut short
 // meanwhile, stops the response there and closes the connection after it,
 // since what the head promised can't be sent; end is then a no-op.
 fn send_file(out: Reply, b: FileBody&) -> bool {
@@ -121,7 +127,18 @@ fn send_file(out: Reply, b: FileBody&) -> bool {
         return false;
     }
     let framed = !s.raw && !s.chunked && s.left >= 0;
-    let n = if framed { min(min(b.left, FILE_PIECE), s.left) } else { min(b.left, FILE_PIECE) };
+    if s.direct && framed {
+        let k = min(b.left, s.left);
+        s.file = b.fd;
+        s.file_off = b.off;
+        s.file_left = k;
+        s.left -= k;
+        s.moved = true;
+        b.fd = -1;
+        b.left = 0;
+        return false;
+    }
+    let n =if framed { min(min(b.left, FILE_PIECE), s.left) } else { min(b.left, FILE_PIECE) };
     // Read apart from the write buffer, which can't shrink back past a failed
     // read: out holds slices of bytes, as common, that for all the checker
     // knows point into it (spec §5.1).

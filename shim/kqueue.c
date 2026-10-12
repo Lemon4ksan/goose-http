@@ -686,3 +686,10 @@ int64_t net_file_read(int64_t fd, net_bytes buf, int64_t off) {
 void net_file_close(int64_t fd) {
     close((int)fd);
 }
+
+/* macOS's sendfile has another contract, left out: the epoll loop reads
+   files with net_file_read here. */
+int64_t net_sendfile(int32_t s, int64_t fd, int64_t off, int64_t len) {
+    (void)s, (void)fd, (void)off, (void)len;
+    return -38;   /* ENOSYS */
+}

@@ -43,8 +43,8 @@ HTTP/1.1 on `main`. The tag `v0.1.0` has fixed-size requests and responses only.
 | 🟢 | Cookies, `Authorization` with `Basic`, media types, `Accept` (415, 406) | |
 | 🟢 | Form and streamed multipart bodies, JSON responses | |
 | 🟢 | Limits and timeouts, per connection and per route. Graceful shutdown. | |
-| 🟡 | `sendfile` on the epoll loop | Very soon |
-| 🟡 | Large responses on io_uring without the extra copy | Very soon |
+| 🟢 | `sendfile` on the epoll loop | |
+| 🟢 | Large responses on io_uring without the extra copy | |
 | 🟢 | Answers that wait: another thread, a timer, long polling, SSE | |
 | 🟢 | Client address. `Forwarded` from trusted proxies. | |
 | 🟢 | IPv6, dual-stack, Unix sockets (Linux and macOS) | IPv6 not run on Windows yet |
@@ -128,8 +128,10 @@ Same machine, 2026-10-12, `4a65d96`, Goose `5c83a5a`. One worker on CPU 0, wrk o
 | `/bytes?n=1048576` | 2.32 GB/s (1 run) | 1.02-1.05 GB/s |
 
 Since then the io_uring shim reuses large send records: `/bytes` at 1.72-1.73 GB/s.
-Files not measured again. Very soon: no extra copy on io_uring, `sendfile` on
-epoll.
+The ring shims now queue sends, so io_uring copies a response once, and the epoll loop
+sends files with `sendfile` (2026-10-12). On the Windows laptop alone (task 013), a
+1 MB file went from 0.65-0.86 to 1.16-1.23 GB/s on io_uring, and from 2.4 to
+6.5-7.0 GB/s on epoll. The desktop hasn't measured them yet.
 
 ### REST APIs
 
@@ -271,7 +273,8 @@ thread_fn worker(cfg: http::Config) {
   or `HEAD` with 200, 206, 304, or 416, with `ETag`, `Last-Modified`, and
   `Accept-Ranges`.
 - `http::send_file(out, st.file)` at each `MORE` until false, then `http::end(out)`.
-  Reads up to 64 KB with `pread` per call.
+  Reads up to 64 KB with `pread` per call; on the epoll loop on Linux, hands the
+  file to the loop, which sends it with `sendfile`.
 - `http::close_body(st.file)` at `CLOSED`.
 - `http::is_safe_path(path)`: rejects `.` and `..` segments, backslashes, and colons.
   Check the decoded path before joining it to a directory.

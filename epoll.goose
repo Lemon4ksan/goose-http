@@ -85,6 +85,8 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     // loop retries until the backlog is empty, and the waiting clients keep
     // their place in it.
     var paused = false;
+    // Whether files go out with sendfile: on Linux, which knows no fd -1.
+    let direct = net_sendfile(-1, -1, 0, 0) != -ENOSYS;
     var now = net_clock_ms();
     var next_sweep = now + 1000;
     // On the heap: as a 112-byte array in the loop's frame, it cost the
@@ -116,6 +118,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
                 return;
             }
             let i = conns.alloc_index(EpollConn<S> { fd: fd, deadline: now + cfg.request_ms, .. });
+            conns[i].x.stream.direct = direct;
             let r = net_epoll_ctl(ep, EPOLL_CTL_ADD, fd, EPOLLIN | EPOLLRDHUP | EPOLLET, i as u64);
             if r < 0 {
                 report(Error { call: "epoll_ctl", code: -r });
@@ -138,6 +141,10 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
         cancel(timers, c.x.timer);
         net_close(c.fd);
         c.fd = -1;
+        if c.x.stream.file >= 0 {
+            net_file_close(c.x.stream.file);
+            c.x.stream.file = -1;
+        }
         if c.held.len > 0 { spill.free_slice(c.held); }
         if c.out.len > 0 { spill.free_slice(c.out); }
         conns.free(i);
@@ -180,7 +187,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     // False if epoll_ctl fails.
     fn watch(i: i64) -> bool {
         let c .= conns[i];
-        let want = c.out.len > 0;
+        let want = c.out.len > 0 || c.x.stream.file >= 0;
         if want == c.watch_out { return true; }
         let out: u32 = if want { EPOLLOUT } else { 0 };
         let r = net_epoll_ctl(ep, EPOLL_CTL_MOD, c.fd, EPOLLIN | out | EPOLLRDHUP | EPOLLET, i as u64);
@@ -206,7 +213,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
         var ev = wake;
         loop {
             var full = false;
-            if c.state == OPEN && (rlen > 0 || c.x.stream.open && c.x.body.place == NO_BODY || ev.kind != NO_EVENT) {
+            if c.state == OPEN && c.x.stream.file < 0 && (rlen > 0 || c.x.stream.open && c.x.body.place == NO_BODY || ev.kind != NO_EVENT) {
                 let rest, done, f = answer(c, rbuf, rlen, wbuf, common, cfg, fresh, stopping, now, ev, H) { false };
                 ev.kind = NO_EVENT;
                 rlen = rest;
@@ -224,6 +231,23 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
             }
             wbuf.clear();
             woff = 0;
+            while c.x.stream.file >= 0 {
+                let s .= c.x.stream;
+                let w = net_sendfile(c.fd, s.file, s.file_off, s.file_left);
+                if w == -EAGAIN { return wait(c, progress); }
+                if w == -EINTR { continue; }
+                // The client left, or the file ended short of what the head
+                // promised.
+                guard w > 0 else { return false; }
+                s.file_off += w;
+                s.file_left -= w;
+                progress = true;
+                if s.file_left == 0 {
+                    net_file_close(s.file);
+                    s.file = -1;
+                    full = true;    // to answer what arrived meanwhile
+                }
+            }
             if c.state == CLOSING {
                 net_shutdown(c.fd, SHUT_WR);
                 c.state = DRAINING;
@@ -251,7 +275,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     // idle spell shorten it.
     fn wait(c: EpollConn<S>&, progress: bool) -> bool {
         guard c.state != DRAINING else { return true; }
-        let writing = woff < wbuf.len;
+        let writing = woff < wbuf.len || c.x.stream.file >= 0;
         let idle = rlen == 0 && c.x.body.place == NO_BODY && !c.x.stream.open && !c.x.stream.waiting && !writing;
         if progress { c.deadline = now + (if idle { cfg.idle_ms } else { busy_ms(c, writing, cfg) }); }
         else if !idle { c.deadline = min(c.deadline, now + busy_ms(c, writing, cfg)); }
@@ -266,7 +290,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
         for i in conns.len {
             let c .= conns[i];
             if c.fd < 0 || c.deadline > now || c.x.stream.waiting { continue; }
-            if owes_408(c, c.out.len > 0) {
+            if owes_408(c, c.out.len > 0 || c.x.stream.file >= 0) {
                 wbuf.clear();
                 refuse(wbuf, 408, common);
                 let sent = net_send(c.fd, wbuf) == wbuf.len;
@@ -300,7 +324,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
         paused = false;
         for i in conns.len {
             let c .= conns[i];
-            if c.fd >= 0 && c.state == OPEN && idle(c) && c.out.len == 0 { close_conn(i); }
+            if c.fd >= 0 && c.state == OPEN && idle(c) && c.out.len == 0 && c.x.stream.file < 0 { close_conn(i); }
             else if c.fd >= 0 && c.x.stream.waiting { c.x.keep_alive = false; }
         }
     }

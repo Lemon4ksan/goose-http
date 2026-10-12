@@ -325,6 +325,29 @@ io_uring, 0.735 M and 0.722 M on epoll; JSON 0.072 M and 0.071 M, 0.054 M and
 0.051 M. `scripts/test.sh` passes in WSL, and in Git Bash on the laptop with the IOCP
 loop. Measuring `shim/iocp.c`'s queue on Windows waits for the desktop.
 
+`sendfile` on the epoll loop (2026-10-12). Under `perf record` on the laptop, epoll
+serving the 1 MB file spent 8.8% of CPU 0 in `pread`'s copy, 7.1% in `send`'s, and
+7.9% clearing pages, besides the copies in user code. On Linux, `send_file` now gives
+the loop the file and the rest of a `Content-Length` body, and the loop sends it with
+`sendfile` and closes the file. As above, the same laptop and settings, before is
+`781964f`:
+
+| Loop | Path | Before | After |
+|---|---|---|---|
+| epoll | `/files/` 64 KB | 1.05-1.08 GB/s | 1.16 GB/s |
+| epoll | `/files/` 1 MB | 2.37-2.44 GB/s | 6.54-7.01 GB/s |
+| epoll | `/bytes?n=1048576` | 1.86-1.87 GB/s | 1.85-1.87 GB/s |
+| uring | `/files/` 1 MB | 1.16-1.23 GB/s | 1.14-1.16 GB/s |
+
+`bench/instructions.sh`, 2 runs: epoll 1,491 user instructions per request against
+1,484-1,502 before; io_uring 1,575-1,577 against 1,540-1,556, and 2,720-2,723
+cycles against 2,651-2,708. That cost on io_uring, which never sends a file this way,
+is the check `answer` makes for a file before each request, and is kept. The quick
+`bench/run.sh` cells: plaintext 0.719 M epoll and 0.965 M io_uring, JSON 0.049 M and
+0.074 M. `scripts/test.sh` passes; the first run found that a client leaving
+mid-file killed the server with `SIGPIPE`, so worker threads block it now. macOS
+keeps reading in pieces.
+
 `shim/ring_epoll.c`, the ring on macOS and under Docker's seccomp profile, allocated
 every send's record, small ones too. It now reuses them as `shim/uring.c` does. With
 `LOOP=uring-epoll`, as above: `/bytes?n=1048576` went from 0.99 to 1.58-1.60 GB/s,
@@ -408,14 +431,9 @@ at 256, 6.901 M (6.871-6.943 M) against 6.871 M (6.805-6.883 M), and at 1,024, 6
 (6.682-6.775 M) against 6.722 M (6.697-6.775 M). Peak RSS was 0.2-0.9 MB higher in
 every cell but uring JSON at 1,024 connections, 0.9 MB lower.
 
-Next, in order:
-
-1. Large responses on the io_uring loop: a send queued in each shim behind the one in
-   flight, so the loop stops copying pieces into `c.out` (Progress, "Large
-   responses"). `shim/ring_epoll.c` queues per fd already; `shim/uring.c` and
-   `shim/iocp.c` don't.
-2. `sendfile` for files on the epoll loop, which saves `send_file`'s copies, once a
-   measurement shows they matter: epoll sends a 1 MB file at 3.3 GB/s now.
+Both items that were next are done (2026-10-12): sends queued in the ring shims, and
+`sendfile` on the epoll loop. Left: measuring both on the desktop, and `shim/iocp.c`'s
+queue under load on Windows.
 
 ## Streaming design (2026-10-12)
 

@@ -350,7 +350,8 @@ fn interim() -> const u8[:] { "HTTP/1.1 100 Continue\r\n\r\n" }
 // request, a piece of a body, or a MORE call, if wbuf holds
 // cfg.write_buffer bytes or more, it calls ROOM(), which empties wbuf and
 // returns true, or returns false to stop there. Returns the bytes left in
-// rbuf, the number of calls to H, and whether ROOM stopped it. A refused
+// rbuf, the number of calls to H, and whether ROOM, or a file for the loop
+// to send (Stream.direct), stopped it. A refused
 // request, or a response that doesn't keep the connection open, leaves c
 // CLOSING and rbuf empty. wake, unless its kind is NO_EVENT, is a WAKE or
 // TIMEOUT for c's exchange, which stopped waiting, for H before the rest. It
@@ -419,6 +420,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
         let wrote = wbuf.len > before;
         if wrote && x.stream.waiting && !x.stream.open { unwait(); }
         x.sent += wbuf.len - before;
+        if x.stream.file >= 0 { x.sent += x.stream.file_left; }
         if !x.answered && !x.stream.open && (wrote || was_open) {
             x.answered = true;
             if log { log_done(gone, x.stream.status, x.sent, x.began); }
@@ -464,6 +466,11 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
         go = settle();
     }
     while go {
+        // A file the loop sends itself goes out before anything after it.
+        if x.stream.file >= 0 {
+            full = true;
+            break;
+        }
         if x.body.place != NO_BODY {
             guard off < rlen else { break; }
             if wbuf.len >= write_buffer && !ROOM() {
