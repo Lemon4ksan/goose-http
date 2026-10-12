@@ -48,15 +48,20 @@ typedef struct { ur_completion *data; int64_t len; } ur_completions;
 #define UR_QUIET 2
 
 /* A send's bytes, owned by the ring until the send's last completion.
-   Records of UR_SMALL bytes or fewer go back to a free list; bigger ones are
-   allocated for one send. */
+   Records of UR_SMALL bytes go back to a free list. Bigger ones, sized in
+   UR_BIG steps, go back to another while it holds under UR_KEEP bytes: freed
+   to malloc, a record that size goes back to the kernel, and the next one
+   faults its pages in again. */
 #define UR_SMALL 8192
+#define UR_BIG 65536
+#define UR_KEEP (4u << 20)
 struct ur_send {
     struct ur_send *next;
     uint64_t tag;
     int32_t fd;
     uint32_t gen;           /* fd's generation when the send was queued */
     uint32_t len, off;
+    uint32_t cap;           /* data's size */
     unsigned char data[];
 };
 
@@ -67,6 +72,8 @@ struct ur {
     uint32_t nbufs, buflen;
     int given;              /* buffers given back since the last ur_wait */
     struct ur_send *free;
+    struct ur_send *big;
+    uint32_t kept;          /* the bytes of big's records */
     /* Per fd, the number of times this ring closed it. A short send's rest
        goes out only while its fd's generation is the send's: once the ring
        closes fd, the next accept, on any ring, may reuse the number. */
@@ -202,12 +209,27 @@ int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
         u->gens = g;
         u->ngens = n;
     }
-    if (data.len <= UR_SMALL && u->free) {
-        s = u->free;
-        u->free = s->next;
+    s = NULL;
+    if (data.len <= UR_SMALL) {
+        if (u->free) {
+            s = u->free;
+            u->free = s->next;
+        }
     } else {
-        s = malloc(sizeof *s + (data.len <= UR_SMALL ? UR_SMALL : (size_t)data.len));
+        for (struct ur_send **p = &u->big; *p; p = &(*p)->next) {
+            if ((*p)->cap >= data.len) {
+                s = *p;
+                *p = s->next;
+                u->kept -= s->cap;
+                break;
+            }
+        }
+    }
+    if (!s) {
+        size_t cap = data.len <= UR_SMALL ? UR_SMALL : ((size_t)data.len + UR_BIG - 1) / UR_BIG * UR_BIG;
+        s = malloc(sizeof *s + cap);
         if (!s) return -ENOMEM;
+        s->cap = (uint32_t)cap;
     }
     s->tag = tag;
     s->fd = fd;
@@ -222,9 +244,13 @@ int32_t ur_send(int64_t h, int32_t fd, uint64_t tag, ur_bytes data) {
 }
 
 static void ur_send_free(struct ur *u, struct ur_send *s) {
-    if (s->len <= UR_SMALL) {
+    if (s->cap == UR_SMALL) {
         s->next = u->free;
         u->free = s;
+    } else if (u->kept + s->cap <= UR_KEEP) {
+        s->next = u->big;
+        u->big = s;
+        u->kept += s->cap;
     } else {
         free(s);
     }
@@ -360,6 +386,11 @@ void ur_destroy(int64_t h) {
     while (u->free) {
         struct ur_send *s = u->free;
         u->free = s->next;
+        free(s);
+    }
+    while (u->big) {
+        struct ur_send *s = u->big;
+        u->big = s->next;
         free(s);
     }
     free(u->bufs);

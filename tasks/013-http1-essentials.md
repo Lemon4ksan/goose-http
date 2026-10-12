@@ -256,15 +256,46 @@ Neither the move to Goose `5c83a5a` nor files changed the benchmark path's cost
 (`bench/instructions.sh`, 2 runs a build, as above, 2026-10-12): user instructions per
 request were 1,550-1,569 (epoll, `743609f`) and 1,601-1,614 (uring, `61ef340`) on
 `fee060c`, 1,539-1,562 and 1,579-1,601 for `31a1410` on `5c83a5a`, and 1,550-1,572 and 1,602-1,606
-for `a3cf843` on `5c83a5a`, within the runs' spread of about 15.
+for `a3cf843` on `5c83a5a`, within the runs' spread of about 15. Keeping
+`keep_alive` and the stream in locals during `REQUEST`, and copying them into the slot
+only when the exchange goes on, changed nothing either (1,542-1,575 and 1,600-1,603).
+
+Large responses (2026-10-12). One worker on CPU 0, wrk on CPUs 4-15 with 8 threads and
+64 connections for 10 s, 2 runs each, WSL2 as above, files from tmpfs, all built with
+Goose at `5c83a5a`:
+
+| Build | Path | epoll | uring |
+|---|---|---|---|
+| `4a65d96` | `/files/` 64 KB | 1.90-1.91 GB/s | 1.21-1.22 GB/s |
+| `4a65d96` | `/files/` 1 MB | 3.25-3.30 GB/s | 0.98 GB/s |
+| `4a65d96` | `/bytes?n=1048576` | 2.32 GB/s (1 run) | 1.02-1.05 GB/s |
+| `4a65d96`, `max_queued` 512 KB | `/bytes?n=1048576` | | 1.15 GB/s |
+| with `shim/uring.c` keeping big send records | `/bytes?n=1048576` | | 1.72-1.73 GB/s |
+
+The io_uring loop sent a large response at a third of epoll's rate, files or not. Under
+`perf record`, page faults and page clearing took about 15% of CPU 0: `ur_send` copies a
+send into a record of its own, and gave each one over 8 KB back to malloc, which
+returned it to the kernel, so the next one faulted its pages in again. The shim now
+keeps freed records over 8 KB, sized in 64 KB steps, up to 4 MB a ring, and reuses
+one that's big enough: +65%, with plaintext's instructions per request unchanged
+(1,606-1,614 against 1,601-1,604). What's left is the loop's: `flush` took 47% of
+CPU 0, appending each piece to `c.out` in the spill pool behind the send in flight
+(the pool's span bookkeeping, a zero fill, and a copy), before the shim copies it
+again. Gathering the pieces in `wbuf` and moving them to `c.out` once changed nothing
+(1.66-1.67 GB/s). The fix is in the shims: queue a send behind the one in flight per
+connection, in the shim, so `flush` always hands bytes over once. `shim/ring_epoll.c`
+allocates every send's record, small ones too.
 
 Next, in order:
 
 1. Run the tests on macOS (`scripts/test.sh`): the kqueue table change, the stop, and
    the restart, none of which has run there yet.
 2. Split the streaming loop's cost further, and remove what can go.
-3. `sendfile` for files on the epoll loop, which saves `send_file`'s copies, once a
-   measurement shows they matter.
+3. Large responses on the io_uring loop: a send queued in each shim behind the one in
+   flight, so the loop stops copying pieces into `c.out`; and `shim/ring_epoll.c`'s
+   records reused as `shim/uring.c`'s are (Progress, "Large responses").
+4. `sendfile` for files on the epoll loop, which saves `send_file`'s copies, once a
+   measurement shows they matter: epoll sends a 1 MB file at 3.3 GB/s now.
 
 ## Streaming design (2026-10-12)
 
