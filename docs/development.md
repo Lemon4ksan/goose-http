@@ -794,6 +794,9 @@ Traps in Git Bash:
   `C:\Users\...\tree.tar` from `$TEMP`, as a remote host, fails with "Cannot connect
   to C: resolve failed", and extracts nothing. Pass `--force-local`, or a `/c/...`
   path.
+- `wpr -start CPU` and `wpr -stop file.etl` need an elevated shell. `wpr -stop` takes a
+  minute or more to write the trace; Ctrl+C in that time cancels it with `0x800704c7`
+  and discards the recording, and the next `wpr -stop` finds no profile running.
 - `cd dir && build/server.exe ... &` puts the whole list in a background subshell, so
   `$!` and its `/proc/$!/winpid` name the subshell, and `taskkill` on that PID leaves the
   server running. Start the server alone with `&`, after the `cd`.
