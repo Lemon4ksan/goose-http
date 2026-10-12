@@ -7,7 +7,8 @@ the lowest highest in bold.
     python3 bench/table.py [--workers N] RUNS.tsv... [SERVER=NAME ...]
 
 A cell missing from the first file is taken from the next that has it.
-SERVER=NAME renames a row; rows keep the order of their first appearance.
+SERVER=NAME names a row; with any given, the table has those servers alone,
+in that order, and otherwise every server in the order it first appears.
 """
 
 import csv
@@ -38,6 +39,10 @@ def main():
                 rss.setdefault(key[0], []).extend(int(r["peak_rss_kb"]) / 1024 for r in runs)
             if key[0] not in order:
                 order.append(key[0])
+    if names:
+        order = [s for s in names if s in order]
+        cells = {k: v for k, v in cells.items() if k[0] in names}
+        rss = {s: v for s, v in rss.items() if s in names}
     best = {t: max((v for (s, *k), v in cells.items() if tuple(k) == t), default=0) for t in TESTS}
     least = min(max(v) for v in rss.values())
     head = [f"{t} {int(c):,}" for t, c in TESTS]
@@ -53,7 +58,9 @@ def main():
             text = f"{v / 1e6:.2f} M" if t[0] == "plaintext" else f"{v / 1e3:.0f} K"
             row.append(f"**{text}**" if v == best[t] else text)
         lo, hi = min(rss[s]), max(rss[s])
-        text = f"{lo:,.0f}-{hi:,.0f} MB" if lo >= 10 else f"{lo:.1f}-{hi:.0f} MB"
+        a = f"{lo:,.0f}" if lo >= 10 else f"{lo:.1f}"
+        b = f"{hi:,.0f}" if hi >= 10 else f"{hi:.1f}"
+        text = f"{b} MB" if a == b or round(lo) == round(hi) else f"{a}-{b} MB"
         row.append(f"**{text}**" if hi == least else text)
         print(f"| {names.get(s, s)} | " + " | ".join(row) + " |")
 
