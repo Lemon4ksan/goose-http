@@ -57,4 +57,5 @@ API's responses are small. Task 015's answers that wait are designed with task 0
 HTTP/2. Task 016 accounts for each worker's committed memory, and can start at any
 point. Task 017 narrows the IOCP loop's gap to io_uring, on the benchmark desktop. Task
 019 adds Tina to the benchmark, and can start at any point. Task 020 sends files on
-io_uring and IOCP without copying them, as the epoll loop does.
+io_uring and IOCP without copying them, as the epoll loop does. Task 021 is the REST
+benchmark, in three tiers taken from HttpArena, snowtime, and a clinic booking app.
