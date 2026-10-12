@@ -346,7 +346,23 @@ is the check `answer` makes for a file before each request, and is kept. The qui
 `bench/run.sh` cells: plaintext 0.719 M epoll and 0.965 M io_uring, JSON 0.049 M and
 0.074 M. `scripts/test.sh` passes; the first run found that a client leaving
 mid-file killed the server with `SIGPIPE`, so worker threads block it now. macOS
-keeps reading in pieces.
+kept reading in pieces until the next paragraph.
+
+macOS (2026-10-12): `scripts/test.sh` passed twice at `6c34442` (the code of
+`10d46e5`), with Goose `5c83a5a`, on the MacBook Pro in `docs/development.md`, macOS
+26.3.1, Apple clang 21.0.0: both loops, after the shared changes since the last Mac run
+(queued send bytes in `uring.goose`, `ring_send` queueing behind the send in flight,
+`answer` stopping before a file the loop sends, `owes_408`'s `sending`), and IPv6,
+dual-stack, and Unix sockets. Then `sendfile` on the epoll loop on macOS:
+`net_sendfile` in `shim/kqueue.c` calls `sendfile(fd, s, off, &len, NULL, 0)`, returns
+`len` when it's above 0, `EAGAIN` with a partial send included, -`EAGAIN` only when
+nothing went, 0 at the file's end, and `EBADF` for fd -1, which the loop's check at
+start takes for sendfile being there. `net_worker_start` blocks `SIGPIPE`, as on Linux,
+rather than `SO_NOSIGPIPE` on each accepted socket. `scripts/test.sh` passed twice
+after it, `files` included: pipelined files, ranges, and `lsof` finding no file open
+after clients leave mid-file. A 1 MB file through the same build, by wrk `-t2 -c16
+-d3`, one worker, one run each, a check of the path and not a benchmark: 1.82 GB/s on
+epoll with `sendfile`, 1.31 GB/s on the uring loop, which reads in pieces.
 
 `shim/ring_epoll.c`, the ring on macOS and under Docker's seccomp profile, allocated
 every send's record, small ones too. It now reuses them as `shim/uring.c` does. With

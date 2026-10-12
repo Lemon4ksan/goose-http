@@ -1,7 +1,7 @@
 // Files as response bodies, read in pieces with pread, as h2o reads them by
 // default, so that the same code serves every loop: the io_uring and IOCP
-// loops have no sendfile. serve_epoll on Linux sends them with sendfile
-// instead (send_file). A handler opens a file at REQUEST, answers with
+// loops have no sendfile. serve_epoll on Linux and macOS sends them with
+// sendfile instead (send_file). A handler opens a file at REQUEST, answers with
 // serve_file, and sends the body with send_file at each MORE, with the
 // FileBody in its state:
 //
@@ -36,7 +36,8 @@ extern fn net_file_open(path: const u8[:], info: i64[:]) -> i64;
 extern fn net_file_read(fd: i64, buf: u8[:], off: i64) -> i64;
 extern fn net_file_close(fd: i64);
 // Sends up to len bytes of file fd from off on socket s: the bytes sent, 0 at
-// the file's end, or -code. ENOSYS where the platform's loop doesn't use it.
+// the file's end, or -code: EBADF for fd -1, and ENOSYS on Windows, where
+// serve_epoll doesn't run.
 extern fn net_sendfile(s: i32, fd: i64, off: i64, len: i64) -> i64;
 
 // Opens the regular file at path for reading. Returns it and 200; or 404 for

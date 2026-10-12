@@ -85,7 +85,8 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     // loop retries until the backlog is empty, and the waiting clients keep
     // their place in it.
     var paused = false;
-    // Whether files go out with sendfile: on Linux, which knows no fd -1.
+    // Whether files go out with sendfile: on Linux and macOS, whose shims
+    // refuse fd -1 with EBADF.
     let direct = net_sendfile(-1, -1, 0, 0) != -ENOSYS;
     var now = net_clock_ms();
     var next_sweep = now + 1000;

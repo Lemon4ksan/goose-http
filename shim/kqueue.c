@@ -575,9 +575,18 @@ int64_t net_time_s(void) {
 }
 
 /* Apple Silicon has no CPU affinity; the QoS class is what keeps a thread
-   on the performance cores. */
+   on the performance cores. The thread also blocks SIGPIPE: sendfile, unlike
+   send, has no MSG_NOSIGNAL, and a client that leaves mid-file would kill the
+   process. A blocked SIGPIPE that the thread's own call raises stays pending,
+   harmless. Blocking covers every socket at once, where SO_NOSIGPIPE would
+   take a setsockopt on each accepted one, as macOS doesn't document that
+   accept copies it from the listener. */
 void net_worker_start(void) {
     pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+    sigset_t s;
+    sigemptyset(&s);
+    sigaddset(&s, SIGPIPE);
+    pthread_sigmask(SIG_BLOCK, &s, NULL);
 }
 
 /* The performance cores' logical CPUs (8 on an M1 Pro), or 0 where the
@@ -687,9 +696,18 @@ void net_file_close(int64_t fd) {
     close((int)fd);
 }
 
-/* macOS's sendfile has another contract, left out: the epoll loop reads
-   files with net_file_read here. */
+/* Sends up to len bytes of file fd from off on socket s, without copying them
+   through the program. Returns the bytes sent, 0 at the file's end, or
+   -code: EAGAIN when s takes no more now. macOS's sendfile takes the file
+   first and returns the count through len, which it sets also when it fails
+   with EAGAIN after sending some, so that counts as a send. A len of 0 would
+   ask it for the rest of the file. fd -1 is EBADF, not ENOSYS: the loop asks
+   with it whether sendfile exists. */
 int64_t net_sendfile(int32_t s, int64_t fd, int64_t off, int64_t len) {
-    (void)s, (void)fd, (void)off, (void)len;
-    return -38;   /* ENOSYS */
+    if (fd < 0) return -net_err(EBADF);
+    if (len <= 0) return 0;
+    off_t n = (off_t)len;
+    int r = sendfile((int)fd, s, (off_t)off, &n, NULL, 0);
+    if (r < 0 && n == 0) return -net_err(errno);
+    return (int64_t)n;
 }

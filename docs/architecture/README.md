@@ -162,15 +162,17 @@ until the task named beside it confirms or replaces it.
   `CLOSED` when a connection closes, or a stop ends the loop, while the handler is owed a
   call, as h2o disposes of a generator; without it, a client that left mid-file would
   leave the file open.
-  - On the epoll loop on Linux, `send_file` gives the loop the file and the rest of a
+  - On the epoll loop on Linux and macOS, `send_file` gives the loop the file and the rest of a
     `Content-Length` response at once (`Stream.direct`), and the loop sends it with
     `sendfile` after the head, answers nothing after it until it's sent, and closes the
     file, also when the connection closes first (2026-10-12). It saved `pread`'s copy,
     the write buffer's, and `send`'s, which with page clearing took about a quarter of
     the worker's CPU: a 1 MB file went from 2.4 to 6.5-7.0 GB/s (task 013). Worker
     threads block `SIGPIPE`, since `sendfile` has no `MSG_NOSIGNAL`. macOS's
-    `sendfile` has another contract and isn't used; chunked responses and the
-    completion loops still read in pieces.
+    `sendfile` takes the file first and returns its count through a pointer, also
+    with `EAGAIN` after a partial send, which `shim/kqueue.c` reports as a send; it's
+    used since 2026-10-12. Chunked responses and the completion loops still read in
+    pieces.
 - **The client's address on demand, and the access log as an event** (task 015,
   2026-10-12). `Reply.fd` carries the connection's socket, and `http::peer` calls
   `getpeername` only when a handler asks, since the io_uring loop's multishot accept
