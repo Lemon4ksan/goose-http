@@ -26,7 +26,7 @@ Early work. No TLS yet.
 |---|---|---|
 | 🟢 | Linux | io_uring (kernel 6.1+) or epoll. |
 | 🟢 | macOS | kqueue. |
-| 🟢 | Windows | IOCP. Not benchmarked. |
+| 🟢 | Windows | IOCP. About 2 to 2.5 times slower than io_uring on WSL2 on the same machine, in [a speed check](docs/development.md#after-the-iocp-changes); not benchmarked. |
 
 HTTP/1.1 on `main`. The tag `v0.1.0` has fixed-size requests and responses only.
 
