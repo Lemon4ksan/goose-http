@@ -47,6 +47,14 @@ on epoll, 129K and 30 ms on io_uring, with the server unpinned and sharing CPUs 
 wrk. `bench/instructions.sh`, 2 runs, epoll: 1,491-1,523 user instructions per
 plaintext request with waiting on, 1,499-1,521 off; peak RSS 3.7 MB against 2.4 MB.
 
+`bench/httparena.sh validate` passed on the Mac (2026-10-12): Docker Desktop 29.8.2 on
+the MacBook Pro M1 Pro of `docs/development.md`, the `goose-http-arena` image of
+"HttpArena under Docker on macOS", HttpArena `0720ee5`, Goose at `701b6ad` with Goose
+`5c83a5a`, `SERVER_CPUS=0-2`. Subscribed: baseline, pipelined, limited-conn, latency-1m,
+latency-10k, and async; 32 checks passed and none failed, among them the 9 shapes of
+exhaustive fragmentation (1,047 split offsets), `/delay/{ms}` with its timing checks,
+and 32 overlapping delays in 0.52 s.
+
 ## Acceptance criteria
 
 - [x] The profiles mapped to what they need, and the gap for HTTP/1.1 named

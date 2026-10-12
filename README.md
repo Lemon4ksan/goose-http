@@ -43,8 +43,6 @@ HTTP/1.1 on `main`. The tag `v0.1.0` has fixed-size requests and responses only.
 | 🟢 | Cookies, `Authorization` with `Basic`, media types, `Accept` (415, 406) |
 | 🟢 | Form and streamed multipart bodies, JSON responses |
 | 🟢 | Limits and timeouts, per connection and per route. Graceful shutdown. |
-| 🟢 | `sendfile` on the epoll loop |
-| 🟢 | Large responses on io_uring without the extra copy |
 | 🟢 | Answers that wait: another thread, a timer, long polling, SSE |
 | 🟢 | Client address. `Forwarded` from trusted proxies. |
 | 🟢 | IPv6 and dual-stack. Unix sockets on Linux and macOS. |
@@ -129,7 +127,7 @@ Same machine, 2026-10-12, `4a65d96`, Goose `5c83a5a`. One worker on CPU 0, wrk o
 
 Since then the io_uring shim reuses large send records: `/bytes` at 1.72-1.73 GB/s.
 The ring shims now queue sends, so io_uring copies a response once, and the epoll loop
-sends files with `sendfile` (2026-10-12). On the Windows laptop alone (task 013), a
+sends files with `sendfile`, on Linux and macOS (2026-10-12). On the Windows laptop alone (task 013), a
 1 MB file went from 0.65-0.86 to 1.16-1.23 GB/s on io_uring, and from 2.4 to
 6.5-7.0 GB/s on epoll. The desktop hasn't measured them yet.
 
