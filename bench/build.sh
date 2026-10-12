@@ -2,7 +2,7 @@
 # Builds the servers bench/run.sh compares, in release mode, into
 # build/bench/: goose and goose-uring (scripts/build.sh with each loop),
 # may-minihttp, hyper, tokio, odin-http, dusty, and vanilla-epoll; task 005's
-# io_uring servers, xitca-web, zix, zeemo, libreactorng, and vanilla-io_uring,
+# io_uring servers, xitca-web, zix, zeemo, libreactorng, vanilla-io_uring, and tina,
 # which bench/run.sh runs only when SERVERS names them, as goose-uring; the
 # library that gives wrk a monotonic clock (bench/wrk-monotonic.c); and the
 # latency summarizer for h2load's log (bench/latency.c).
@@ -36,6 +36,8 @@ PATH=$HOME/.cargo/bin:$PATH
 ODIN_VERSION=dev-2026-10
 ODIN_HTTP_REPO=https://github.com/laytan/odin-http.git
 ODIN_HTTP_COMMIT=fac113fbd828aad3d71479a534b5de4358b6a07b
+TINA_REPO=https://github.com/pmbanugo/tina.git
+TINA_COMMIT=a2e8d4dc53394dd6772d08e79a41d6b56ba3a65e
 ZIG_VERSION=0.16.0
 # vanilla and the V that builds it, as HttpArena's vanilla-epoll Dockerfile
 # pins them: V b99970bd bootstrapped from vc 2cbaf6bc with tccbin d6e7ac1b.
@@ -85,6 +87,12 @@ fetch() {
         git -C "$3" checkout -q FETCH_HEAD
     fi
 }
+
+# Tina's production build (docs/guides/odin_compilation.md): bounds checks
+# stay on, which it requires, and its own assertions go off.
+fetch "$TINA_REPO" "$TINA_COMMIT" "$cache/deps/tina"
+"$odin" build "$root/bench/tina" -collection:deps="$cache/deps" \
+    -o:speed -define:TINA_ASSERTS=false -out:"$out/tina"
 
 "$zig" version | grep -qx "$ZIG_VERSION" || {
     echo "bench/build.sh: dusty, zix, and zeemo need Zig $ZIG_VERSION, not: $("$zig" version)"
