@@ -283,8 +283,14 @@ CPU 0, appending each piece to `c.out` in the spill pool behind the send in flig
 (the pool's span bookkeeping, a zero fill, and a copy), before the shim copies it
 again. Gathering the pieces in `wbuf` and moving them to `c.out` once changed nothing
 (1.66-1.67 GB/s). The fix is in the shims: queue a send behind the one in flight per
-connection, in the shim, so `flush` always hands bytes over once. `shim/ring_epoll.c`
-allocates every send's record, small ones too.
+connection, in the shim, so `flush` always hands bytes over once.
+
+`shim/ring_epoll.c`, the ring on macOS and under Docker's seccomp profile, allocated
+every send's record, small ones too. It now reuses them as `shim/uring.c` does. With
+`LOOP=uring-epoll`, as above: `/bytes?n=1048576` went from 0.99 to 1.58-1.60 GB/s,
+and plaintext (`bench/instructions.sh`, 2 runs) from 1.67-1.70 to 1.78-1.85 M requests
+per second, 1,658-1,662 to 1,608-1,634 user instructions and 2,239-2,246 to
+2,041-2,044 cycles per request, with peak RSS 1.1 MB higher.
 
 Next, in order:
 
@@ -292,8 +298,9 @@ Next, in order:
    the restart, none of which has run there yet.
 2. Split the streaming loop's cost further, and remove what can go.
 3. Large responses on the io_uring loop: a send queued in each shim behind the one in
-   flight, so the loop stops copying pieces into `c.out`; and `shim/ring_epoll.c`'s
-   records reused as `shim/uring.c`'s are (Progress, "Large responses").
+   flight, so the loop stops copying pieces into `c.out` (Progress, "Large
+   responses"). `shim/ring_epoll.c` queues per fd already; `shim/uring.c` and
+   `shim/iocp.c` don't.
 4. `sendfile` for files on the epoll loop, which saves `send_file`'s copies, once a
    measurement shows they matter: epoll sends a 1 MB file at 3.3 GB/s now.
 

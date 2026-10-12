@@ -76,8 +76,17 @@ struct rp_send {
     struct rp_send *next;
     uint64_t tag;
     uint32_t len, off;
+    uint32_t cap;           /* data's size */
     unsigned char data[];
 };
+
+/* Sent records go back to a free list: those of RP_SMALL bytes always, and
+   bigger ones, sized in RP_BIG steps, while the list holds under RP_KEEP
+   bytes. Freed to malloc, a big record goes back to the kernel, and the next
+   one faults its pages in again, as in shim/uring.c. */
+#define RP_SMALL 8192
+#define RP_BIG 65536
+#define RP_KEEP (4u << 20)
 
 /* What the ring knows of a socket, indexed by its fd. */
 struct rp_fd {
@@ -107,7 +116,48 @@ struct rp {
     uint64_t ltag;
     uint8_t ladded, accepting, acceptable;
     int32_t err;                    /* -ENOMEM once the bookkeeping ran out, for ur_wait */
+    struct rp_send *small, *big;    /* sent records, to reuse */
+    uint32_t kept;                  /* the bytes of big's records */
 };
+
+static struct rp_send *rp_send_alloc(struct rp *u, int64_t len) {
+    struct rp_send *s = NULL;
+    if (len <= RP_SMALL) {
+        if (u->small) {
+            s = u->small;
+            u->small = s->next;
+        }
+    } else {
+        for (struct rp_send **p = &u->big; *p; p = &(*p)->next) {
+            if ((*p)->cap >= len) {
+                s = *p;
+                *p = s->next;
+                u->kept -= s->cap;
+                break;
+            }
+        }
+    }
+    if (!s) {
+        size_t cap = len <= RP_SMALL ? RP_SMALL : ((size_t)len + RP_BIG - 1) / RP_BIG * RP_BIG;
+        s = malloc(sizeof *s + cap);
+        if (!s) return NULL;
+        s->cap = (uint32_t)cap;
+    }
+    return s;
+}
+
+static void rp_send_free(struct rp *u, struct rp_send *s) {
+    if (s->cap == RP_SMALL) {
+        s->next = u->small;
+        u->small = s;
+    } else if (u->kept + s->cap <= RP_KEEP) {
+        s->next = u->big;
+        u->big = s;
+        u->kept += s->cap;
+    } else {
+        free(s);
+    }
+}
 
 /* fd's record, made on its first request, or NULL when out of memory. */
 static struct rp_fd *rp_fd_of(struct rp *u, int32_t fd) {
@@ -258,7 +308,7 @@ int32_t RP(send)(int64_t h, int32_t fd, uint64_t tag, rp_bytes data) {
     if (!f) return -RP_ENOMEM;
     int32_t r = rp_add(u, fd, f);
     if (r < 0) return r;
-    struct rp_send *s = malloc(sizeof *s + (size_t)data.len);
+    struct rp_send *s = rp_send_alloc(u, data.len);
     if (!s) return -RP_ENOMEM;
     s->next = NULL;
     s->tag = tag;
@@ -305,7 +355,7 @@ void RP(close)(int64_t h, int32_t fd) {
         struct rp_fd *f = &u->fds[fd];
         for (struct rp_send *s = f->sends, *next; s; s = next) {
             next = s->next;
-            free(s);
+            rp_send_free(u, s);
         }
         uint8_t queued = f->queued;
         memset(f, 0, sizeof *f);
@@ -362,7 +412,7 @@ static void rp_work(struct rp *u, rp_completions out, int32_t *n) {
             rp_emit(u, out, n, s->tag, r < 0 ? (int32_t)r : (int32_t)s->len, -1, 0, 1);
             f->sends = s->next;
             if (!f->sends) f->last = NULL;
-            free(s);
+            rp_send_free(u, s);
         }
         uint8_t want = f->sends != NULL;
         if (f->added && want != f->watch_out) {
@@ -376,7 +426,7 @@ static void rp_work(struct rp *u, rp_completions out, int32_t *n) {
                 rp_emit(u, out, n, s->tag, r, -1, 0, 1);
                 f->sends = s->next;
                 if (!f->sends) f->last = NULL;
-                free(s);
+                rp_send_free(u, s);
             }
         }
         while (f->reading && f->readable) {
@@ -450,6 +500,16 @@ void RP(destroy)(int64_t h) {
             free(s);
             s = next;
         }
+    }
+    while (u->small) {
+        struct rp_send *s = u->small;
+        u->small = s->next;
+        free(s);
+    }
+    while (u->big) {
+        struct rp_send *s = u->big;
+        u->big = s->next;
+        free(s);
     }
     net_close(u->ep);
     free(u->bufs);
