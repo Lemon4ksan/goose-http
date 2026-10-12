@@ -148,7 +148,8 @@ git -C ../goose checkout upstream/master
 
 Then rebuild both compilers (`cmake --build` with the same directories), run
 `scripts/test.sh` ([below](#run-every-test)) in WSL and in Git Bash, and update the pin in
-`README.md` and the table above.
+`README.md`, the table above, and `GOOSE_COMMIT` in `bench/httparena/goose/Dockerfile`,
+which builds the HttpArena entry with Goose fetched at that commit.
 
 A checkout from before `6fcb753`, where TinyCC was a submodule, can't check out a later
 commit over the submodule's directory. Release it first:
