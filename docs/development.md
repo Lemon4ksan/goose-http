@@ -27,6 +27,8 @@ neither is for benchmarks.
 | liburing | WSL, apt `liburing-dev` | 2.14, for the io_uring loop (`LOOP=uring`) |
 | Docker | WSL, Docker Desktop | 29.8.2, for HttpArena's harness |
 | perf | WSL, apt `linux-perf` | 7.0.14 (package `7.0.0-38.38`) |
+| nginx | WSL, apt `nginx`, service disabled | 1.28.3, for `bench/files.sh` |
+| Caddy | fetched by `bench/build.sh` | 2.10.2, for `bench/files.sh` |
 
 Install the test tools in WSL. Run `cargo` from a Linux directory
 ([below](#from-a-windows-shell)); oha lands in `~/.cargo/bin`.
@@ -757,6 +759,7 @@ in Git Bash. The epoll loop doesn't build on Windows. Windows isn't for benchmar
 | C compiler | Visual Studio Build Tools | MSVC 19.51; clang-cl works too |
 | Shell, curl | Git for Windows | Git Bash 5.2.26, mingw curl 8.7.1 |
 | Python | on `PATH` as `python3` | 3.14.6 |
+| oha | its `oha-windows-amd64.exe` release, as `%USERPROFILE%\.local\bin\oha.exe` | 1.16.0, for `bench/oha.sh` (`OHA` names it) |
 
 Build the compiler as in [Set up the Goose compiler](#set-up-the-goose-compiler), step 3.
 It needs the Visual Studio 2026 Build Tools (`winget install
@@ -822,6 +825,12 @@ Traps in Git Bash:
   `C:\Users\...\tree.tar` from `$TEMP`, as a remote host, fails with "Cannot connect
   to C: resolve failed", and extracts nothing. Pass `--force-local`, or a `/c/...`
   path.
+- The Windows Performance Toolkit of the Windows 10 SDK, 10.0.20348, can't read a trace
+  that `wpr` records on Windows 11 10.0.26200: `xperf -a profile` stops with
+  `ISession::ProcessEvents [0x80070032]` (2026-10-12). Read it with the current Windows
+  Performance Analyzer, from the Microsoft Store.
+- `Get-Process`'s CPU times print with the locale's decimal separator, a comma in some
+  locales; `bench/oha.sh` formats them with the invariant culture.
 - `wpr -start CPU` and `wpr -stop file.etl` need an elevated shell. `wpr -stop` takes a
   minute or more to write the trace; Ctrl+C in that time cancels it with `0x800704c7`
   and discards the recording, and the next `wpr -stop` finds no profile running.

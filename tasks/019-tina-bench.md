@@ -59,6 +59,15 @@ requests per second, the range of the 3 runs:
 The Docker VM isn't the benchmark machine, and 3 short rounds show the shape, not
 figures for the README.
 
+On the desktop (2026-10-12), `bench/instructions.sh` (one shard on CPU 0, plaintext
+pipelined 16 deep at 256 connections, wrk on CPUs 4-15, 3 runs): Tina served 216-221 K
+requests per second at 19,983-20,260 instructions and 18,566-18,751 cycles per request,
+8,230-8,334 of the instructions in user code, with 190 MB of peak RSS. Goose's epoll loop,
+in the same runs: 1.65-1.68 M, 2,475-2,530, and 1,995-2,036, with 2.4 MB
+([results](../docs/results.md#instructions-per-request)). The full matrix hasn't run on
+the desktop yet: this morning's cells for vanilla-epoll, tokio, may-minihttp, hyper, and
+dusty are reusable (`REUSE`), since their binaries are unchanged.
+
 `scripts/http_client.py` against it, in Docker: `tfb` fails at its absolute-form request
 (`GET http://host/plaintext`), which Tina answers with 400, and `pipeline` gets a
 connection reset.

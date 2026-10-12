@@ -43,14 +43,44 @@ Measure where the kernel time goes first, with Windows Performance Recorder (`wp
 
 ## Acceptance criteria
 
-- [ ] Ubuntu 26.04 in WSL2 runs `scripts/test.sh` on all three Linux loops, with its
-      versions in `docs/development.md`
-- [ ] A baseline of both sides at one commit, measured as above
+- [x] Ubuntu 26.04 in WSL2 runs `scripts/test.sh` on all three Linux loops, with its
+      versions in `docs/development.md` (2026-10-12, on the desktop)
+- [x] A baseline of both sides at one commit, measured as above (2026-10-12)
 - [ ] A CPU trace of the IOCP loop under oha, with the top kernel costs per request
-      recorded here
+      recorded here: recorded, not yet read (below)
 - [ ] Each candidate tried is recorded with its rate against the baseline, kept or
       reverted, and `scripts/test.sh` passing in Git Bash for each kept change
 - [ ] The README's Windows row updated with the new ratio and how it was measured
+
+## Baseline (2026-10-12)
+
+The desktop of the earlier measurements (Ryzen 7 5800X3D, Windows 11 Pro 10.0.26200,
+WSL2 Ubuntu 26.04.1 with kernel 6.18.40.1), both sides the code of `fcfd80d`, Goose
+`5c83a5a`:
+the IOCP build by MSVC 19.51 (`scripts/build.sh`), the Linux builds by gcc 15.2.0
+(`bench/build.sh`). `bench/oha.sh` on each side: oha 1.16.0 (the Windows release, and
+`cargo install` in WSL), `-n 2000000 -c 256` on `/plaintext`, 3 runs, nothing pinned,
+CPU per request from the server's user and kernel time over the oha run. Results in
+`bench/results/2026-10-12-iocp-plaintext` and `2026-10-12-uring-plaintext-oha`.
+
+| Server | Workers | Requests per second | CPU per request, user/kernel |
+|---|---:|---:|---|
+| Windows, IOCP | 1 | 81,877-83,171 | 0.8-1.0/11.0-11.4 µs |
+| Windows, IOCP | 4 | 224,625-246,586 | 1.3-1.6/14.8-16.2 µs |
+| WSL2, io_uring | 1 | 160,811-164,676 | 0.2/5.8-5.9 µs |
+| WSL2, io_uring | 4 | 598,151-614,809 | 0.3/5.9-6.1 µs |
+| WSL2, epoll | 1 | 145,030-146,988 | 0.4/6.4 µs |
+| WSL2, epoll | 4 | 478,401-520,197 | 0.7/6.9-7.4 µs |
+
+IOCP trails io_uring by 2.0 times with 1 worker and 2.5-2.7 times with 4, as on
+2026-10-11: the send-record size classes changed nothing measurable.
+
+The trace: `wpr -start CPU` for 30 s in an elevated shell, during an oha run of 16
+million requests against 1 worker (2026-10-12), a 688 MB `.etl` kept outside the
+repository. The Windows Performance Toolkit installed here, 10.0.20348, can't read a
+trace of this Windows build: `xperf -a profile` stops with `ISession::ProcessEvents
+[0x80070032]`, with `-tle -tti` too. Reading it needs the current Windows Performance
+Analyzer, from the Microsoft Store, or a fresh trace taken once it is installed.
 
 ## A/B on a second machine
 

@@ -451,6 +451,34 @@ Both items that were next are done (2026-10-12): sends queued in the ring shims,
 `sendfile` on the epoll loop. Left: measuring both on the desktop, and `shim/iocp.c`'s
 queue under load on Windows.
 
+Measured on the desktop (2026-10-12): the Ryzen 7 5800X3D, WSL2 kernel 6.18.40.1, Goose
+`5c83a5a`, `bench/files.sh` with `SIZES="bytes:65536 bytes:1048576"`: `/bytes`, sent in
+16 KB pieces, the server on CPU 0 or CPUs 0-3, wrk on CPUs 4-15 with 12 threads and 96
+connections, 3 runs of 10 s, medians in GB/s. Before is `4a65d96`; results in
+`bench/results/2026-10-12-bytes`.
+
+| Response | epoll | io_uring | emulation | `4a65d96` epoll | `4a65d96` io_uring |
+|---|---:|---:|---:|---:|---:|
+| 64 KB, 1 worker | 2.06 | 2.58 | 1.15 | 2.03 | 1.09 |
+| 64 KB, 4 workers | 6.67 | 7.72 | 5.21 | 6.72 | 3.59 |
+| 1 MB, 1 worker | 2.49 | 2.51 | 1.20 | 2.51 | 1.08 |
+| 1 MB, 4 workers | 8.63 | 8.55 | 5.42 | 8.62 | 4.02 |
+
+- io_uring went from 0.43-0.54 times epoll to 1.0-1.25 times.
+- `perf record` of CPU 0 under io_uring at 1 MB: 86% kernel, 11.5% of it zeroing new
+  pages for TCP's send buffers (`sk_page_frag_refill` to `clear_page_erms`) and 8.5%
+  copying into them; libc 11.6%, the copy into the shim's send record; Goose 2.7%.
+- The emulated ring runs at half of epoll's rate on these; it's the fallback where
+  io_uring is blocked, and wasn't measured before.
+
+`shim/iocp.c`'s queue on Windows, the same desktop, `bench/oha.sh` with 20,000
+requests of `/bytes?n=1048576` over 256 connections, 3 runs, against `e9035fc`, the
+commit before the queue (`bench/results/2026-10-12-iocp-large`): with 1 worker, 960-1,444
+requests per second against 1,104-1,638; with 4, 4,473-5,056 against 5,813-6,685, at
+690-790 µs of kernel time per request against 480-550. A loss of about 25% with 4
+workers, not yet explained; every build ran about 30% slower in round 2 than in round 1,
+so the 1-worker numbers say little.
+
 Checked against Tina's tests (2026-10-12). Tina's HTTP server (`a2e8d4d`) tests its
 parser, router, and connection states in `test_*` procedures, and reports 33 of 33 on
 uNetworking's h1spec. Its suite and ours compared, by reading both, found:

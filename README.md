@@ -26,7 +26,7 @@ Early work. No TLS yet.
 |---|---|---|
 | 🟢 | Linux | io_uring (kernel 6.1+) or epoll. |
 | 🟢 | macOS | kqueue. |
-| 🟢 | Windows | IOCP. About 2 to 2.5 times slower than io_uring on WSL2 on the same machine, in [a speed check](docs/development.md#after-the-iocp-changes); not benchmarked. |
+| 🟢 | Windows | IOCP. 2 to 2.7 times slower than io_uring on WSL2 on the same machine, with oha on plaintext (task 017, 2026-10-12); not benchmarked further. |
 
 The tag `v0.2.0` (2026-10-12) has everything in the table below, on both loops on
 Linux, kqueue on macOS, and IOCP on Windows. `v0.1.0` had fixed-size requests and
@@ -40,7 +40,7 @@ responses only.
 | 🟢 | Request bodies of any size, in pieces. `Expect: 100-continue`. Trailers. |
 | 🟢 | Responses of any size, streamed or chunked. Trailers. |
 | 🟢 | Conditional `GET` (304), one byte range (206, 416) |
-| 🟢 | Static files, sent without copying them through the program on every loop |
+| 🟢 | Static files: under 64 KB copied, larger ones sent without copying on every loop |
 | 🟢 | CR, LF, and invalid names kept out of response fields |
 | 🟢 | Cookies, `Authorization` with `Basic`, media types, `Accept` (415, 406) |
 | 🟢 | Form and streamed multipart bodies, JSON responses |
@@ -118,23 +118,35 @@ CPUs 0-3, wrk on 4-15. Plaintext pipelined 16 deep. Median of 3 runs of 15 s. Go
 
 ### Large responses and files
 
-No competitor measured yet. This compares the two loops only.
+One file downloaded over and over, against nginx and Caddy, the usual static file
+servers. Same machine, `bench/files.sh`, 2026-10-12, Goose at `fcfd80d`. Files on tmpfs.
+1 worker on CPU 0 or 4 on CPUs 0-3, wrk on 4-15 with 12 threads and 96 connections.
+Median of 3 runs of 10 s. Bold is the column's best.
 
-Same machine, 2026-10-12, `4a65d96`, Goose `5c83a5a`. One worker on CPU 0, wrk on
-4-15, 8 threads, 64 connections, 10 s, files on tmpfs, 2 runs.
+| Server | 4 KB, 1 worker | 4 KB, 4 | 64 KB, 1 | 64 KB, 4 | 1 MB, 1 | 1 MB, 4 |
+|---|---:|---:|---:|---:|---:|---:|
+| Goose io_uring | **81.6 K/s** | **219 K/s** | 2.08 GB/s | 6.42 GB/s | 11.0 GB/s | 30.4 GB/s |
+| Goose epoll | 56.0 K/s | 179 K/s | 2.23 GB/s | 7.41 GB/s | **11.6 GB/s** | **31.3 GB/s** |
+| nginx 1.28.3 | 50.2 K/s | 173 K/s | **2.31 GB/s** | **8.15 GB/s** | 9.9 GB/s | 28.5 GB/s |
+| Caddy 2.10.2 (Go) | 13.0 K/s | 47 K/s | 0.83 GB/s | 2.99 GB/s | 6.8 GB/s | 20.1 GB/s |
 
-| Path | epoll | io_uring |
-|---|---:|---:|
-| `/files/`, 64 KB file | 1.90-1.91 GB/s | 1.21-1.22 GB/s |
-| `/files/`, 1 MB file | 3.25-3.30 GB/s | 0.98 GB/s |
-| `/bytes?n=1048576` | 2.32 GB/s (1 run) | 1.02-1.05 GB/s |
+- nginx wins 64 KB, by 4% over epoll with 1 worker and 10% with 4. io_uring's
+  splices through a pipe cost more than `sendfile` at that size.
+- Goose copies files under 64 KB, which beats `sendfile` and the splices at 4 KB by 1.3
+  to 1.8 times, and sends larger ones without copying.
+- 1 MB with 4 workers is wrk's limit, not the servers'. Server CPU per request there:
+  Goose epoll 106 µs, nginx 148 µs, Caddy 197 µs.
+- Against this morning's `4a65d96`, which copied every file: 1 MB is 3.4 times faster on
+  epoll and 8 to 11 times on io_uring.
 
-Since then the io_uring shim reuses large send records: `/bytes` at 1.72-1.73 GB/s.
-The ring shims now queue sends, so io_uring copies a response once, and the epoll loop
-sends files with `sendfile`, on Linux and macOS (2026-10-12). On the Windows laptop alone (task 013), a
-1 MB file went from 0.65-0.86 to 1.16-1.23 GB/s on io_uring, and from 2.4 to
-6.5-7.0 GB/s on epoll. Since then io_uring, IOCP, and the emulated ring send files
-without copying them too (task 020). The desktop hasn't measured any of these yet.
+Responses built in memory (`/bytes`, Goose only, the same setup): io_uring is level
+with epoll at 1 MB (2.51 against 2.49 GB/s with 1 worker) and 25% ahead at 64 KB
+(2.58 against 2.06). That morning it ran at half of epoll's rate.
+
+On Windows, each file request costs 100-200 µs of kernel time, mostly opening the
+file, so IOCP serves 5,000-17,000 files a second at every size. `TransmitFile` is 3 to
+4 times faster than copying a 1 MB file with 1 worker, and no faster with 4, because
+client Windows runs two at a time (task 020).
 
 ### REST APIs
 
@@ -287,11 +299,12 @@ thread_fn worker(cfg: http::Config) {
   or `HEAD` with 200, 206, 304, or 416, with `ETag`, `Last-Modified`, and
   `Accept-Ranges`.
 - `http::send_file(out, st.file)` at each `MORE` until false, then `http::end(out)`.
-  With a `Content-Length`, it hands the file to the loop, which sends it without copying
+  With a `Content-Length` of 64 KB or more, it hands the file to the loop, which sends it without copying
   it through the program: `sendfile` on the epoll loop and the emulated ring, splice
   through a pipe on io_uring, and `TransmitFile` on IOCP. Client editions of Windows run
   two `TransmitFile` calls at a time across the system, so many downloads at once may
-  queue there. A chunked response reads up to 64 KB with `pread` per call.
+  queue there. A smaller file, which one read and a send serve faster, and a chunked
+  response read up to 64 KB with `pread` per call.
 - `http::close_body(st.file)` at `CLOSED`.
 - `http::is_safe_path(path)`: rejects `.` and `..` segments, backslashes, and colons.
   Check the decoded path before joining it to a directory.
