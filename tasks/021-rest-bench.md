@@ -432,8 +432,39 @@ only where the delimiter's first byte is: uploads alone rose 13-14% on both loop
 1,108-1,153 a second against hyper's 1,084-1,095 in the same session
 ([results](../docs/results.md#rest-apis)).
 
-Next: whether a smaller completion batch, or a bound per connection as `max_read` is for
-epoll, brings io_uring's reads beside uploads down to epoll's.
+A smaller completion batch doesn't help io_uring's reads beside uploads (2026-10-13, the
+desktop, `STEPS=4`, 2 rounds, then `bench/run.sh` with 4 workers, 3 runs). Its p50 and
+p99 in ms, and plaintext and JSON in requests per second:
+
+| Batch | Reads beside uploads | plaintext 256 | plaintext 4,096 | JSON 256 | JSON 1,024 |
+|---|---:|---:|---:|---:|---:|
+| 256 | 2.6-3.1 / 6.8-11 | 6.62 M | 6.08 M | 495 K | 492 K |
+| 64 | 3.1-3.6 / 8.9-17 | 6.39 M | 5.88 M | 479 K | 481 K |
+| 16 | 3.3-3.8 / 14-20 | 5.99 M | 5.51 M | 472 K | 459 K |
+
+A read's completion waits behind every upload piece queued before it, whatever the
+batch. The loop keeps 256.
+
+A budget per connection, as `max_read` is for epoll, was tried and dropped (2026-10-13).
+Past 16 KB in a pass, the loop held a connection's bytes and answered 16 KB of them per
+later pass, after the other completions. It canceled the multishot receive while a
+connection held 8 KB, rbuf's size, and queued it again once drained. `STEPS="1 2 4"`,
+3 rounds, before and after in one session
+([before](../bench/results/2026-10-13-uring-turns-before/summary.md),
+[after](../bench/results/2026-10-13-uring-turns-after/summary.md); both `env.txt` say
+"(modified)" for the change in the tree, and `binaries.txt` tells the builds apart):
+
+| io_uring | Before | With the budget |
+|---|---:|---:|
+| Reads beside uploads, p50 / p99 | 2.6-3.1 / 8.6-12 ms | 1.3-2.5 / 4.2-10 ms |
+| Uploads alone | 1.1-1.2 K/s | 275-282/s |
+| Uploads beside forms / forms role | 156-160 / 7.0-7.1 K | 70-72 / 3.9-4.1 K |
+| Uploads during the mixed run | 762-772/s | 177-181/s |
+
+Tiers A to C didn't change. Canceling and queuing the receive again every 8 KB costs an
+upload far more than the reads gain. What's left to try: a budget that holds bytes
+without canceling the receive, bounded by the ring's 256 buffers rather than rbuf, or
+submitting a pass's sends before its held turns.
 
 ## Acceptance criteria
 
