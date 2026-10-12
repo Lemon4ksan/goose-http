@@ -30,7 +30,7 @@ Each serves `GET /plaintext` and `GET /json` with the bodies and fields TechEmpo
 requires (`Server`, `Date`, `Content-Type`, `Content-Length`), 405 for other methods on
 those paths, and 404 elsewhere. Each takes its worker count from `WORKERS` and its port
 as its first argument. The JSON body is serialized per request in all of them. The last
-six, task 005's io_uring competitors and task 018's tina, run only when `SERVERS` names
+six, task 005's io_uring competitors and task 019's tina, run only when `SERVERS` names
 them.
 
 | Server | Pin | Build | Workers |
@@ -48,7 +48,7 @@ them.
 | zeemo | HttpArena's `zeemo` entry at `0720ee5`, which holds its source; Zig 0.16.0 | HttpArena's entry: `ReleaseFast`, `x86_64-linux-musl`, baseline CPU | one thread per worker, pinned to a CPU, each with its own `SO_REUSEPORT` listener and io_uring ring; multishot accept, one send per batch |
 | libreactorng | `fredrikwidlund/libreactorng` `7a65f8b` with the entry's `connection-close.patch` | HttpArena's entry: `-O3 -march=native` (gcc 15.2.0), with libreactor's own `-flto` | one thread per worker, each with its own `SO_REUSEPORT` listener and reactor on an io_uring ring; picohttpparser |
 | vanilla-io_uring | `enghitalo/vanilla` `091c014`, V `b99970b`, liburing 2.14 | HttpArena's entry: `v -prod` with V's default GC (gcc `-O3 -flto`) | vanilla-epoll's app on vanilla's io_uring backend: one thread per worker, each with its own `SO_REUSEPORT` listener and ring |
-| tina | `pmbanugo/tina` `a2e8d4d` (2026-10-12), Odin `dev-2026-10` | Tina's production build: `-o:speed -define:TINA_ASSERTS=false`, bounds checks on | one shard per worker, each a thread with an io_uring ring and its own `SO_REUSEPORT` listener (`Reuse_Port`, faster than its primary `Coordinator` ingress: task 018) |
+| tina | `pmbanugo/tina` `a2e8d4d` (2026-10-12), Odin `dev-2026-10` | Tina's production build: `-o:speed -define:TINA_ASSERTS=false`, bounds checks on | one shard per worker, each a thread with an io_uring ring and its own `SO_REUSEPORT` listener (`Reuse_Port`, faster than its primary `Coordinator` ingress: task 019) |
 
 The configurations follow each project's fastest documented setup: TechEmpower's entries
 for may-minihttp and hyper (`hyper --runtime multi-thread`), odin-http's
