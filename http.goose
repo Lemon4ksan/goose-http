@@ -107,6 +107,12 @@ struct Config {
     // it until the client takes what it was sent, as serve_epoll does when a
     // send would block.
     max_queued: i64 = 65536,
+    // The most bytes serve_epoll reads from one connection in a turn before
+    // it goes on to the others, so that a body arriving as fast as the worker
+    // reads it doesn't hold up the worker's other connections; 0 for no
+    // limit. Beside uploads, 16 KB kept tier C's reads at a p99 of 4 ms, where
+    // no limit let them wait seconds (task 021).
+    max_read: i64 = 16384,
     // Call the handler given state with DONE after each response, for an
     // access log.
     log: bool = false,

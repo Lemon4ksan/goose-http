@@ -63,6 +63,16 @@ until the task named beside it confirms or replaces it.
     `reusable` pool; its epoll tag is the slot. A table indexed by fd was rejected: fds
     are numbered across the process, so every worker's table would grow to the highest
     fd of all of them.
+  - At each event, the loop reads a connection until the socket is empty or it has
+    read `Config.max_read` bytes, 16 KB by default. Past the limit, the connection
+    goes on a list that gets one more turn each after the next pass's events, since
+    an edge-triggered socket left unread raises no new event while its sender waits
+    (2026-10-12, task 021). Reading to `EAGAIN` alone let an upload that arrived as
+    fast as the worker read it take the worker for the whole body, up to 8 MB: beside
+    tier D's uploads, tier C's reads waited seconds. With 16 KB they kept a p99 of
+    1.4-4 ms, and the uploads alone lost 2-3% of their rate. libuv stops a stream
+    after 32 reads per event for the same reason, on a level-triggered epoll that
+    reports the socket again.
   - The buffers belong to the worker, not the connection: an 8 KB read buffer, which
     holds the longest request head whole, and a write buffer that takes 8 KB of
     responses before the server sends them, a read's worth of pipelined requests (16
