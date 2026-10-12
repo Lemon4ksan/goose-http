@@ -202,10 +202,9 @@ connections: 12.4 MB against 11.3 MB).
   mode checks it on Linux: an idle connection closed within 2.5 s, the listener
   refusing within 3 s, a request in progress answered with `Connection: close`, a
   20 MB response in progress finished, and the process gone. On Windows, the same
-  checks by Ctrl+Break (`stop-break`, 2026-10-12), with the exit status 0. Not tested:
-  the stop on macOS, where `shim/kqueue.c`'s table change passed only a syntax check (clang,
-  with stub macOS headers, in WSL). With `SERVER_RUNS=2`, the benchmark server serves again
-  after a stop, and `test-http.sh` checks that the loops started again serve
+  checks by Ctrl+Break (`stop-break`, 2026-10-12), with the exit status 0, and on macOS
+  by `SIGTERM` (2026-10-12, below). With `SERVER_RUNS=2`, the benchmark server serves
+  again after a stop, and `test-http.sh` checks that the loops started again serve
   (`keepalive`) and stop.
 
 - Item 15 (2026-10-12): `router.goose`. `http::router(req)`, `http::on(r, method,
@@ -257,7 +256,7 @@ connections: 12.4 MB against 11.3 MB).
   `files` checks the benchmark server's `/files/` on every loop, Linux and Windows,
   and `test-http.sh` that no file stays open after clients leave halfway, which it
   failed with `CLOSED` ignored; `test_http.goose`'s `test_files` checks the helpers.
-  macOS: `shim/kqueue.c`'s functions passed only the syntax check with stub headers.
+  On macOS, `test-http.sh` asks `lsof` instead of `/proc` (2026-10-12, below).
 
 Neither the move to Goose `5c83a5a` nor files changed the benchmark path's cost
 (`bench/instructions.sh`, 2 runs a build, as above, 2026-10-12): user instructions per
@@ -299,17 +298,23 @@ and plaintext (`bench/instructions.sh`, 2 runs) from 1.67-1.70 to 1.78-1.85 M re
 per second, 1,658-1,662 to 1,608-1,634 user instructions and 2,239-2,246 to
 2,041-2,044 cycles per request, with peak RSS 1.1 MB higher.
 
+macOS (2026-10-12): `scripts/test.sh` passes at `806f46a` with Goose `5c83a5a`, twice,
+with nothing to fix: both loops, the ring over kqueue (`shim/ring_epoll.c`, with its
+reused send records) and `LOOP=epoll`, through `stream`, `files`, the `SIGTERM` stop,
+and the restart with `SERVER_RUNS=2` on 4 workers sharing `shim/kqueue.c`'s listener
+table, then the fd limit run and `test-echo.sh`. `test-http.sh` now checks with `lsof`
+that no file stays open after `files`, which passed on both loops. The peak RSS check
+after `stream` still runs on Linux only. On the MacBook Pro in `docs/development.md`,
+macOS 26.3.1, Apple clang 21.0.0; each run took 3 minutes.
+
 Next, in order:
 
-1. Run the tests on macOS (`scripts/test.sh`): the kqueue table change, the stop, the
-   restart, the file functions in `shim/kqueue.c`, and `shim/ring_epoll.c`'s reused
-   records, none of which has run there yet.
-2. Split the streaming loop's cost further, and remove what can go.
-3. Large responses on the io_uring loop: a send queued in each shim behind the one in
+1. Split the streaming loop's cost further, and remove what can go.
+2. Large responses on the io_uring loop: a send queued in each shim behind the one in
    flight, so the loop stops copying pieces into `c.out` (Progress, "Large
    responses"). `shim/ring_epoll.c` queues per fd already; `shim/uring.c` and
    `shim/iocp.c` don't.
-4. `sendfile` for files on the epoll loop, which saves `send_file`'s copies, once a
+3. `sendfile` for files on the epoll loop, which saves `send_file`'s copies, once a
    measurement shows they matter: epoll sends a 1 MB file at 3.3 GB/s now.
 
 ## Streaming design (2026-10-12)
@@ -400,9 +405,9 @@ slot. So:
 - [x] Limits and timeouts set by the program, with tests at non-default values
       (2026-10-12)
 - [x] `SIGTERM` drains and stops every worker within the grace period, in `serve` and
-      `serve_epoll` (2026-10-12, Linux, and on Windows by Ctrl+Break; macOS untested)
+      `serve_epoll` (2026-10-12, Linux and macOS, and on Windows by Ctrl+Break)
 - [x] Every item above has a check in `scripts/http_client.py` or `test/test_http.goose`
-      (2026-10-12; item 11's on Linux and Windows)
+      (2026-10-12; item 11's on Linux, macOS, and Windows)
 - [ ] The benchmark routes, served through the handler, keep their rate in
       `bench/run.sh`'s closest cells within the runs' spread (2026-10-12: not met in
       three plaintext cells with 4 workers, 2-3% lower; see Progress)
