@@ -81,7 +81,8 @@ as task 013's did.
 
 ## Answers that wait: a proposal (2026-10-12)
 
-Status: proposed, for review before any code. Nothing below is decided.
+Status: agreed as a proof of concept (2026-10-12), to build in a new session; see
+"Decided". Not started.
 
 ### What constrains it
 
@@ -161,8 +162,7 @@ and no clock read beyond the loops' own.
    deadlines, each with a 64-bit key, allocated at open: `arm(key, at) -> Timer`,
    `cancel(t)`, `next()` for the loop's wait, and `expire(now) { key => }`. A timer is
    a slot and a generation, so cancelling one that has fired is a no-op. The loops
-   size it to `Config.max_conns`, one wait per HTTP/1.1 connection; HTTP/2 would size
-   it by streams.
+   size it to `Config.max_waiting` (below).
 3. **Generation-checked handles.** A slot index and a generation, which a slot's reuse
    advances: the timers above use them, and so does the HTTP layer for its exchanges.
    A `Later` (below) is a mailbox address whose key holds the connection's slot, the
@@ -212,17 +212,61 @@ namespace until they move, in files that import nothing of the package's HTTP si
 Tina for the bounded mailboxes with a result at the send, for sending work to an
 address rather than a shared queue, and for the required time limit on a wait.
 
-### Open questions for review
+### Decided (2026-10-12, for the proof of concept; refine later)
 
-- The mailbox's ring and wakeup are C. Is that acceptable, or should it wait for a
-  Goose facility, a queue a thread can address and a loop can wait on, requested from
-  Goose's maintainer?
-- One lock-free ring per box that any thread adds to, as above, or Tina's one ring
-  per pair of sender and receiver, which needs no compare-and-swap but needs every
-  sender known, and registered, at the start?
-- Should the wakeup also make `http::stop` immediate?
+- The mailbox's ring and wakeup are C, in a shim file shared by every platform
+  (`shim/mail.c`, with atomics behind a small macro layer: C11 `stdatomic.h` for gcc,
+  clang, and TinyCC, `Interlocked*` for MSVC), plus each platform's wakeup in its own
+  shim. Messages and everything above them are Goose.
+- One lock-free ring per box that any thread adds to, not one per sender.
+- The wakeup also makes `http::stop` immediate.
 
-### Phases, once agreed
+### The mailbox's mechanics
+
+- **Send, lock-free.** A bounded queue with a sequence number per slot (Vyukov's): a
+  sender claims a slot with one compare-and-swap on the enqueue position, retried only
+  when another sender took it first, copies the message in, and publishes it with a
+  release store of the slot's sequence. The owner takes with no read-modify-write per
+  message.
+- **Wakeup per batch.** A counter of pending messages: a sender wakes the owner only
+  when it moves the counter from 0 to 1, so a burst costs one `eventfd` write,
+  `kevent`, or `PostQueuedCompletionStatus`. The owner subtracts what it took, and takes
+  again if more came meanwhile, so no wakeup is lost or doubled.
+- **Waiting.** A loop never spins: it's awake anyway, and checking its box is one atomic
+  load per pass. A worker thread on `mail_wait` spins briefly on the counter (a few
+  microseconds, with the CPU's pause instruction), then sleeps in the kernel: `poll` on
+  its `eventfd`, `kevent`, or `WaitForSingleObject`.
+- **OS locks only to open and close.** A table of boxes, guarded by a `pthread_mutex` or
+  an `SRWLOCK`, changes only when a box opens or closes. A send raises a count of sends
+  in flight on its box while it copies, and a close advances the box's generation, then
+  spin-yields until that count is 0 before freeing the slots, so no sender writes into
+  freed memory.
+- **Taking into Goose memory.** A shim can't append to a `u8[>..]&` (it can't reach the
+  runtime: `docs/c-interop.md`), so `mail_take` writes whole messages into a `u8[:]`
+  the owner gives, and returns the bytes written, as `net_strerror` does.
+- **Memory.** A box is its slots times (slot size + a 16-byte header), allocated at
+  open, and nothing grows after: 256 slots of 512 bytes is about 135 KB, 540 KB for 4
+  workers, against the epoll loop's 2.4 MB peak RSS with 4 workers today. Each box adds
+  one `eventfd` on Linux, one `EVFILT_USER` registration on macOS, and nothing on
+  Windows, where the completion port is there already. So the loops open no box unless
+  `Config.mail_slots` is above 0, which is 0 by default, and the program sets the slot
+  size: a program that never waits pays nothing. A reply longer than a slot is the
+  program's to split, as Tina's cross-shard messages are.
+- **The timer table's size** comes from `Config.max_waiting`, the exchanges that may
+  wait at once, also 0 by default, not from `max_conns`: 16,384 cells of about 28 bytes
+  would be 450 KB per worker.
+
+### The timer table's shape
+
+A struct may hold only one resizable field, which is its last, so the table is one
+array of cells, `{ at, key, gen, pos, heap, next }`, pushed to its capacity at open:
+`heap` is a column of its own, `cells[i].heap` being the cell at the heap's position `i`,
+`pos` is a cell's place in the heap (-1 while free), and `next` links the free cells. A
+`Timer` is a cell and its generation, which freeing a cell advances. `arm` returns no
+timer (cell -1) when the table is full, and `expire(now) { key => }` takes each due timer
+out of the heap before calling the block, so the block may arm more.
+
+### Phases
 
 1. The timer table and handles, with unit tests, and the mailbox in `shim/kqueue.c`
    and the ring's emulation, on the Mac.
