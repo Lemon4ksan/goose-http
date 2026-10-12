@@ -34,7 +34,7 @@ clang 21.1.8.
 
 ### The pin
 
-`aardappel/goose` and the fork `kaitk/goose` were both at `bab8b6f`, 96 commits past the
+`aardappel/goose` was at `bab8b6f`, 96 commits past the
 old pin `3536810`. The unit tests, `scripts/test-http.sh`, and `scripts/test-echo.sh`
 passed there, and `scripts/test-http.sh` also against a clang build. One case of the bounds-check finding is fixed at
 `bab8b6f`: a call inlined into a loop condition no longer costs the loop's checks.

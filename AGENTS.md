@@ -18,11 +18,13 @@ change or ask first. Record setup facts and environment traps you find (paths, s
 quirks, ports, encodings) in `docs/development.md`, not in agent memory, so the next
 agent finds them. Docs and commits name no people: date a decision or a request
 (`(2026-10-11)`), and describe the setup without anyone's machine, checkouts, or home
-directory.
+directory. What only one machine needs, such as where its Goose checkout is, goes in
+`CLAUDE.local.md`, which git ignores. Benchmark results still name their machine.
 
 ## Goose, not an addition to Goose
 
-- The Goose repository changes daily. Fetch `../goose` at the start of a session and
+- The Goose repository changes daily. Fetch the Goose checkout `GOOSE` is built from
+  (`../goose` unless `CLAUDE.local.md` says otherwise) at the start of a session and
   move the pin when it lags (`docs/development.md`, "Move the pin").
 - Don't edit the Goose checkout. When the compiler rejects something it should accept,
   miscompiles, or the stdlib lacks something, reduce it to a minimal program, record it

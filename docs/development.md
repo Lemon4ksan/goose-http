@@ -81,22 +81,16 @@ it, unpinned. A missing `liburing.h` did that once; a build whose output mention
 
 ## Set up the Goose compiler
 
-The scripts expect a plain Goose checkout next to this repository, at `../goose`. Leave it
-on the pinned commit and don't edit it (`AGENTS.md`). Other Goose checkouts beside it,
-such as `../goose-fix` and `../goose-ngpu`, are on feature branches: leave them alone.
-`../goose-ngfx` (`kaitk/goose-ngfx`) is a graphics library for Goose, already a package
-that programs import from git; it is the reference for how this repository
-becomes one (task 011). Its `docs/development.md`, `docs/goose-findings.md`, and
-`scripts/run_tests.py` record how its package builds, what Goose's package system got
-wrong, and how its tests run. One checkout serves both platforms:
-WSL builds into `build-linux/` and Windows into `build/`, and the checkout's `.gitignore`
-covers both.
+The scripts run the compiler that `GOOSE` names, or `goose` on `PATH` without it, so the
+checkout can live anywhere; this page puts it next to this repository, at `../goose`.
+Leave it on the pinned commit and don't edit it (`AGENTS.md`). One checkout serves both
+platforms: WSL builds into `build-linux/` and Windows into `build/`, and the checkout's
+`.gitignore` covers both.
 
 1. Clone the checkout at the pin. It has no submodules: TinyCC, which lets
    `goose file.goose` compile and run a program in process, is vendored, and graphics,
    audio, and physics are packages the compiler fetches only for a program that imports
-   them. The clone calls `aardappel/goose` `upstream`, which leaves `origin` for a fork
-   such as `kaitk/goose`.
+   them.
 
    ```sh
    git clone -o upstream https://github.com/aardappel/goose.git ../goose
@@ -435,7 +429,7 @@ What the benchmark has to work around on this machine:
 ### From a Windows shell
 
 The repository lives on the Windows drive, so WSL sees it under `/mnt/c`, for example
-at `/mnt/c/Users/<user>/projects/goose/goose-http`. These things break commands passed to WSL
+at `/mnt/c/<path>/goose-http`. These things break commands passed to WSL
 from Windows:
 
 - `wsl.exe` hands its arguments to a shell that expands `$VARS` before `bash -c` sees
@@ -446,7 +440,7 @@ from Windows:
   PowerShell doesn't rewrite paths.
 - `bash script.sh` doesn't read the WSL profile, so a `GOOSE` set there doesn't reach
   it. A script that calls `scripts/build.sh` or `scripts/test-unit.sh` exports it first:
-  `export GOOSE=/mnt/c/Users/<user>/projects/goose/goose/build-linux/goose`. The
+  `export GOOSE=/mnt/c/<path>/goose/build-linux/goose`. The
   same goes for `PATH`, which needs `$HOME/.cargo/bin` for oha.
 - A server started in the background survives when its `wsl.exe` call ends early, for
   example when the output is piped into `head`. It keeps its port, and the next run fails
@@ -460,7 +454,7 @@ from Windows:
 - Git for Windows 2.45 writes a worktree's `.git` file with a Windows path, which WSL's
   git can't follow, so `bench/run.sh` can't record the commit there. It has no
   `--relative-paths`; write the file by hand, for example
-  `gitdir: ../goose-http/.git/worktrees/goose-http-uring`. Both gits read that.
+  `gitdir: ../goose-http/.git/worktrees/<name>`. Both gits read that.
 
 The agent's Bash tool turns `\\` into `\` before the shell sees it, even inside a quoted
 heredoc, so `'\\n'` written through it reaches the file as a line break. Edit files with
@@ -510,11 +504,7 @@ cmake --build ../goose/build-macos -j
 export GOOSE=$PWD/../goose/build-macos/goose
 ```
 
-Then `scripts/build.sh` and the test scripts run as on Linux. On the Mac task 006 used,
-`../goose` is a fork on a feature branch, with `../goose-tcc-fix` a worktree of it:
-leave both alone. The plain checkout at the pin is `../goose-upstream`, so there
-`GOOSE=../goose-upstream/build-macos/goose`. Its remote is `upstream`, not `origin`: move
-it to the pin with `git fetch upstream` and `git checkout`, then rebuild.
+Then `scripts/build.sh` and the test scripts run as on Linux.
 
 What differs from Linux:
 

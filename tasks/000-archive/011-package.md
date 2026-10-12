@@ -7,7 +7,6 @@ Goose `efe3155` has packages: a program declares one in its root file,
 repository, compiles the C its sidecar names, and links it (the pinned checkout's
 `docs/packages.md`). This repository becomes such a package, so a program can serve HTTP
 with its own routes; the benchmark server becomes one program that uses it.
-`../goose-ngfx` is the reference for the layout (`docs/development.md`).
 
 The design, proposed:
 
@@ -254,7 +253,7 @@ recompiled after a change, so they were run again with clean builds:
 - [x] The tests pass, and the server's rate in `bench/run.sh`'s closest cells matches
       task 010's build within the runs' spread (2026-10-11, against `1bea5a0`, the
       last build before this task)
-- [x] `README.md` says how to use the package, as goose-ngfx's does, and which entry
+- [x] `README.md` says how to use the package, and which entry
       point to call: `serve` everywhere, `serve_epoll` for the fastest loop on Linux
       and macOS
 - [x] Tagged `v0.1.0`, the ref the README's example imports (2026-10-11)
