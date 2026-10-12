@@ -170,6 +170,13 @@ all built with Goose at `fee060c` and cc 15.2.
 | JSON, 1 worker, 256 / 1,024 | 1.01 / 0.98 | 0.99 / 0.99 |
 | JSON, 4 workers, 256 / 1,024 | 1.00 / 0.99 | 1.00 / 0.98 |
 
+At the end of the night (2026-10-12, `bench/results/2026-10-12-night/`, as above with
+`WORKER_COUNTS=4`), `2b10d24` on Goose `5c83a5a` against `03c7b67` on `fee060c` (the
+`goose-v-end` builds above; `env.txt` names only the current pin): every cell within
+0-1.2%, and the spreads overlap in all but uring plaintext at 1,024 connections, 0.4%
+lower (6.79 M against 6.82 M). The night's later changes, the `Server` field, files,
+and the shims' reused send buffers, moved no cell.
+
 Three cells' spreads don't overlap: epoll plaintext with 4 workers and 1,024
 connections (5.53 M against 5.71 M requests per second), and uring plaintext with 4
 workers and 256 and 1,024 connections (6.90 M against 7.04 M, and 6.77 M against
