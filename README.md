@@ -30,25 +30,25 @@ Early work. No TLS yet.
 
 HTTP/1.1 on `main`. The tag `v0.1.0` has fixed-size requests and responses only.
 
-| | Feature | When |
-|---|---|---|
-| 🟢 | Strict parser: smuggling, 414, 431, 505, 501 | |
-| 🟢 | Header fields, path, query, percent-decoding | |
-| 🟢 | Router: parameters, wildcards, 405 with `Allow`, `OPTIONS` | |
-| 🟢 | Request bodies of any size, in pieces. `Expect: 100-continue`. Trailers. | |
-| 🟢 | Responses of any size, streamed or chunked. Trailers. | |
-| 🟢 | Conditional `GET` (304), one byte range (206, 416) | |
-| 🟢 | Static files | |
-| 🟢 | CR, LF, and invalid names kept out of response fields | |
-| 🟢 | Cookies, `Authorization` with `Basic`, media types, `Accept` (415, 406) | |
-| 🟢 | Form and streamed multipart bodies, JSON responses | |
-| 🟢 | Limits and timeouts, per connection and per route. Graceful shutdown. | |
-| 🟢 | `sendfile` on the epoll loop | |
-| 🟢 | Large responses on io_uring without the extra copy | |
-| 🟢 | Answers that wait: another thread, a timer, long polling, SSE | |
-| 🟢 | Client address. `Forwarded` from trusted proxies. | |
-| 🟢 | IPv6, dual-stack, Unix sockets (Linux and macOS) | IPv6 not run on Windows yet |
-| 🟢 | Access log, as a `DONE` event | |
+| | Feature |
+|---|---|
+| 🟢 | Strict parser: smuggling, 414, 431, 505, 501 |
+| 🟢 | Header fields, path, query, percent-decoding |
+| 🟢 | Router: parameters, wildcards, 405 with `Allow`, `OPTIONS` |
+| 🟢 | Request bodies of any size, in pieces. `Expect: 100-continue`. Trailers. |
+| 🟢 | Responses of any size, streamed or chunked. Trailers. |
+| 🟢 | Conditional `GET` (304), one byte range (206, 416) |
+| 🟢 | Static files |
+| 🟢 | CR, LF, and invalid names kept out of response fields |
+| 🟢 | Cookies, `Authorization` with `Basic`, media types, `Accept` (415, 406) |
+| 🟢 | Form and streamed multipart bodies, JSON responses |
+| 🟢 | Limits and timeouts, per connection and per route. Graceful shutdown. |
+| 🟢 | `sendfile` on the epoll loop |
+| 🟢 | Large responses on io_uring without the extra copy |
+| 🟢 | Answers that wait: another thread, a timer, long polling, SSE |
+| 🟢 | Client address. `Forwarded` from trusted proxies. |
+| 🟢 | IPv6 and dual-stack. Unix sockets on Linux and macOS. |
+| 🟢 | Access log, as a `DONE` event |
 
 CORS, sessions, middleware, and an HTTP client are out of scope. They belong to a
 framework.

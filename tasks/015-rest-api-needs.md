@@ -1,7 +1,6 @@
 # 015: What a REST and JSON API needs from the package
 
-Status: done (asked for 2026-10-12, done 2026-10-12; IPv6 on IOCP waits for a Windows
-run)
+Status: done (asked for 2026-10-12, done 2026-10-12)
 
 A REST and JSON API, such as a Goose port of snowtime-native's, needs more from the
 package than task 013 gave it. TLS, HTTP/2, and compression are task 014's or later.
@@ -74,8 +73,8 @@ as task 013's did.
       Windows, 2026-10-12. See "The client's address".)
 - [x] The server listens on IPv6, dual-stack, and on a Unix socket on Linux and macOS.
       (2026-10-12, on kqueue and the ring over it, and in Docker on io_uring, the ring
-      over epoll, and epoll; IPv6 on IOCP compiles and waits for a Windows run. See
-      "Where the server listens".)
+      over epoll, and epoll; on IOCP in Git Bash on Windows, and on all three Linux
+      loops in WSL2, at `30d4b34`. See "Where the server listens".)
 - [x] A field with CR, LF, or an invalid name never reaches the client (2026-10-12; see
       "Checked fields")
 - [x] Helpers for items 5 to 11, each with a check in `scripts/http_client.py` or

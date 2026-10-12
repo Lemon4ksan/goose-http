@@ -780,6 +780,13 @@ clang-cl. `test-http.sh` leaves out the load runs and `emfile` on Windows, and
 
 Traps in Git Bash:
 
+- Back-to-back runs of `scripts/test.sh` leave thousands of connections to port 29080
+  in `TIME_WAIT`, which Windows keeps for 240 s. A run started before they drain fails
+  at random with client connect timeouts (`TimeoutError`, `WinError 121`, or
+  `WinError 52`), anywhere from `keepalive` to `many` (2026-10-12). Wait until
+  `(Get-NetTCPConnection -State TimeWait | Measure-Object).Count` is low again, or set
+  another `PORT`.
+
 - <a id="line-endings-on-windows"></a>Line endings on Windows: with
   `core.autocrlf=true`, `.c`, `.goose`, and `.md` files are CRLF on disk and LF in git,
   while `.gitattributes` keeps `.sh` and `.py` LF. A scripted search and replace that
