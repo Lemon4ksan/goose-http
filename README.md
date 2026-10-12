@@ -28,7 +28,9 @@ Early work. No TLS yet.
 | 🟢 | macOS | kqueue. |
 | 🟢 | Windows | IOCP. About 2 to 2.5 times slower than io_uring on WSL2 on the same machine, in [a speed check](docs/development.md#after-the-iocp-changes); not benchmarked. |
 
-HTTP/1.1 on `main`. The tag `v0.1.0` has fixed-size requests and responses only.
+The tag `v0.2.0` (2026-10-12) has everything in the table below, on both loops on
+Linux, kqueue on macOS, and IOCP on Windows. `v0.1.0` had fixed-size requests and
+responses only.
 
 | | Feature |
 |---|---|
@@ -55,7 +57,7 @@ framework.
 ## Quick start
 
 ```goose
-import http from "github.com/kaitk/goose-http@v0.1.0";
+import http from "github.com/kaitk/goose-http@v0.2.0";
 
 thread_fn worker(cfg: http::Config) {
     let e = http::serve(cfg) { req, body, out =>
