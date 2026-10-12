@@ -112,7 +112,21 @@ evening's `73dd28c`:
 
 So about 4% was the session and 3% the code. `bench/count.sh` counts 1,826.9 user
 instructions per plaintext request on the evening's epoll build against 1,786.7 on the
-morning's, and 1,875.2 against 1,832.1 on io_uring; JSON is unchanged.
+morning's, and 1,875.2 against 1,832.1 on io_uring; JSON is unchanged. Counted at each
+commit between the two that changed the package or the server, on the epoll loop, the
+40 instructions came from:
+
+| Commit | Change | Instructions per request |
+|---|---|---:|
+| `f306c6f` | Response fields checked for CR, LF, and invalid names | +2.1 |
+| `d617b2b` | A cap on a connection's requests, a per-route body limit | +7.2 |
+| `7c31b13` | The `DONE` event, for an access log | +7.0 |
+| `ea6192d` to `af23e84` | Timers, mailboxes, answers that wait, the eventfd waker | +18.1 |
+| `30d4b34` | Files with `sendfile` on the epoll loop | +5.4 |
+| `5ca934f` | `Config.max_read` | +1.2 |
+
+`64fec0d` and `551ee19` don't build on their own, so the waiting feature's share isn't
+split further. User cycles per request rose from 438-448 to 470-473.
 
 ### The morning's seven servers
 
