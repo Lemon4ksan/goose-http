@@ -294,8 +294,9 @@ per second, 1,658-1,662 to 1,608-1,634 user instructions and 2,239-2,246 to
 
 Next, in order:
 
-1. Run the tests on macOS (`scripts/test.sh`): the kqueue table change, the stop, and
-   the restart, none of which has run there yet.
+1. Run the tests on macOS (`scripts/test.sh`): the kqueue table change, the stop, the
+   restart, the file functions in `shim/kqueue.c`, and `shim/ring_epoll.c`'s reused
+   records, none of which has run there yet.
 2. Split the streaming loop's cost further, and remove what can go.
 3. Large responses on the io_uring loop: a send queued in each shim behind the one in
    flight, so the loop stops copying pieces into `c.out` (Progress, "Large

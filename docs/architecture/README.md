@@ -221,7 +221,9 @@ puts the epoll loop ahead. On Windows the io_uring loop is the only one, over
   forbids C to keep a Goose argument past a call. So the loop copies each receive out of
   a provided buffer into its read buffer, and the shim copies each send's bytes into a
   buffer of its own. The epoll loop makes neither copy; the kernel's own copy into and
-  out of the socket is the same in both.
+  out of the socket is the same in both. The shims reuse those buffers, the big ones up
+  to 4 MB a ring (2026-10-12): freed, a big one went back to the kernel, and faulting
+  the next one's pages in held large responses on io_uring to 1 GB/s (task 013).
 - A connection has one send in flight, which keeps its responses in order. Responses
   answered meanwhile wait in the spill pool. Past 64 KB waiting, the loop cancels the
   connection's receive and holds what still arrives until the client reads, as the epoll
