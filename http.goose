@@ -688,12 +688,14 @@ inline fn whole_only(ev: Event, out: Reply) -> bool {
 // rest. A Content-Length is checked at REQUEST, and a chunked body as it
 // comes. The handler mustn't have answered yet.
 fn body_within(taken: i64&, ev: Event, out: Reply, limit: i64) -> bool {
+    var over = false;
     if ev.kind == REQUEST {
-        taken = if ev.whole || ev.req.chunked { ev.data.len } else { ev.req.body };
+        taken = ev.data.len;
+        over = !ev.whole && !ev.req.chunked && ev.req.body > limit;
     } else if ev.kind == BODY {
         taken += ev.data.len;
     }
-    guard taken > limit else { return true; }
+    guard over || taken > limit else { return true; }
     out.keep_alive = false;
     start(out, 413);
     finish(out, "Content-Length: ", "");

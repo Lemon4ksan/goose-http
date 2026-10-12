@@ -355,6 +355,7 @@ fn limited(fields: const u8[:], whole: bool, first: const u8[:], pieces: const u
 fn test_body_within() {
     var out: u8[>..] = [];
     same(limited("Content-Length: 10\r\n", false, "", [], out), "y");
+    same(limited("Content-Length: 10\r\n", false, "", ["abcd", "efgh", "ij"], out), "yyyy");
     same(limited("Content-Length: 11\r\n", false, "", [], out), "n close");
     same(out, "HTTP/1.1 413 Content Too Large\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
     out.clear();

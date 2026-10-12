@@ -218,6 +218,35 @@ with `tier-b.lua` or `tier-c.lua`. No run counted a socket error or a status oth
   and 402-412 MB, against 36-38 and 77-79. Each of Goose's 3 workers holds its own copy
   of the records, and templates add a copy of their JSON. hyper's threads share one.
 
+Tier D (2026-10-12), Goose's side: the generator writes 6 CSV imports of 2.4-7.8 MB, half
+with CRLF line ends, whose descriptions are sometimes quoted around a comma, a doubled
+quote, or a line break; 12 multipart bodies of three text fields and a PDF-named file of
+100 KB to 1 MB, whose random bytes hold the start of the delimiter now and then; 24
+batches of 210-490 KB, every fourth with 1 to 5 invalid bookings; and 48 forms of 50-100
+fields and 3-7 KB. `rest.goose` serves them with `TIER=d`, which also loads and serves
+tier C, for the mixed run:
+
+- The CSV and the multipart body are read as they arrive, the CSV by a reader of its
+  own and the multipart body by `http::each_part`. The batch and the form are joined
+  first, as `json::reader` takes only a whole text (`docs/goose-findings.md`).
+- A request's state is its route and an index into the worker's spools, which hold each
+  reader's state, and runs of a `reusable[]` spill for what a request joins.
+- The limits are 16 MB for the CSV and the attachment (`max_body`), 1 MB for the batch,
+  and 64 KB for the form, with `http::body_within`. It counted a `Content-Length` body
+  that came in pieces twice, the declared length and then each piece, so a body over
+  half the limit got 413; fixed, with a test in `test/test_api.goose`.
+
+`check.py d` sends each body whole, in 64 KB chunks, and in chunks of 1 to 9,000 bytes,
+and compares each answer with what it computes from the body with Python's `csv`,
+`zlib.adler32`, `json`, and `urllib.parse`. It also checks CSVs, multipart bodies,
+batches, and forms that don't validate (400 with the bad record, 422 with each field
+error), and 401, 404, 413, and 415. It passes on macOS and in Docker, on both loops,
+with tier C's checker passing against the same server. `tier-d.lua` runs as two wrk
+processes, one per role, since wrk's script can't tell its connections apart: uploads
+(attachments and chunked CSVs, 2:1) on an eighth of the connections, and batches and
+forms (4:3) on the rest. wrk counts the invalid batches' 422s, about a seventh of the
+second role's responses, as errors.
+
 ## Acceptance criteria
 
 - [ ] Tier D built as A to C are, and its mixed run with tier C

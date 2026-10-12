@@ -22,6 +22,15 @@
 // heavy-meta.json, from when the schedule's version counts; and
 // heavy-load.txt, for tier-c.lua, the staff's bearer tokens and the ranges
 // its requests draw from. Free text is words from WORDS.
+//
+// Tier D, writes with large bodies, which the servers answer from the body
+// alone: writes-import-N.csv, ledger imports of 2-8 MB;
+// writes-attachment-N.bin, multipart/form-data bodies of three fields and a
+// file of 100 KB to 1 MB; writes-batch-N.json, batches of bookings of
+// 200-500 KB, every fourth with a few invalid ones; writes-form-N.txt,
+// application/x-www-form-urlencoded forms of 50-100 fields and 2-8 KB; and
+// writes-load.txt, for tier-d.lua, a line per body of its kind and file, and
+// an attachment's boundary.
 import std;
 import os;
 import json;
@@ -1218,6 +1227,247 @@ fn heavy_load(out: u8[>..]&) {
     format(out, "version0\t", VERSION0, "\n");
 }
 
+// Tier D.
+
+let IMPORTS = 6;
+let ATTACHMENTS = 12;
+let BATCHES = 24;
+let FORMS = 48;
+
+let DOC_KINDS: const u8[:][] = ["referral", "scan", "consent", "invoice", "letter"];
+let CODES: const u8[:][] = ["PT-01", "PT-02", "MT-10", "OT-03", "EX-20", "HY-05", "AS-01", "GRP-12"];
+
+fn words_into(out: u8[>..]&, n: i64) {
+    for k in n {
+        if k > 0 { out.push(' '); }
+        out.append(pick(WORDS));
+    }
+}
+
+// Cents as a decimal with two places.
+fn cents(out: u8[>..]&, v: i64) {
+    if v < 0 { out.push('-'); }
+    let a = if v < 0 { -v } else { v };
+    format(out, a / 100, ".");
+    digits(out, a % 100, 2);
+}
+
+// A ledger import of at least size bytes: a header, then rows whose
+// descriptions are sometimes empty, and sometimes quoted around a comma, a
+// doubled quote, or a line break, and whose quantity is sometimes empty.
+fn import_csv(out: u8[>..]&, size: i64, crlf: bool) {
+    let eol = if crlf { "\r\n" } else { "\n" };
+    out.append("id,date,account,description,quantity,amount");
+    out.append(eol);
+    var id = between(1, 1000) * 1000;
+    while out.len < size {
+        id += between(1, 3);
+        format(out, id, ",");
+        format_date(out, WEEK0 / DAY - between(0, 365));
+        out.append(",ACC-");
+        digits(out, between(1, 400), 4);
+        out.push(',');
+        let r = between(1, 100);
+        if r <= 10 {
+        } else if r <= 30 {
+            out.push('"');
+            words_into(out, between(1, 4));
+            out.append(", ");
+            words_into(out, between(1, 4));
+            out.push('"');
+        } else if r <= 35 {
+            out.push('"');
+            words_into(out, between(1, 3));
+            out.append(" \"\"");
+            out.append(pick(WORDS));
+            out.append("\"\" ");
+            words_into(out, between(1, 3));
+            out.push('"');
+        } else if r <= 37 {
+            out.push('"');
+            words_into(out, between(1, 4));
+            out.append(eol);
+            words_into(out, between(1, 4));
+            out.push('"');
+        } else {
+            words_into(out, between(2, 8));
+        }
+        out.push(',');
+        if between(1, 100) > 8 { format(out, between(1, 50)); }
+        out.push(',');
+        cents(out, between(-50000, 500000));
+        out.append(eol);
+    }
+}
+
+fn boundary(out: u8[>..]&) {
+    out.append("----BenchFormBoundary");
+    let alnum = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    for k in 16 { out.push(alnum[between(0, alnum.len - 1)]); }
+}
+
+fn text_part(out: u8[>..]&, b: const u8[:], name: const u8[:], value: const u8[:]) {
+    format(out, "--", b, "\r\nContent-Disposition: form-data; name=\"", name, "\"\r\n\r\n", value, "\r\n");
+}
+
+// An attachment's multipart body: a title, a kind, and a client's id, then a
+// file of random bytes that holds, now and then, a line break and the start
+// of the delimiter, which a reader must not take for one.
+fn attachment(out: u8[>..]&, b: const u8[:], n: i64) {
+    var title: u8[>..] = [];
+    words_into(title, between(2, 6));
+    format(title, " ", pick(GIVEN), " ", pick(FAMILY));
+    let kind = pick(DOC_KINDS);
+    text_part(out, b, "title", title);
+    text_part(out, b, "kind", kind);
+    text_part(out, b, "clientId", str(between(1, 1000)));
+    format(out, "--", b, "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"", kind, "-", 1000 + n,
+           ".pdf\"\r\nContent-Type: application/pdf\r\n\r\n");
+    let end = out.len + between(100 * 1024, 1024 * 1024);
+    out.append("%PDF-1.7\n");
+    while out.len < end {
+        let v = next();
+        if v % 512 == 0 {
+            out.append("\r\n--");
+            out.append(b[..between(0, b.len - 1)]);
+        } else {
+            for k in 8 { out.push(((v >> (k * 8)) & 0xFF) as u8); }
+        }
+    }
+    out.resize(end, 0);
+    format(out, "\r\n--", b, "--\r\n");
+}
+
+// One of a batch's bookings, or one wrong in the way bad picks, 1 to 7.
+fn batch_booking(out: u8[>..]&, bad: i64) {
+    let start = WEEK0 + between(28, 90) * DAY + OPEN + between(0, 17) * SLOT;
+    let minutes = [30, 45, 60, 90][between(0, 3)];
+    out.append("{\"clientId\":");
+    if bad == 4 { format(out, "\"", between(1, 1000), "\""); } else { format(out, between(1, 1000)); }
+    format(out, ",\"staffId\":", if bad == 1 { 11 } else { between(1, 10) });
+    out.append(",\"service\":");
+    json::format_string(out, if bad == 2 { "pt-1" } else { pick(CODES) });
+    if bad != 6 {
+        out.append(",\"start\":\"");
+        format_iso(out, start);
+        out.push('"');
+    }
+    out.append(",\"end\":\"");
+    format_iso(out, if bad == 3 { start - minutes * MINUTE } else { start + minutes * MINUTE });
+    format(out, "\",\"room\":", if bad == 7 { 0 } else { between(1, 6) });
+    let r = between(1, 10);
+    if bad == 5 {
+        out.append(",\"note\":\"");
+        for k in 501 { out.push('x'); }
+        out.push('"');
+    } else if r <= 6 {
+        var note: u8[>..] = [];
+        words_into(note, between(3, 20));
+        if r == 1 { note.append(" \"see referral\""); }
+        if r == 2 { format(note, " (", pick(FAMILY), ")"); }
+        out.append(",\"note\":");
+        json::format_string(out, note);
+    } else if r == 7 {
+        out.append(",\"note\":\"J\\u00e4rgmine k\\u00fclastus \\\\ telefon\"");
+    } else if r == 8 {
+        out.append(",\"note\":null");
+    }
+    out.push('}');
+}
+
+// A batch of bookings of 200-500 KB. With bad set, 1 to 5 of them are
+// invalid, each in one field.
+fn batch(out: u8[>..]&, n: i64, bad: bool) {
+    let size = between(200 * 1024, 500 * 1024);
+    out.append("{\"batchId\":\"batch-");
+    digits(out, n, 4);
+    out.append("\",\"source\":\"import-tool/2.4\",\"bookings\":[");
+    var left = if bad { between(1, 5) } else { 0 };
+    var k = 0;
+    while out.len < size {
+        if k > 0 { out.push(','); }
+        let wrong = left > 0 && (next() % 300 == 0 || out.len > size - 2048);
+        batch_booking(out, if wrong { between(1, 7) } else { 0 });
+        if wrong { left--; }
+        k++;
+    }
+    out.append("]}");
+}
+
+// s as a form encodes it: '+' for a space, and percent-escapes for all but
+// letters, digits, and "-._*".
+fn form_encode(out: u8[>..]&, s: const u8[:]) {
+    for c in s {
+        if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '.' ||
+           c == '_' || c == '*' {
+            out.push(c);
+        } else if c == ' ' {
+            out.push('+');
+        } else {
+            out.push('%');
+            out.push("0123456789ABCDEF"[c >> 4]);
+            out.push("0123456789ABCDEF"[c & 15]);
+        }
+    }
+}
+
+// An intake form of 50-100 fields and about 2-8 KB, keys unique.
+fn form(out: u8[>..]&) {
+    let fields = between(50, 100);
+    let per = between(2048, 8192) / fields;
+    for f in fields {
+        if f > 0 { out.push('&'); }
+        format(out, "q", f + 1, "_");
+        out.append(pick(WORDS));
+        out.push('=');
+        var value: u8[>..] = [];
+        let r = between(1, 20);
+        if r == 1 { format(value, pick(GIVEN), " ", pick(FAMILY), " & ", pick(FAMILY)); }
+        else if r == 2 { format(value, between(0, 100), "% = ", pick(WORDS), "+", pick(WORDS)); }
+        while value.len < per * 3 / 4 {
+            if value.len > 0 { value.push(' '); }
+            value.append(pick(WORDS));
+        }
+        form_encode(out, value);
+    }
+}
+
+fn writes(dir: const u8[:]) {
+    var load: u8[>..] = [];
+    var out: u8[>..] = [];
+    for n in IMPORTS {
+        out.clear();
+        import_csv(out, between(2 * 1024 * 1024, 8 * 1024 * 1024), n % 2 == 1);
+        let name = str("writes-import-", n + 1, ".csv");
+        write(dir, name, out);
+        format(load, "import\t", name, "\n");
+    }
+    for n in ATTACHMENTS {
+        out.clear();
+        var b: u8[>..] = [];
+        boundary(b);
+        attachment(out, b, n + 1);
+        let name = str("writes-attachment-", n + 1, ".bin");
+        write(dir, name, out);
+        format(load, "attachment\t", name, "\t", b, "\n");
+    }
+    for n in BATCHES {
+        out.clear();
+        batch(out, n + 1, n % 4 == 3);
+        let name = str("writes-batch-", n + 1, ".json");
+        write(dir, name, out);
+        format(load, "batch\t", name, "\n");
+    }
+    for n in FORMS {
+        out.clear();
+        form(out);
+        let name = str("writes-form-", n + 1, ".txt");
+        write(dir, name, out);
+        format(load, "form\t", name, "\n");
+    }
+    write(dir, "writes-load.txt", load);
+}
+
 fn write(dir: const u8[:], name: const u8[:], data: const u8[:]) {
     let path = str(dir, "/", name);
     guard write_file(path, data) else { abort(str("can't write ", path)); }
@@ -1281,4 +1531,7 @@ fn main() {
     out.clear();
     heavy_load(out);
     write(dir, "heavy-load.txt", out);
+
+    seed = 0x5EED0000000000D;
+    writes(dir);
 }

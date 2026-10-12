@@ -27,12 +27,20 @@
 //   GET   /api/v2/clients/:id/encounters         ?limit=, the past visits
 //   GET   /api/v2/clients/:id                    the client
 //
-//   REST_DATA=DIR TIER=a|b|c WORKERS=n [LOOP=epoll] [JSON=template] rest [port]
+// Tier D is writes with large bodies, answered from the body alone, beside
+// tier C's routes, behind the same token:
+//
+//   POST  /api/v3/imports                        a CSV: its rows, and each column's count and sum
+//   POST  /api/v3/attachments                    multipart: the fields, the file's size and Adler-32
+//   POST  /api/v3/bookings/batch                 JSON: each booking's id, or 422 with the errors
+//   POST  /api/v3/forms                          a form: its fields, decoded
+//
+//   REST_DATA=DIR TIER=a|b|c|d WORKERS=n [LOOP=epoll] [JSON=template] rest [port]
 //
 // TIER picks the dataset to load, tier A's by default. JSON=template answers
 // from each record's JSON, written once at startup, with the per-request
 // values added, where the default writes each response's JSON from the
-// records.
+// records. Tier D's answers are written the one way, as each is new.
 import std;
 import os;
 import json;
@@ -1813,6 +1821,7 @@ fn prebuild_heavy() {
 fn heavy_error(out: http::Reply, status: i32) {
     let body = if status == 400 { "{\"error\":\"bad_request\",\"status\":400}" }
                else if status == 401 { "{\"error\":\"unauthorized\",\"status\":401}" }
+               else if status == 415 { "{\"error\":\"unsupported_media_type\",\"status\":415}" }
                else { "{\"error\":\"not_found\",\"status\":404}" };
     http::respond(out, status, "application/json", body);
 }
@@ -1987,6 +1996,657 @@ fn heavy(req: http::Request, buf: u8[>..]&, out: http::Reply) {
     }
 }
 
+// Tier D, writes with large bodies, under /api/v3, served beside tier C's
+// reads for the mixed run. Each answer is computed from the body alone, and
+// the data doesn't change. The CSV and the multipart body are read in pieces
+// as they arrive; the batch and the form are joined first, as the JSON reader
+// takes only a whole text.
+
+let IMPORT_LIMIT: i64 = 16777216;
+let BATCH_LIMIT: i64 = 1048576;
+let FORM_LIMIT: i64 = 65536;
+let MAX_TEXT = 1024;    // a multipart text field's value
+let MAX_TEXTS = 8;
+
+let NO_WRITE: u8 = 0;
+let IMPORT: u8 = 1;
+let ATTACH: u8 = 2;
+let BATCH: u8 = 3;
+let FORM: u8 = 4;
+
+// A request's state between the handler's calls: its route, its body's bytes
+// so far, and the spool it reads into, or -1.
+struct Upload { route: u8 = 0, taken: i64 = 0, spool: i64 = -1 }
+
+fn write_limit(route: u8) -> i64 {
+    if route == IMPORT || route == ATTACH { IMPORT_LIMIT } else if route == BATCH { BATCH_LIMIT } else { FORM_LIMIT }
+}
+
+// An import's columns, of three kinds.
+let COLUMNS = 6;
+let TEXT: u8 = 0;
+let INT: u8 = 1;
+let DEC: u8 = 2;    // two decimal places
+
+fn column_name(k: i64) -> const u8[:] { ["id", "date", "account", "description", "quantity", "amount"][k] }
+
+fn column_kind(k: i64) -> u8 { if k == 0 || k == 4 { INT } else if k == 5 { DEC } else { TEXT } }
+
+// Where a CSV reader is in a field (Csv.quote).
+let OUTSIDE: u8 = 0;
+let INSIDE: u8 = 1;     // in a quoted field
+let AFTER: u8 = 2;      // past a quote in a quoted field: its end, or the first of two
+
+// A CSV body (RFC 4180, with LF or CRLF line ends) read in pieces: where the
+// reader is, the field it's in, and each column's count of non-empty cells
+// and its sum, or its bytes for text.
+struct Csv {
+    record: i64 = 1,            // the header is the first
+    column: i64 = 0,
+    quote: u8 = OUTSIDE,
+    closed: bool = false,       // the field's closing quote has passed
+    cr: bool = false,           // a CR outside quotes, which only a LF may follow
+    len: i64 = 0,               // the field's bytes
+    value: i64 = 0,
+    neg: bool = false,
+    digits: i64 = 0,
+    point: i64 = -1,            // the digits after a decimal point, or -1
+    number: bool = true,        // the field is still a number of its column's kind
+    header: u8[..16] = [],
+    counts: i64[6] = [0; 6],
+    sums: i64[6] = [0; 6],
+    bad: i64 = 0,               // the first record that isn't one, or 0
+}
+
+fn csv_bad(c: Csv&) { if c.bad == 0 { c.bad = c.record; } }
+
+fn csv_text(c: Csv&, s: const u8[:]) {
+    c.len += s.len;
+    if c.record == 1 {
+        if c.header.len + s.len <= 16 { c.header.append(s); }
+        return;
+    }
+    guard c.column < COLUMNS else { return; }
+    let kind = column_kind(c.column);
+    guard kind != TEXT else { return; }
+    let before = c.len - s.len;
+    for ch, i in s {
+        if ch >= '0' && ch <= '9' {
+            if c.digits < 18 { c.value = c.value * 10 + (ch - '0'); } else { c.number = false; }
+            c.digits++;
+            if c.point >= 0 { c.point++; }
+        } else if ch == '-' && before + i == 0 {
+            c.neg = true;
+        } else if ch == '.' && kind == DEC && c.point < 0 && c.digits > 0 {
+            c.point = 0;
+        } else {
+            c.number = false;
+        }
+    }
+}
+
+fn csv_field_end(c: Csv&) {
+    let k = c.column;
+    if k >= COLUMNS {
+        csv_bad(c);
+    } else if c.record == 1 {
+        if c.len > 16 || c.header != column_name(k) { csv_bad(c); }
+    } else if c.len > 0 {
+        let kind = column_kind(k);
+        if kind == TEXT {
+            c.counts[k]++;
+            c.sums[k] += c.len;
+        } else if c.number && c.digits > 0 && (if kind == DEC { c.point == 2 } else { c.point < 0 }) {
+            c.counts[k]++;
+            c.sums[k] += if c.neg { -c.value } else { c.value };
+        } else {
+            csv_bad(c);
+        }
+    }
+    c.column++;
+    c.len = 0;
+    c.value = 0;
+    c.neg = false;
+    c.digits = 0;
+    c.point = -1;
+    c.number = true;
+    c.closed = false;
+    c.header.clear();
+}
+
+fn csv_record_end(c: Csv&) {
+    csv_field_end(c);
+    if c.column != COLUMNS { csv_bad(c); }
+    c.record++;
+    c.column = 0;
+}
+
+// Reads the next piece of a CSV body into c.
+fn csv_piece(c: Csv&, p: const u8[:]) {
+    var i = 0;
+    while i < p.len && c.bad == 0 {
+        let ch = p[i];
+        if c.quote == INSIDE {
+            let q = position(p[i..], '"');
+            if q < 0 {
+                csv_text(c, p[i..]);
+                return;
+            }
+            csv_text(c, p[i..i + q]);
+            c.quote = AFTER;
+            i += q + 1;
+            continue;
+        }
+        if c.quote == AFTER {
+            c.quote = OUTSIDE;
+            if ch == '"' {
+                csv_text(c, p[i..i + 1]);
+                c.quote = INSIDE;
+                i++;
+                continue;
+            }
+            c.closed = true;
+        }
+        if c.cr {
+            c.cr = false;
+            if ch != '\n' {
+                csv_bad(c);
+                return;
+            }
+        }
+        if ch == ',' {
+            csv_field_end(c);
+            i++;
+        } else if ch == '\n' {
+            csv_record_end(c);
+            i++;
+        } else if ch == '\r' {
+            c.cr = true;
+            i++;
+        } else if c.closed || ch == '"' && c.len > 0 {
+            csv_bad(c);
+        } else if ch == '"' {
+            c.quote = INSIDE;
+            i++;
+        } else {
+            var j = i + 1;
+            while j < p.len && p[j] != ',' && p[j] != '\n' && p[j] != '\r' && p[j] != '"' { j++; }
+            csv_text(c, p[i..j]);
+            i = j;
+        }
+    }
+}
+
+// Ends a CSV body: a last record without a line end ends with it.
+fn csv_end(c: Csv&) {
+    guard c.bad == 0 else { return; }
+    if c.quote == INSIDE || c.cr {
+        csv_bad(c);
+        return;
+    }
+    if c.quote == AFTER || c.closed || c.column > 0 || c.len > 0 { csv_record_end(c); }
+    if c.record == 1 { csv_bad(c); }
+}
+
+// Cents as a JSON number with two decimal places.
+fn format_cents(out: u8[>..]&, v: i64) {
+    if v < 0 { out.push('-'); }
+    let a = if v < 0 { -v } else { v };
+    format(out, a / 100, ".");
+    digits(out, a % 100, 2);
+}
+
+fn import_answer(c: Csv&, buf: u8[>..]&, out: http::Reply) {
+    csv_end(c);
+    guard c.bad == 0 else {
+        format(buf, "{\"error\":\"bad_csv\",\"record\":", c.bad, "}");
+        http::respond(out, 400, "application/json", buf);
+        return;
+    }
+    format(buf, "{\"rows\":", c.record - 2, ",\"columns\":[");
+    for k in COLUMNS {
+        if k > 0 { buf.push(','); }
+        format(buf, "{\"name\":\"", column_name(k), "\",\"count\":", c.counts[k]);
+        let kind = column_kind(k);
+        if kind == TEXT {
+            format(buf, ",\"bytes\":", c.sums[k]);
+        } else if kind == INT {
+            format(buf, ",\"sum\":", c.sums[k]);
+        } else {
+            buf.append(",\"sum\":");
+            format_cents(buf, c.sums[k]);
+        }
+        buf.push('}');
+    }
+    buf.append("]}");
+    http::respond(out, 201, "application/json", buf);
+}
+
+// The part of a multipart body being read (Spool.part).
+let NO_PART: u8 = 0;
+let TEXT_PART: u8 = 1;
+let FILE_PART: u8 = 2;
+
+// What a write that comes in pieces keeps until its end: the CSV's reader,
+// the multipart body's, with its text fields as JSON members and its file's
+// size and Adler-32, and a run of the worker's spill (at, len, cap) for what
+// it joins, the body or a text field's value.
+struct Spool {
+    parts: http::Multipart = http::Multipart { .. },
+    csv: Csv = Csv { .. },
+    at: i64 = 0,
+    len: i64 = 0,
+    cap: i64 = 0,
+    failed: bool = false,
+    part: u8 = NO_PART,
+    name: u8[..64] = [],
+    fields: u8[..8192] = [],
+    texts: i64 = 0,
+    files: i64 = 0,
+    file_field: u8[..64] = [],
+    filename: u8[..256] = [],
+    file_type: u8[..128] = [],
+    size: i64 = 0,
+    adler_a: u64 = 1,
+    adler_b: u64 = 0,
+}
+
+// Each worker's spools, and the runs they join into.
+reusable var spools: Spool[>..] = [];
+reusable[] var spill: u8[>..] = [];
+
+fn joined(sp: const Spool&) -> const u8[:] { spill[sp.at..sp.at + sp.len] }
+
+fn join(sp: Spool&, data: const u8[:]) {
+    let n = sp.len + data.len;
+    if n > sp.cap {
+        let cap = max(max(n, sp.cap * 2), 16384);
+        let run = spill.realloc_slice(spill[sp.at..sp.at + sp.cap], cap);
+        sp.at = spill.index_of(run[0]);
+        sp.cap = cap;
+    }
+    copy_into(spill[sp.at + sp.len..sp.at + n], data);
+    sp.len = n;
+}
+
+fn release(st: Upload&) {
+    guard st.spool >= 0 else { return; }
+    let sp .= spools[st.spool];
+    if sp.cap > 0 { spill.free_slice(spill[sp.at..sp.at + sp.cap]); }
+    spools.free(st.spool);
+    st.spool = -1;
+}
+
+fn part_head(sp: Spool&, fields: const u8[:]) {
+    let name, filename, ok = http::disposition(fields);
+    guard ok && name.len > 0 && name.len <= 64 else {
+        sp.failed = true;
+        return;
+    }
+    if filename.len > 0 {
+        let t, typed = http::field_in(fields, "content-type");
+        guard sp.files == 0 && filename.len <= 256 && t.len <= 128 else {
+            sp.failed = true;
+            return;
+        }
+        sp.files = 1;
+        sp.part = FILE_PART;
+        sp.file_field.append(name);
+        sp.filename.append(filename);
+        sp.file_type.append(if typed { t } else { "application/octet-stream" });
+    } else {
+        guard sp.texts < MAX_TEXTS else {
+            sp.failed = true;
+            return;
+        }
+        sp.part = TEXT_PART;
+        sp.name.clear();
+        sp.name.append(name);
+        sp.len = 0;
+    }
+}
+
+// Adler-32 (RFC 1950) over data, from where a and b are, deferring the modulo
+// as zlib does: 5,552 bytes keep b within 32 bits.
+fn adler(sp: Spool&, data: const u8[:]) {
+    var a = sp.adler_a;
+    var b = sp.adler_b;
+    var i = 0;
+    while i < data.len {
+        let n = min(data.len - i, 5552);
+        for c in data[i..i + n] {
+            a += c;
+            b += a;
+        }
+        a %= 65521;
+        b %= 65521;
+        i += n;
+    }
+    sp.adler_a = a;
+    sp.adler_b = b;
+}
+
+fn part_data(sp: Spool&, data: const u8[:]) {
+    if sp.part == FILE_PART {
+        sp.size += data.len;
+        adler(sp, data);
+    } else if sp.len + data.len <= MAX_TEXT {
+        join(sp, data);
+    } else {
+        sp.failed = true;
+    }
+}
+
+fn part_end(sp: Spool&) {
+    if sp.part == TEXT_PART {
+        // Escaped, a byte takes at most 6.
+        guard sp.fields.len + 6 * (sp.name.len + sp.len) + 8 <= 8192 else {
+            sp.failed = true;
+            return;
+        }
+        if sp.texts > 0 { sp.fields.push(','); }
+        http::json_string(sp.fields, sp.name);
+        sp.fields.push(':');
+        http::json_string(sp.fields, joined(sp));
+        sp.texts++;
+    }
+    sp.part = NO_PART;
+}
+
+fn attach_piece(sp: Spool&, data: const u8[:]) {
+    guard !sp.failed else { return; }
+    let ok = http::each_part(sp.parts, data) { kind, d =>
+        if sp.failed {
+        } else if kind == http::PART_HEAD {
+            part_head(sp, d);
+        } else if kind == http::PART_DATA {
+            part_data(sp, d);
+        } else {
+            part_end(sp);
+        }
+    };
+    if !ok { sp.failed = true; }
+}
+
+fn attach_answer(sp: Spool&, buf: u8[>..]&, out: http::Reply) {
+    guard !sp.failed && http::multipart_done(sp.parts) else {
+        heavy_error(out, 400);
+        return;
+    }
+    guard sp.files > 0 else {
+        http::respond(out, 422, "application/json",
+                      "{\"error\":\"invalid\",\"errors\":[{\"field\":\"file\",\"message\":\"is required\"}]}");
+        return;
+    }
+    buf.append("{\"fields\":{");
+    buf.append(sp.fields);
+    buf.append("},\"file\":{\"field\":");
+    http::json_string(buf, sp.file_field);
+    buf.append(",\"filename\":");
+    http::json_string(buf, sp.filename);
+    buf.append(",\"contentType\":");
+    http::json_string(buf, sp.file_type);
+    format(buf, ",\"size\":", sp.size, ",\"adler32\":", (sp.adler_b << 16) | sp.adler_a, "}}");
+    http::respond(out, 201, "application/json", buf);
+}
+
+// How a batch's booking's field read (BookingIn).
+let ABSENT: u8 = 0;
+let WRONG: u8 = 1;
+let FINE: u8 = 2;
+
+struct BookingIn {
+    client: u8 = ABSENT,
+    staff: u8 = ABSENT,
+    service: u8 = ABSENT,
+    start: u8 = ABSENT,
+    end: u8 = ABSENT,
+    room: u8 = ABSENT,
+    note: u8 = FINE,
+    from: i64 = 0,
+    to: i64 = 0,
+}
+
+// Whether the member at r's cursor is an integer from lo to hi: a JSON
+// number with no fraction.
+fn int_member(r: json::Reader&, lo: i64, hi: i64) -> u8 {
+    let c = json::peek(r);
+    guard c == '-' || c >= '0' && c <= '9' else {
+        json::skip(r);
+        return WRONG;
+    }
+    let v = json::read_number(r);
+    guard v >= lo && v <= hi && v == v as i64 else { return WRONG; }
+    return FINE;
+}
+
+fn string_member(r: json::Reader&, scratch: u8[>..]&) -> const u8[:], bool {
+    guard json::peek(r) == '"' else {
+        json::skip(r);
+        return "", false;
+    }
+    return json::read_string(r, scratch), true;
+}
+
+// Two to four capital letters, '-', and two digits.
+fn is_service(s: const u8[:]) -> bool {
+    let d = position(s, '-');
+    guard d >= 2 && d <= 4 && s.len == d + 3 else { return false; }
+    for c in s[..d] { if c < 'A' || c > 'Z' { return false; } }
+    return s[d + 1] >= '0' && s[d + 1] <= '9' && s[d + 2] >= '0' && s[d + 2] <= '9';
+}
+
+fn booking_error(errors: u8[>..]&, k: i64, field: const u8[:], message: const u8[:]) {
+    if errors.len > 0 { errors.push(','); }
+    format(errors, "{\"index\":", k, ",\"field\":\"", field, "\",\"message\":\"", message, "\"}");
+}
+
+fn check_field(errors: u8[>..]&, k: i64, how: u8, field: const u8[:], message: const u8[:]) {
+    if how == ABSENT { booking_error(errors, k, field, "is required"); }
+    else if how == WRONG { booking_error(errors, k, field, message); }
+}
+
+// POST /bookings/batch: each booking's id, the batch's id and its number,
+// and their minutes, or 422 with each field that doesn't validate.
+fn bookings_batch(body: const u8[:], buf: u8[>..]&, out: http::Reply) {
+    var r = json::reader(body);
+    var scratch: u8[>..] = [];
+    var errors: u8[>..] = [];
+    var batch_id: u8[..64] = [];
+    var named = false;
+    var listed = false;
+    var count = 0;
+    var minutes = 0;
+    guard json::peek(r) == '{' else {
+        heavy_error(out, 400);
+        return;
+    }
+    json::each_member(r) { key =>
+        if key == "batchId" {
+            let s, ok = string_member(r, scratch);
+            if ok && s.len >= 1 && s.len <= 64 {
+                batch_id.clear();
+                batch_id.append(s);
+                named = true;
+            }
+        } else if key == "bookings" && json::peek(r) == '[' {
+            listed = true;
+            count = 0;
+            json::each_element(r) {
+                if json::peek(r) != '{' {
+                    json::skip(r);
+                    booking_error(errors, count, "booking", "must be an object");
+                } else {
+                    var b = BookingIn { .. };
+                    json::each_member(r) { name =>
+                        if name == "clientId" {
+                            b.client = int_member(r, 1, 1000000);
+                        } else if name == "staffId" {
+                            b.staff = int_member(r, 1, 10);
+                        } else if name == "room" {
+                            b.room = int_member(r, 1, 6);
+                        } else if name == "service" {
+                            let s, ok = string_member(r, scratch);
+                            b.service = if ok && is_service(s) { FINE } else { WRONG };
+                        } else if name == "start" || name == "end" {
+                            let s, ok = string_member(r, scratch);
+                            let t, valid = parse_iso(s);
+                            let how = if ok && valid { FINE } else { WRONG };
+                            if name == "start" {
+                                b.start = how;
+                                b.from = t;
+                            } else {
+                                b.end = how;
+                                b.to = t;
+                            }
+                        } else if name == "note" {
+                            if json::peek(r) == 'n' {
+                                json::skip(r);
+                                b.note = FINE;
+                            } else {
+                                let s, ok = string_member(r, scratch);
+                                b.note = if ok && s.len <= 500 { FINE } else { WRONG };
+                            }
+                        } else {
+                            json::skip(r);
+                        }
+                    };
+                    check_field(errors, count, b.client, "clientId", "must be an integer from 1 to 1000000");
+                    check_field(errors, count, b.staff, "staffId", "must be an integer from 1 to 10");
+                    check_field(errors, count, b.service, "service", "must be a service code");
+                    check_field(errors, count, b.start, "start", "must be an ISO 8601 time");
+                    check_field(errors, count, b.end, "end", "must be an ISO 8601 time");
+                    if b.start == FINE && b.end == FINE && (b.to <= b.from || b.to - b.from > 8 * 3600000) {
+                        booking_error(errors, count, "end", "must be after start, by at most 8 hours");
+                    }
+                    check_field(errors, count, b.room, "room", "must be an integer from 1 to 6");
+                    check_field(errors, count, b.note, "note", "must be a string of at most 500 bytes");
+                    minutes += (b.to - b.from) / MINUTE;
+                }
+                count++;
+            };
+        } else {
+            json::skip(r);
+        }
+    };
+    guard json::finish(r) && named && listed else {
+        heavy_error(out, 400);
+        return;
+    }
+    if errors.len > 0 {
+        buf.append("{\"error\":\"invalid\",\"errors\":[");
+        buf.append(errors);
+        buf.append("]}");
+        http::respond(out, 422, "application/json", buf);
+        return;
+    }
+    buf.append("{\"batchId\":");
+    http::json_string(buf, batch_id);
+    format(buf, ",\"count\":", count, ",\"minutes\":", minutes, ",\"ids\":[");
+    for k in count {
+        if k > 0 { buf.push(','); }
+        buf.push('"');
+        buf.append(batch_id);
+        format(buf, "-", k + 1, "\"");
+    }
+    buf.append("]}");
+    http::respond(out, 201, "application/json", buf);
+}
+
+// POST /forms: the form's fields, decoded, in order.
+fn form_answer(body: const u8[:], buf: u8[>..]&, out: http::Reply) {
+    var ok = true;
+    var n = 0;
+    var k: u8[>..] = [];
+    var v: u8[>..] = [];
+    buf.append("{\"fields\":{");
+    http::each_form(body) { kraw, vraw =>
+        k.clear();
+        v.clear();
+        if http::decode(kraw, k, true) && http::decode(vraw, v, true) {
+            if n > 0 { buf.push(','); }
+            http::json_string(buf, k);
+            buf.push(':');
+            http::json_string(buf, v);
+            n++;
+        } else {
+            ok = false;
+        }
+    };
+    guard ok else {
+        heavy_error(out, 400);
+        return;
+    }
+    format(buf, "},\"count\":", n, "}");
+    http::respond(out, 200, "application/json", buf);
+}
+
+fn write_piece(st: Upload&, data: const u8[:]) {
+    let sp .= spools[st.spool];
+    if st.route == IMPORT { csv_piece(sp.csv, data); }
+    else if st.route == ATTACH { attach_piece(sp, data); }
+    else { join(sp, data); }
+}
+
+fn write_end(st: Upload&, out: http::Reply) {
+    var buf: u8[>..] = [];
+    let sp .= spools[st.spool];
+    if st.route == IMPORT { import_answer(sp.csv, buf, out); }
+    else if st.route == ATTACH { attach_answer(sp, buf, out); }
+    else if st.route == BATCH { bookings_batch(joined(sp), buf, out); }
+    else { form_answer(joined(sp), buf, out); }
+    release(st);
+}
+
+// A tier D request's head, and its body if it came whole.
+fn write_begin(ev: http::Event, st: Upload&, out: http::Reply) {
+    var r = http::router(ev.req);
+    var route = NO_WRITE;
+    if http::on(r, "POST", "/api/v3/imports") { route = IMPORT; }
+    else if http::on(r, "POST", "/api/v3/attachments") { route = ATTACH; }
+    else if http::on(r, "POST", "/api/v3/bookings/batch") { route = BATCH; }
+    else if http::on(r, "POST", "/api/v3/forms") { route = FORM; }
+    guard route != NO_WRITE else { heavy_error(out, 404); return; }
+    guard has_bearer(ev.req) else { heavy_error(out, 401); return; }
+    let want = if route == IMPORT { "text/csv" } else if route == ATTACH { "multipart/form-data" }
+               else if route == BATCH { "application/json" } else { "application/x-www-form-urlencoded" };
+    guard http::has_type(ev.req, want) else { heavy_error(out, 415); return; }
+    guard http::body_within(st.taken, ev, out, write_limit(route)) else { return; }
+    if ev.whole && (route == BATCH || route == FORM) {
+        var buf: u8[>..] = [];
+        if route == BATCH { bookings_batch(ev.data, buf, out); } else { form_answer(ev.data, buf, out); }
+        return;
+    }
+    st.route = route;
+    st.spool = spools.alloc_index(Spool { .. });
+    if route == ATTACH && !http::start_multipart(ev.req, spools[st.spool].parts) {
+        release(st);
+        heavy_error(out, 400);
+        return;
+    }
+    if ev.whole {
+        write_piece(st, ev.data);
+        write_end(st, out);
+    }
+}
+
+// TIER=d's handler: tier D's writes, in pieces, and the other tiers' routes,
+// as serve(cfg) answers them.
+inline fn handle_writes(ev: http::Event, st: Upload&, out: http::Reply) {
+    if ev.kind == http::REQUEST {
+        if starts_with(ev.req.target, "/api/v3/") { write_begin(ev, st, out); }
+        else if http::whole_only(ev, out) { handle(ev.req, ev.data, out); }
+    } else if st.route != NO_WRITE {
+        if ev.kind == http::BODY {
+            if http::body_within(st.taken, ev, out, write_limit(st.route)) { write_piece(st, ev.data); } else { release(st); }
+        } else if ev.kind == http::END {
+            write_end(st, out);
+        } else if ev.kind == http::CLOSED {
+            release(st);
+        }
+    }
+}
+
 // Each response's JSON is built in a buffer of the request's own, which the
 // data stack frees at the end of the request with one store: one kept in the
 // worker and cleared per request is refused, the checker taking the loop's
@@ -2024,6 +2684,10 @@ thread_fn worker(cfg: http::Config) { stopped(http::serve(cfg, handle)); }
 
 thread_fn worker_epoll(cfg: http::Config) { stopped(http::serve_epoll(cfg, handle)); }
 
+thread_fn worker_writes(cfg: http::Config) { stopped(http::serve(cfg, Upload { .. }, handle_writes)); }
+
+thread_fn worker_writes_epoll(cfg: http::Config) { stopped(http::serve_epoll(cfg, Upload { .. }, handle_writes)); }
+
 fn stopped(e: http::Error) {
     guard e.code != 0 else { return; }
     http::report(e);
@@ -2053,12 +2717,13 @@ fn main() {
         load_people(dir);
         load_entries(dir);
         if template { prebuild_snow(); }
-    } else if tier == "c" {
+    } else if tier == "c" || tier == "d" {
         load_heavy(dir);
         if template { prebuild_heavy(); }
     } else {
-        abort("TIER is a, b, or c");
+        abort("TIER is a, b, c, or d");
     }
+    let writes = tier == "d";
     var workers: u8[>..] = [];
     var n: i64 = 0;
     if env("WORKERS", workers) {
@@ -2067,13 +2732,18 @@ fn main() {
     }
     var loop_name: u8[>..] = [];
     let epoll = env("LOOP", loop_name) && loop_name == "epoll";
-    let cfg = http::Config { port: port, workers: n, .. };
+    let cfg = http::Config { port: port, workers: n, max_body: if writes { IMPORT_LIMIT } else { http::MAX_BODY }, .. };
     let s = http::stop_on_signals();
     guard s == 0 else { stopped(http::Error { call: "sigaction", code: -s }); }
     let count = http::worker_count(cfg);
     print("rest: tier ", tier, ", ", items.len + entries.len + bookings.len + visits.len, " records, ", count, " workers on port ", port,
           if epoll { ", epoll" } else { ", uring" }, if template { ", template" } else { ", serialize" });
     var ids: i64[>..] = [];
-    for i in count { ids.push(if epoll { thread_spawn(worker_epoll, cfg) } else { thread_spawn(worker, cfg) }); }
+    for i in count {
+        ids.push(if writes && epoll { thread_spawn(worker_writes_epoll, cfg) }
+                 else if writes { thread_spawn(worker_writes, cfg) }
+                 else if epoll { thread_spawn(worker_epoll, cfg) }
+                 else { thread_spawn(worker, cfg) });
+    }
     for id in ids { thread_wait(id); }
 }

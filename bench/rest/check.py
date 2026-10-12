@@ -1,7 +1,7 @@
 """Checks a REST benchmark server's answers against the generator's dataset
 files (task 021), before its load runs, as HttpArena's validate.sh does.
 
-    python3 bench/rest/check.py PORT DATADIR [TIER]    (TIER: a, the default, b, or c)
+    python3 bench/rest/check.py PORT DATADIR [TIER]    (TIER: a, the default, b, c, or d)
 
 Tier A, HttpArena's production-stack: items and users by id, each with
 servedAt within 2 s of now, 404 and 401 where the id or the user is missing,
@@ -18,16 +18,28 @@ bookings and shifts, and other ranges and staff, with their counts; a sample
 of encounters with their case's notes; every client, and the past visits of
 the first 100 and others, at three limits; and 400, 401, and 404.
 
+Tier D, writes with large bodies: each of the generator's imports, attachments,
+batches, and forms, sent whole, in large chunks, and in small ones, answered
+as this file computes from the body; CSVs, multipart bodies, batches, and
+forms that don't validate (400, 422); and 401, 404, 413, and 415.
+
 Exits non-zero with a message on the first failure.
 """
 
 import calendar
+import csv
+import decimal
 import http.client
+import io
 import json
 import os
 import random
+import re
+import socket
 import sys
 import time
+import urllib.parse
+import zlib
 
 # A 147-byte token, as long as HttpArena's data/jwt-token.txt.
 TOKEN = "Bearer " + "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MiIsImV4cCI6MTc5MDAwMDAwMH0" + "." + "x" * 70
@@ -448,10 +460,316 @@ def tier_c(port, data):
     print("tier c: ok")
 
 
+COLUMNS = [("id", "int"), ("date", "text"), ("account", "text"), ("description", "text"),
+           ("quantity", "int"), ("amount", "dec")]
+
+
+def import_answer(raw):
+    """What POST /api/v3/imports answers for a valid CSV."""
+    rows = list(csv.reader(io.StringIO(raw.decode(), newline=""), strict=True))
+    if rows[0] != [c for c, _ in COLUMNS]:
+        fail(f"import header {rows[0]}")
+    columns = []
+    for k, (name, kind) in enumerate(COLUMNS):
+        cells = [r[k] for r in rows[1:] if r[k]]
+        col = dict(name=name, count=len(cells))
+        if kind == "text":
+            col["bytes"] = sum(len(c.encode()) for c in cells)
+        elif kind == "int":
+            col["sum"] = sum(int(c) for c in cells)
+        else:
+            col["sum"] = sum(decimal.Decimal(c) for c in cells)
+        columns.append(col)
+    return dict(rows=len(rows) - 1, columns=columns)
+
+
+def multipart_answer(raw, boundary):
+    """What POST /api/v3/attachments answers for a multipart body with one file."""
+    fields, file = [], None
+    for part in (b"\r\n" + raw).split(b"\r\n--" + boundary.encode())[1:]:
+        if part.startswith(b"--"):
+            break
+        head, _, content = part[2:].partition(b"\r\n\r\n")
+        head = head.decode()
+        name = re.search(r'; name="([^"]*)"', head).group(1)
+        filename = re.search(r'; filename="([^"]*)"', head)
+        if filename:
+            ctype = re.search(r"(?i)content-type: *([^\r]*)", head)
+            file = dict(field=name, filename=filename.group(1),
+                        contentType=ctype.group(1) if ctype else "application/octet-stream", size=len(content),
+                        adler32=zlib.adler32(content))
+        else:
+            fields.append((name, content.decode()))
+    return dict(fields=fields, file=file)
+
+
+def days_from(y, m, d):
+    """Howard Hinnant's days_from_civil, as the servers compute it."""
+    y -= m <= 2
+    era = (y if y >= 0 else y - 399) // 400
+    yoe = y - era * 400
+    doy = (153 * (m + (-3 if m > 2 else 9)) + 2) // 5 + d - 1
+    return era * 146097 + yoe * 365 + yoe // 4 - yoe // 100 + doy - 719468
+
+
+def iso_ms(s):
+    """An ISO time as the servers read one, in ms, or None."""
+    m = re.fullmatch(r"(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(\.\d{3})?Z", s) if isinstance(s, str) else None
+    if not m:
+        return None
+    y, mo, d, h, mi, sec = map(int, m.groups()[:6])
+    if not (1 <= mo <= 12 and 1 <= d <= 31 and h < 24 and mi < 60 and sec < 60):
+        return None
+    return days_from(y, mo, d) * DAY + ((h * 60 + mi) * 60 + sec) * 1000 + int((m.group(7) or ".0")[1:])
+
+
+def batch_answer(raw):
+    """POST /api/v3/bookings/batch's status and answer for a well-formed batch."""
+    b = json.loads(raw)
+
+    def number(v, lo, hi):
+        return isinstance(v, (int, float)) and not isinstance(v, bool) and lo <= v <= hi and v == int(v)
+
+    errors, minutes = [], 0
+    for k, x in enumerate(b["bookings"]):
+        if not isinstance(x, dict):
+            errors.append(dict(index=k, field="booking", message="must be an object"))
+            continue
+
+        def check(field, ok, message):
+            if field not in x:
+                errors.append(dict(index=k, field=field, message="is required"))
+            elif not ok(x[field]):
+                errors.append(dict(index=k, field=field, message=message))
+
+        check("clientId", lambda v: number(v, 1, 1000000), "must be an integer from 1 to 1000000")
+        check("staffId", lambda v: number(v, 1, 10), "must be an integer from 1 to 10")
+        check("service", lambda v: isinstance(v, str) and re.fullmatch(r"[A-Z]{2,4}-\d\d", v),
+              "must be a service code")
+        check("start", lambda v: iso_ms(v) is not None, "must be an ISO 8601 time")
+        check("end", lambda v: iso_ms(v) is not None, "must be an ISO 8601 time")
+        start, end = iso_ms(x.get("start")), iso_ms(x.get("end"))
+        if start is not None and end is not None:
+            if not 0 < end - start <= 8 * 3600000:
+                errors.append(dict(index=k, field="end", message="must be after start, by at most 8 hours"))
+            minutes += (end - start) // 60000
+        check("room", lambda v: number(v, 1, 6), "must be an integer from 1 to 6")
+        if "note" in x and not (x["note"] is None or isinstance(x["note"], str) and len(x["note"].encode()) <= 500):
+            errors.append(dict(index=k, field="note", message="must be a string of at most 500 bytes"))
+    if errors:
+        return 422, dict(error="invalid", errors=errors)
+    n = len(b["bookings"])
+    return 201, dict(batchId=b["batchId"], count=n, minutes=minutes, ids=[f"{b['batchId']}-{k}" for k in
+                                                                            range(1, n + 1)])
+
+
+def raw_exchange(port, head, body, chunk=1 << 20):
+    """Sends a request on a connection of its own, and returns the status the
+    server answers, which may come before it takes the whole body."""
+    s = socket.create_connection(("127.0.0.1", port), timeout=10)
+    try:
+        s.sendall(head)
+        for k in range(0, len(body), chunk):
+            s.sendall(body[k:k + chunk])
+    except OSError:
+        pass
+    got = b""
+    try:
+        while b"\r\n" not in got:
+            more = s.recv(4096)
+            if not more:
+                break
+            got += more
+    except OSError:
+        pass
+    s.close()
+    return int(got.split(b" ", 2)[1]) if got.startswith(b"HTTP/1.1 ") else None
+
+
+def tier_d(port, data):
+    load = [line.split("\t") for line in open(os.path.join(data, "writes-load.txt")).read().splitlines()]
+    tokens = [f[1] for f in (line.split("\t") for line in open(os.path.join(data, "heavy-load.txt"))
+                             .read().splitlines()) if f[0] == "token"]
+    token = "Bearer " + tokens[0]
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
+    rng = random.Random(4)
+
+    def post(path, ctype, body, chunks=None, auth=True):
+        h = {"Authorization": token if auth else None, "Content-Type": ctype}
+        h = {k: v for k, v in h.items() if v is not None}
+        if chunks:
+            pieces, k = [], 0
+            while k < len(body):
+                n = rng.randint(1, chunks)
+                pieces.append(body[k:k + n])
+                k += n
+            conn.request("POST", path, body=iter(pieces), headers=h, encode_chunked=True)
+        else:
+            conn.request("POST", path, body=body, headers=h)
+        r = conn.getresponse()
+        raw = r.read()
+        if not (r.getheader("content-type") or "").startswith("application/json"):
+            fail(f"POST {path}: {r.status} {r.getheader('content-type')} {raw[:200]}")
+        return r.status, json.loads(raw, parse_float=decimal.Decimal, object_pairs_hook=list)
+
+    def expect(what, got, status, want):
+        if got[0] != status or got[1] != want:
+            fail(f"{what}: {got[0]} {str(got[1])[:600]}\n  want {status} {str(want)[:600]}")
+
+    def pairs(v):
+        """want as the answers' object_pairs_hook reads them."""
+        if isinstance(v, dict):
+            return [(k, pairs(x)) for k, x in v.items()]
+        if isinstance(v, list) and not (len(v) and isinstance(v[0], tuple)):
+            return [pairs(x) for x in v]
+        if isinstance(v, list):
+            return [(k, pairs(x)) for k, x in v]
+        return v
+
+    def read(name):
+        return open(os.path.join(data, name), "rb").read()
+
+    imports = [f[1] for f in load if f[0] == "import"]
+    for k, name in enumerate(imports):
+        body = read(name)
+        expect(name, post("/api/v3/imports", "text/csv", body, chunks=65536 if k % 2 == 0 else None), 201,
+               pairs(import_answer(body)))
+    small = read(imports[0])
+    small = small[:small.index(b"\n", 40000) + 1]
+    for k in range(5):
+        expect(f"{imports[0]} in small chunks", post("/api/v3/imports", "text/csv; charset=utf-8", small,
+                                                     chunks=[3, 50, 300, 2000, 9000][k]),
+               201, pairs(import_answer(small)))
+    head = b"id,date,account,description,quantity,amount\r\n"
+    for body, want in [(head + b'1,2026-01-01,A,"x, ""y""\r\nz",5,-0.05', 201),
+                       (head + b"1,d,a,,,1.00\r\n2,d,a,,,2.50\r\n", 201),
+                       (head, 201)]:
+        expect(f"import {body!r}", post("/api/v3/imports", "text/csv", body), want, pairs(import_answer(body)))
+    for body, record in [(b"", 1), (b"id,date,account,description,quantity\n", 1),
+                         (b"id,date,account,description,quantity,amount,x\n", 1),
+                         (head + b"1,d,a,b,2,3.00\n2,d,a,b,2\n", 3), (head + b"1,d,a,b,2,3.0\n", 2),
+                         (head + b"1,d,a,b,x,3.00\n", 2), (head + b"1,d,a,b,2,3.00\n,\n", 3),
+                         (head + b'1,d,a,"b,2,3.00\n', 2), (head + b'1,d,a,b"c,2,3.00\n', 2),
+                         (head + b'1,d,a,"b"c,2,3.00\n', 2), (head + b"1,d,a,b,2,3.00\r2", 2),
+                         (head + b"\n", 2), (head + b"-,d,a,b,2,3.00\n", 2), (head + b"1-2,d,a,b,2,3.00\n", 2)]:
+        expect(f"import {body!r}", post("/api/v3/imports", "text/csv", body), 400,
+               pairs(dict(error="bad_csv", record=record)))
+    print("tier d: imports ok")
+
+    attachments = [(f[1], f[2]) for f in load if f[0] == "attachment"]
+    for k, (name, b) in enumerate(attachments):
+        body = read(name)
+        want = multipart_answer(body, b)
+        expect(name, post("/api/v3/attachments", f"multipart/form-data; boundary={b}", body,
+                          chunks=[None, 65536, 1500][k % 3]), 201, pairs(want))
+    name, b = attachments[0]
+    body = read(name)
+    small = body[:body.index(b"%PDF") + 30000] + f"\r\n--{b}--\r\n".encode()
+    for size in [1, 7, 60, 999]:
+        expect(f"an attachment in chunks of up to {size}",
+               post("/api/v3/attachments", f'multipart/form-data; boundary="{b}"', small, chunks=size), 201,
+               pairs(multipart_answer(small, b)))
+    no_file = body[:body.index(b"--" + b.encode() + b"\r\nContent-Disposition: form-data; name=\"file\"")] + \
+        f"--{b}--\r\n".encode()
+    expect("an attachment without its file", post("/api/v3/attachments", f"multipart/form-data; boundary={b}",
+                                                  no_file),
+           422, pairs(dict(error="invalid", errors=[dict(field="file", message="is required")])))
+    long_text = f"--{b}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\n{'x' * 1025}\r\n--{b}--\r\n"
+    for what, ctype, body in [("no close delimiter", f"multipart/form-data; boundary={b}", small[:-4]),
+                              ("another boundary", "multipart/form-data; boundary=other", small),
+                              ("no boundary", "multipart/form-data", small),
+                              ("a text field of 1,025 bytes", f"multipart/form-data; boundary={b}", long_text.encode())]:
+        expect(f"an attachment with {what}", post("/api/v3/attachments", ctype, body), 400,
+               pairs(dict(error="bad_request", status=400)))
+    print("tier d: attachments ok")
+
+    batches = [f[1] for f in load if f[0] == "batch"]
+    invalid = 0
+    for k, name in enumerate(batches):
+        body = read(name)
+        status, want = batch_answer(body)
+        invalid += status == 422
+        expect(name, post("/api/v3/bookings/batch", "application/json", body, chunks=65536 if k % 2 else None),
+               status, pairs(want))
+    if invalid != len(batches) // 4:
+        fail(f"{invalid} invalid batches of {len(batches)}")
+    one = dict(clientId=5, staffId=2, service="PT-01", start="2026-10-14T09:00:00Z", end="2026-10-14T09:45:00.000Z",
+               room=3)
+    for bookings in [[one], [], [dict(one, note=None), dict(one, note="ä" * 250, clientId=7.0)],
+                     [dict(one, staffId=0), dict(one, service="PT-1", room=7, extra=[1, {"a": 2}]), 5,
+                      {k: v for k, v in one.items() if k != "start"}, dict(one, end="2026-10-14T18:00:00Z"),
+                      dict(one, start="2026-10-14", clientId="5", note="x" * 501), dict(one, staffId=True),
+                      dict(one, clientId=1.5, end=one["start"])]]:
+        body = json.dumps(dict(batchId="b-7", bookings=bookings)).encode()
+        status, want = batch_answer(body)
+        expect(f"batch {body[:300]!r}", post("/api/v3/bookings/batch", "application/json", body), status, pairs(want))
+    for body in [b"{", b"[]", b'{"bookings":[]}', b'{"batchId":"","bookings":[]}', b'{"batchId":"b","bookings":{}}',
+                 b'{"batchId":5,"bookings":[]}', b'{"batchId":"b","bookings":[]} x']:
+        expect(f"batch {body!r}", post("/api/v3/bookings/batch", "application/json", body), 400,
+               pairs(dict(error="bad_request", status=400)))
+    print("tier d: batches ok")
+
+    forms = [f[1] for f in load if f[0] == "form"]
+    for k, name in enumerate(forms):
+        body = read(name)
+        want = urllib.parse.parse_qsl(body.decode(), keep_blank_values=True)
+        expect(name, post("/api/v3/forms", "application/x-www-form-urlencoded", body,
+                          chunks=1000 if k % 4 == 1 else None), 200, pairs(dict(fields=want, count=len(want))))
+    for body in [b"", b"a=1&&b=&c&d=%C3%A4+%2B", b"q=" + b"x" * 60000]:
+        want = urllib.parse.parse_qsl(body.decode(), keep_blank_values=True)
+        expect(f"form {body[:80]!r}", post("/api/v3/forms", "application/x-www-form-urlencoded", body), 200,
+               pairs(dict(fields=want, count=len(want))))
+    for body in [b"a=%zz", b"a=%4", b"%=1"]:
+        expect(f"form {body!r}", post("/api/v3/forms", "application/x-www-form-urlencoded", body), 400,
+               pairs(dict(error="bad_request", status=400)))
+    print("tier d: forms ok")
+
+    for path, ctype in [("/api/v3/imports", "text/plain"), ("/api/v3/attachments", "application/json"),
+                        ("/api/v3/bookings/batch", "text/csv"), ("/api/v3/forms", "multipart/form-data; boundary=x")]:
+        expect(f"POST {path} as {ctype}", post(path, ctype, b"x"), 415,
+               pairs(dict(error="unsupported_media_type", status=415)))
+        expect(f"POST {path} without a token", post(path, ctype, b"x", auth=False), 401,
+               pairs(dict(error="unauthorized", status=401)))
+    expect("POST /api/v3/nothing", post("/api/v3/nothing", "text/csv", b"x"), 404,
+           pairs(dict(error="not_found", status=404)))
+    conn.request("GET", "/api/v3/imports", headers={"Authorization": token})
+    r = conn.getresponse()
+    r.read()
+    if r.status != 404:
+        fail(f"GET /api/v3/imports: {r.status}")
+
+    def head_of(path, ctype, length=None):
+        framing = f"Content-Length: {length}" if length is not None else "Transfer-Encoding: chunked"
+        return (f"POST {path} HTTP/1.1\r\nHost: bench\r\nAuthorization: {token}\r\nContent-Type: {ctype}\r\n"
+                f"{framing}\r\n\r\n").encode()
+
+    def chunked(body):
+        return b"".join(b"%x\r\n%s\r\n" % (len(body[k:k + 65536]), body[k:k + 65536])
+                        for k in range(0, len(body), 65536)) + b"0\r\n\r\n"
+
+    big = b"q=" + b"x" * 70000
+    for what, request, body in [
+            ("an import over 16 MB", head_of("/api/v3/imports", "text/csv", 16777217), b""),
+            ("a chunked import over 16 MB", head_of("/api/v3/imports", "text/csv"), chunked(b"x" * 16777300)),
+            ("a batch over 1 MB", head_of("/api/v3/bookings/batch", "application/json", 1048577), b"{"),
+            ("a chunked batch over 1 MB", head_of("/api/v3/bookings/batch", "application/json"),
+             chunked(b" " * 1048600)),
+            ("a form over 64 KB", head_of("/api/v3/forms", "application/x-www-form-urlencoded", len(big)), big),
+            ("a chunked form over 64 KB", head_of("/api/v3/forms", "application/x-www-form-urlencoded"),
+             chunked(big))]:
+        status = raw_exchange(port, request, body)
+        if status != 413:
+            fail(f"{what}: {status}, want 413")
+    # The connection still answers after the refusals on others.
+    expect("an import after the refusals", post("/api/v3/imports", "text/csv", head), 201,
+           pairs(import_answer(head)))
+    print("tier d: ok")
+
+
 def main():
     port, data = int(sys.argv[1]), sys.argv[2]
     tier = sys.argv[3] if len(sys.argv) > 3 else "a"
-    {"a": tier_a, "b": tier_b, "c": tier_c}[tier](port, data)
+    {"a": tier_a, "b": tier_b, "c": tier_c, "d": tier_d}[tier](port, data)
 
 
 if __name__ == "__main__":
