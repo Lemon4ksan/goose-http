@@ -31,6 +31,7 @@ import media;
 import cookie;
 import auth;
 import form;
+import forwarded;
 
 // The server's settings. Each worker gets a copy, as thread_spawn copies
 // flat values.
@@ -197,7 +198,8 @@ fn abandon<H, C>(c: C&) {
     var sink: u8[>..] = [];
     let none = Request { .. };
     H(Event { kind: CLOSED, req: none, data: "", whole: false, trailers: "" }, x.state,
-      Reply { buf: sink, common: "", keep_alive: x.keep_alive, minor: x.minor, head: x.head, stream: x.stream });
+      Reply { buf: sink, common: "", keep_alive: x.keep_alive, minor: x.minor, head: x.head, stream: x.stream,
+            fd: c.fd });
     x.stream.open = false;
     x.body.place = NO_BODY;
 }
@@ -251,7 +253,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
         let before = wbuf.len;
         let was_open = x.stream.open;
         H(ev, x.state, Reply { buf: wbuf, common: common, keep_alive: x.keep_alive, minor: x.minor,
-                               head: x.head, stream: x.stream });
+                               head: x.head, stream: x.stream, fd: c.fd });
         done++;
         let wrote = wbuf.len > before;
         if !x.stream.open && (wrote || was_open) { x.answered = true; }
@@ -408,7 +410,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
         let before = wbuf.len;
         H(Event { kind: REQUEST, req: req, data: data, whole: whole, trailers: trailers }, x.state,
           Reply { buf: wbuf, common: common, keep_alive: x.keep_alive, minor: req.minor,
-                  head: req.method == "HEAD", stream: x.stream });
+                  head: req.method == "HEAD", stream: x.stream, fd: c.fd });
         done++;
         if whole && !x.stream.open {
             if wbuf.len == before {

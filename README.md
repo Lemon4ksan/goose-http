@@ -46,9 +46,9 @@ HTTP/1.1 on `main`. The tag `v0.1.0` has fixed-size requests and responses only.
 | 🟡 | `sendfile` on the epoll loop | Very soon |
 | 🟡 | Large responses on io_uring without the extra copy | Very soon |
 | 🔴 | Answers that wait: another thread, a timer, long polling, SSE | Soon |
-| 🔴 | Client address. `Forwarded` from trusted proxies. | Soon |
+| 🟢 | Client address. `Forwarded` from trusted proxies. | Not run on Windows yet |
 | 🔴 | IPv6, dual-stack, Unix sockets | Soon |
-| 🔴 | Access log | Soon, after the client address |
+| 🔴 | Access log | Next |
 
 CORS, sessions, middleware, and an HTTP client are out of scope. They belong to a
 framework.
@@ -288,6 +288,10 @@ The benchmark server serves the directory in `FILES` at `/files/`.
 - `http::respond_json(out, status) { b => json::format_key(b, "id"); ... }`.
 - `Config.max_requests` caps a connection's requests. `http::body_within(st.taken, ev,
   out, limit)` at `REQUEST` and each `BODY` answers 413 past a route's own limit.
+- `http::peer(out)`: the connection's address and port. `http::client(req, out,
+  trusted)`: the client a trusted proxy forwarded for, from `Forwarded` or
+  `X-Forwarded-For`, with `trusted` from `http::network("10.0.0.0/8")`.
+  `http::format_address(text, a)` writes one.
 
 ### Event loops
 

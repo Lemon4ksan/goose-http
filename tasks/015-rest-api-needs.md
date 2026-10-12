@@ -66,14 +66,15 @@ as task 013's did.
       blocking its worker, on every loop. The handle of a closed connection is refused,
       and an exchange can wait for a timer.
 - [ ] A handler reads the client's address on every loop, and a proxied request's,
-      from trusted proxies only.
+      from trusted proxies only. (Done on kqueue and the ring over it, and in Docker on
+      io_uring, the ring over epoll, and epoll, 2026-10-12; the IOCP loop's `net_peer`
+      compiles but waits for a Windows run. See "The client's address".)
 - [ ] The server listens on IPv6, dual-stack, and on a Unix socket on Linux and macOS.
 - [x] A field with CR, LF, or an invalid name never reaches the client (2026-10-12; see
       "Checked fields")
 - [ ] Helpers for items 5 to 11, each with a check in `scripts/http_client.py` or
       `test/test_http.goose`. (Items 5-8, 10, and 11 have theirs, in
-      `test/test_api.goose` and `scripts/http_client.py`, 2026-10-12; item 9 waits for
-      item 2.)
+      `test/test_api.goose` and `scripts/http_client.py`, 2026-10-12; item 9 is next.)
 - [x] The benchmark routes keep their rate (2026-10-12, on the Mac and in Docker on it,
       `288c868` against `26e073f`; see "The benchmark routes' rate")
 
@@ -193,7 +194,45 @@ xitca-http that `bench/` doesn't build.
   connection, rather than drop the rest. The cap's check is in
   `scripts/http_client.py` (`requests`), and `body_within`'s in `test/test_api.goose`.
 
-Item 9, the log after each response, waits for item 2's client address.
+
+## The client's address (2026-10-12)
+
+A handler asks for the address; nothing is read per request or per connection
+otherwise. `Reply.fd` carries the connection's socket from every loop, and
+`http::peer(out)` calls the shim's `net_peer`, a `getpeername` that returns an IPv4
+address as IPv4-mapped IPv6 and the port. The io_uring loop's multishot accept passes no
+address, and on Windows `SO_UPDATE_ACCEPT_CONTEXT`, which the IOCP shim already sets,
+makes `getpeername` work on an `AcceptEx` socket, so one call serves every loop.
+
+`http::client(req, out, trusted)` takes the client from `Forwarded`, or without one
+from `X-Forwarded-For`, only when the peer is in `trusted`, a list of networks that
+`http::network` parses (`"10.0.0.0/8"`, `"::1"`). It walks the hops from the nearest
+and returns the first that isn't trusted, or the farthest if all are: nginx's
+`real_ip_recursive on`, recalled, not checked in code. A hop that isn't an address, as
+`unknown`, an obfuscated name (RFC 7239 §6), or a bad element, ends the walk at the
+trusted hop before it, so a client can't forge the hops a trusted proxy appended.
+`http::format_address` writes an address as RFC 5952 has it.
+
+What the competitors do (verified in code):
+
+- hyper 1.12.0 and hyper-util 0.1.21 have no peer address and no `Forwarded`: the
+  program owns accept, and `bench/hyper/src/main.rs` drops the accept's address.
+- may-minihttp 0.1.11 never gives the handler the address, and parses no `Forwarded`.
+- odin-http (`fac113f`) keeps the accept's endpoint, binary with its port, on every
+  request (`server.odin`, `req.client`), and parses no `Forwarded`.
+- actix-web 4.15.0, outside `bench/`, takes the first `for=` of `Forwarded`, then the
+  first `X-Forwarded-For` (`src/info.rs`), with no list of trusted proxies, so any
+  client can set its own address. Its `peer_addr` is text.
+
+xitca-http's source isn't in this checkout, so it isn't compared.
+
+Checks: `test/test_api.goose` (`test_addresses`, `test_forwarded`), and
+`scripts/http_client.py`'s `client`, which compares `/client`'s peer with the client
+socket's own address and port. The rate holds: on the Mac, `bench/count.sh`'s load
+(`h2load --h1 -n 2000000 -c 256 -m 16 -t 8`, one worker, instructions from
+`/usr/bin/time -l`, kernel included, 3 rounds alternating) gave 17,547-17,557
+instructions per request against 17,541-17,547 on epoll, and 17,763-17,777 against
+17,777-17,787 on the ring, within the 30 a run varies.
 
 ## The benchmark routes' rate (2026-10-12)
 

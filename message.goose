@@ -707,6 +707,7 @@ struct Reply {
     minor: i32,             // the request's x of HTTP/1.x
     head: bool,             // a HEAD request: finish writes the body's fields, not the body
     stream: Stream&,        // what start and begin leave for the writers after them
+    fd: i32 = -1,           // the connection's socket, for peer; -1 for none
 }
 
 // The framing of the response being written.

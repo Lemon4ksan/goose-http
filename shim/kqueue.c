@@ -319,6 +319,28 @@ int32_t net_shutdown(int32_t fd, int32_t how) {
     return shutdown(fd, how) < 0 ? -net_err(errno) : 0;
 }
 
+/* The peer of connected socket fd: its address into out[..16], an IPv4 one
+   as IPv4-mapped IPv6 (::ffff:a.b.c.d), and its port as the result. */
+int32_t net_peer(int32_t fd, net_bytes out) {
+    struct sockaddr_storage ss;
+    socklen_t len = sizeof ss;
+    if (out.len < 16) return -net_err(EINVAL);
+    if (getpeername(fd, (struct sockaddr *)&ss, &len) < 0) return -net_err(errno);
+    if (ss.ss_family == AF_INET) {
+        struct sockaddr_in *a = (struct sockaddr_in *)&ss;
+        memset(out.data, 0, 10);
+        out.data[10] = out.data[11] = 0xff;
+        memcpy(out.data + 12, &a->sin_addr, 4);
+        return ntohs(a->sin_port);
+    }
+    if (ss.ss_family == AF_INET6) {
+        struct sockaddr_in6 *a = (struct sockaddr_in6 *)&ss;
+        memcpy(out.data, &a->sin6_addr, 16);
+        return ntohs(a->sin6_port);
+    }
+    return -net_err(EAFNOSUPPORT);
+}
+
 /* A worker's fd for a shared listener goes back to the table (above). */
 int32_t net_close(int32_t fd) {
     if (fd == net_my_lfd) {

@@ -162,6 +162,7 @@ elif [ "$(uname -s)" = Darwin ]; then
 fi
 $client chunked
 $client keepalive
+$client client
 $client hostile
 $client many 10000
 

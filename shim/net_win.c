@@ -230,6 +230,29 @@ int32_t net_shutdown(int32_t fd, int32_t how) {
     return shutdown(net_socket(fd), how) ? -net_win_err(WSAGetLastError()) : 0;
 }
 
+/* The peer of connected socket fd, as shim/net.c's: an accepted socket has
+   one once SO_UPDATE_ACCEPT_CONTEXT ties it to its listener. */
+int32_t net_peer(int32_t fd, net_bytes out) {
+    SOCKADDR_STORAGE ss;
+    int len = sizeof ss;
+    if (out.len < 16) return -22;
+    if (getpeername(net_socket(fd), (struct sockaddr *)&ss, &len))
+        return -net_win_err(WSAGetLastError());
+    if (ss.ss_family == AF_INET) {
+        struct sockaddr_in *a = (struct sockaddr_in *)&ss;
+        memset(out.data, 0, 10);
+        out.data[10] = out.data[11] = 0xff;
+        memcpy(out.data + 12, &a->sin_addr, 4);
+        return ntohs(a->sin_port);
+    }
+    if (ss.ss_family == AF_INET6) {
+        struct sockaddr_in6 *a = (struct sockaddr_in6 *)&ss;
+        memcpy(out.data, &a->sin6_addr, 16);
+        return ntohs(a->sin6_port);
+    }
+    return -97;
+}
+
 /* A shared listener stays open while another caller of net_listen holds it. */
 int32_t net_close(int32_t fd) {
     AcquireSRWLockExclusive(&net_shared_lock);

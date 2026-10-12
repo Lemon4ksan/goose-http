@@ -857,6 +857,27 @@ def requests(port):
     print("requests: ok")
 
 
+def client(port):
+    """/client: the peer's address and port are the connection's, and the
+    client is the nearest untrusted hop a loopback proxy forwarded for."""
+    c = Conn(port)
+    own = c.sock.getsockname()
+    cases = [
+        (b"", HOST),
+        (b"X-Forwarded-For: 198.51.100.1, 203.0.113.5\r\n", "203.0.113.5"),
+        (b"X-Forwarded-For: 203.0.113.5, 127.0.0.2\r\n", "203.0.113.5"),
+        (b'Forwarded: for="[2001:db8::1]:4711";proto=https\r\n', "2001:db8::1"),
+        (b"X-Forwarded-For: junk\r\n", HOST),
+    ]
+    for extra, want in cases:
+        c.send(request(b"/client", extra=extra))
+        r = c.response()
+        if r.status != 200 or r.body != f"peer {own[0]} {own[1]}\nclient {want}\n".encode():
+            fail(f"/client with {extra!r}: {r.status} {r.body!r}")
+    c.close()
+    print("client: ok")
+
+
 def main():
     port = int(sys.argv[1])
     mode = sys.argv[2]
@@ -868,7 +889,8 @@ def main():
         stop_break(port, sys.argv[3])
     else:
         {"tfb": tfb, "pipeline": pipeline, "large": large, "chunked": chunked, "keepalive": keepalive,
-         "hostile": hostile, "slow": slow, "stream": stream, "requests": requests}[mode](port)
+         "hostile": hostile, "slow": slow, "stream": stream, "requests": requests,
+         "client": client}[mode](port)
 
 
 if __name__ == "__main__":

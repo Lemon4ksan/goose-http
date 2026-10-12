@@ -36,6 +36,7 @@ let EMFILE = 24;
 let EPIPE = 32;
 let ENAMETOOLONG = 36;
 let ENOSYS = 38;
+let EAFNOSUPPORT = 97;
 let EADDRINUSE = 98;
 let ECONNABORTED = 103;
 let ECONNRESET = 104;
@@ -72,6 +73,10 @@ extern fn net_recv(fd: i32, buf: u8[:]) -> i64;
 extern fn net_send(fd: i32, data: const u8[:]) -> i64;
 extern fn net_shutdown(fd: i32, how: i32) -> i32;
 extern fn net_close(fd: i32) -> i32;
+// The peer of connected socket fd: writes its address into out[..16], an
+// IPv4 one as IPv4-mapped IPv6, and returns its port. EAFNOSUPPORT for a peer
+// with no IP address.
+extern fn net_peer(fd: i32, out: u8[:]) -> i32;
 
 extern fn net_epoll_create() -> i32;
 // The kernel keeps tag with fd's registration and returns it in PollEvent.tag.

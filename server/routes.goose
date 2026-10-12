@@ -2,8 +2,9 @@
 // HttpArena's endpoints (bench/httparena), and for the tests, /bytes and
 // /stream, which send a response of any size in pieces, /upload and /echo,
 // which take a body of any size in pieces, /upgrade, which switches to a
-// protocol that echoes bytes, and /files/NAME, the files of the directory
-// that FILES names.
+// protocol that echoes bytes, /files/NAME, the files of the directory that
+// FILES names, and /client, the peer's address and port and the client's,
+// trusting proxies on loopback.
 import std;
 import os;
 import http;
@@ -157,6 +158,8 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
             http::field(out, "Upgrade", "echo");
             http::finish(out, "Content-Length: ", "");
         }
+    } else if get && path == "/client" {
+        client(req, out);
     } else if req.target == "*" {
         // OPTIONS *, the only method parse lets "*" through with: what the
         // server as a whole allows (RFC 9110 §9.3.7).
@@ -188,6 +191,21 @@ fn serve_static(req: http::Request, name: const u8[:], st: Transfer&, out: http:
     }
     http::start(out, status);
     http::finish(out, "Content-Length: ", "");
+}
+
+fn client(req: http::Request, out: http::Reply) {
+    var text: u8[>..] = [];
+    let p, known = http::peer(out);
+    let loopback, ok = http::network("127.0.0.0/8");
+    let c, found = http::client(req, out, [loopback]);
+    if known && found {
+        text.append("peer ");
+        http::format_address(text, p);
+        format(text, " ", p.port, "\nclient ");
+        http::format_address(text, c);
+        text.push('\n');
+    }
+    http::respond(out, if known && found { 200 } else { 500 }, "text/plain", text);
 }
 
 fn take(st: Transfer&, data: const u8[:]) {

@@ -25,7 +25,7 @@
 _Static_assert(EINTR == 4 && EAGAIN == 11 && EPIPE == 32 && ECONNABORTED == 103 &&
                ECONNRESET == 104 && EADDRINUSE == 98 && EMFILE == 24 && ENFILE == 23 &&
                EINVAL == 22 && ENOENT == 2 && EACCES == 13 && ENOTDIR == 20 && EISDIR == 21 &&
-               ENAMETOOLONG == 36,
+               ENAMETOOLONG == 36 && EAFNOSUPPORT == 97,
                "errno values differ from src/sys.goose");
 _Static_assert(EPOLLIN == 0x001 && EPOLLOUT == 0x004 && EPOLLERR == 0x008 &&
                EPOLLHUP == 0x010 && EPOLLRDHUP == 0x2000 && EPOLLET == 1u << 31,
@@ -99,6 +99,28 @@ int32_t net_shutdown(int32_t fd, int32_t how) {
 
 int32_t net_close(int32_t fd) {
     return close(fd) < 0 ? -errno : 0;
+}
+
+/* The peer of connected socket fd: its address into out[..16], an IPv4 one
+   as IPv4-mapped IPv6 (::ffff:a.b.c.d), and its port as the result. */
+int32_t net_peer(int32_t fd, net_bytes out) {
+    struct sockaddr_storage ss;
+    socklen_t len = sizeof ss;
+    if (out.len < 16) return -EINVAL;
+    if (getpeername(fd, (struct sockaddr *)&ss, &len) < 0) return -errno;
+    if (ss.ss_family == AF_INET) {
+        struct sockaddr_in *a = (struct sockaddr_in *)&ss;
+        memset(out.data, 0, 10);
+        out.data[10] = out.data[11] = 0xff;
+        memcpy(out.data + 12, &a->sin_addr, 4);
+        return ntohs(a->sin_port);
+    }
+    if (ss.ss_family == AF_INET6) {
+        struct sockaddr_in6 *a = (struct sockaddr_in6 *)&ss;
+        memcpy(out.data, &a->sin6_addr, 16);
+        return ntohs(a->sin6_port);
+    }
+    return -EAFNOSUPPORT;
 }
 
 int32_t net_epoll_create(void) {
