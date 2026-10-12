@@ -100,6 +100,12 @@ computed from the body, so the checker can verify that the server read all of it
 | `POST /api/v3/forms` | `application/x-www-form-urlencoded`, 50 to 100 fields | 200, the decoded fields as JSON |
 
 The parsing, the CSV and multipart included, is Goose's, as the rest of the server is.
+Tier D also runs mixed with tier C's reads on the same server, with C's latency
+measured with and without the uploads. A worker runs one handler at a time, so a
+handler parsing a multi-megabyte CSV holds up its worker's other connections. A
+connection whose response is still queued (`max_queued`) isn't read until the client
+takes it, so a client that sends while it reads can stall. The mixed run shows how much
+of either reaches the reads.
 Still open: the mix and its shares, the body sizes, whether uploads come in one
 connection's pipeline or spread across all of them, and which competitors stream a body
 rather than buffer it whole.
@@ -139,6 +145,64 @@ thousands of requests per second, rounds 2 and 3:
 Tier A's records are small (about 200 bytes), so the two ways cost the same in Goose,
 and template gains hyper 7-11% over serde_json. One Goose epoll run in round 1 counted
 224 wrk timeouts. The Docker VM isn't the benchmark machine.
+
+Tier B (2026-10-12): the generator writes `snow-orgs.json` (20 organizations of 20
+projects), `snow-users.json` (200 users, each a member of 2 to 5 organizations, with the
+session's settings and fill), `snow-entries.json` (36,763 entries over the 60 days up to
+2026-10-12T09:00Z, 12 MB), and `snow-load.txt`, the cookie and ids for each user that
+`bench/rest/tier-b.lua` sends. Shapes, member order, checks, and error bodies follow
+snowtime's Hono routes; a 14-day window averages 41 entries and 13.4 KB. Where the
+benchmark differs from snowtime:
+
+- The data doesn't change, since each Goose worker holds its own copy. PATCH answers
+  the entry with the description it was sent; timer start answers the dataset's running
+  timer as `stopped`; timer stop takes an id the dataset lacks for a timer started at
+  the uuidv7's time, as tier-b.lua starts them, and answers 404 for one older than a day.
+- A 400 for a query or body that doesn't validate has one message, `Invalid input.`,
+  where snowtime gives valibot's.
+- `fill` is the dataset's, and only the active organization has entries.
+- tier-b.lua sends Origin on every request, as k6's scenario does, with its
+  `Sec-Fetch-Site`, `User-Agent`, `CF-Connecting-IP`, and `X-Bench-*` fields.
+
+Tier C (2026-10-12): the generator writes 10 staff, 24 services, 1,000 clients (about
+480 bytes each), 2,698 bookings and 297 shifts over the 4 weeks from 2026-09-07, and 5,111
+encounters: 2,413 past visits of clients 1 to 100 over 2 years, in cases of 2 to 12, and
+one per booking. A week of 10 staff's bookings is 668-681 bookings and 715-728 KB; a
+month of one staff member about 270 and 288 KB; an encounter with its case's notes 3-46
+KB; a client's last 20 visits 59-77 KB. The bearer token is an ES512-shaped JWT of
+about 557 characters with a 176-character signature segment, in a head of about 1.28 KB.
+Its claims are the ones listed above, in a structure of the benchmark's own. Days in the
+queries are UTC's, and the version counts minutes since 2026-09-01.
+
+`check.py` passes against Goose, on both loops in both JSON ways, on macOS and in Docker,
+and against hyper in both JSON ways in Docker, for tiers A to C. hyper's tiers B and C
+(`bench/rest/hyper/src/snow.rs`, `heavy.rs`) answered 104 requests byte for byte as Goose
+does, error paths included.
+
+A quick comparison, set up as tier A's above: Goose and hyper at `e588a65`, Goose
+`5c83a5a`, `--ulimit nofile=1048576:1048576`, 3 rounds alternating the 6 servers, `-d 5`
+with `tier-b.lua` or `tier-c.lua`. No run counted a socket error or a status other than
+2xx. All 3 rounds, in thousands of requests per second:
+
+| Tier | JSON | Goose io_uring | Goose epoll | hyper |
+|---|---|---|---|---|
+| B | serialize | 244-246 | 229-231 | 142-142 |
+| B | template | 295-297 | 293-297 | 173-178 |
+| C | serialize | 26.7-28.3 | 33.3-35.0 | 22.5-23.9 |
+| C | template | 41.4-43.1 | 59.1-60.9 | 58.1-59.7 |
+
+- Goose answers tier B at 1.6-1.7 times hyper's rate both ways. Templates gain Goose
+  20% and hyper 22-25%.
+- On tier C, Goose's epoll loop serializes at 1.5 times hyper's rate, and with templates
+  the two tie at about 4.1 GB/s, copying prebuilt bytes.
+- io_uring loses to epoll on tier C by 20-30%, where tier B shows no such loss. The
+  responses of up to a megabyte are the difference; the cause isn't measured yet.
+  Round 3's io_uring template run had a 198 ms maximum latency, where the others stayed
+  under 60 ms.
+- Goose uses 4 to 5 times hyper's memory. Peak RSS, startup's included: tier B 123-152
+  MB serialized and 248-276 MB templated, against hyper's 31-34 and 54-55; tier C 158-188
+  and 402-412 MB, against 36-38 and 77-79. Each of Goose's 3 workers holds its own copy
+  of the records, and templates add a copy of their JSON. hyper's threads share one.
 
 ## Acceptance criteria
 

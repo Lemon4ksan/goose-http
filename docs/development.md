@@ -680,6 +680,10 @@ MACHINE=m1pro-docker SERVERS="goose goose-uring tokio vanilla-epoll vanilla-io_u
   build` needs the shim's `stamp` under `~/.goose/build/pkg/local/` deleted first.
 - The image `goose-http-dev3` has the compiler at `/goose/build/goose`, at `5c83a5a`
   (2026-10-12), and sets no `GOOSE`: pass `-e GOOSE=/goose/build/goose`.
+- `bench/rest/hyper` builds in `goose-http-bench2` (`RUSTFLAGS="-C target-cpu=native"
+  cargo build --release`, with a volume such as `-v rest-cargo:/root/.cargo/registry`
+  for the crates), and the binary runs unchanged in `goose-http-dev3`, which has the
+  checker's `python3` and wrk (2026-10-12).
 - To test uncommitted changes, export the working tree with one `tar`: `git ls-files
   -co --exclude-standard -z | tar --null -T - -cf - | tar -xf - -C /tmp/work`. Through
   `xargs`, a long list runs several `tar`s, and the extracting one stops at the end of
