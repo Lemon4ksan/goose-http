@@ -478,6 +478,10 @@ uNetworking's h1spec. Its suite and ours compared, by reading both, found:
 
 `scripts/test.sh` passed on macOS and in Docker on all three Linux loops after them.
 
+Tagged `v0.2.0` at `c633dee` (2026-10-12), which the README's Quick start imports. The
+Quick start, in a directory of its own on macOS, fetched the tag from GitHub with Goose
+`5c83a5a`, built, and served 200 at `/` and 404 elsewhere.
+
 ## Streaming design (2026-10-12)
 
 How servers with a streaming API shape it, read in their sources:
