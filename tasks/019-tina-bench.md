@@ -13,8 +13,9 @@ documented production configuration, beside odin-http, the other Odin entry.
 - [x] A quick relative comparison in Docker on the Mac, recorded below (2026-10-12)
 - [ ] Each of `scripts/http_client.py`'s checks that Tina fails, in `bench/README.md`'s
       table, with why
-- [ ] The full `bench/run.sh` matrix on the benchmark desktop, with `SERVERS` naming
-      `tina`, in `docs/results.md`
+- [x] The full `bench/run.sh` matrix on the benchmark desktop, with `SERVERS` naming
+      `tina`, in `docs/results.md` (2026-10-12,
+      [the full field](../docs/results.md#the-full-field))
 
 ## The entry
 
@@ -67,6 +68,13 @@ in the same runs: 1.65-1.68 M, 2,475-2,530, and 1,995-2,036, with 2.4 MB
 ([results](../docs/results.md#instructions-per-request)). The full matrix hasn't run on
 the desktop yet: this morning's cells for vanilla-epoll, tokio, may-minihttp, hyper, and
 dusty are reusable (`REUSE`), since their binaries are unchanged.
+
+In the desktop's full matrix (2026-10-12, Goose `73dd28c`, 4 workers), Tina served
+plaintext at 0.47-0.74 M requests per second, against Goose io_uring's 6.02-6.74 M, and
+JSON at 446-504 K, against 487-498 K: at 256 connections it led Goose's io_uring loop by
+1%. It held 755 MB with 4 workers and 190 MB with 1, against 8.9-15 and 4.0-6.2 MB. At
+4,096 connections with 1 worker, wrk counted 34,865 socket errors and h2load a p99 of
+3.7 s.
 
 `scripts/http_client.py` against it, in Docker: `tfb` fails at its absolute-form request
 (`GET http://host/plaintext`), which Tina answers with 400, and `pipeline` gets a

@@ -26,6 +26,96 @@ than it would be on bare metal.
 
 ## TechEmpower's tests
 
+### The full field
+
+`bench/run.sh` on 2026-10-12, in the evening, with the 12 servers of tasks 005, 009, and
+019, odin-http left out and Tina for Odin: Goose at `73dd28c` with Goose `6448f3f`, the
+settings below. `REUSE` copied the cells whose binary and settings were unchanged:
+tokio's, may-minihttp's, and hyper's, and vanilla-epoll's plaintext, from the morning's
+run below, and xitca-web's, zix's, zeemo's, libreactorng's, and vanilla-io_uring's
+plaintext at 256 and 1,024 connections and JSON at 256, from
+[2026-10-11-uring-matrix](../bench/results/2026-10-11-uring-matrix/summary.md). The rest
+ran in this session. Sessions drift by up to 5%: the morning's Goose build served 4%
+less in this session than in the morning's ([below](#goose-since-the-morning)). Results,
+with latency, CPU, and memory per cell, in
+[2026-10-12-matrix](../bench/results/2026-10-12-matrix/summary.md); the tables come from
+`bench/table.py`. Requests per second from wrk, medians of 3 runs, and peak RSS over
+the row's cells; bold is the column's best.
+
+4 workers on CPUs 0-3:
+
+| Server | plaintext 256 | plaintext 1,024 | plaintext 4,096 | json 256 | json 1,024 | peak RSS |
+|---|---:|---:|---:|---:|---:|---:|
+| Goose io_uring | 6.74 M | 6.52 M | 6.02 M | 498 K | 487 K | 8.9-15 MB |
+| Goose epoll | 5.37 M | 5.31 M | 5.24 M | 416 K | 408 K | **2.7-3.6 MB** |
+| vanilla-io_uring (V) | **8.14 M** | **8.25 M** | **7.60 M** | 456 K | 453 K | 37-154 MB |
+| libreactorng (C) | 6.96 M | 7.38 M | 7.03 M | 545 K | 609 K | 6.1-80 MB |
+| zix (Zig) | 5.13 M | 5.44 M | 4.97 M | **552 K** | **614 K** | 6.7-39 MB |
+| vanilla-epoll (V) | 6.10 M | 5.85 M | 5.46 M | (216 K) | (218 K) | 6.0-57 MB, 15 GB in JSON |
+| tokio (Rust) | 3.89 M | 3.83 M | 3.65 M | 394 K | 386 K | 12-183 MB |
+| may-minihttp (Rust) | 2.39 M | 4.31 M | 3.95 M | 375 K | 364 K | 40-621 MB |
+| xitca-web (Rust) | 3.30 M | 3.52 M | 3.21 M | 419 K | 442 K | 25-69 MB |
+| hyper (Rust) | 2.69 M | 2.67 M | 2.54 M | 303 K | 295 K | 8.0-88 MB |
+| zeemo (Zig) | 2.39 M | 2.69 M | 2.21 M | 540 K | 606 K | 6.6-37 MB |
+| Tina (Odin) | 0.73 M | 0.74 M | 0.47 M | 504 K | 446 K | 755 MB |
+
+1 worker on CPU 0:
+
+| Server | plaintext 256 | plaintext 1,024 | plaintext 4,096 | json 256 | json 1,024 | peak RSS |
+|---|---:|---:|---:|---:|---:|---:|
+| Goose io_uring | 2.10 M | 2.06 M | 1.89 M | **173 K** | **152 K** | 4.0-6.2 MB |
+| Goose epoll | 1.84 M | 1.83 M | 1.52 M | 148 K | 121 K | **2.4-3.3 MB** |
+| vanilla-io_uring (V) | **2.67 M** | **2.54 M** | **1.89 M** | 148 K | 90 K | 14-75 MB |
+| libreactorng (C) | 2.35 M | 2.44 M | 1.31 M | 129 K | 92 K | 5.1-82 MB |
+| zix (Zig) | 1.77 M | 1.51 M | 0.99 M | 152 K | 99 K | 3.8-34 MB |
+| vanilla-epoll (V) | 1.90 M | 1.91 M | 1.53 M | (71 K) | (61 K) | 5.6-56 MB, 6 GB in JSON |
+| tokio (Rust) | 1.38 M | 1.35 M | 1.19 M | 134 K | 116 K | 12-183 MB |
+| may-minihttp (Rust) | 1.22 M | 1.30 M | 1.07 M | 123 K | 113 K | 39-619 MB |
+| xitca-web (Rust) | 1.10 M | 1.05 M | 0.82 M | 98 K | 83 K | 13-59 MB |
+| hyper (Rust) | 0.86 M | 0.69 M | 0.71 M | 85 K | 72 K | 7.5-78 MB |
+| zeemo (Zig) | 0.84 M | 0.76 M | 0.55 M | 140 K | 107 K | 3.4-33 MB |
+| Tina (Odin) | 0.21 M | 0.20 M | 0.10 M | 128 K | 98 K | 190 MB |
+
+vanilla-epoll's JSON didn't run: it leaks 6-15 GB a cell. Its JSON cells, in
+parentheses, are the ones the morning's tables give, with 1 worker from that morning
+and with 4 from 2026-10-11 ([below](#the-mornings-seven-servers)).
+
+- vanilla-io_uring leads plaintext in every cell: by 21-27% over Goose's io_uring loop
+  with 4 workers, and by 23-27% with 1 worker at 256 and 1,024 connections. At 4,096
+  connections with 1 worker the two tie, and vanilla-io_uring counted 1,990 socket
+  errors. libreactorng leads Goose's io_uring loop in plaintext with 4 workers, by
+  3-17%, and with 1 worker at 256 and 1,024 connections.
+- In JSON with 4 workers, zix, zeemo, and libreactorng lead Goose's io_uring loop by
+  8-11% at 256 connections and 24-26% at 1,024. With 1 worker, Goose's io_uring loop
+  leads JSON at both connection counts.
+- Goose's epoll loop trails vanilla-epoll in plaintext with 4 workers by 4-12%, across
+  sessions (vanilla-epoll's cells are the morning's); in the morning's session the gap
+  was 0-5%.
+- Goose's io_uring loop leads every Rust server in every cell, and Tina in every cell
+  but JSON at 256 connections with 4 workers: 498K against 504K. Goose's epoll loop has
+  the lowest peak RSS in every cell.
+- Tina's pipelined plaintext runs at 5-11% of Goose's io_uring rate, and its JSON at
+  0.64 to 1.01 times, with 30 to 85 times its memory (task 019).
+
+### Goose since the morning
+
+The evening's Goose builds served 8% less plaintext than the morning's on the epoll loop
+and 4.5% less on io_uring. Run side by side on 2026-10-13
+([2026-10-13-regress](../bench/results/2026-10-13-regress/summary.md), 4 workers,
+plaintext and JSON at 256 connections, 3 runs of 15 s), the morning's `ef09c0f` and the
+evening's `73dd28c`:
+
+| Build | plaintext, epoll | plaintext, io_uring | JSON, epoll | JSON, io_uring |
+|---|---:|---:|---:|---:|
+| `ef09c0f` | 5.61 M | 6.87 M | 420 K | 499 K |
+| `73dd28c` | 5.43 M | 6.67 M | 414 K | 504 K |
+
+So about 4% was the session and 3% the code. `bench/count.sh` counts 1,826.9 user
+instructions per plaintext request on the evening's epoll build against 1,786.7 on the
+morning's, and 1,875.2 against 1,832.1 on io_uring; JSON is unchanged.
+
+### The morning's seven servers
+
 `bench/run.sh` with its defaults, on 2026-10-12: plaintext pipelined 16 deep and JSON
 without pipelining, with TechEmpower's request headers; 1 worker on CPU 0 and 4 workers
 on CPUs 0-3; wrk and h2load with 8 threads; a fresh server per cell; 3 runs of 15 s after
@@ -389,8 +479,19 @@ Goose's `parse` also checks `Host`, `Content-Length`, `Transfer-Encoding`, and
 
 ## Where Goose loses
 
-From the run of 2026-10-12 above. The io_uring loop leads every TechEmpower cell; the
-losses are the epoll loop's, which is also the HttpArena entry, and memory.
+From the runs of 2026-10-12 above. Against the full field, the io_uring servers in C,
+V, and Zig beat Goose's io_uring loop; against the morning's seven servers, the losses
+are the epoll loop's, which is also the HttpArena entry, and memory.
+
+- **Plaintext, to vanilla-io_uring, by 21-27%** in every cell but 4,096 connections with
+  1 worker, a tie, and **to libreactorng, by 3-17%**, with 4 workers and with 1 worker
+  at 256 and 1,024 connections ([the full field](#the-full-field)). Both answer without
+  parsing the request as Goose does, and spend fewer cycles per request
+  ([instructions](#instructions-per-request)).
+- **JSON with 4 workers, to zix, zeemo, and libreactorng**, by 8-11% at 256 connections
+  and 24-26% at 1,024; and to Tina by 1% at 256.
+- **3% since the morning's build**, about 40 user instructions per plaintext request
+  ([Goose since the morning](#goose-since-the-morning)).
 
 - **The epoll loop, plaintext with 4 workers at 256 connections, to vanilla-epoll, by
   5%**: 5.830 M (5.799-5.874 M) against 6.097 M (5.983-6.104 M), beyond both spreads.

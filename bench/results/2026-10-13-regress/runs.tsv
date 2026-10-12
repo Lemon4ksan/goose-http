@@ -1,0 +1,25 @@
+server	workers	test	conns	run	rps	errors	non2xx	server_cpu_s	wrk_cpu_s	peak_rss_kb	steps	h2load_rps	h2load_failed	h2load_non2xx	p50_us	p99_us	p999_us	max_us	from
+goose-ef09	4	plaintext	256	1	5615615.14	0	0	60.44	87.35	2680	1								
+goose-ef09	4	json	256	1	420161.35	0	0	60.15	72.43	2708	1								
+goose	4	plaintext	256	1	5337019.96	0	0	60.43	83.18	2748	0								
+goose	4	json	256	1	414076.90	0	0	60.05	71.38	2744	1								
+goose-ef09-uring	4	plaintext	256	1	6889929.86	0	0	60.19	96.83	10068	1								
+goose-ef09-uring	4	json	256	1	491846.37	0	0	59.79	80.39	9812	0								
+goose-uring	4	plaintext	256	1	6604416.25	0	0	60.15	93.56	9728	0								
+goose-uring	4	json	256	1	503748.94	0	0	59.79	81.44	9076	1								
+goose-ef09	4	plaintext	256	2	5563693.00	0	0	60.43	86.15	2700	0								
+goose-ef09	4	json	256	2	420614.35	0	0	60.06	72.31	2704	0								
+goose	4	plaintext	256	2	5431260.60	0	0	60.44	84.49	2744	1								
+goose	4	json	256	2	410538.85	0	0	60.07	71.18	2744	1								
+goose-ef09-uring	4	plaintext	256	2	6753058.90	0	0	60.15	95.45	10060	0								
+goose-ef09-uring	4	json	256	2	498582.28	0	0	59.77	80.64	9716	1								
+goose-uring	4	plaintext	256	2	6665223.77	0	0	60.20	94.25	9708	1								
+goose-uring	4	json	256	2	491898.68	0	0	59.73	79.75	9064	0								
+goose-ef09	4	plaintext	256	3	5605238.51	0	0	60.40	86.84	2708	1								
+goose-ef09	4	json	256	3	418164.23	0	0	60.05	72.18	2684	1								
+goose	4	plaintext	256	3	5432148.02	0	0	60.38	84.79	2744	0								
+goose	4	json	256	3	422976.71	0	0	60.07	72.77	2748	0								
+goose-ef09-uring	4	plaintext	256	3	6872785.40	0	0	60.17	97.59	10060	1								
+goose-ef09-uring	4	json	256	3	504404.99	0	0	59.76	81.38	9772	0								
+goose-uring	4	plaintext	256	3	6800118.42	0	0	60.22	95.68	9732	0								
+goose-uring	4	json	256	3	505141.78	0	0	59.81	81.31	9088	1								

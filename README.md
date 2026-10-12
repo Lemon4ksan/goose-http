@@ -93,28 +93,46 @@ All tables, spreads, and losses: [docs/results.md](docs/results.md).
 
 ### Plaintext and JSON
 
-Tiny fixed responses. They measure the loop and the parser, nothing else. Goose is at
-the top here. A real program spends its time elsewhere.
+Tiny fixed responses. They measure the loop and the parser, nothing else. A real program
+spends its time elsewhere.
 
-Ryzen 7 5800X3D, WSL2, kernel 6.18. `bench/run.sh` defaults, 2026-10-12. Servers on
-CPUs 0-3, wrk on 4-15. Plaintext pipelined 16 deep. Median of 3 runs of 15 s. Goose at
-`ef09c0f`, Goose compiler `5c83a5a`, both loops.
+Ryzen 7 5800X3D, WSL2, kernel 6.18. `bench/run.sh`, 2026-10-12. 4 workers on CPUs 0-3,
+wrk on 4-15. Plaintext pipelined 16 deep, by connection count. Median of 3 runs of 15 s.
+Goose at `73dd28c`, Goose compiler `6448f3f`. Some competitors' cells come from earlier
+sessions with the same binaries, and sessions drift by up to 5%. Bold is the column's
+best.
 
-| | Goose io_uring | Goose epoll | vanilla-epoll (V) | tokio (Rust) | may-minihttp (Rust) |
-|---|---:|---:|---:|---:|---:|
-| plaintext, 256 conns, 4 workers, req/s | 7.06 M | 5.83 M | 6.10 M | 3.89 M | 2.39 M |
-| plaintext, 4,096 conns, 4 workers, req/s | 6.45 M | 5.53 M | 5.46 M | 3.65 M | 3.95 M |
-| JSON, 256 conns, 4 workers, req/s | 0.513 M | 0.430 M | 0.216 M | 0.394 M | 0.375 M |
-| instructions per request (plaintext, 1 worker) | 2,503-2,517 | 2,418-2,469 | 1,750-1,758 | 4,369-4,399 | 2,999-3,023 |
-| peak RSS, any cell | 4.6-16 MB | 2.4-3.2 MB | 5.6-57 MB, 6-15 GB in JSON | 12-183 MB | 39-621 MB |
+| Server | plaintext 256 | plaintext 1,024 | plaintext 4,096 | JSON 256 | JSON 1,024 | peak RSS |
+|---|---:|---:|---:|---:|---:|---:|
+| Goose io_uring | 6.74 M | 6.52 M | 6.02 M | 498 K | 487 K | 8.9-15 MB |
+| Goose epoll | 5.37 M | 5.31 M | 5.24 M | 416 K | 408 K | **2.7-3.6 MB** |
+| vanilla-io_uring (V) | **8.14 M** | **8.25 M** | **7.60 M** | 456 K | 453 K | 37-154 MB |
+| libreactorng (C) | 6.96 M | 7.38 M | 7.03 M | 545 K | 609 K | 6.1-80 MB |
+| zix (Zig) | 5.13 M | 5.44 M | 4.97 M | **552 K** | **614 K** | 6.7-39 MB |
+| vanilla-epoll (V) | 6.10 M | 5.85 M | 5.46 M | (216 K) | (218 K) | 6.0-57 MB, 15 GB in JSON |
+| tokio (Rust) | 3.89 M | 3.83 M | 3.65 M | 394 K | 386 K | 12-183 MB |
+| may-minihttp (Rust) | 2.39 M | 4.31 M | 3.95 M | 375 K | 364 K | 40-621 MB |
+| xitca-web (Rust) | 3.30 M | 3.52 M | 3.21 M | 419 K | 442 K | 25-69 MB |
+| hyper (Rust) | 2.69 M | 2.67 M | 2.54 M | 303 K | 295 K | 8.0-88 MB |
+| zeemo (Zig) | 2.39 M | 2.69 M | 2.21 M | 540 K | 606 K | 6.6-37 MB |
+| Tina (Odin) | 0.73 M | 0.74 M | 0.47 M | 504 K | 446 K | 755 MB |
 
-- The io_uring loop wins every cell, plaintext and JSON.
-- The epoll loop wins every JSON cell, and is within vanilla-epoll's run spread in 5 of
-  6 plaintext cells. It loses plaintext with 4 workers at 256 connections, by 5%.
-  vanilla-epoll answers without parsing the request.
-- The epoll loop's p99 latency trails a competitor's in 4 of 10 cells, by 0.01-2.2 ms.
+vanilla-epoll's JSON, in parentheses, is from 2026-10-11: it leaks 6-15 GB a cell, so
+it no longer runs in full matrices. The 1-worker table, latency, and CPU per request are
+in [docs/results.md](docs/results.md#the-full-field).
+
+- vanilla-io_uring beats Goose's io_uring loop in plaintext by 21-27%, and libreactorng
+  by 3-17%. Both answer without parsing the request.
+- zix, zeemo, and libreactorng beat it in JSON, by 8-11% at 256 connections and 24-26%
+  at 1,024. Tina edges it at 256, by 1%. With 1 worker, Goose's io_uring loop leads
+  JSON.
+- Goose's io_uring loop beats every Rust server in every cell, at 1.6-2.5 times
+  hyper's rate.
+- The epoll loop trails vanilla-epoll in plaintext by 4-12%, across sessions. It holds
+  the least memory of any server in every cell.
+- The day's features cost the plaintext path about 40 instructions, 3%, since the
+  morning's build.
 - HttpArena's `limited-conn` profile: 2% behind tokio.
-- The streaming handler costs nothing measurable in these cells since 2026-10-12.
 
 ### Large responses and files
 
