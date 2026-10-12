@@ -8,18 +8,20 @@
 //   POST /api/items/:id    a body of name, price, and quantity, each optional:
 //                          204, or 422; the data doesn't change
 //
-// Tier B is snowtime's k6 hot path, under /api/v1 (snow.rs), and tier C a
-// clinic's schedule and records, under /api/v2 (heavy.rs).
+// Tier B is snowtime's k6 hot path, under /api/v1 (snow.rs), tier C a
+// clinic's schedule and records, under /api/v2 (heavy.rs), and tier D writes
+// with large bodies, under /api/v3 (writes.rs), served beside tier C.
 //
-//   REST_DATA=DIR TIER=a|b|c WORKERS=n [JSON=template] rest-hyper [port]
+//   REST_DATA=DIR TIER=a|b|c|d WORKERS=n [JSON=template] rest-hyper [port]
 //
 // TIER picks the dataset to load, tier A's by default. JSON=template answers
 // from each record's JSON, written once at startup, with the per-request
 // values added; the default serializes each response with serde_json, the
-// library Rust servers use.
+// library Rust servers use. Tier D's answers are written the one way.
 
 mod heavy;
 mod snow;
+mod writes;
 
 use std::convert::Infallible;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -141,8 +143,8 @@ fn load(dir: &str, tier: &str, template: bool) -> Data {
             }
         }
         "b" => data.snow = snow::Snow::load(dir, template),
-        "c" => data.heavy = heavy::Heavy::load(dir, template),
-        _ => panic!("TIER is a, b, or c"),
+        "c" | "d" => data.heavy = heavy::Heavy::load(dir, template),
+        _ => panic!("TIER is a, b, c, or d"),
     }
     data
 }
@@ -238,6 +240,31 @@ fn decode(s: &str) -> Option<Vec<u8>> {
         } else {
             out.push(s[i]);
             i += 1;
+        }
+    }
+    Some(out)
+}
+
+// A form's key or value decoded: '+' as a space, and percent-escapes, or None
+// for a '%' without two hex digits after it.
+fn decode_form(s: &[u8]) -> Option<Vec<u8>> {
+    let hex = |c: u8| (c as char).to_digit(16);
+    let mut out = Vec::with_capacity(s.len());
+    let mut i = 0;
+    while i < s.len() {
+        match s[i] {
+            b'%' => {
+                let (Some(a), Some(b)) = (s.get(i + 1).and_then(|&c| hex(c)), s.get(i + 2).and_then(|&c| hex(c)))
+                else {
+                    return None;
+                };
+                out.push((a * 16 + b) as u8);
+                i += 3;
+            }
+            c => {
+                out.push(if c == b'+' { b' ' } else { c });
+                i += 1;
+            }
         }
     }
     Some(out)
@@ -417,6 +444,9 @@ async fn route(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallib
     let data = DATA.get().unwrap();
     let path = req.uri().path();
     let method = req.method().clone();
+    if path.starts_with("/api/v3/") {
+        return Ok(writes::handle(req).await);
+    }
     if path.starts_with("/api/v1/") || path.starts_with("/api/v2/") {
         let (parts, body) = req.into_parts();
         let body = body.collect().await.map(|b| b.to_bytes()).unwrap_or_default();

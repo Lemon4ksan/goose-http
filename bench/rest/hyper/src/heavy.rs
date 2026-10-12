@@ -451,7 +451,7 @@ fn is_base64url(s: &[u8]) -> bool {
 }
 
 // Whether Authorization is a bearer token of three base64url segments.
-fn has_bearer(headers: &HeaderMap) -> bool {
+pub(crate) fn has_bearer(headers: &HeaderMap) -> bool {
     let Some(t) = headers.get(AUTHORIZATION).and_then(|v| v.as_bytes().strip_prefix(b"Bearer ")) else {
         return false;
     };

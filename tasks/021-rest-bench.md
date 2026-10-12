@@ -247,6 +247,17 @@ processes, one per role, since wrk's script can't tell its connections apart: up
 forms (4:3) on the rest. wrk counts the invalid batches' 422s, about a seventh of the
 second role's responses, as errors.
 
+hyper's tier D (`bench/rest/hyper/src/writes.rs`, 2026-10-12) passes the same checks in
+Docker, beside tier C. It reads the CSV from hyper's body stream frame by frame, with a
+port of Goose's reader: the `csv` and `csv-core` crates accept a quote inside an
+unquoted field and a lone CR, which the checker refuses. The multipart body goes
+through multer 3.1.0, the streaming parser that axum's `Multipart` uses. The batch is
+collected whole and read by serde_json into borrowed `RawValue` members, which are then
+checked by hand to list each field error. The form is collected whole and decoded by
+hand. multer stops reading at the close delimiter, and hyper closes a connection whose
+request body wasn't read to its end, as a chunked body's last chunk often isn't by
+then. The handler therefore lends multer the body and drains the rest after.
+
 ## Acceptance criteria
 
 - [ ] Tier D built as A to C are, and its mixed run with tier C
