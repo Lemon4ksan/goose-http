@@ -114,95 +114,123 @@ Status: proposed, for review before any code. Nothing below is decided.
 - may-minihttp 0.1.11 runs each connection in a coroutine that a blocking call parks;
   may 0.3.51 wakes a selector with an `eventfd` (`io/sys/unix/epoll.rs`). There is no
   handle to answer later with.
+- Tina (`a2e8d4d`, Apache 2.0), a thread-per-core framework in Odin, and its author's
+  post on async/await (https://pmbanugo.me/blog/why-async-await-complect-concurrency).
+  Every mailbox, pool, and channel is sized at boot, and a send returns `ok`,
+  `mailbox_full`, `pool_exhausted`, or `stale_handle` at once
+  (`docs/concepts/backpressure_and_drops.md`). Cross-core channels are rings with one
+  writer and one reader, one per pair of shards, with no lock or compare-and-swap on the
+  send path (`docs/concepts/thread_per_core.md`). Work goes to a shard chosen by key
+  (`key_to_shard`), never to a shared queue. A call waits for its reply with a timeout
+  it can't leave out (`ctx_call`), and timers are a fixed-capacity array with a bitmap
+  of armed slots (`src/timer.odin`). Its HTTP extension parks a connection with
+  `expect_reply(target, payload, timeout)` or `expect_notification(timeout, ...)`, and
+  wakes it with a `Route_Event` (`src/extensions/http/server/route.odin`). Its wakeups
+  are an `eventfd`, `EVFILT_USER`, and `PostQueuedCompletionStatus`
+  (`src/io_backend_*.odin`).
+
 - From memory, not checked: libuv keeps timers in a min-heap and wakes with
   `uv_async_send` over an eventfd or a pipe; h2o keeps a timer list per loop.
 
-### The proposal
+### The proposal (revised 2026-10-12, after Tina)
 
-1. **A mailbox per loop, in the shim.** A loop opens one at its start
-   (`net_mailbox_open`), which registers a wakeup with its wait: an `eventfd` in the
-   epoll set or polled by the ring on Linux, `EVFILT_USER` on macOS (also under the
-   ring's emulation, which waits through `net_epoll_wait`), and
-   `PostQueuedCompletionStatus` on the IOCP port. `net_post(box, bytes)` copies a
-   message into the box under a lock and wakes the loop; the loop drains the box
-   after each wait, appending the messages to a Goose buffer (spec §7.10's builder
-   append). A box has an id and a generation, so a post to a box whose loop has
-   returned fails (`ESRCH`), and a byte cap, past which `net_post` fails with
-   `EAGAIN` for the caller to retry or give up. This is data moving through C, against
-   `AGENTS.md`'s "C is for what Goose can't reach": the case for it is that Goose can
-   neither address a queue to a thread nor wake a kernel wait, and the box is a list
-   of byte runs, with no HTTP in it.
-2. **A handle that a closed connection invalidates.** `http::later(out, ms)` makes
-   the exchange wait, and returns a flat `http::Later`: the box's id and generation,
-   the connection's slot and a generation per slot (the io_uring loop's tag has one
-   already; the epoll loop gains one), and the exchange's number (`Exchange.served` in
-   HTTP/1.1, the stream id in HTTP/2). Any thread may call `http::wake(h, bytes)`,
-   which posts to the box. The loop checks the slot, its generation, and the exchange
-   number when the message arrives, and drops it if any differs. The connection that
-   took over the slot never sees it.
-3. **Two new events.** `WAKE` brings the posted bytes in `ev.data`, with the state as
-   `later` left it; the handler answers, begins a stream, or calls `later` again.
-   `TIMEOUT` comes when the time given to `later` runs out with no wake. Without
-   either answer, the loop answers 500 as it does today for a handler that doesn't.
-   The bytes are the program's own encoding (an id, JSON, a row): the response is
-   built on the loop thread, where `Date`, keep-alive, and the write buffer are.
-4. **Streams that wait.** At `MORE`, `later` pauses an open response, for
-   Server-Sent Events and long polling: no `MORE` comes until a `WAKE` or a
-   `TIMEOUT`. Today a `MORE` that neither sends nor ends closes the connection.
-5. **Timers in a heap per loop.** Each waiting exchange has an entry, keyed by its
-   deadline, in a min-heap of the loop's own, and the loop waits no longer than its
-   earliest deadline. The per-connection deadline and the sweep stay for the other
-   timeouts. A heap rather than the sweep, because the sweep runs about once a second
-   and HTTP/2 needs a timer per stream rather than per connection; rather than a
-   wheel, because the waits are far fewer than the connections.
-6. **HTTP/1.1 order.** While an exchange waits, `answer` parses nothing after it.
-   Pipelined bytes stay held, and reading stops once the read buffer is full, as it
-   does for a response the client doesn't take. Requests not waiting cost nothing:
-   the check is one flag, read where `settle` already reads the exchange.
-7. **Stop.** A waiting exchange counts as in progress: it gets `Config.grace_ms`, then
-   `CLOSED`. The wakeup could also make stop immediate rather than within a second,
-   but that is optional.
+Three pieces know nothing about HTTP and use no HTTP type, so that they can move to a
+package of their own later unchanged: a mailbox, a timer table, and generation-checked
+handles. The HTTP loops are their first user. Tina's model as a whole (isolates for
+everything, supervision) isn't adopted: a second user of these pieces, such as a
+database client driven from the loop, would be the time to reconsider it
+(2026-10-12). A request that doesn't wait costs nothing more: no allocation, no lock,
+and no clock read beyond the loops' own.
 
-Work is the program's: it spawns its own pool of `thread_fn` workers that take jobs
-from a typed queue, any worker taking any job, and wake the handle each job carries.
-The package spawns no threads.
+1. **A mailbox (`mail.goose`, over the shims).** A thread opens a box with a fixed
+   number of slots of a fixed size, allocated at open and never after. Any thread
+   sends to it by address: `mail_send(to, tag, bytes)` copies the bytes into a free
+   slot and returns `SENT`, `FULL` (no slot free, or no room in a slot), or `STALE`
+   (the box is closed, or opened again since the address was taken), at once, and
+   never grows or blocks. Adding to a box is lock-free, a ring with a sequence number
+   per slot, since any thread may send and the senders aren't known at open. The owner
+   takes what has come with `mail_take(box) { from, tag, bytes => }`. An address is
+   the box's id and generation and a 64-bit key the mailbox doesn't read: the owner
+   gives it its meaning. A box opened by a loop wakes the loop's wait: an `eventfd` in
+   the epoll set or polled by the ring on Linux, `EVFILT_USER` on macOS (also under the
+   ring's emulation), and `PostQueuedCompletionStatus` on the IOCP port. A thread with
+   no loop waits on its box with `mail_wait(box, ms)`. The ring and the wakeup are C,
+   since Goose has neither atomics nor a wait it can wake; what goes in a message, and
+   everything above, is Goose.
+2. **A timer table (`timers.goose`, Goose only).** A fixed-capacity min-heap of
+   deadlines, each with a 64-bit key, allocated at open: `arm(key, at) -> Timer`,
+   `cancel(t)`, `next()` for the loop's wait, and `expire(now) { key => }`. A timer is
+   a slot and a generation, so cancelling one that has fired is a no-op. The loops
+   size it to `Config.max_conns`, one wait per HTTP/1.1 connection; HTTP/2 would size
+   it by streams.
+3. **Generation-checked handles.** A slot index and a generation, which a slot's reuse
+   advances: the timers above use them, and so does the HTTP layer for its exchanges.
+   A `Later` (below) is a mailbox address whose key holds the connection's slot, the
+   slot's generation, and the exchange's number (`Exchange.served` in HTTP/1.1, the
+   stream id in HTTP/2).
+
+The HTTP layer, over them:
+
+4. **`http::later(out, ms)`** makes the exchange wait, with a time limit it must give,
+   and returns its `Later`, the address a reply goes to. At `MORE` it pauses an open
+   response instead, for Server-Sent Events and long polling.
+5. **Two events.** `WAKE` brings a message sent to the `Later`, in `ev.data`, with its
+   tag; the handler answers, sends more, or calls `later` again. `TIMEOUT` comes when
+   the limit passes first. A handler that answers neither gets 500 from the loop, as
+   today. A message whose key names a closed or reused connection, or an exchange that
+   has ended, is dropped.
+6. **Work goes to an address, not a shared queue.** A worker is a thread with a box
+   of its own; the program picks one, by key or in turn, and sends it the job with the
+   `Later` to reply to. A full box is the handler's to deal with, with 503 or a retry
+   at the next event. Goose's typed queues aren't used for this: any thread takes from
+   them, they have no bound, and they can't wake a loop.
+7. **HTTP/1.1 order, and stop.** While an exchange waits, the requests pipelined
+   behind it stay in the read buffer, and reading stops once it's full. At stop, a
+   waiting exchange gets `Config.grace_ms`, then `CLOSED`.
 
 ```goose
-struct Job { at: http::Later, user: i64 }
+struct Job { reply: http::Later, user: i64 }
 
-// The handler, at REQUEST:
-let at = http::later(out, 5000);
-qput(Job { at: at, user: id });
-// At WAKE: ev.data is what the worker posted. At TIMEOUT: answer 504.
+// The handler, at REQUEST: a full worker box answers 503.
+let reply = http::later(out, 5000);
+guard http::mail_send(workers[user % workers.len], JOB, Job { reply: reply, user: user }) == http::SENT
+else { http::respond(out, 503, "text/plain", ""); return; }
+// At WAKE: ev.data is the worker's reply. At TIMEOUT: answer 504.
 
-thread_fn pool() {
+thread_fn worker(box: http::Box) {
     loop {
-        let job = qget<Job>();
-        var row: u8[>..] = [];
-        query(job.user, row);
-        http::wake(job.at, row);   // false if the loop has returned or its box is full
+        http::mail_wait(box, 1000);
+        http::mail_take(box) { from, tag, bytes =>
+            ... run the query; reply to the job's Later with mail_send ...
+        };
     }
 }
 ```
 
+The names and the message's encoding are a sketch. The three pieces sit in the `http`
+namespace until they move, in files that import nothing of the package's HTTP side. When this lands, `README.md` credits
+Tina for the bounded mailboxes with a result at the send, for sending work to an
+address rather than a shared queue, and for the required time limit on a wait.
+
 ### Open questions for review
 
-- Is a mailbox of bytes in the shim acceptable, as the one exception to keeping data
-  in Goose, or should it wait for a Goose facility (a queue a thread can address and
-  a loop can wait on)? That facility would be a request to Goose's maintainer.
-- Should the posted bytes be the program's to read at `WAKE`, as above, or should the
-  worker build the whole response? The first keeps the package's response writers on
-  the loop thread; the second saves a step but splits `Date` and keep-alive between
-  threads.
+- The mailbox's ring and wakeup are C. Is that acceptable, or should it wait for a
+  Goose facility, a queue a thread can address and a loop can wait on, requested from
+  Goose's maintainer?
+- One lock-free ring per box that any thread adds to, as above, or Tina's one ring
+  per pair of sender and receiver, which needs no compare-and-swap but needs every
+  sender known, and registered, at the start?
 - Should the wakeup also make `http::stop` immediate?
 
 ### Phases, once agreed
 
-1. The mailbox and wakeup in `shim/kqueue.c` and the ring's emulation, with
-   `/later` and `/events` (Server-Sent Events) routes and their checks, on the Mac.
-2. `shim/net.c` and `shim/uring.c` on Linux, in Docker and on WSL2.
-3. `shim/iocp.c` on Windows.
-4. The rate of the benchmark routes, as for the other items.
+1. The timer table and handles, with unit tests, and the mailbox in `shim/kqueue.c`
+   and the ring's emulation, on the Mac.
+2. `http::later`, `WAKE`, `TIMEOUT`, and paused streams, with `/later` and `/events`
+   routes over a worker box, and their checks.
+3. `shim/net.c` and `shim/uring.c` on Linux, in Docker and on WSL2; `shim/iocp.c` on
+   Windows.
+4. The benchmark routes' rate, as for the other items.
 
 ## Checked fields (2026-10-12)
 
