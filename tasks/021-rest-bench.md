@@ -413,9 +413,9 @@ fits its remaining 4 ms, and isn't measured.
 ## Acceptance criteria
 
 - [x] Tier D built as A to C are, and its mixed run with tier C
-- [ ] The generator, writing each tier's dataset files from a fixed seed
-- [ ] Each tier's routes in Goose, loading the files, in both JSON ways
-- [ ] Each tier's wrk script and checker, passing against Goose
+- [x] The generator, writing each tier's dataset files from a fixed seed
+- [x] Each tier's routes in Goose, loading the files, in both JSON ways
+- [x] Each tier's wrk script and checker, passing against Goose
 - [ ] The competitors serving the same tiers, built in release mode, passing the checker
 - [ ] Each tier at saturation and at a fixed rate on the desktop, in `docs/results.md`
       with how it was measured
