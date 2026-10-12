@@ -81,8 +81,10 @@ as task 013's did.
 
 ## Answers that wait: a proposal (2026-10-12)
 
-Status: agreed as a proof of concept (2026-10-12), to build in a new session; see
-"Decided". Not started.
+Status: agreed as a proof of concept (2026-10-12); see "Decided". Being built:
+phase 1, the timer table (`timers.goose`) and handles (`handle.goose`), with
+`test/test_timers.goose`, which declares the package by `timers.goose` alone, so it
+compiles only while the table reaches nothing of the HTTP side (2026-10-12).
 
 ### What constrains it
 
