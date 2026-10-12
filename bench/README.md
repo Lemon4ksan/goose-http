@@ -137,6 +137,10 @@ value) and `many 4096` before it was measured, 2026-10-10. The io_uring servers 
 | tokio | passes | `keepalive`: keeps HTTP/1.0 without keep-alive open. `hostile`: never answers a request with bare-LF line ends, waiting for CRLF CRLF |
 | dusty | passes | `keepalive`: no `Connection: keep-alive` on HTTP/1.0 keep-alive. `hostile`: closes on a bare-LF request without a response |
 | vanilla-epoll | passes | as tokio |
+| tina | passes the 16 pipelined requests and the one sent a byte at a time, then resets the connection during the 512 KB request body | `forms`: answers an absolute-form target with 400. `keepalive`: keeps HTTP/1.0 without keep-alive open. `hostile`: never answers a request with bare-LF line ends. `many 4096` with 1 worker: closes connections past its 4,096 slots per shard; `many 4000` passes |
+
+Tina was checked on the desktop on 2026-10-13, 1 worker, `SERVER_NAME=tina`; it passes
+`tfb`.
 
 `keepalive` fails on HTTP/1.0 in every competitor, and these were probed check by check
 (2026-10-10, one worker each):

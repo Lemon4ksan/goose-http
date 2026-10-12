@@ -1,6 +1,6 @@
 # 019: Tina in the benchmark
 
-Status: in-progress (asked for 2026-10-12)
+Status: done (asked for 2026-10-12, done 2026-10-13)
 
 Tina (`pmbanugo/tina`), a thread-per-core framework in Odin whose mailboxes task 015
 took ideas from, has an HTTP/1.1 server. It joins `bench/` as `tina`, built in its
@@ -11,11 +11,11 @@ documented production configuration, beside odin-http, the other Odin entry.
 - [x] `bench/tina/main.odin` serves `/plaintext` and `/json` as the other entries do,
       and `bench/build.sh` builds it at a pinned commit (2026-10-12)
 - [x] A quick relative comparison in Docker on the Mac, recorded below (2026-10-12)
-- [ ] Each of `scripts/http_client.py`'s checks that Tina fails, in `bench/README.md`'s
-      table, with why
+- [x] Each of `scripts/http_client.py`'s checks that Tina fails, in `bench/README.md`'s
+      table, with why (2026-10-13)
 - [x] The full `bench/run.sh` matrix on the benchmark desktop, with `SERVERS` naming
       `tina`, in `docs/results.md` (2026-10-12,
-      [the full field](../docs/results.md#the-full-field))
+      [the full field](../../docs/results.md#the-full-field))
 
 ## The entry
 
@@ -65,9 +65,7 @@ pipelined 16 deep at 256 connections, wrk on CPUs 4-15, 3 runs): Tina served 216
 requests per second at 19,983-20,260 instructions and 18,566-18,751 cycles per request,
 8,230-8,334 of the instructions in user code, with 190 MB of peak RSS. Goose's epoll loop,
 in the same runs: 1.65-1.68 M, 2,475-2,530, and 1,995-2,036, with 2.4 MB
-([results](../docs/results.md#instructions-per-request)). The full matrix hasn't run on
-the desktop yet: this morning's cells for vanilla-epoll, tokio, may-minihttp, hyper, and
-dusty are reusable (`REUSE`), since their binaries are unchanged.
+([results](../../docs/results.md#instructions-per-request)).
 
 In the desktop's full matrix (2026-10-12, Goose `73dd28c`, 4 workers), Tina served
 plaintext at 0.47-0.74 M requests per second, against Goose io_uring's 6.02-6.74 M, and
@@ -78,4 +76,5 @@ JSON at 446-504 K, against 487-498 K: at 256 connections it led Goose's io_uring
 
 `scripts/http_client.py` against it, in Docker: `tfb` fails at its absolute-form request
 (`GET http://host/plaintext`), which Tina answers with 400, and `pipeline` gets a
-connection reset.
+connection reset. That request has since moved to `forms`; on the desktop (2026-10-13)
+Tina passes `tfb`, and `bench/README.md` lists what it fails, with why.
