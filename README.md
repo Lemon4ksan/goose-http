@@ -3,9 +3,9 @@
 HTTP/1.1 server package for [Goose](https://github.com/aardappel/goose). One event loop
 per worker: io_uring or epoll on Linux, kqueue on macOS, I/O completion ports on Windows.
 
-Parsing, routing, and responses are Goose. C only for syscalls, in `shim/`. Compiler and
-stdlib gaps go to [docs/goose-findings.md](docs/goose-findings.md), not into patches
-(2026-10-10).
+Parsing, routing, and responses are Goose. C only for what Goose can't reach, in `shim/`
+([below](#what-is-c-and-why)). Compiler and stdlib gaps go to
+[docs/goose-findings.md](docs/goose-findings.md), not into patches (2026-10-10).
 
 Early work. No TLS yet.
 
@@ -45,7 +45,7 @@ HTTP/1.1 on `main`. The tag `v0.1.0` has fixed-size requests and responses only.
 | 🟢 | Limits and timeouts, per connection and per route. Graceful shutdown. | |
 | 🟡 | `sendfile` on the epoll loop | Very soon |
 | 🟡 | Large responses on io_uring without the extra copy | Very soon |
-| 🔴 | Answers that wait: another thread, a timer, long polling, SSE | Soon |
+| 🟡 | Answers that wait: another thread, a timer, long polling, SSE | macOS; Linux and Windows next |
 | 🟢 | Client address. `Forwarded` from trusted proxies. | Not run on Windows yet |
 | 🔴 | IPv6, dual-stack, Unix sockets | Soon |
 | 🟢 | Access log, as a `DONE` event | |
@@ -243,6 +243,8 @@ thread_fn worker(cfg: http::Config) {
 | `END` | The body is complete. Request trailers are in `ev.trailers`, here or at a whole body's `REQUEST`; `http::field_in` finds one. |
 | `MORE` | A response is open, the body has ended, and the connection has room to send. |
 | `CLOSED` | The connection closed while the handler was owed a call. Release what `st` holds. |
+| `WAKE` | A message came to the address `later` returned: its bytes in `ev.data`, its tag in `ev.tag`. ([Answers that wait](#answers-that-wait)) |
+| `TIMEOUT` | `later`'s time limit passed first, or there was no room to wait. |
 | `DONE` | With `Config.log`, the response is whole: `ev.status`, `ev.sent` bytes, and `ev.ms` from the head's first byte, for an access log. `ev.req` is the request only when it was answered at `REQUEST`. |
 
 - `http::begin(out, status, length)` opens a response: `Content-Length`, or chunked
@@ -294,6 +296,40 @@ The benchmark server serves the directory in `FILES` at `/files/`.
   `X-Forwarded-For`, with `trusted` from `http::network("10.0.0.0/8")`.
   `http::format_address(text, a)` writes one.
 
+### Answers that wait
+
+A handler given state can hand a request to another thread, or wait for a timer, and
+answer later without blocking its worker. `Config.mail_slots` and `Config.max_waiting`
+turn it on; both are 0 by default, and then a loop opens no box and arms no timer.
+
+```goose
+// At REQUEST: the reply's address, with a time limit the handler must give.
+let reply = http::later(out, 5000);
+guard http::mail_send(worker, JOB, job_for(reply)) == http::SENT
+else { http::respond(out, 503, "text/plain", "busy"); return; }
+
+// At WAKE: ev.data and ev.tag are what the worker sent to reply.
+// At TIMEOUT: the limit passed first; answer 504.
+```
+
+- `http::later(out, ms)` makes the exchange wait for a message to the address it
+  returns, then calls the handler with `WAKE` or `TIMEOUT`. After `begin`, or at
+  `MORE`, it pauses an open response, for Server-Sent Events and long polling. A call
+  that writes a whole response doesn't wait.
+- Requests pipelined behind a waiting exchange wait in the read buffer, and reading
+  stops once it's full.
+- A message to an exchange that has ended, or to a connection that closed, is
+  dropped. At stop, a waiting exchange gets `Config.grace_ms`, then `CLOSED`.
+- A worker thread owns a box: `http::mail_open(slots, size)`, `http::mail_wait(box,
+  ms)`, `http::mail_take(box) { key, tag, bytes => }`. `http::mail_send(address, tag,
+  bytes)` returns `SENT`, `FULL`, or `STALE` at once, from any thread, and never blocks.
+- `http::timer_table(n)`, `http::arm`, `http::cancel`, and `http::expire` are the
+  loops' timers, for a worker's own.
+
+The benchmark server's `/later` and `/events` (`server/routes.goose`) wait for a worker
+thread with a box and a timer table of its own (`server/backend.goose`), with
+`MAIL_SLOTS` set.
+
 ### Event loops
 
 The program calls one. Goose compiles a generic function only where it's called, so the
@@ -314,15 +350,49 @@ other isn't in the binary.
 The benchmark server links both. `LOOP` picks: `uring` (`iocp` on Windows), `epoll`,
 or `uring-epoll`. See [architecture](docs/architecture/README.md#the-io_uring-loop-task-005).
 
+## What is C, and why
+
+Measuring Goose is the point, so everything that is HTTP is Goose: parsing, routing,
+response building, the loops' state machines, the timer table, and JSON. The C in
+`shim/` is thin functions for what Goose can't do:
+
+- **Syscalls and kernel structures.** Goose calls C functions, not the kernel, and its
+  structs are packed, so they don't match the kernel's own (`struct epoll_event` is 16
+  bytes on ARM, 12 in Goose). `shim/net.c` (Linux), `shim/kqueue.c` (macOS), and
+  `shim/net_win.c` (Windows) wrap sockets, epoll or kqueue, clocks, and file reads.
+- **Memory the kernel uses after a call returns.** A C function may not keep a
+  pointer into Goose memory past the call (spec §7.10), but io_uring and IOCP read and
+  write buffers while a request is in flight. So each ring owns its buffers in C:
+  `shim/uring.c` over liburing, `shim/iocp.c` over a completion port, and
+  `shim/ring_epoll.c`, which emulates the ring over epoll or kqueue.
+- **Atomics, and a wait another thread can end.** Goose threads share no memory and
+  have no atomics, so a mailbox that any thread sends to and that wakes a loop blocked
+  in the kernel is C: `shim/mail.c`'s bounded queue and stop list, and each platform's
+  waker (an `eventfd`, `EVFILT_USER`, or a completion packet). What goes in a message,
+  and everything above the queue, is Goose (`mail.goose`).
+
+## Credits
+
+The mailboxes take three ideas from [Tina](https://github.com/pmbanugo/tina), a
+thread-per-core framework in Odin, and its author's post
+[on async/await](https://pmbanugo.me/blog/why-async-await-complect-concurrency):
+
+- Mailboxes bounded at open, whose send says at once that the box is full or the
+  address stale, rather than blocking or growing.
+- Work sent to a worker's address, not to a shared queue.
+- A time limit required on every wait (`http::later`).
+
 ## Layout
 
 ```text
 http.goose     the package's entry: settings, errors, what both loops share
 *.goose        other modules, all namespace http: parser and response writers
                (message.goose), loops (uring.goose, epoll.goose), router
-               (router.goose), files (file.goose), shim functions (sys.goose, ring.goose)
+               (router.goose), files (file.goose), shim functions (sys.goose, ring.goose),
+               and with nothing of HTTP in them, the mailbox (mail.goose), timer table
+               (timers.goose), and handles (handle.goose)
 http.build     the package's sidecar: each platform's shim
-shim/          C for syscalls: sockets, epoll, io_uring, kqueue, IOCP
+shim/          C for syscalls: sockets, epoll, io_uring, kqueue, IOCP, and mailboxes
 server/        the benchmark server, importing the package from "../"
 test/          unit tests
 bench/         competing servers, load scripts, recorded results

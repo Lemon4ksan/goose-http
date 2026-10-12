@@ -3,12 +3,18 @@
 // /stream, which send a response of any size in pieces, /upload and /echo,
 // which take a body of any size in pieces, /upgrade, which switches to a
 // protocol that echoes bytes, /files/NAME, the files of the directory that
-// FILES names, and /client, the peer's address and port and the client's,
-// trusting proxies on loopback. With ACCESS_LOG set, each response is logged
-// to stdout (logged).
+// FILES names, /client, the peer's address and port and the client's,
+// trusting proxies on loopback, and /later and /events, answers that wait
+// for the backend thread (backend.goose): one reply, or Server-Sent Events.
+// With ACCESS_LOG set, each response is logged to stdout (logged).
 import std;
 import os;
 import http;
+import backend;
+
+// The backend thread's box, which app.goose sets before it spawns the
+// workers, which copy it; none while waiting is off (MAIL_SLOTS).
+var backend_box: http::MailAddress;
 
 // The most bytes /bytes and /stream send.
 let MAX_BYTES = 1000000000;
@@ -37,6 +43,8 @@ let UPLOAD: u8 = 1;
 let ECHO: u8 = 2;
 let SEND: u8 = 3;
 let FILE: u8 = 4;
+let LATER: u8 = 5;
+let EVENTS: u8 = 6;
 
 // The handler: routes each request, and carries on with those that take or
 // send their bodies in pieces. Inline, so that http::start and http::finish
@@ -57,6 +65,19 @@ inline fn handle(ev: http::Event, st: Transfer&, out: http::Reply) {
             if !http::send_file(out, st.file) { http::end(out); }
         } else if ev.kind == http::CLOSED {
             http::close_body(st.file);
+        }
+    } else if st.route == LATER {
+        if ev.kind == http::WAKE { http::respond(out, 200, "text/plain", ev.data); }
+        else if ev.kind == http::TIMEOUT { http::respond(out, 504, "text/plain", "timeout"); }
+    } else if st.route == EVENTS {
+        if ev.kind == http::WAKE {
+            http::send(out, "data: ");
+            http::send(out, ev.data);
+            http::send(out, "\n\n");
+            if ev.tag == REPLY_LAST { http::end(out); } else { http::later(out, st.left); }
+        } else if ev.kind == http::TIMEOUT {
+            http::send(out, ": timeout\n\n");
+            http::end(out);
         }
     } else if st.route == SEND && ev.kind == http::MORE {
         let k = min(st.left, PIECE);
@@ -163,6 +184,8 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
         }
     } else if get && path == "/client" {
         client(req, out);
+    } else if get && (path == "/later" || path == "/events") {
+        wait_for_backend(req, path == "/events", st, out);
     } else if req.target == "*" {
         // OPTIONS *, the only method parse lets "*" through with: what the
         // server as a whole allows (RFC 9110 §9.3.7).
@@ -194,6 +217,42 @@ fn serve_static(req: http::Request, name: const u8[:], st: Transfer&, out: http:
     }
     http::start(out, status);
     http::finish(out, "Content-Length: ", "");
+}
+
+// /later?id=ID&delay=D&ms=M: "ID 1" from the backend after D milliseconds,
+// or 504 if M milliseconds pass first. /events?id=ID&delay=D&n=N&ms=M: N
+// Server-Sent Events, "ID 1" to "ID N", D milliseconds apart, each within M
+// of the one before. 503 when the backend's box is full, or waiting is off.
+fn wait_for_backend(req: http::Request, events: bool, st: Transfer&, out: http::Reply) {
+    let ms = query_or(req.target, "ms", 5000);
+    var j = Job { delay: query_or(req.target, "delay", 0), count: if events { query_or(req.target, "n", 1) } else { 1 },
+                  .. };
+    let id, has = http::query_of(req.target, "id");
+    if has && id.len <= 32 { j.id.append(id); }
+    if events {
+        st.route = EVENTS;
+        st.left = ms;
+        http::begin(out, 200, -1);
+        http::field(out, "Content-Type", "text/event-stream");
+        http::field(out, "Cache-Control", "no-cache");
+        http::send(out, "");
+    } else {
+        st.route = LATER;
+    }
+    j.reply = http::later(out, ms);
+    var job: u8[>..] = [];
+    encode(job, j);
+    guard http::mail_send(backend_box, if events { JOB_EVENTS } else { JOB_LATER }, job) == http::SENT else {
+        if events { http::end(out); } else { http::respond(out, 503, "text/plain", "busy"); }
+        return;
+    };
+}
+
+fn query_or(target: const u8[:], key: const u8[:], otherwise: i64) -> i64 {
+    let v, has = http::query_of(target, key);
+    guard has else { return otherwise; }
+    let n, ok = parse_int(v);
+    return if ok { n } else { otherwise };
 }
 
 fn client(req: http::Request, out: http::Reply) {

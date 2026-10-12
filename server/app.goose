@@ -39,6 +39,11 @@ fn run(default_loop: const u8[:]) {
         cfg.max_requests = positive("MAX_REQUESTS", cfg.max_requests);
         var logging: u8[>..] = [];
         cfg.log = env("ACCESS_LOG", logging);
+        // MAIL_SLOTS turns on answers that wait, for /later and /events,
+        // with MAX_WAITING exchanges waiting at once per worker.
+        cfg.mail_slots = positive("MAIL_SLOTS", 0) as i32;
+        cfg.max_waiting = positive("MAX_WAITING", if cfg.mail_slots > 0 { 1024 } else { 0 });
+        cfg.mail_size = JOB_SIZE;
         serve_http(cfg, default_loop);
     }
     else if mode == "echo-blocking" { echo_blocking(port); }
@@ -72,6 +77,14 @@ fn serve_http(given: http::Config, default_loop: const u8[:]) {
         exit(2);
     }
     let n = http::worker_count(cfg);
+    // The backend thread of /later and /events, for every worker, with a box
+    // of its own, which lives as long as the process.
+    if cfg.mail_slots > 0 {
+        let b, e = http::mail_open(256, JOB_SIZE);
+        guard e == 0 else { stopped(http::Error { call: "mail_open", code: -e }); }
+        backend_box = http::address(b, 0);
+        thread_spawn(backend, b, 4096);
+    }
     // Where io_uring is blocked, the uring loop runs over an emulation, and
     // says so.
     var ring: u8[>..] = [];

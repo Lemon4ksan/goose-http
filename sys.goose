@@ -105,9 +105,18 @@ extern fn net_strerror(err: i64, out: u8[:]) -> i64;
 // Stops every loop running in the process: each closes its listener and its
 // idle connections, answers the next request on each other connection with
 // Connection: close, and returns once they have closed, or after
-// cfg.grace_ms, with an Error whose code is 0. A loop sees the stop within a
-// second. A loop started after the stop runs. Any thread may call it.
+// cfg.grace_ms, with an Error whose code is 0. Each loop's waker, which
+// net_stop_watch lists, ends its wait at once. A loop started after the stop
+// runs. Any thread may call it.
 extern "net_stop" fn stop();
+// Lists and unlists a loop's waker (mail.goose's net_waker, ring.goose's
+// ring_waker) for stop to wake. net_stop_watch returns 0, or -EMFILE when the
+// list is full, and then the loop sees a stop at its next timeout, within a
+// second.
+extern fn net_stop_watch(waker: i64) -> i32;
+extern fn net_stop_unwatch(waker: i64);
+// Closes a waker no box owns.
+extern fn net_waker_close(waker: i64);
 // Makes SIGTERM and SIGINT, or on Windows Ctrl+C and Ctrl+Break, call stop
 // instead of ending the process. Returns 0 or -code.
 extern "net_stop_on_signals" fn stop_on_signals() -> i32;

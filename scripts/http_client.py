@@ -12,6 +12,9 @@
     http_client.py PORT slow        slow clients, against the server's timeouts
     http_client.py PORT many N      N connections at once, each pipelining
     http_client.py PORT emfile N    N connections to a server with fewer fds
+    http_client.py PORT later       answers that wait: /later and /events, for a
+                                    server started with MAIL_SLOTS
+    http_client.py PORT later-off   /later's 503, for a server without them
     http_client.py PORT stop PID    a graceful stop, by SIGTERM to the server's PID
     http_client.py PORT stop-break SERVER
                                     on Windows, a graceful stop by Ctrl+Break, of a
@@ -688,8 +691,9 @@ def graceful_stop(port, send):
     t0 = time.time()
     if not idle.closed():
         fail("an idle connection stayed open after the stop")
-    if time.time() - t0 > 2.5:
-        fail(f"the idle connection closed {time.time() - t0:.1f} s after the stop")
+    # Each loop's waker ends its wait at the stop (http::stop).
+    if time.time() - t0 > 0.5:
+        fail(f"the idle connection closed {time.time() - t0:.2f} s after the stop")
     # Every worker's listener closes within a second or so. Windows refuses a
     # connection to a closed port only after retrying for about 2 s, so a
     # timeout counts as refused, and on Linux a connection queued on a
@@ -879,6 +883,87 @@ def client(port):
     print("client: ok")
 
 
+def later(port):
+    """Against a server started with MAIL_SLOTS: /later's answer comes from
+    the backend thread after its delay, and 504 when the time limit passes
+    first, after which the backend's late reply is dropped; requests pipelined
+    behind a waiting one wait for it, in order; a reply to a connection that
+    closed while it waited doesn't reach the next connection in its slot; and
+    /events sends its events as they come, or ends at its time limit."""
+    def timed(c, path):
+        t0 = time.time()
+        c.send(request(path))
+        r = c.response()
+        return r, time.time() - t0
+
+    c = Conn(port)
+    r, took = timed(c, b"/later?id=a&delay=200")
+    if r.status != 200 or r.body != b"a 1" or not 0.19 <= took < 1:
+        fail(f"/later: {r.status} {r.body!r} after {took:.2f} s")
+
+    # The time limit, then the late reply dropped: the next request on the
+    # connection gets its own answer.
+    r, took = timed(c, b"/later?id=t&delay=500&ms=100")
+    if r.status != 504 or not 0.09 <= took < 0.45:
+        fail(f"/later past its limit: {r.status} {r.body!r} after {took:.2f} s")
+    time.sleep(0.6)
+    r, _ = timed(c, b"/plaintext")
+    if r.status != 200 or r.body != b"Hello, World!":
+        fail(f"after a timeout and a late reply: {r.status} {r.body!r}")
+
+    # Pipelined behind a waiting exchange, answered in order after it.
+    t0 = time.time()
+    c.send(request(b"/later?id=p&delay=300") + request(b"/plaintext") + request(b"/later?id=q&delay=50"))
+    bodies = []
+    for _ in range(3):
+        bodies.append(c.response().body)
+        if len(bodies) == 2 and time.time() - t0 < 0.29:
+            fail(f"a request pipelined behind a waiting one was answered after {time.time() - t0:.2f} s")
+    if bodies != [b"p 1", b"Hello, World!", b"q 1"]:
+        fail(f"pipelined behind a waiting exchange: {bodies}")
+    c.close()
+
+    # A stale reply: a's connection closes while it waits, and eight others,
+    # one likely in its worker and slot, wait across the time a's reply comes.
+    a = Conn(port)
+    a.send(request(b"/later?id=a&delay=300"))
+    time.sleep(0.05)
+    a.close()
+    time.sleep(0.05)
+    others = [Conn(port) for _ in range(8)]
+    for i, b in enumerate(others):
+        b.send(request(b"/later?id=b%d&delay=500" % i))
+    for i, b in enumerate(others):
+        r = b.response()
+        if r.status != 200 or r.body != b"b%d 1" % i:
+            fail(f"a stale reply reached another connection: {r.status} {r.body!r}")
+        b.close()
+
+    # Server-Sent Events, and their time limit.
+    c = Conn(port)
+    r, took = timed(c, b"/events?id=e&delay=50&n=5")
+    want = b"".join(b"data: e %d\n\n" % i for i in range(1, 6))
+    if r.status != 200 or r.header("content-type") != "text/event-stream" or r.body != want or took < 0.24:
+        fail(f"/events: {r.status} {r.body!r} after {took:.2f} s")
+    r, took = timed(c, b"/events?id=s&delay=300&n=2&ms=100")
+    if r.status != 200 or r.body != b": timeout\n\n" or took > 0.45:
+        fail(f"/events past its limit: {r.status} {r.body!r} after {took:.2f} s")
+    c.close()
+    print("later: ok")
+
+
+def later_off(port):
+    """Against a server without MAIL_SLOTS: /later can't hand its job on, and
+    answers 503 at once."""
+    c = Conn(port)
+    c.send(request(b"/later?id=x&delay=100"))
+    r = c.response()
+    if r.status != 503:
+        fail(f"/later without waiting: {r.status} {r.body!r}")
+    c.close()
+    print("later-off: ok")
+
+
 def raw_exchange(port, data, pause=0.0):
     """Sends data, its first byte alone first when pause is set, on a new
     connection, and returns every byte back until the server closes."""
@@ -945,7 +1030,7 @@ def main():
     else:
         {"tfb": tfb, "pipeline": pipeline, "large": large, "chunked": chunked, "keepalive": keepalive,
          "hostile": hostile, "slow": slow, "stream": stream, "requests": requests,
-         "client": client}[mode](port)
+         "client": client, "later": later, "later-off": later_off}[mode](port)
 
 
 if __name__ == "__main__":

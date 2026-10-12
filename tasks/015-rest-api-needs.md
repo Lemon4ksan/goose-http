@@ -95,6 +95,32 @@ Status: agreed as a proof of concept (2026-10-12); see "Decided". Being built:
   the kernel; no wait reaches its 2 s limit. `test-unit.sh` builds a test with a
   `thread_fn` with the C compiler, as TinyCC runs no threads (2026-10-12). The mailbox's
   address type is `MailAddress`, since `Address` is an IP address (`forwarded.goose`).
+- Phase 3, on macOS, both loops: `http::later`, `WAKE`, `TIMEOUT`, paused streams,
+  `Config.mail_slots`, `mail_size`, and `max_waiting` (0, 256, and 0 by default), and
+  `/later` and `/events` in the benchmark server over `server/backend.goose`, a thread
+  with a box and timer table of its own (2026-10-12). How it came out against the
+  sketch:
+  - A `Later`'s key is the connection's slot (20 bits, so a box needs `max_conns` of
+    at most 2^20), 24 bits of the slot's generation, and 20 of `Exchange.served`; the
+    loop sets the exchange's address at `REQUEST`, in `Stream.later`, and it stays the
+    same for each `later` in the exchange, as `/events` needs.
+  - A call that writes a whole response doesn't wait, so the sketch's 503 for a full
+    worker box works as written.
+  - With no timer free, or no box, the exchange gets `TIMEOUT` in the loop's next pass.
+  - While an exchange waits, the loop goes on reading, holding what comes, until it holds
+    the read buffer's worth; so a client that closes while it waits is seen, and its
+    reply dropped.
+  - The wakeup makes `http::stop` immediate (architecture, "Graceful shutdown"): the
+    stop check now wants an idle connection closed within 0.5 s, not 2.5.
+  - kqueue replaces a knote's `udata` at every change, a trigger's too, so
+    `net_waker_wake` passes the tag again.
+  - Checks: `scripts/http_client.py`'s `later`, against a server with `MAIL_SLOTS=64`:
+    `/later`'s reply after its delay, 504 at its limit with the late reply dropped,
+    requests pipelined behind a waiting one answered after it and in order, a reply to a
+    connection that closed while waiting not reaching any of 8 connections that wait
+    across it, `/events`' events, and their limit. With the key compared by slot only,
+    the stale-reply check fails. `later-off`: 503 without `MAIL_SLOTS`.
+  - `README.md` credits Tina for exactly the three ideas taken.
 
 ### What constrains it
 
@@ -220,9 +246,10 @@ thread_fn worker(box: http::Box) {
 ```
 
 The names and the message's encoding are a sketch. The three pieces sit in the `http`
-namespace until they move, in files that import nothing of the package's HTTP side. When this lands, `README.md` credits
-Tina for the bounded mailboxes with a result at the send, for sending work to an
-address rather than a shared queue, and for the required time limit on a wait.
+namespace until they move, in files that import nothing of the package's HTTP side.
+`README.md` credits Tina for the bounded mailboxes with a result at the send, for
+sending work to an address rather than a shared queue, and for the required time limit
+on a wait.
 
 ### Decided (2026-10-12, for the proof of concept; refine later)
 

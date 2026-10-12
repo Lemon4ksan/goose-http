@@ -720,6 +720,13 @@ struct Stream {
     raw: bool = false,      // upgraded: send writes bytes as they are
     left: i64 = 0,          // of a Content-Length body, the bytes still to send; -1 for none
     status: i32 = 0,        // what start was last given
+    // later's: the exchange waits for a WAKE or its TIMEOUT, and rearm says
+    // the loop has yet to start wait_ms's timer. later is the exchange's
+    // address, which the loop sets when it has a box (Config.mail_slots).
+    waiting: bool = false,
+    rearm: bool = false,
+    wait_ms: i64 = 0,
+    later: MailAddress = MailAddress { .. },
 }
 
 // The writers below are inline, so that a handler's constant status picks
@@ -966,6 +973,7 @@ inline fn status_line(status: i32) -> const u8[:] {
         501 => "HTTP/1.1 501 Not Implemented\r\n",
         502 => "HTTP/1.1 502 Bad Gateway\r\n",
         503 => "HTTP/1.1 503 Service Unavailable\r\n",
+        504 => "HTTP/1.1 504 Gateway Timeout\r\n",
         505 => "HTTP/1.1 505 HTTP Version Not Supported\r\n",
         _ => "",
     }

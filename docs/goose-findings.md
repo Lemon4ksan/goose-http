@@ -650,3 +650,48 @@ It prints `json: bad string at byte 9` twice.
 
 Workaround: a handler joins the pieces, up to a limit of its own, and
 parses at `END`; a body that fits the read buffer comes whole at `REQUEST`.
+
+## A reference variable can't be rebound to one with another root
+
+Found on `5c83a5a`, task 015. Status: open
+
+A `var` reference bound to a parameter's target can't be rebound with `.=` to a local's,
+and the error says so. The loops wanted one variable for "the event for the next call":
+the caller's WAKE first, then a local "no event". Expected: a variable whose root is the
+shorter-lived of the two, as two separate bindings would be.
+
+    struct E { k: i32 }
+
+    fn f(w: const E&) {
+        let none = E { k: 0 };
+        var e .= w;
+        print(e.k);
+        e .= none;      // error: re-binding e with a reference rooted at a
+        print(e.k);     // different scope depth is not supported (§9.2)
+    }
+
+    fn main() {
+        let a = E { k: 1 };
+        f(a);
+    }
+
+Workaround: copy the value into a local and change its field (`var ev = wake; ...
+ev.kind = NO_EVENT;`, in `uring.goose`'s `pump` and `epoll.goose`'s `advance`).
+
+## A struct literal can't be passed to a `const T&` parameter
+
+Found on `5c83a5a`, task 015. Status: open
+
+A call that passes a struct literal, or any temporary, to a `const T&` parameter finds
+no overload, where C++ would bind the reference to the temporary. Expected: the
+temporary lives until the call returns, as the in-place construction rule (spec §4.3)
+already places it.
+
+    struct E { k: i32 }
+
+    fn g(e: const E&) -> i32 { e.k }
+
+    fn main() { print(g(E { k: 1 })); }   // error: cannot pass E as const E&
+
+Workaround: bind the literal to a local first (`let ev = Event { ... }; resume(c, ev);`
+in the loops' `delivered` and `timed_out`).

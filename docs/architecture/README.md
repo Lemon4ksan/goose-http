@@ -23,7 +23,9 @@ until the task named beside it confirms or replaces it.
   `shim/uring.c` over a completion port. `shim/iocp.c` is the one shim that isn't thin:
   it emulates io_uring's multishot requests with reference-counted records, and a
   callback on a system wait thread hands accepts to each worker's port. The callback is
-  C calling C, so Goose still never runs on a thread it didn't start.
+  C calling C, so Goose still never runs on a thread it didn't start. `shim/mail.c`,
+  the mailboxes, is shared by every platform, over each shim's waker (answers that
+  wait, below).
   Anything that needs a callback, such as llhttp, libuv, or a C HTTP server, is out
   (confirmed by task 002, 2026-10-10). Details:
   - `goose build` compiles the shim as C files of their own, which the package's
@@ -172,27 +174,39 @@ until the task named beside it confirms or replaces it.
   function: the handler's state still holds what it kept of the request. It ends at
   the write buffer, not at the client's last byte, which the loops don't track per
   response.
-- **Graceful shutdown by a counter, not a wakeup** (task 013, 2026-10-12).
-  `http::stop()`, and `SIGTERM` or `SIGINT` once a program calls
+- **Graceful shutdown by a counter, and a wakeup** (task 013, 2026-10-12; the wakeup
+  task 015, 2026-10-12). `http::stop()`, and `SIGTERM` or `SIGINT` once a program calls
   `http::stop_on_signals()` (Ctrl+C and Ctrl+Break on Windows), add one to a counter
-  in the shim. Each loop reads it at its start and after each wait, which ends within
-  a second, and once it moves on: closes its listener and its connections between
-  requests, answers the next request on each other connection with `Connection:
-  close`, and returns an `Error` with code 0 once they have closed, or after
-  `Config.grace_ms` (10 s). A counter, and not a flag, lets a loop started after a
-  stop run.
-  - A wakeup in each shim's wait was the other way: an eventfd on Linux, a pipe on
-    macOS, a completion posted to each port on Windows. It would stop an idle worker
-    at once instead of within a second, but needs a registry of the workers' waits
-    that a signal handler can walk, in four shims. Waking an idle worker once a
-    second costs nothing measurable; workers with connections already woke that
-    often for the sweep.
+  in the shim. Each loop reads it at its start and after each wait, and once it moves
+  on: closes its listener and its connections between requests, answers the next
+  request on each other connection with `Connection: close`, and returns an `Error`
+  with code 0 once they have closed, or after `Config.grace_ms` (10 s). A counter, and
+  not a flag, lets a loop started after a stop run.
+  - Each loop's waker, which answers that wait need anyway (below), is on a list in `shim/mail.c` that `net_stop` walks, so a stop ends every wait at
+    once instead of within a second. The list is a fixed array changed and read with
+    atomics only, since `net_stop` runs in a signal handler; a loop takes its waker off
+    it, and waits out a wake in flight, before freeing it. Task 013 had left the wakeup
+    out because the registry was its only use.
   - The io_uring loop tears its ring down on the way out (`ring_destroy`). On
     Windows the completion port and its buffers stay allocated: closing the sockets
     cancels their requests, and Windows completes the cancels later, into them.
   - On macOS, the table of shared listeners holds an fd of its own for each, and
     each worker a dup it gives back in `net_close`; the last one back closes the
     listener, so a loop started again opens a new one.
+
+- **Answers that wait: mailboxes, a timer table, and handles** (task 015, 2026-10-12).
+  Three pieces that import nothing of HTTP, so that they can move to a package of their
+  own: a mailbox (`mail.goose` over `shim/mail.c`), bounded at open, whose lock-free send
+  returns `SENT`, `FULL`, or `STALE` at once; a fixed-capacity timer table
+  (`timers.goose`); and generation-checked handles (`handle.goose`). The queue is C
+  because Goose has no atomics and no wait another thread can end; one ring per box, any
+  thread adding to it, and a wakeup only on the pending count's 0 to 1. Goose's typed
+  queues weren't used: any thread takes from them, they have no bound, and they can't
+  wake a loop. A loop opens a box and timer table only when `Config.mail_slots` and
+  `Config.max_waiting` are above 0. `http::later` returns the exchange's address, whose
+  key holds the connection's slot, 24 bits of its generation, and 20 of the exchange's
+  number, and a message whose key no waiting exchange holds is dropped. The design and
+  what the competitors do are in task 015, "Answers that wait: a proposal".
 
 ## Proposed
 

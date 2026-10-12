@@ -17,6 +17,8 @@ import ring;
 // closed isn't taken for one of the slot's next connection. The listener's
 // slot is one no connection gets.
 let RING_LISTENER: u64 = 0xFFFFFFFF;
+// The tag of the waker's completions (ring_waker): mail in the box, or a stop.
+let RING_WAKE: u64 = 0xFFFFFFFE;
 
 // Between completions, a connection holds what it couldn't answer yet and
 // the responses its send in flight left waiting, as runs of the worker's
@@ -56,6 +58,26 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         net_close(lfd);
         return Error { call: "io_uring", code: -r };
     }
+    let waker = ring_waker(r, RING_WAKE);
+    guard waker >= 0 else {
+        net_close(lfd);
+        ring_destroy(r);
+        return Error { call: "waker", code: -waker };
+    }
+    net_stop_watch(waker);
+    let box, opened = open_waiting(cfg, waker);
+    guard opened.code == 0 else {
+        close_waiting(box, waker);
+        net_close(lfd);
+        ring_destroy(r);
+        return opened;
+    }
+    let waiting = box.handle.slot >= 0;
+    var timers = timer_table(if waiting { cfg.max_waiting } else { 0 });
+    // Exchanges owed TIMEOUT for want of a timer, by their keys.
+    var overdue: u64[>..] = [];
+    let nothing = Request { .. };
+    let none = Event { kind: NO_EVENT, req: nothing, data: "", whole: false, trailers: "" };
     ring_accept(r, lfd, RING_LISTENER);
 
     let started = stops();
@@ -107,6 +129,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         let i = conns.alloc_index(RingConn<S> { fd: fd, reading: true, deadline: now + cfg.request_ms, .. });
         let c .= conns[i];
         c.tag = (generation << 32) | (i as u64);
+        if waiting { c.x.stream.later = MailAddress { box: box.handle, key: later_base(i, generation) }; }
         ring_recv(r, fd, c.tag);
         open++;
         if open == cfg.max_conns && accepting { ring_cancel(r, RING_LISTENER); }
@@ -115,6 +138,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     fn close_conn(i: i64) {
         let c .= conns[i];
         abandon(c, H);
+        cancel(timers, c.x.timer);
         ring_close(r, c.fd);
         c.fd = -1;
         c.tag = 0;
@@ -145,34 +169,40 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
 
     // Answers n received bytes after rbuf[..rlen]: those of provided buffer
     // buf, or of src when buf is -1. rbuf takes them as it has room. If the
-    // connection reaches cfg.max_queued, it stops reading and holds the rest.
-    fn pump(c: RingConn<S>&, buf: i32, src: const u8[:], n: i64) {
+    // connection reaches cfg.max_queued, it stops reading and holds the rest;
+    // while its exchange waits, it holds the rest, and stops reading once it
+    // holds rbuf's worth. wake goes to answer first (answer).
+    fn pump(c: RingConn<S>&, buf: i32, src: const u8[:], n: i64, wake: const Event&) {
         // At least once, with no bytes, to go on with a response.
         var off: i64 = 0;
+        var ev = wake;
         loop {
             let k = min(n - off, rbuf.len - rlen);
             if buf >= 0 { ring_take(r, buf, off, rbuf[rlen..rlen + k]); }
             else { copy_into(rbuf[rlen..rlen + k], src[off..off + k]); }
             rlen += k;
             off += k;
-            let rest, done, full = answer(c, rbuf, rlen, wbuf, common, cfg, fresh, stopping, now, H) {
+            let rest, done, full = answer(c, rbuf, rlen, wbuf, common, cfg, fresh, stopping, now, ev, H) {
                 flush(c);
                 !blocked(c)
             };
+            ev.kind = NO_EVENT;
             rlen = rest;
             if done > 0 { progress = true; }
             if c.state != OPEN {
                 rlen = 0;
                 break;
             }
-            if blocked(c) {
+            if blocked(c) || c.x.stream.waiting {
                 c.held = spill.alloc_slice(rlen + n - off);
                 copy_into(c.held[..rlen], rbuf[..rlen]);
                 if buf >= 0 { ring_take(r, buf, off, c.held[rlen..]); }
                 else { copy_into(c.held[rlen..], src[off..n]); }
                 rlen = 0;
-                c.stalled = true;
-                if c.reading { ring_cancel(r, c.tag); }
+                if blocked(c) || c.held.len >= rbuf.len {
+                    c.stalled = true;
+                    if c.reading { ring_cancel(r, c.tag); }
+                }
                 break;
             }
             if off >= n { break; }
@@ -182,6 +212,47 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
             copy_into(c.held, rbuf[..rlen]);
         }
         flush(c);
+        if c.x.stream.rearm && start_wait(c, timers, now) { overdue.push(c.x.stream.later.key); }
+    }
+
+    // Goes on with c's exchange, which waited, with ev, its WAKE or TIMEOUT,
+    // and then with what c holds.
+    fn resume(c: RingConn<S>&, ev: const Event&) {
+        progress = false;
+        c.stalled = false;
+        let src = c.held;
+        c.held = c.held[..0];
+        rlen = 0;
+        pump(c, -1, src, src.len, ev);
+        if src.len > 0 { spill.free_slice(src); }
+        if c.state != DRAINING && !c.reading && !c.stalled {
+            ring_recv(r, c.fd, c.tag);
+            c.reading = true;
+        }
+        touch(c);
+    }
+
+    // A message to key, for the exchange that waits for it, if any.
+    fn delivered(key: u64, tag: i32, bytes: const u8[:]) {
+        let i = later_slot(key);
+        guard i < conns.len && waits_for(conns[i], key) else { return; }
+        let c .= conns[i];
+        cancel(timers, c.x.timer);
+        c.x.stream.waiting = false;
+        let ev = Event { kind: WAKE, req: nothing, data: bytes, whole: false, trailers: "", tag: tag };
+        resume(c, ev);
+    }
+
+    // The exchange of key, which waited, or wanted to and found no timer,
+    // is owed TIMEOUT.
+    fn timed_out(key: u64, waited: bool) {
+        let i = later_slot(key);
+        guard i < conns.len else { return; }
+        let c .= conns[i];
+        guard c.fd >= 0 && c.state == OPEN && c.x.stream.later.key == key && c.x.stream.waiting == waited else { return; }
+        c.x.stream.waiting = false;
+        let ev = Event { kind: TIMEOUT, req: nothing, data: "", whole: false, trailers: "" };
+        resume(c, ev);
     }
 
     // A receive's completion. False when the connection is done.
@@ -191,10 +262,15 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
             let n = cq.res as i64;
             // A connection that isn't OPEN drops what arrives.
             if c.state != OPEN {
-            } else if c.stalled {
+            } else if c.stalled || c.x.stream.waiting {
                 let m = c.held.len;
-                c.held = spill.realloc_slice(c.held, m + n);
+                if m == 0 { c.x.since = now; }
+                c.held = if m == 0 { spill.alloc_slice(n) } else { spill.realloc_slice(c.held, m + n) };
                 ring_take(r, cq.buf, 0, c.held[m..]);
+                if !c.stalled && c.held.len >= rbuf.len {
+                    c.stalled = true;
+                    if c.reading { ring_cancel(r, c.tag); }
+                }
             } else {
                 rlen = c.held.len;
                 if rlen == 0 { c.x.since = now; }
@@ -203,7 +279,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
                     spill.free_slice(c.held);
                     c.held = c.held[..0];
                 }
-                pump(c, cq.buf, "", n);
+                pump(c, cq.buf, "", n, none);
             }
             ring_give(r, cq.buf);
         } else if cq.res == 0 || (cq.res != -ENOBUFS && cq.res != -ECANCELED) {
@@ -237,7 +313,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
             let src = c.held;
             c.held = c.held[..0];
             rlen = 0;
-            pump(c, -1, src, src.len);
+            pump(c, -1, src, src.len, none);
             spill.free_slice(src);
         }
         if !c.reading && !c.stalled {
@@ -261,10 +337,11 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     // rest of a request is refused with a 408 instead, which closes it as
     // any refusal does; cfg.linger_ms bounds the send. A close aborts a send in
     // flight on Windows, and io_uring's cancels one that hasn't gone out.
+    // An exchange that waits has its own time limit instead.
     fn sweep() {
         for i in conns.len {
             let c .= conns[i];
-            if c.fd < 0 || c.deadline > now { continue; }
+            if c.fd < 0 || c.deadline > now || c.x.stream.waiting { continue; }
             if owes_408(c) && !c.sending {
                 wbuf.clear();
                 refuse(wbuf, 408, common);
@@ -289,6 +366,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         for i in conns.len {
             let c .= conns[i];
             if c.fd >= 0 && c.state == OPEN && idle(c) && !c.sending && c.out.len == 0 { close_conn(i); }
+            else if c.fd >= 0 && c.x.stream.waiting { c.x.keep_alive = false; }
         }
     }
 
@@ -296,9 +374,10 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     // with code 0, is returned from here.
     fn spin() -> Error {
         loop {
-            // A wait ends within a second, for a stop, the sweep, and a
-            // stopped accept's retry.
-            let n = ring_wait(r, done, 1000);
+            // A wait ends within a second, for the sweep and a stopped
+            // accept's retry, or at the next timer; the waker ends it for
+            // mail and a stop.
+            let n = ring_wait(r, done, if overdue.len > 0 { 0 } else { wait_for(timers, now) });
             if n == -EINTR { continue; }
             guard n >= 0 else { return Error { call: "wait", code: -n }; }
             now = net_clock_ms();
@@ -314,6 +393,9 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
                     accepted(cq);
                     continue;
                 }
+                if cq.tag == RING_WAKE {                    if waiting { mail_take(box) { key, tag, bytes => delivered(key, tag, bytes); }; }
+                    continue;
+                }
                 let i = (cq.tag & 0xFFFFFFFF) as i64;
                 if i >= conns.len || conns[i].tag != cq.tag {
                     // The connection closed after the request was queued.
@@ -324,6 +406,12 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
                 progress = false;
                 let ok = if cq.send { sent(c, cq.res) } else { received(c, cq) };
                 if ok { touch(c); } else { close_conn(i); }
+            }
+            if waiting {
+                expire(timers, now) { key => timed_out(key, true); };
+                let owed = overdue.len;
+                for k in owed { timed_out(overdue[k], false); }
+                drop_first(overdue, owed);
             }
             let tick = now >= next_sweep;
             if tick {
@@ -348,6 +436,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         }
     }
     if lfd >= 0 { net_close(lfd); }
+    close_waiting(box, waker);
     // Submits the closes still queued, then frees the ring.
     ring_wait(r, done, 0);
     ring_destroy(r);

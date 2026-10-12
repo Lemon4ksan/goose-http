@@ -448,13 +448,15 @@ int32_t net_epoll_wait(int32_t ep, net_events out, int32_t timeout_ms) {
    stays reported until a wait takes it and no wake is lost between a check
    and a wait. On a loop's kqueue its event comes out of net_epoll_wait as IN
    with the waker's tag; with ep -1 the waker has a kqueue of its own, for
-   net_waker_wait. Any thread may wake it. */
-struct net_waker { int kq, own; };
+   net_waker_wait. Any thread may wake it. Each change to a knote replaces
+   its udata, the trigger's too, so the trigger passes the tag again. */
+struct net_waker { int kq, own; uint64_t tag; };
 
 int64_t net_waker(int32_t ep, uint64_t tag) {
     struct net_waker *w = malloc(sizeof *w);
     if (!w) return -net_err(ENOMEM);
     w->own = ep < 0;
+    w->tag = tag;
     w->kq = w->own ? net_epoll_create() : ep;
     if (w->kq < 0) {
         int32_t r = w->kq;
@@ -475,7 +477,7 @@ int64_t net_waker(int32_t ep, uint64_t tag) {
 void net_waker_wake(int64_t h) {
     struct net_waker *w = (struct net_waker *)(intptr_t)h;
     struct kevent ch;
-    EV_SET(&ch, (uintptr_t)w, EVFILT_USER, 0, NOTE_TRIGGER, 0, NULL);
+    EV_SET(&ch, (uintptr_t)w, EVFILT_USER, 0, NOTE_TRIGGER, 0, (void *)w->tag);
     kevent(w->kq, &ch, 1, NULL, 0, NULL);
 }
 
@@ -549,11 +551,16 @@ int64_t net_strerror(int64_t err, net_bytes out) {
 /* How many times net_stop has run in the process. A loop reads it at its
    start, and stops once it has moved on. An atomic counter, and not a flag, so
    that a loop started after a stop runs. A signal handler may call net_stop:
-   a lock-free atomic add is async-signal-safe. */
+   a lock-free atomic add is async-signal-safe, and so, in practice, is the
+   kevent each loop's waker gets (shim/mail.c), which makes the stop
+   immediate. */
 static _Atomic int64_t net_stop_count;
+
+void net_stop_wake_all(void);
 
 void net_stop(void) {
     atomic_fetch_add_explicit(&net_stop_count, 1, memory_order_relaxed);
+    net_stop_wake_all();
 }
 
 int64_t net_stops(void) {

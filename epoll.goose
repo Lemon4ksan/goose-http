@@ -11,6 +11,8 @@ import message;
 
 // The listener's epoll tag. A connection's is its slot.
 let EPOLL_LISTENER: u64 = 0xFFFFFFFFFFFFFFFF;
+// The waker's tag (net_waker): mail in the box, or a stop.
+let EPOLL_WAKE: u64 = 0xFFFFFFFFFFFFFFFE;
 
 // Between events, a connection holds only what its socket left over: the
 // start of a request not yet whole, and responses the socket didn't take.
@@ -52,6 +54,27 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
         net_close(lfd);
         return Error { call: "epoll_ctl", code: -added };
     }
+    let waker = net_waker(ep, EPOLL_WAKE);
+    guard waker >= 0 else {
+        net_close(ep);
+        net_close(lfd);
+        return Error { call: "waker", code: -waker };
+    }
+    net_stop_watch(waker);
+    let box, opened = open_waiting(cfg, waker);
+    guard opened.code == 0 else {
+        close_waiting(box, waker);
+        net_close(ep);
+        net_close(lfd);
+        return opened;
+    }
+    let waiting = box.handle.slot >= 0;
+    var timers = timer_table(if waiting { cfg.max_waiting } else { 0 });
+    // Exchanges owed TIMEOUT for want of a timer, by their keys.
+    var overdue: u64[>..] = [];
+    var generation: u64 = 0;
+    let nothing = Request { .. };
+    let none = Event { kind: NO_EVENT, req: nothing, data: "", whole: false, trailers: "" };
 
     let started = stops();
     var stopping = false;
@@ -103,6 +126,10 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
                 conns.free(i);
                 continue;
             }
+            if waiting {
+                generation = generation % 0xFFFFFF + 1;
+                conns[i].x.stream.later = MailAddress { box: box.handle, key: later_base(i, generation) };
+            }
             open++;
         }
     }
@@ -110,6 +137,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     fn close_conn(i: i64) {
         let c .= conns[i];
         abandon(c, H);
+        cancel(timers, c.x.timer);
         net_close(c.fd);
         c.fd = -1;
         if c.held.len > 0 { spill.free_slice(c.held); }
@@ -120,8 +148,9 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
 
     // Moves a connection on as far as its socket allows, in the worker's
     // buffers, and keeps what's left over in spill. hup is whether the event
-    // reported the client's side closed. False when the connection is done.
-    fn drive(c: EpollConn<S>&, hup: bool) -> bool {
+    // reported the client's side closed, and wake goes to answer first
+    // (answer). False when the connection is done.
+    fn drive(c: EpollConn<S>&, hup: bool, wake: const Event&) -> bool {
         rlen = c.held.len;
         if rlen > 0 {
             copy_into(rbuf[..rlen], c.held);
@@ -135,7 +164,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
             spill.free_slice(c.out);
             c.out = c.out[..0];
         }
-        guard advance(c, hup) else { return false; }
+        guard advance(c, hup, wake) else { return false; }
         if rlen > 0 {
             c.held = spill.alloc_slice(rlen);
             copy_into(c.held, rbuf[..rlen]);
@@ -171,17 +200,21 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     // empty, or the connection is done, which is false. A recv that filled
     // less than it was given emptied the socket, and the next byte to arrive
     // raises a new event, so it isn't followed by a recv that would block,
-    // unless hup: a close that arrived with the last bytes raises none.
-    fn advance(c: EpollConn<S>&, hup: bool) -> bool {
+    // unless hup: a close that arrived with the last bytes raises none. While
+    // the exchange waits, it stops reading once rbuf is full.
+    fn advance(c: EpollConn<S>&, hup: bool, wake: const Event&) -> bool {
         var progress = false;
         var drained = false;
+        var ev = wake;
         loop {
             var full = false;
-            if c.state == OPEN && (rlen > 0 || c.x.stream.open && c.x.body.place == NO_BODY) {
-                let rest, done, f = answer(c, rbuf, rlen, wbuf, common, cfg, fresh, stopping, now, H) { false };
+            if c.state == OPEN && (rlen > 0 || c.x.stream.open && c.x.body.place == NO_BODY || ev.kind != NO_EVENT) {
+                let rest, done, f = answer(c, rbuf, rlen, wbuf, common, cfg, fresh, stopping, now, ev, H) { false };
+                ev.kind = NO_EVENT;
                 rlen = rest;
                 if done > 0 { progress = true; }
                 full = f;
+                if c.x.stream.rearm && start_wait(c, timers, now) { overdue.push(c.x.stream.later.key); }
             }
             while woff < wbuf.len {
                 let w = net_send(c.fd, wbuf[woff..]);
@@ -204,6 +237,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
             // 413, so an OPEN connection always has room to read into.
             if rlen == 0 { c.x.since = now; }
             let room = if c.state == DRAINING { rbuf.len } else { rbuf.len - rlen };
+            if room == 0 && c.x.stream.waiting { return wait(c, progress); }
             let r = if c.state == DRAINING { net_recv(c.fd, rbuf) }
                     else { net_recv(c.fd, rbuf[rlen..]) };
             if r == -EAGAIN { return wait(c, progress); }
@@ -220,7 +254,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     fn wait(c: EpollConn<S>&, progress: bool) -> bool {
         guard c.state != DRAINING else { return true; }
         let writing = woff < wbuf.len;
-        let idle = rlen == 0 && c.x.body.place == NO_BODY && !c.x.stream.open && !writing;
+        let idle = rlen == 0 && c.x.body.place == NO_BODY && !c.x.stream.open && !c.x.stream.waiting && !writing;
         if progress { c.deadline = now + (if idle { cfg.idle_ms } else { busy_ms(c, writing, cfg) }); }
         else if !idle { c.deadline = min(c.deadline, now + busy_ms(c, writing, cfg)); }
         return true;
@@ -228,11 +262,12 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
 
     // Closes the connections past their deadline. One still waiting for the
     // rest of a request is sent a 408 first, if its socket takes it, and then
-    // shut down and drained as any refusal is.
+    // shut down and drained as any refusal is. An exchange that waits has its
+    // own time limit instead.
     fn sweep() {
         for i in conns.len {
             let c .= conns[i];
-            if c.fd < 0 || c.deadline > now { continue; }
+            if c.fd < 0 || c.deadline > now || c.x.stream.waiting { continue; }
             if owes_408(c) {
                 wbuf.clear();
                 refuse(wbuf, 408, common);
@@ -268,15 +303,44 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
         for i in conns.len {
             let c .= conns[i];
             if c.fd >= 0 && c.state == OPEN && idle(c) && c.out.len == 0 { close_conn(i); }
+            else if c.fd >= 0 && c.x.stream.waiting { c.x.keep_alive = false; }
         }
+    }
+
+    // Goes on with the exchange of connection i, which waited, with ev, its
+    // WAKE or TIMEOUT, and then with what it holds.
+    fn resume(i: i64, ev: const Event&) {
+        if !drive(conns[i], false, ev) || !watch(i) { close_conn(i); }
+    }
+
+    // A message to key, for the exchange that waits for it, if any.
+    fn delivered(key: u64, tag: i32, bytes: const u8[:]) {
+        let i = later_slot(key);
+        guard i < conns.len && waits_for(conns[i], key) else { return; }
+        cancel(timers, conns[i].x.timer);
+        conns[i].x.stream.waiting = false;
+        let ev = Event { kind: WAKE, req: nothing, data: bytes, whole: false, trailers: "", tag: tag };
+        resume(i, ev);
+    }
+
+    // The exchange of key, which waited, or wanted to and found no timer,
+    // is owed TIMEOUT.
+    fn timed_out(key: u64, waited: bool) {
+        let i = later_slot(key);
+        guard i < conns.len else { return; }
+        let c .= conns[i];
+        guard c.fd >= 0 && c.state == OPEN && c.x.stream.later.key == key && c.x.stream.waiting == waited else { return; }
+        c.x.stream.waiting = false;
+        let ev = Event { kind: TIMEOUT, req: nothing, data: "", whole: false, trailers: "" };
+        resume(i, ev);
     }
 
     var hot = false;
     var failed = Error { call: "", code: 0 };
     loop {
-        // A wait ends within a second, for a stop, the sweep, and a paused
-        // accept's retry.
-        let timeout: i32 = if hot { 0 } else { 1000 };
+        // A wait ends within a second, for the sweep and a paused accept's
+        // retry, or at the next timer; the waker ends it for mail and a stop.
+        let timeout: i32 = if hot || overdue.len > 0 { 0 } else { wait_for(timers, now) };
         let n = net_epoll_wait(ep, events, timeout);
         if n == -EINTR { continue; }
         guard n >= 0 else {
@@ -296,10 +360,22 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
                 accept_all();
                 continue;
             }
+            if ev.tag == EPOLL_WAKE {
+                if waiting { mail_take(box) { key, tag, bytes => delivered(key, tag, bytes); }; }
+                continue;
+            }
             let i = ev.tag as i64;
-            if !drive(conns[i], ev.events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR) != 0) || !watch(i) {
+            // A WAKE earlier in the batch may have closed it.
+            if conns[i].fd < 0 { continue; }
+            if !drive(conns[i], ev.events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR) != 0, none) || !watch(i) {
                 close_conn(i);
             }
+        }
+        if waiting {
+            expire(timers, now) { key => timed_out(key, true); };
+            let owed = overdue.len;
+            for k in owed { timed_out(overdue[k], false); }
+            drop_first(overdue, owed);
         }
         if now >= next_sweep {
             sweep();
@@ -312,6 +388,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     for i in conns.len {
         if conns[i].fd >= 0 { close_conn(i); }
     }
+    close_waiting(box, waker);
     net_close(ep);
     if lfd >= 0 { net_close(lfd); }
     return failed;

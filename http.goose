@@ -106,6 +106,14 @@ struct Config {
     // Call the handler given state with DONE after each response, for an
     // access log.
     log: bool = false,
+    // Answers that wait (later): each worker's box takes mail_slots replies
+    // of up to mail_size bytes at once, and its timer table max_waiting
+    // exchanges waiting at once. With either at 0, the default, the loop opens
+    // no box and later's exchange gets TIMEOUT at once: a program that never
+    // waits pays nothing. A box needs max_conns of at most 2^20.
+    mail_slots: i32 = 0,
+    mail_size: i32 = 256,
+    max_waiting: i64 = 0,
 }
 
 // Why a loop stopped: the call that failed, and its error code, one of
@@ -166,6 +174,17 @@ let CLOSED: u8 = 4;
 // close gets CLOSED instead, as does an upgraded connection, and a request
 // the loop refused before REQUEST gets neither.
 let DONE: u8 = 5;
+// An exchange that later made wait got a message at its address: its bytes
+// in data, valid until the handler returns, and its tag. req is empty: the
+// handler keeps in its state what of the request it needs. The handler
+// answers, sends more of an open response, or calls later again; a handler
+// that does none of these gets 500, as at REQUEST.
+let WAKE: u8 = 6;
+// later's time limit passed first, or there was no room to wait: no box, or
+// Config.max_waiting exchanges waiting already. As WAKE otherwise.
+let TIMEOUT: u8 = 7;
+// No event, for answer's wake.
+let NO_EVENT: u8 = 255;
 
 struct Event {
     kind: u8,
@@ -190,6 +209,89 @@ struct Event {
     status: i32 = 0,
     sent: i64 = 0,
     ms: i64 = 0,
+    // WAKE's tag, as the sender gave it.
+    tag: i32 = 0,
+}
+
+// Makes the exchange wait, after this call to the handler, for a message to
+// its address, which this returns, for at most ms milliseconds: then the
+// handler is called with WAKE or TIMEOUT. At REQUEST or WAKE it holds back
+// the response; at MORE, or after begin, it pauses an open response, for
+// Server-Sent Events and long polling. While an exchange waits, the requests
+// pipelined behind it wait in the read buffer, and the loop stops reading
+// once that's full. The address is the same for each call in one exchange,
+// and a message to it after the exchange has ended, or once the connection
+// has closed, is dropped. A call that writes a whole response doesn't wait,
+// so a handler that can't hand the work on answers instead, as below. Only
+// the handler given state gets WAKE and TIMEOUT.
+//
+//   let reply = http::later(out, 5000);
+//   guard http::mail_send(worker, JOB, job_with(reply)) == http::SENT
+//   else { http::respond(out, 503, "text/plain", ""); return; }
+fn later(out: Reply, ms: i64) -> MailAddress {
+    let s .= out.stream;
+    s.waiting = true;
+    s.rearm = true;
+    s.wait_ms = max(ms, 0);
+    return s.later;
+}
+
+// A Later's key: the connection's slot, 24 bits of its generation, and 20 of
+// the exchange's number, so a message for a closed connection, or an
+// exchange that has ended, matches no exchange that waits.
+fn later_base(slot: i64, gen: u64) -> u64 { ((slot as u64) << 44) | ((gen & 0xFFFFFF) << 20) }
+fn later_slot(key: u64) -> i64 { (key >> 44) as i64 }
+
+// Whether connection c's exchange waits for a message to key.
+fn waits_for(c, key: u64) -> bool {
+    return c.fd >= 0 && c.state == OPEN && c.x.stream.waiting && c.x.stream.later.key == key;
+}
+
+// The box of a loop with cfg, on a waker that ends the loop's wait, which the
+// box then owns: none when cfg asks for no waiting, and then the loop closes
+// the waker itself. An error for a box that can't open. The loop's timer
+// table has cfg.max_waiting cells with a box, and none without.
+fn open_waiting(cfg: const Config&, waker: i64) -> Box, Error {
+    guard cfg.mail_slots > 0 && cfg.max_waiting > 0 else { return Box { .. }, Error { call: "", code: 0 }; }
+    guard cfg.max_conns <= 1 << 20 else { return Box { .. }, Error { call: "max_conns", code: EINVAL }; }
+    let b, e = mail_open(cfg.mail_slots, cfg.mail_size, waker);
+    guard e == 0 else { return Box { .. }, Error { call: "mail_open", code: -e }; }
+    return b, Error { call: "", code: 0 };
+}
+
+// Closes a loop's box, or its waker when it has none, after unlisting the
+// waker for stop.
+fn close_waiting(b: Box, waker: i64) {
+    net_stop_unwatch(waker);
+    if b.handle.slot >= 0 { mail_close(b); } else { net_waker_close(waker); }
+}
+
+// Takes out of overdue the first n keys, those of the exchanges owed TIMEOUT
+// before a pass's calls added more.
+fn drop_first(overdue: u64[>..]&, n: i64) {
+    let rest = overdue.len - n;
+    for k in rest { overdue[k] = overdue[n + k]; }
+    overdue.resize(rest, 0);
+}
+
+// Starts the timer of c's exchange, which later asked for. With no room for
+// it, the exchange stops waiting and true says it's owed TIMEOUT now.
+fn start_wait(c, timers: Timers&, now: i64) -> bool {
+    let s .= c.x.stream;
+    s.rearm = false;
+    cancel(timers, c.x.timer);
+    c.x.timer = arm(timers, s.later.key, now + s.wait_ms);
+    guard c.x.timer.slot < 0 else { return false; }
+    s.waiting = false;
+    return true;
+}
+
+// The wait for the loop's next pass: up to a second, and no later than the
+// next timer.
+fn wait_for(timers: const Timers&, now: i64) -> i32 {
+    let due, any = next_due(timers);
+    guard any else { return 1000; }
+    return min(max(due - now, 0), 1000) as i32;
 }
 
 // A request whose exchange outlasts the handler's REQUEST call: what of its
@@ -210,13 +312,15 @@ struct Exchange<S> {
     began: i64,         // since, at the request's head
     sent: i64,          // the response's bytes so far
     stream: Stream,
+    timer: Handle = Handle { .. },  // the time limit of the wait later asked for
     state: S,
 }
 
 // Calls H with CLOSED for c's exchange, if it was owed another call.
 fn abandon<H, C>(c: C&) {
     let x .= c.x;
-    guard x.stream.open || (!x.skip && x.body.place != NO_BODY) else { return; }
+    guard x.stream.open || x.stream.waiting || (!x.skip && x.body.place != NO_BODY) else { return; }
+    x.stream.waiting = false;
     var sink: u8[>..] = [];
     let none = Request { .. };
     H(Event { kind: CLOSED, req: none, data: "", whole: false, trailers: "" }, x.state,
@@ -239,9 +343,12 @@ fn interim() -> const u8[:] { "HTTP/1.1 100 Continue\r\n\r\n" }
 // returns true, or returns false to stop there. Returns the bytes left in
 // rbuf, the number of calls to H, and whether ROOM stopped it. A refused
 // request, or a response that doesn't keep the connection open, leaves c
-// CLOSING and rbuf empty.
+// CLOSING and rbuf empty. wake, unless its kind is NO_EVENT, is a WAKE or
+// TIMEOUT for c's exchange, which stopped waiting, for H before the rest. It
+// does nothing while c's exchange waits, and stops when it starts to.
 fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: const u8[:],
-                         cfg: const Config&, fresh: const S&, stopping: bool, now: i64) -> i64, i64, bool {
+                         cfg: const Config&, fresh: const S&, stopping: bool, now: i64,
+                         wake: const Event&) -> i64, i64, bool {
     var off = 0;
     var done = 0;
     var full = false;
@@ -287,6 +394,12 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
         close();
     }
 
+    // A call that both waited and wrote a whole response doesn't wait.
+    fn unwait() {
+        x.stream.waiting = false;
+        x.stream.rearm = false;
+    }
+
     // Calls H for ev on the request in x. Returns whether it wrote anything.
     fn call(ev: Event) -> bool {
         let before = wbuf.len;
@@ -295,6 +408,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
                                head: x.head, stream: x.stream, fd: c.fd });
         done++;
         let wrote = wbuf.len > before;
+        if wrote && x.stream.waiting && !x.stream.open { unwait(); }
         x.sent += wbuf.len - before;
         if !x.answered && !x.stream.open && (wrote || was_open) {
             x.answered = true;
@@ -304,8 +418,9 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
     }
 
     // Moves the request in x on after a call to H. False when the connection
-    // closes.
+    // closes, or the exchange waits.
     fn settle() -> bool {
+        if x.stream.waiting { return false; }
         if x.body.place == NO_BODY {
             if x.stream.open { return true; }
             if !x.answered {
@@ -334,7 +449,12 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
         return true;
     }
 
-    loop {
+    var go = !x.stream.waiting;
+    if wake.kind != NO_EVENT {
+        call(wake);
+        go = settle();
+    }
+    while go {
         if x.body.place != NO_BODY {
             guard off < rlen else { break; }
             if wbuf.len >= write_buffer && !ROOM() {
@@ -385,9 +505,11 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
                 full = true;
                 break;
             }
-            // A MORE that neither sends nor ends would be called forever.
+            // A MORE that neither sends, ends, nor waits would be called
+            // forever.
             x.stream.moved = false;
-            if !call(Event { kind: MORE, req: gone, data: "", whole: false, trailers: "" }) && !x.stream.moved && x.stream.open {
+            if !call(Event { kind: MORE, req: gone, data: "", whole: false, trailers: "" }) && !x.stream.moved &&
+               x.stream.open && !x.stream.waiting {
                 close();
                 break;
             }
@@ -450,12 +572,17 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
         x.served++;
         x.keep_alive = req.keep_alive && !stopping && (max_requests <= 0 || x.served < max_requests);
         x.state = fresh;
+        // The exchange's address for later, where the loop has a box.
+        if x.stream.later.box.slot >= 0 {
+            x.stream.later.key = (x.stream.later.key & ~0xFFFFF) | ((x.served & 0xFFFFF) as u64);
+        }
         let before = wbuf.len;
         H(Event { kind: REQUEST, req: req, data: data, whole: whole, trailers: trailers }, x.state,
           Reply { buf: wbuf, common: common, keep_alive: x.keep_alive, minor: req.minor,
                   head: req.method == "HEAD", stream: x.stream, fd: c.fd });
         done++;
-        if whole && !x.stream.open {
+        if x.stream.waiting && !x.stream.open && wbuf.len > before { unwait(); }
+        if whole && !x.stream.open && !x.stream.waiting {
             if wbuf.len == before {
                 // The handler didn't answer.
                 refuse(wbuf, 500, common);
@@ -478,7 +605,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
                  else { BodyReader { place: LENGTH, left: req.body } };
         x.skip = false;
         x.taken = 0;
-        x.answered = !x.stream.open && wbuf.len > before;
+        x.answered = !x.stream.open && !x.stream.waiting && wbuf.len > before;
         x.sent = wbuf.len - before;
         x.began = x.since;
         if x.answered && log { log_done(req, x.stream.status, x.sent, x.began); }
@@ -499,7 +626,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
 // Whether c's request has stopped short, for the sweep: the start of one in
 // held, or a body not all arrived, that the handler hasn't answered yet.
 fn owes_408(c) -> bool {
-    return c.state == OPEN && !c.x.stream.open && c.out.len == 0 &&
+    return c.state == OPEN && !c.x.stream.open && !c.x.stream.waiting && c.out.len == 0 &&
         (c.held.len > 0 && c.x.body.place == NO_BODY || c.x.body.place != NO_BODY && !c.x.answered);
 }
 
@@ -515,7 +642,7 @@ fn busy_ms(c, writing: bool, cfg: const Config&) -> i64 {
 
 // Whether c is between requests, with nothing of one received or to send.
 fn idle(c) -> bool {
-    return c.held.len == 0 && c.x.body.place == NO_BODY && !c.x.stream.open;
+    return c.held.len == 0 && c.x.body.place == NO_BODY && !c.x.stream.open && !c.x.stream.waiting;
 }
 
 // The handler of serve(cfg) and serve_epoll(cfg) on an Event, ahead of

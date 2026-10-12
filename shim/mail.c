@@ -54,6 +54,9 @@ static int mail_cas32(mail_a32 *p, uint32_t *e, uint32_t d) {
 #define CAS32_RELAXED(p, e, d) mail_cas32((p), (e), (d))
 #define ADD64(p, v) ((int64_t)InterlockedExchangeAdd64((p), (LONG64)(v)))
 #define LOAD64_ACQUIRE(p) ((int64_t)ReadAcquire64(p))
+#define LOAD64_SEQ(p) ((int64_t)InterlockedOr64((p), 0))
+#define STORE64_SEQ(p, v) InterlockedExchange64((p), (LONG64)(v))
+#define CAS64(p, e, d) (InterlockedCompareExchange64((p), (LONG64)(d), (LONG64)(e)) == (LONG64)(e))
 #define PAUSE() YieldProcessor()
 static SRWLOCK mail_lock = SRWLOCK_INIT;
 #define LOCK() AcquireSRWLockExclusive(&mail_lock)
@@ -74,6 +77,10 @@ typedef _Atomic int64_t mail_a64;
     atomic_compare_exchange_weak_explicit((p), (e), (d), memory_order_relaxed, memory_order_relaxed)
 #define ADD64(p, v) atomic_fetch_add((p), (v))
 #define LOAD64_ACQUIRE(p) atomic_load_explicit((p), memory_order_acquire)
+#define LOAD64_SEQ(p) atomic_load((p))
+#define STORE64_SEQ(p, v) atomic_store((p), (v))
+static int mail_cas64(mail_a64 *p, int64_t e, int64_t d) { return atomic_compare_exchange_strong(p, &e, d); }
+#define CAS64(p, e, d) mail_cas64((p), (e), (d))
 #if defined(__x86_64__) || defined(__i386__)
 #define PAUSE() __builtin_ia32_pause()
 #elif defined(__aarch64__) && !defined(__TINYC__)
@@ -321,4 +328,38 @@ int32_t mail_wait(uint64_t key, int32_t ms) {
         if (r < 0) return r;
         if (r == 0) return LOAD64_ACQUIRE(&b->pending) > 0;
     }
+}
+
+/* The wakers of the loops running, which net_stop wakes so that a stop takes
+   effect at once rather than at a loop's next timeout. net_stop may run in a
+   signal handler, so the list is a fixed array changed and read with atomics
+   only, and an unwatch waits out any wake in flight before the loop frees
+   its waker. */
+#define MAIL_MAX_WATCHED 1024
+static mail_a64 mail_watched[MAIL_MAX_WATCHED];
+static mail_a64 mail_waking;
+
+/* Adds waker w to the list; -EMFILE when the list is full, and then a stop
+   reaches the loop at its next timeout. */
+int32_t net_stop_watch(int64_t w) {
+    for (int i = 0; i < MAIL_MAX_WATCHED; i++)
+        if (CAS64(&mail_watched[i], 0, w)) return 0;
+    return -MAIL_EMFILE;
+}
+
+/* Takes w off the list, once no wake of it is in flight. */
+void net_stop_unwatch(int64_t w) {
+    for (int i = 0; i < MAIL_MAX_WATCHED; i++)
+        if (LOAD64_SEQ(&mail_watched[i]) == w) STORE64_SEQ(&mail_watched[i], 0);
+    while (LOAD64_SEQ(&mail_waking) != 0) YIELD();
+}
+
+/* Wakes every waker on the list: each platform's net_stop calls it. */
+void net_stop_wake_all(void) {
+    ADD64(&mail_waking, 1);
+    for (int i = 0; i < MAIL_MAX_WATCHED; i++) {
+        int64_t w = LOAD64_SEQ(&mail_watched[i]);
+        if (w) net_waker_wake(w);
+    }
+    ADD64(&mail_waking, -1);
 }

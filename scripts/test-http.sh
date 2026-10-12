@@ -164,6 +164,7 @@ fi
 $client chunked
 $client keepalive
 $client client
+$client later-off
 $client hostile
 $client many 10000
 
@@ -191,6 +192,13 @@ $client log "$log_path"
 kill -0 "$pid" || fail "the server died"
 stop
 unset ACCESS_LOG
+# Answers that wait, with a box and a timer table in each worker.
+export MAIL_SLOTS=64
+start
+$client later
+kill -0 "$pid" || fail "the server died"
+stop
+unset MAIL_SLOTS
 start
 
 if [ -n "$windows" ]; then
