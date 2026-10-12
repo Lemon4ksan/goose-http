@@ -937,6 +937,7 @@ inline fn status_line(status: i32) -> const u8[:] {
         403 => "HTTP/1.1 403 Forbidden\r\n",
         404 => "HTTP/1.1 404 Not Found\r\n",
         405 => "HTTP/1.1 405 Method Not Allowed\r\n",
+        406 => "HTTP/1.1 406 Not Acceptable\r\n",
         408 => "HTTP/1.1 408 Request Timeout\r\n",
         409 => "HTTP/1.1 409 Conflict\r\n",
         410 => "HTTP/1.1 410 Gone\r\n",

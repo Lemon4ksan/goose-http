@@ -27,6 +27,7 @@ import epoll;
 import uring;
 import router;
 import file;
+import media;
 
 // The server's settings. Each worker gets a copy, as thread_spawn copies
 // flat values.

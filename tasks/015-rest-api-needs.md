@@ -106,3 +106,22 @@ as hyper's programs do.
 Checks: `test/test_http.goose`, `test_reply` (bad names and values for `field` and
 `respond`) and `test_stream` (trailers).
 
+## Helpers (2026-10-12)
+
+Each helper is Goose in the package, with its checks in `test/test_api.goose`.
+
+The competitors mostly have nothing to compare: hyper 1.12.0, may-minihttp 0.1.11, and
+xitca-http 0.8.2, the parts of them `bench/` builds, have none of these helpers. The
+notes below cite odin-http (`fac113f`), and xitca-web 0.8.0, the framework over
+xitca-http that `bench/` doesn't build.
+
+- Media types (`media.goose`). odin-http only maps file extensions to types
+  (`mimes.odin`), and xitca-web's `Json` and `Form` require a `Content-Type` without
+  reading it (`handler/types/header.rs`); neither answers 415 or 406. Here,
+  `media_type` parses a `Content-Type` into its type, subtype, and parameters, which
+  `each_param` and `param_of` read, unquoting a quoted string. `has_type` compares a
+  request's type and subtype ignoring case and parameters, and `require_type` answers
+  415 with the wanted type in `Accept` otherwise. `negotiate` picks from the handler's
+  offers by `Accept` (RFC 9110 §12.5.1): the most specific matching range sets an
+  offer's weight, ties go to the first offer, and a range that can't be read is
+  skipped. `accept_or_406` answers 406 when no offer is acceptable.
