@@ -44,7 +44,7 @@ fn run(default_loop: const u8[:]) {
         // with MAX_WAITING exchanges waiting at once per worker.
         cfg.mail_slots = positive("MAIL_SLOTS", 0) as i32;
         cfg.max_waiting = positive("MAX_WAITING", if cfg.mail_slots > 0 { 1024 } else { 0 });
-        cfg.mail_size = JOB_SIZE;
+        cfg.mail_size = REPLY_SIZE;
         // ADDRESS is where to listen, as Config.address takes it: an IPv4 or
         // IPv6 address, "::", or "unix:PATH". IPV6_ONLY keeps "::" off IPv4.
         var address: u8[>..] = [];

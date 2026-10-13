@@ -70,6 +70,26 @@ fn mail_send(to: MailAddress, tag: i32, data: const u8[:]) -> i32 {
     return mail_send_c(key_of(to.box), to.key, tag, data);
 }
 
+// Sends v, a flat value, with tag to to's box, as mail_send does: the image
+// to_bytes writes of a one-element array, which mail_value reads back. A
+// limited array's image takes its whole capacity, so the box's size must
+// hold that.
+fn mail_send_value(to: MailAddress, tag: i32, v) -> i32 {
+    var one = [v];
+    var image: u8[>..] = [];
+    one.to_bytes(image);
+    return mail_send(to, tag, image);
+}
+
+// Reads into out the value mail_send_value sent as bytes, verified by
+// from_bytes. False, with out as it was, for bytes that aren't such an image.
+fn mail_value<T>(bytes: const u8[:], out: T&) -> bool {
+    let a, ok = from_bytes<T[>..]>(bytes);
+    guard ok && a.len == 1 else { return false; }
+    out = a[0];
+    return true;
+}
+
 // Whether b holds messages it hasn't taken: one atomic load.
 fn mail_pending(b: Box) -> bool { mail_pending_c(key_of(b.handle)) > 0 }
 

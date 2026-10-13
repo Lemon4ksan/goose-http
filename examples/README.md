@@ -211,8 +211,8 @@ turn it on; both are 0 by default, and then a loop opens no box and arms no time
 
 ```goose
 // At REQUEST: the reply's address, with a time limit the handler must give.
-let reply = http::later(out, 5000);
-guard http::mail_send(worker, JOB, job_for(reply)) == http::SENT
+let job = Job { reply: http::later(out, 5000), .. };
+guard http::mail_send_value(worker, JOB, job) == http::SENT
 else { http::respond(out, 503, "text/plain", "busy"); return; }
 
 // At WAKE: ev.data and ev.tag are what the worker sent to reply.
@@ -230,6 +230,10 @@ else { http::respond(out, 503, "text/plain", "busy"); return; }
 - A worker thread owns a box: `http::mail_open(slots, size)`, `http::mail_wait(box,
   ms)`, `http::mail_take(box) { key, tag, bytes => }`. `http::mail_send(address, tag,
   bytes)` returns `SENT`, `FULL`, or `STALE` at once, from any thread, and never blocks.
+- `http::mail_send_value(address, tag, v)` sends a flat value, such as a struct
+  holding the reply's address, as its `to_bytes` image, and `http::mail_value(bytes,
+  v)` reads it back into `v`, verified by `from_bytes`, or returns false. A limited
+  array's image takes its whole capacity: size the box for that.
 - `http::timer_table(n)`, `http::arm`, `http::cancel`, and `http::expire` are the
   loops' timers, for a worker's own.
 

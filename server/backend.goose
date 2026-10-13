@@ -12,39 +12,16 @@ let JOB_EVENTS: i32 = 2;
 let REPLY_MORE: i32 = 1;
 let REPLY_LAST: i32 = 2;
 
-// A job as the backend keeps it, and as it crosses a box: reply's handle and
-// key, delay and count as 8 bytes each, then id's bytes.
+// A job as the backend keeps it, and as it crosses a box
+// (http::mail_send_value).
 struct Job { reply: http::MailAddress, delay: i64, count: i64, sent: i64, id: u8[..32] }
 
-// The most bytes a job takes in a box.
-let JOB_SIZE: i32 = 64;
-
-fn put(out: u8[>..]&, v: i64) {
-    for i in 8 { out.push(((v >> (8 * i)) & 0xFF) as! u8); }
-}
-
-fn got(b: const u8[:], at: i64) -> i64 {
-    var v = 0;
-    for i in 8 { v |= (b[at + i] as i64) << (8 * i); }
-    return v;
-}
-
-fn encode(out: u8[>..]&, j: Job) {
-    put(out, http::key_of(j.reply.box) as! i64);
-    put(out, j.reply.key as! i64);
-    put(out, j.delay);
-    put(out, j.count);
-    out.append(j.id);
-}
-
-// The job in b, or false for bytes too short to hold one.
-fn decode(b: const u8[:]) -> Job, bool {
-    guard b.len >= 32 && b.len <= 32 + 32 else { return Job { .. }, false; }
-    var j = Job { reply: http::MailAddress { box: http::handle_of(got(b, 0) as! u64), key: got(b, 8) as! u64 },
-                  delay: max(got(b, 16), 0), count: max(got(b, 24), 1), sent: 0, id: "" };
-    j.id.append(b[32..]);
-    return j, true;
-}
+// The most bytes a job takes in a box: its image, which holds id's whole
+// capacity, is 74 bytes.
+let JOB_SIZE: i32 = 80;
+// The most bytes a reply takes in a worker's box: the id and the reply's
+// number.
+let REPLY_SIZE: i32 = 64;
 
 // Takes jobs from box until a job of no kind it knows, keeping up to
 // capacity at once; a job past that is answered at once with "busy".
@@ -80,7 +57,11 @@ thread_fn backend(box: http::Box, capacity: i64) {
         http::mail_wait(box, if any { min(max(due - now, 0), 1000) as i32 } else { 1000 });
         let t = http::net_clock_ms();
         http::mail_take(box) { key, tag, bytes =>
-            let j, ok = decode(bytes);
+            var j = Job { .. };
+            let ok = http::mail_value(bytes, j);
+            j.delay = max(j.delay, 0);
+            j.count = max(j.count, 1);
+            j.sent = 0;
             if tag != JOB_LATER && tag != JOB_EVENTS || !ok {
                 running = false;
             } else if free.len == 0 {

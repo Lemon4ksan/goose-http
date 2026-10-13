@@ -118,6 +118,15 @@ review's estimates; "unverified" marks what no program has checked yet.
       one framed copy per message on a cold path. Unverified: whether a limited
       array's image includes its unused capacity. Check: the `/later` and `/events`
       tests.
+      Done (2026-10-13), additive: `http::mail_send_value(to, tag, v)` sends a
+      one-element array's `to_bytes` image, and `http::mail_value(bytes, out)` reads it
+      back into the caller's variable, since a generic function can't build a `T` to
+      return on failure. A limited array's image does take its whole capacity: the
+      backend's job is 74 bytes where its hand encoding took 35 with a 3-byte id, so
+      `JOB_SIZE` grows from 64 to 80, and the workers' boxes, which hold replies, keep
+      64 as `REPLY_SIZE`. The backend clamps delay and count after decoding, as
+      `decode` did. `scripts/test.sh` passes in WSL and Git Bash, whose `later` mode
+      runs `/later` and `/events` with `MAIL_SLOTS` set.
 - [ ] Loop setup in `serve_epoll` and `serve` (`epoll.goose:41-72`) as a nested
       `fn setup()` caught by an `Error[]` handler, in the stdlib `exception` module's
       pattern: file descriptors start at -1, with one cleanup site. `Error.call` is

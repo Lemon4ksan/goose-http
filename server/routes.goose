@@ -252,9 +252,7 @@ fn wait_for_backend(req: http::Request, events: bool, st: Transfer&, out: http::
         st.route = LATER;
     }
     j.reply = http::later(out, ms);
-    var job: u8[>..] = [];
-    encode(job, j);
-    guard http::mail_send(backend_box, if events { JOB_EVENTS } else { JOB_LATER }, job) == http::SENT else {
+    guard http::mail_send_value(backend_box, if events { JOB_EVENTS } else { JOB_LATER }, j) == http::SENT else {
         if events { http::end(out); } else { http::respond(out, 503, "text/plain", "busy"); }
         return;
     };
