@@ -33,6 +33,10 @@ esac
 server=$root/build/server${windows:+.exe}
 # A native program on Windows takes a Windows path.
 if [ -n "$windows" ]; then files_path=$(cygpath -m "$files"); else files_path=$files; fi
+# The dataset /json/{count} answers from, which the client writes.
+dataset=$(mktemp)
+$client dataset "$dataset"
+if [ -n "$windows" ]; then export DATASET=$(cygpath -m "$dataset"); else export DATASET=$dataset; fi
 if [ -n "$windows" ]; then log_path=$(cygpath -m "$log"); else log_path=$log; fi
 export FILES="$files_path"
 
@@ -52,7 +56,7 @@ if [ -n "$pid" ]; then
     [ $status -eq 0 ] || { echo "server output:"; cat "$log"; }
     end_server 2>/dev/null || true
 fi
-rm -f "$log" "$out"
+rm -f "$log" "$out" "$dataset"
 rm -rf "$files"' EXIT
 
 # Sets the fd limit, which Windows has none of for native programs.
@@ -176,6 +180,7 @@ elif [ "$(uname -s)" = Darwin ]; then
     echo "files: none left open"
 fi
 $client chunked
+$client compress "$dataset"
 $client keepalive
 $client client
 $client later-off

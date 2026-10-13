@@ -11,7 +11,9 @@
 import std;
 import os;
 import http;
+import http.compression;
 import backend;
+import dataset;
 
 // The backend thread's box, which app.goose sets before it spawns the
 // workers, which copy it; none while waiting is off (MAIL_SLOTS).
@@ -37,6 +39,7 @@ struct Transfer {
     left: i64 = 0,      // /bytes, /stream: bytes still to send
     sum: u64 = 0,       // /upload: the sum of the body's bytes
     file: http::FileBody = http::FileBody { .. },   // /files/
+    coded: http::Compressed = http::Compressed { .. },  // /zstream, /events: the encoder, if compressed
 }
 
 let NONE: u8 = 0;
@@ -56,6 +59,8 @@ inline fn handle(ev: http::Event, st: Transfer&, out: http::Reply) {
         route(ev.req, ev.data, ev.whole, ev.trailers, st, out);
     } else if ev.kind == http::DONE {
         logged(ev, out);
+    } else if ev.kind == http::CLOSED && st.coded.slot >= 0 {
+        http::release_compressed(st.coded);
     } else if st.route == UPLOAD {
         if ev.kind == http::BODY { take(st, ev.data); }
         else if ev.kind == http::END { uploaded(st, out); }
@@ -80,21 +85,24 @@ inline fn handle(ev: http::Event, st: Transfer&, out: http::Reply) {
         }
     } else if st.route == EVENTS {
         if ev.kind == http::WAKE {
-            http::send(out, "data: ");
-            http::send(out, ev.data);
-            http::send(out, "\n\n");
-            if ev.tag == REPLY_LAST { http::end(out); } else { http::later(out, st.left); }
+            // One piece per event, which a compressed stream flushes whole.
+            var text: u8[>..] = [];
+            text.append("data: ");
+            text.append(ev.data);
+            text.append("\n\n");
+            http::send_compressed(out, st.coded, text);
+            if ev.tag == REPLY_LAST { http::end_compressed(out, st.coded); } else { http::later(out, st.left); }
         } else if ev.kind == http::TIMEOUT {
-            http::send(out, ": timeout\n\n");
-            http::end(out);
+            http::send_compressed(out, st.coded, ": timeout\n\n");
+            http::end_compressed(out, st.coded);
         }
     } else if st.route == SEND && ev.kind == http::MORE {
         let k = min(st.left, PIECE);
         let at = st.count % 10;
-        http::send(out, DIGITS[at..at + k]);
+        http::send_compressed(out, st.coded, DIGITS[at..at + k]);
         st.count += k;
         st.left -= k;
-        if st.left == 0 { http::end(out); }
+        if st.left == 0 { http::end_compressed(out, st.coded); }
     }
 }
 
@@ -131,6 +139,8 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
     // write buffer, sent as the client takes them.
     let bytes = path == "/bytes";
     let stream = path == "/stream";
+    // /stream's text, compressed as the request takes, each piece flushed.
+    let zstream = path == "/zstream";
     // A body of any size: its length and the sum of its bytes, and the body
     // itself.
     let upload = path == "/upload";
@@ -142,7 +152,7 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
     if !get && !post && !http::known_method(req.method) {
         http::start(out, 501);
         http::finish(out, "Content-Length: ", "");
-    } else if !get && (plaintext || json || pipeline || bytes || stream || raw || files || baseline && !post) ||
+    } else if !get && (plaintext || json || pipeline || bytes || stream || zstream || raw || files || baseline && !post) ||
               !post && (upload || echo) {
         http::start(out, 405);
         out.buf.append(if baseline { "Allow: GET, HEAD, POST\r\n" }
@@ -163,13 +173,17 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
     } else if pipeline {
         http::start(out, 200);
         http::finish(out, "Content-Type: text/plain\r\nContent-Length: ", "ok");
-    } else if bytes || stream {
+    } else if bytes || stream || zstream {
         let n = min(max(http::query_int(req.target, "n"), 0), MAX_BYTES);
-        http::begin(out, 200, if bytes { n } else { -1 });
-        http::field(out, "Content-Type", "application/octet-stream");
+        if zstream {
+            http::begin_compressed(out, req, 200, "text/plain", st.coded);
+        } else {
+            http::begin(out, 200, if bytes { n } else { -1 });
+            http::field(out, "Content-Type", "application/octet-stream");
+        }
         st.route = SEND;
         st.left = n;
-        if n == 0 || out.head { http::end(out); }
+        if n == 0 || out.head { http::end_compressed(out, st.coded); }
     } else if upload {
         st.route = UPLOAD;
         take(st, body);
@@ -197,6 +211,8 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
         wait_for_backend(req, path == "/events", st, out);
     } else if get && starts_with(path, "/delay/") {
         delay(path[7..], st, out);
+    } else if get && starts_with(path, "/json/") {
+        json_items(req, path[6..], out);
     } else if req.target == "*" {
         // OPTIONS *, the only method parse lets "*" through with: what the
         // server as a whole allows (RFC 9110 §9.3.7).
@@ -244,8 +260,7 @@ fn wait_for_backend(req: http::Request, events: bool, st: Transfer&, out: http::
     if events {
         st.route = EVENTS;
         st.left = ms;
-        http::begin(out, 200, -1);
-        http::field(out, "Content-Type", "text/event-stream");
+        http::begin_compressed(out, req, 200, "text/event-stream", st.coded);
         http::field(out, "Cache-Control", "no-cache");
         http::send(out, "");
     } else {
@@ -253,7 +268,7 @@ fn wait_for_backend(req: http::Request, events: bool, st: Transfer&, out: http::
     }
     j.reply = http::later(out, ms);
     guard http::mail_send_value(backend_box, if events { JOB_EVENTS } else { JOB_LATER }, j) == http::SENT else {
-        if events { http::end(out); } else { http::respond(out, 503, "text/plain", "busy"); }
+        if events { http::end_compressed(out, st.coded); } else { http::respond(out, 503, "text/plain", "busy"); }
         return;
     };
 }

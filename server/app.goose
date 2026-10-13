@@ -7,6 +7,7 @@ import os;
 import http;
 import routes;
 import echo;
+import dataset;
 
 fn usage() {
     write_stderr("usage: server http|echo-blocking|echo-epoll [port]\n");
@@ -90,6 +91,7 @@ fn serve_http(given: http::Config, default_loop: const u8[:]) {
         exit(2);
     }
     let n = http::worker_count(cfg);
+    load_dataset();
     // The backend thread of /later and /events, for every worker, with a box
     // of its own, which lives as long as the process.
     if cfg.mail_slots > 0 {

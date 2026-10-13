@@ -8,6 +8,12 @@
     http_client.py PORT stream      bodies and responses of any size, in pieces, and Expect
     http_client.py PORT files DIR   /files/, after writing its files into DIR, the
                                     directory the server's FILES names
+    http_client.py PORT dataset FILE
+                                    writes a dataset for /json/{count} into FILE,
+                                    which the server's DATASET names
+    http_client.py PORT compress FILE
+                                    compressed responses: /json/{count} from the
+                                    dataset FILE, and /zstream
     http_client.py PORT keepalive   keep-alive, Connection: close, HTTP/1.0
     http_client.py PORT hostile     malformed and oversized requests
     http_client.py PORT slow        slow clients, against the server's timeouts
@@ -40,6 +46,12 @@ import subprocess
 import sys
 import threading
 import time
+import zlib
+
+try:
+    from compression import zstd  # Python 3.14
+except ImportError:
+    zstd = None
 
 HOST = "127.0.0.1"
 SERVER_NAME = os.environ.get("SERVER_NAME", "goose")
@@ -118,6 +130,22 @@ class Conn:
             self.fill()
         data = bytes(self.buf[:n])
         del self.buf[:n]
+        return data
+
+    def head(self):
+        """The next response's head alone, for reading its chunks one by one
+        with chunk."""
+        return self.response(head_only=True)
+
+    def chunk(self):
+        """The next chunk's data, or b"" for the last chunk, which leaves its
+        trailers and the blank line after them to read with line."""
+        size = int(self.line().split(b";")[0], 16)
+        if size == 0:
+            return b""
+        data = self.take(size)
+        if self.take(2) != b"\r\n":
+            fail("a chunk without its CRLF")
         return data
 
     def response(self, head_only=False):
@@ -1046,8 +1074,146 @@ def later(port):
     r, took = timed(c, b"/events?id=s&delay=300&n=2&ms=100")
     if r.status != 200 or r.body != b": timeout\n\n" or took > 0.45:
         fail(f"/events past its limit: {r.status} {r.body!r} after {took:.2f} s")
+
+    # Compressed, each event arrives whole: its chunk decompresses to it alone.
+    c.send(request(b"/events?id=z&delay=50&n=3", extra=b"Accept-Encoding: gzip\r\n"))
+    r = c.head()
+    if r.header("content-encoding") != "gzip" or r.header("vary") != "Accept-Encoding":
+        fail(f"/events compressed: {r.headers}")
+    d = zlib.decompressobj(wbits=31)
+    for i in range(1, 4):
+        got = d.decompress(c.chunk())
+        if got != b"data: z %d\n\n" % i:
+            fail(f"/events compressed: event {i} came as {got!r}")
+    rest = b""
+    while piece := c.chunk():
+        rest += d.decompress(piece)
+    c.line()
+    if rest or not d.eof:
+        fail(f"/events compressed: {rest!r} after the events, eof {d.eof}")
     c.close()
     print("later: ok")
+
+
+def write_dataset(path):
+    """A dataset of HttpArena's shape, 50 items, for /json/{count}."""
+    names = ["Alpha Widget", "Pro Valve", "Core Relay", "Quantum \"Gear\"", "Mini Pump"]
+    items = []
+    for i in range(1, 51):
+        items.append({
+            "id": i, "name": names[i % len(names)] + " " + str(i), "category": ["tools", "electronics"][i % 2],
+            "price": 17 * i % 500 + 1, "quantity": 31 * i % 100, "active": i % 3 != 0,
+            "tags": ["sale", "new", "heavy-duty", "wireless"][:i % 5],
+            "rating": {"score": i % 50, "count": 7 * i},
+        })
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(items, f, indent=2)
+
+
+def decode(coding, body):
+    if coding == "gzip":
+        return gzip.decompress(body)
+    if coding == "deflate":
+        return zlib.decompress(body)
+    if coding == "zstd":
+        return zstd.decompress(body)
+    fail(f"Content-Encoding {coding}")
+
+
+def compress(port, dataset):
+    """/json/{count}?m=, HttpArena's json-comp, and /zstream, against a server
+    started with DATASET: each coding decompresses to the right items, what
+    is left alone is, and a stream's pieces each decompress as they come."""
+    with open(dataset, encoding="utf-8") as f:
+        source = json.load(f)
+
+    def check_items(body, n, m):
+        d = json.loads(body)
+        want = [dict(it, total=it["price"] * it["quantity"] * m) for it in source[:n]]
+        if d != {"items": want, "count": n}:
+            fail(f"/json/{n}?m={m}: {body[:200]!r}")
+
+    codings = [("gzip, br", "gzip"), ("deflate", "deflate"), ("gzip;q=0.5, deflate", "deflate"),
+               ("br", None), ("identity", None)]
+    if zstd:
+        codings += [("gzip, deflate, br, zstd", "zstd")]
+    else:
+        print("compress: no zstd module in this Python; zstd responses not checked")
+    c = Conn(port)
+    for accept, want in codings:
+        c.send(request(b"/json/50?m=3", extra=b"Accept-Encoding: " + accept.encode() + b"\r\n"))
+        r = c.response()
+        names = [n for n, _ in r.headers]
+        coding = r.header("content-encoding") if "content-encoding" in names else None
+        if r.status != 200 or coding != want or r.header("vary") != "Accept-Encoding":
+            fail(f"/json/50 with Accept-Encoding: {accept}: {r.status} {r.headers}")
+        check_items(decode(coding, r.body) if coding else r.body, 50, 3)
+        if coding and len(r.body) * 3 > len(decode(coding, r.body)):
+            fail(f"{coding}: {len(r.body)} bytes compressed")
+
+    # Without Accept-Encoding, a short body, HEAD, and no m.
+    c.send(request(b"/json/50?m=2"))
+    r = c.response()
+    if "content-encoding" in [n for n, _ in r.headers] or r.header("content-type") != "application/json":
+        fail(f"/json/50 without Accept-Encoding: {r.headers}")
+    check_items(r.body, 50, 2)
+    plain = len(r.body)
+    c.send(request(b"/json/1?m=5", extra=b"Accept-Encoding: gzip\r\n"))
+    r = c.response()
+    if "content-encoding" in [n for n, _ in r.headers]:
+        fail(f"/json/1 compressed: {r.headers}")
+    check_items(r.body, 1, 5)
+    c.send(request(b"/json/50?m=2", b"HEAD", b"Accept-Encoding: gzip\r\n"))
+    r = c.response(head_only=True)
+    if "content-encoding" in [n for n, _ in r.headers] or int(r.header("content-length")) != plain:
+        fail(f"HEAD /json/50: {r.headers}")
+    c.send(request(b"/json/7", extra=b"Accept-Encoding: gzip\r\n"))
+    check_items(gzip.decompress(c.response().body), 7, 1)
+    for bad in (b"/json/0", b"/json/51", b"/json/x"):
+        c.send(request(bad))
+        if c.response().status != 400:
+            fail(f"{bad!r} wasn't refused")
+
+    # Pipelined, each compressed whole.
+    c.send(b"".join(request(b"/json/%d?m=%d" % (n, n), extra=b"Accept-Encoding: gzip\r\n") for n in range(10, 51, 10)))
+    for n in range(10, 51, 10):
+        check_items(gzip.decompress(c.response().body), n, n)
+
+    # A stream: each piece the server sends decompresses as it comes, and
+    # the whole to /stream's digits.
+    for accept, coding in (("gzip", "gzip"), ("deflate", "deflate")) + ((("zstd", "zstd"),) if zstd else ()):
+        n = 3 * 16384 + 100
+        c.send(request(b"/zstream?n=%d" % n, extra=b"Accept-Encoding: " + accept.encode() + b"\r\n"))
+        r = c.head()
+        if r.header("content-encoding") != coding or r.header("transfer-encoding") != "chunked":
+            fail(f"/zstream with {accept}: {r.headers}")
+        d = {"gzip": lambda: zlib.decompressobj(wbits=31), "deflate": zlib.decompressobj,
+             "zstd": lambda: zstd.ZstdDecompressor()}[coding]()
+        got = b""
+        while piece := c.chunk():
+            out = d.decompress(piece)
+            if len(out) not in (16384, 100, 0):
+                fail(f"/zstream with {accept}: a piece decompressed to {len(out)} bytes")
+            got += out
+        c.line()
+        if got != digits(n):
+            fail(f"/zstream with {accept}: {len(got)} bytes, not /stream's {n}")
+    c.send(request(b"/zstream?n=10"))
+    r = c.response()
+    if "content-encoding" in [n for n, _ in r.headers] or r.body != digits(10):
+        fail(f"/zstream without Accept-Encoding: {r.headers} {r.body!r}")
+    # Connections that leave mid-stream, and a stream after them.
+    for _ in range(40):
+        k = Conn(port)
+        k.send(request(b"/zstream?n=100000000", extra=b"Accept-Encoding: gzip\r\n"))
+        k.head()
+        k.chunk()
+        k.close()
+    c.send(request(b"/zstream?n=1000", extra=b"Accept-Encoding: gzip\r\n"))
+    if gzip.decompress(c.response().body) != digits(1000):
+        fail("/zstream after streams that were cut")
+    c.close()
+    print("compress: ok")
 
 
 def listen_where(port, address, v6only):
@@ -1158,6 +1324,10 @@ def main():
         {"many": many, "emfile": emfile, "stop": stop, "max-conns": max_conns}[mode](port, int(sys.argv[3]))
     elif mode == "files":
         files(port, sys.argv[3])
+    elif mode == "dataset":
+        write_dataset(sys.argv[3])
+    elif mode == "compress":
+        compress(port, sys.argv[3])
     elif mode == "log":
         access_log(port, sys.argv[3])
     elif mode == "listen":
