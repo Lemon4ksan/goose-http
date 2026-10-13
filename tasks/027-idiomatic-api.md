@@ -173,6 +173,24 @@ within 100 KB. A sampled profile (`perf record`, instructions) puts p1's extra i
 `answer`; where in it isn't found yet. Kept for now, since p1 and p2 land in the same
 stretch, until the maintainer decides whether p1 must hold on its own.
 
+### Plaintext and JSON
+
+`bench/run.sh`, same machine, wrk 4.1.0 for 15 s after 5 s of warm-up, server on CPUs
+0-3 and wrk on 4-15 with 8 threads, 3 runs, latency left out, medians
+([summary](../bench/results/2026-10-13-desktop-027-run/summary.md)), in millions of
+requests per second:
+
+| Test, workers | base | p1 | p3 | base, uring | p1, uring | p3, uring |
+|---|---|---|---|---|---|---|
+| plaintext:256, 1 | 1.853 | 1.869 | 1.888 | 2.058 | 2.090 | 2.074 |
+| plaintext:256, 4 | 5.553 | 5.479 | 5.663 | 6.811 | 6.849 | 6.984 |
+| json:256, 1 | 0.144 | 0.147 | 0.146 | 0.167 | 0.168 | 0.173 |
+| json:256, 4 | 0.419 | 0.420 | 0.426 | 0.506 | 0.501 | 0.511 |
+
+Every cell is within the runs' spread of the baseline. p3 is at or above it in all
+eight, by 0.8-2.6%; p1 is from 1.3% under to 1.8% over, so its 40 instructions don't
+show in a rate. Peak RSS is the same to 0.1 MB.
+
 ## Examples and docs
 
 Once the proposals are settled:
