@@ -26,7 +26,9 @@ goose build -o build/examples/routes examples/routes/routes.goose
 curl localhost:8080/users/42
 ```
 
-Each one listens on port 8080. `scripts/test.sh` typechecks them.
+Each one listens on port 8080. `scripts/test.sh` typechecks them, and
+`scripts/test-examples.sh`, its last step, builds each and requests each of its
+routes once.
 
 ## Requests and responses
 
