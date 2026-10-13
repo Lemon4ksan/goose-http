@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v2/schedule/version?since=60878", "method": "GET" },
+  "config": { "connections": 140, "launched": 140, "duration_s": 15.000, "closed": false, "target_rate": 8800, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 131811,
+  "bytes": 23594169,
+  "achieved_rate": 8786.94,
+  "target_rate": 8800,
+  "target_rate_end": 8800,
+  "rate_ratio": 0.9985,
+  "bytes_per_sec": 1572862.13,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 20606,
+  "latency_us": {
+    "min": 20, "mean": 133.8, "stdev": 486.2, "max": 36543,
+    "p50": 107, "p75": 129, "p90": 159, "p99": 286, "p99_9": 7534, "p99_99": 21112
+  },
+  "status_codes": { "1xx": 0, "2xx": 131811, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAA2l4nC1SbWhbZRS+57nvvfm6N0nTj6wmXSxpbejHrPi1jWF/iRURdRSt4GT4Q0XHKCJ1yNAyQwxllJKVWmIZs5RQQuiK1DKKlhFmkCFjljHKmIJlP/pHCaUEHGX4vLe7B957zvM+5zkfvMnspWbDUEPGwWc+/osXXPrWGKofAD2AAUMZyo7G2o4MDg+fGPn87Jnx87NyblquyJqUZEYqcl2qsiQP5F+py0O5hhzy5oRZNLfMSTWrampb5a1p65a1bxV993w/+xcCa4FC6Kaz7hbCu9Fq00Ks0pJrnWorHKrHr7U3nthM1g6XU3udG52VdCn9oCvfVcrsZ1Z7F/sW++8MZI80BuZ7VzOrPXtdf6W2D28nH7ZX4rutd1puN+80XYnej0xGauGL7o6Tc8vudVZZcqrOb86Mu+ZecDedmnvXue+UnN3Qo1A99CiwHrwRrAdu+qv+Fd+y75a9Ye9bq1ZdVdWWyqkf1bq5aZbMWTNvFswGtrCHBmq0CfMeVrCM25hHGVX8joZksSN3ZV02uJE1bqYoc3JBJvgfH5uUvGQlJxdpU8RKUuZthZublFkp0Iry5RzXuiA36F6WeZ5l+vOywjWXaIuyTHqNnDzpH19mntabE+0tkJCTcwUZO7/I2yk5W2Q8w5pLMs1/gcysnPnwq0/GRz87PTp2euyD90dGTr53/OSJN98+PvrC8HNHe596aXDwaG9/f6a/K3kok3lyMJYMt0VjUSccsx076tjhFtvvDwYd5UdQKSi/PgzbtkEHJmyGNgClnw2Uj++HkEkzbAJEdcAXpV9WgEiIHlFlKkt7gG1oHXJCFEFA8x4LaCIs3h+YJipLZ3h3yrRZTZmI6HzmIURxA014Bt84uCr4RzCA/4Av8IuNY7DQh+fxnYmv8Sr+EKTxq8K7eEUXwWv4CC9Sx8IbSGjB74UNpdHNRBMp+OCyhvbSrNPNrFMUsxhr2RDewhA60IxuLoIt9PDyZXyKTtIDRCJMsWgm4oy7PbEIo1Z6EeKuHjVFnQira8Cglkskrj1bd+jqAV27g1AKPBJe38262zidAM3y9DoIpdhDBy2ljuEd+j604wfBs2DjLnv7k+tKkJ/wenO9XhLk6xF1ZHCoCKfgWnUvT8PiNvq8Pfs8guslqlNc4Ov4W0j9yY//AV/518s="
+}

@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v1/organizations/01992367-5a80-7000-9001-f5b5f48cbe9e/entries/01a12ebb-eb5e-7000-935a-671cea7eb8f9", "method": "PATCH" },
+  "config": { "connections": 25, "launched": 25, "duration_s": 15.000, "closed": false, "target_rate": 7400, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.000,
+  "requests": 110990,
+  "bytes": 50278470,
+  "achieved_rate": 7399.13,
+  "target_rate": 7400,
+  "target_rate_end": 7400,
+  "rate_ratio": 0.9999,
+  "bytes_per_sec": 3351807.88,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 718,
+  "latency_us": {
+    "min": 37, "mean": 126.5, "stdev": 70.8, "max": 4099,
+    "p50": 118, "p75": 138, "p90": 164, "p99": 253, "p99_9": 895, "p99_99": 3375
+  },
+  "status_codes": { "1xx": 0, "2xx": 110990, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAvd4nC1RW2gTQRSduTs7O7vZbB5N89ymaZpWW/oUoyFoVRTRD0UERRQfiPjRD7/ELz+kShWRGtsKKkVFQpEiUkQk+CjiRwkiQaRUkVIkiBQ/pPSjFJHinUnmceeee889d2bXvTbWQIj2htSGVj+pAmPXyY7lWmA/6AwEE0QIi3N/MO1s6hoYOH7w1OClm3SSTtNVukzXaREWoAq3tBntvTbESqykr+pv+W/+URTMP2bZmvOU7OfeYWfNGfF/9M8G1gPzgR/B2dB8aKLxSrgYfRq9ESsnnrsF90uykqw2T7Z8Sg2lCy3V1OOWl6lvzS+Sr5MTTe/j32OjsQ/RSmQq/Lex2LgQmg1NN6wGKoEngSHfkjPuW/cu2queJXvKmhBl45WYMX9ZBbNkTomKKCH6aX4yV8S8KIohsywWxZxYMh/gDUfNYfOfsWg85t/0Sf07K7DP2gqswSQswzOYhhEYhSq+9Qet0Dn6E3eRlnE/oTP0IZ736AN6cZyev3zh7OCZc4ePHjqUP5jLdW7rPLYnt29Lbmfn3nx+YHOuq2vvQC6VyvdkUvl0X5/bntqYSXe2tyczGdfd0hNvT0bT4Xg45MbduF/YoWDcFmEeEv5gyOFW2AkGk37X4UHBLcFsxwIbmGNZNrc5Ixx/Ey6NcZ3h4IQDYUDAArSIAU80FnAil8qBwQkj0pEYCNehjlUWlw5MB03m0WGmUmKahLLAADk4Y4QZSDWwXseAhmkDFA0NSyDUwcRN6lIqXusrW9WqZJ0hW4DixZQIAo2BBw1RFzFBdvUxqUgkkiqITLwAkjSIQKMq1HDKMhMS6Ono++pyOLshgIGEojbIkFxS0KO4hLWhH0F5A7xopU5EaXihXzE6MN+K2TaM3abQBCdQsVt+D6/SCeDsxY4eyKJOA6aySIog31BP88EdiiJNcJfCI3xSAjbAO6puo8MR2AX96gf0QjPsx4ID2GwrnITdSGyC+xROo04WVa9SbNiB0Wbc2yXMIrEVvlL4DzpZm6A="
+}

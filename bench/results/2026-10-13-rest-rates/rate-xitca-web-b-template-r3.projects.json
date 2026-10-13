@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v1/organizations/01992367-5a80-7000-9001-f5b5f48cbe9e/projects?includeArchived=true", "method": "GET" },
+  "config": { "connections": 38, "launched": 38, "duration_s": 15.000, "closed": false, "target_rate": 11100, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 166476,
+  "bytes": 526064160,
+  "achieved_rate": 11097.99,
+  "target_rate": 11100,
+  "target_rate_end": 11100,
+  "rate_ratio": 0.9998,
+  "bytes_per_sec": 35069660.33,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 447,
+  "latency_us": {
+    "min": 37, "mean": 125.1, "stdev": 46.3, "max": 3871,
+    "p50": 122, "p75": 135, "p90": 155, "p99": 233, "p99_9": 540, "p99_99": 1909
+  },
+  "status_codes": { "1xx": 0, "2xx": 166476, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAul4nE1SXUhUQRS+c2Z2du5197p7Xa/rtl7Xv9w0RBR/ok2LfjALMgQhiHrooYgeROqlXkzExKxkXWJbLCRiWWRZRCTEh5KQELEQkQhZQkIiTEREepLozK5Ec5l7zvnm+76Zc+f6+0fzFIU+UbKDHkSSKUYfKa07WeA8AGdCE4a33Cp11Z0M1Z7p6eruI2EyTsZImmySJExCP2xBks7SFZpkH9gGW7Ql+DRf5hH7qj0pJtQB9bu2pw07p5xfnHP6q9w917y7Py/tGfTEzFRBzNvn3SpYKRzwbRbFrLfFkeLZwH5JuGywMlwZD65XxIOpYLgqenSmdqN+smk3tBMaDz09PnNsuDnaEK6P1i3U7tVsVE8fiQUjZemSCWvW33touzDl/WO+y3/n+WzE3UvuGVcid11PO9OOBccbbUrbUyN4qn6xbx8REXuvfZmv8SE+xl/bPtoiti22zZbZN/Ybu5liz9k026XbdJKu0QTOFI3QNCxBGrZhHuZgHL/ACAzDT7JDvpJV8oMMwAJZICkyROIkgTNJRsgiuXM/TLoHSZTc7rl199rVlq6L7R0tbec6ulqa20ONbYGqqqpAwKoLltY0eqyA6Q1oPs/hctOw/N5gjc+v+y3LMFyG5vEZuuH3mqbXdBmmy+XQNWGaDpehW7rpMWSpc4cuBNcFZ5pDE/IGGQOuMc4FMCYYFxw0hcmcAxN4y1gLyhhWCmQHZ1xBFQ6mcEUT8k9QuESQIbKpgmxJYVQmMpM1zSI2DJSBCk5QBFJtTCptGcMMEXksI5cCFUElS5CBgtTLXE7Jxr1YVqD8e5gKkiQflgM2dCzI2Clgl2tuGSi+DlBmxzxrivScA3uk/WdZgSQFRTkAeRkaCvMP1oozfFWeoCTTCJzA9i4j8QXBDuAUgp1QhNupqHJCNRRCLmaF6HYB0SvQBGdxu2p0fEzhEtyETwQa0OElgRso70ShCg/gGYHTAA8JXIf3APegFX5R+AuqvaVB"
+}

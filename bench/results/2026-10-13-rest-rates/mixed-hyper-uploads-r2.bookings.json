@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v2/schedule/bookings?start=2026-09-07&end=2026-09-14&staff=1,2,3,4,5,6,7,8,9,10", "method": "GET" },
+  "config": { "connections": 23, "launched": 23, "duration_s": 15.000, "closed": false, "target_rate": 1440, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.000,
+  "requests": 21592,
+  "bytes": 15587113656,
+  "achieved_rate": 1439.43,
+  "target_rate": 1440,
+  "target_rate_end": 1440,
+  "rate_ratio": 0.9996,
+  "bytes_per_sec": 1039111492.11,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 15003,
+  "latency_us": {
+    "min": 1075, "mean": 7230.2, "stdev": 3869.5, "max": 30975,
+    "p50": 6694, "p75": 9452, "p90": 12388, "p99": 18552, "p99_9": 24120, "p99_99": 28872
+  },
+  "status_codes": { "1xx": 0, "2xx": 21592, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "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"
+}

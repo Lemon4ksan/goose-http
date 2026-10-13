@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v2/schedule/version?since=60908", "method": "GET" },
+  "config": { "connections": 140, "launched": 140, "duration_s": 15.000, "closed": false, "target_rate": 8800, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 131819,
+  "bytes": 23463782,
+  "achieved_rate": 8787.50,
+  "target_rate": 8800,
+  "target_rate_end": 8800,
+  "rate_ratio": 0.9986,
+  "bytes_per_sec": 1564174.22,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 31198,
+  "latency_us": {
+    "min": 17, "mean": 108.2, "stdev": 845.0, "max": 47135,
+    "p50": 70, "p75": 88, "p90": 108, "p99": 172, "p99_9": 15276, "p99_99": 30968
+  },
+  "status_codes": { "1xx": 0, "2xx": 131819, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAxV4nC1RW2hUVxS9e51z79x5Z3InZmYyj4zBiEaNppoS/CipiBB8QJWotOiHGv2xP1L/hKhpbYtK0FSDlDSEiKISokQRsRLzESQECdNWRIYoIhL8kCglaD7EdW6cc+7Z5+y119p7z852nfcsS01ZCz/1xYr/OH/K+mZ2wVGM5Ot35Jt37enokh4ZlhE5gT50qU7VreZUp+7XY/qB7rJf6FlnIHwrOhQbr5hOvPKmq+dqnhXL9YMNc42Xmq6tnV831jzz1XjT9OpPK2dW9C27u2SqOFAoZWczr1Ldqbvp4UxvZjI9k5nIlfJnCyP5q4VbtZO18/kL+Se5qzW/Zv5M/Vs1uqg32e/1VQ4nHle8iZWjp6OvI92Rs+E7odfBp8GX7gt3wJ0L3A88DYwFSs6IU7bL9g17gl+PPWSX9KR+pN+rc/qemlLj6obqUedUGewDw/gfgxjCBxnFrMxLN57IW7kjj7jKMiolGZcL0i+/yKD8Lkc75Yf9HR0/fneovX1P++Ydbe1bt37b1tbUXF+/eG1TflW2efny2mwog8pkJJvKuMlkZFGoMhaqSLqhSieVRSwZibkRNxTTEYRcx4HWGpYLWFo7jrYAOJofffQ7ZjuwHSiAoIEtsy0E4RhjawXbdxboSmMpz53Af4LtiOMIqnAAB3EMvNh4KAhjLzYRWYafUIe/gZPABng4jC24LHgu+AvYxnTXhd4/hMpngFOCi4LbgiIFPgpuKrwDfhOSjhjDOtCCBq7twEbmSmMfcrTHBQFefhZcEawxoutYjIeVJkmArChDq5iuwKhGugPsgDuOGpbHThrwvWkubHaR6BZG1pEVhtK7YXqv4y1NlSC+RoKI72zhWWU4ObIs8hqJ5LBUmz8ugVbCimiaiYLAEorEyWKWVpoFxgLkkWXrFj/e5PB0HRLa5quVyyMxSHqA4wuSlfAHY4SU33cU1X5vRXoLFEz7qOIZJ8MiznqLKJLskaB0DtRYw+lEzcSNpAmp4aMaDIgSY2TcpNUJn5MwyHqjUyDbMnJRU/16P+E/pps4Azmkz3VpqR0="
+}
