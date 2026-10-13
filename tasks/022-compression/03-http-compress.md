@@ -1,6 +1,6 @@
 # 022.03: Compressing responses in `http`
 
-Status: in progress, on the `task-022-03` branch until its benchmarks are recorded
+Status: done (2026-10-14), tested on Linux and Windows; macOS not run yet
 
 The module `http.compression` compresses a response on the fly with goose-compress
 when the request takes gzip, deflate, or zstd ([task 022](README.md)). It uses subtask
@@ -95,8 +95,22 @@ keeps the gzipped bytes (`map[u64][]u8` in its `main.v`), so its cell measures a
 cache, not compression. HttpArena scores json-comp by rate times the square of the
 smallest bytes per response over a server's own: dusty's gzip writes 12% fewer bytes
 than goose's level 1, which scores goose at 0.78 of its rate, 51.5K, still above actix's
-35.4K and dusty's 43.0K. A higher level trades rate for that square; it isn't measured
-yet.
+35.4K and dusty's 43.0K.
+
+A higher level trades rate for that square, and loses. The benchmark server at
+`a481b99`, uring, with `COMPRESS_LEVEL` at 1, 3, 6, and 9, the same wrk run as under
+"Measured" above, 3 runs each in turn; the bodies of json-comp's seven requests summed
+from one `curl` of each:
+
+| gzip level | Requests/s, median (range) | Body bytes, 7 requests | Bytes read per response | Score against level 1 |
+|---:|---:|---:|---:|---:|
+| 1 | 112.7K (108.1-113.6K) | 6,574 | 1,105 | 1.00 |
+| 3 | 101.1K (88.7-101.7K) | 6,410 | 1,083 | 0.94 |
+| 6 | 83.0K (81.0-83.1K) | 6,076 | 1,036 | 0.84 |
+| 9 | 66.8K (64.1-67.5K) | 6,026 | 1,022 | 0.69 |
+
+The score is HttpArena's: the rate times the square of level 1's bytes per response
+over the level's own. Level 1 stays the default.
 
 ## Acceptance criteria
 
@@ -130,5 +144,4 @@ yet.
       mounts it) and the profile in the HttpArena entry
 - [x] Throughput and peak RSS with and without compression on json-comp's endpoint,
       against the competitors in their fastest documented compression setup, with how
-      they were measured ("Measured", above). Left: gzip levels above 1 against
-      json-comp's score, and macOS.
+      they were measured ("Measured", above). Not run on macOS yet.
