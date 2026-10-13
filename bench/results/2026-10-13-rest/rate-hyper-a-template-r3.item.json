@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/items/4242", "method": "GET" },
+  "config": { "connections": 199, "launched": 199, "duration_s": 15.000, "closed": false, "target_rate": 78000, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 1166605,
+  "bytes": 345315080,
+  "achieved_rate": 77768.50,
+  "target_rate": 78000,
+  "target_rate_end": 78000,
+  "rate_ratio": 0.9970,
+  "bytes_per_sec": 23019475.93,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 55509,
+  "latency_us": {
+    "min": 17, "mean": 147.9, "stdev": 1100.1, "max": 58079,
+    "p50": 110, "p75": 135, "p90": 159, "p99": 216, "p99_9": 10356, "p99_99": 52336
+  },
+  "status_codes": { "1xx": 0, "2xx": 1166605, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "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"
+}

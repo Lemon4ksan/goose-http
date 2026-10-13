@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v2/clients/42/encounters?limit=20", "method": "GET" },
+  "config": { "connections": 30, "launched": 30, "duration_s": 15.000, "closed": false, "target_rate": 204, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.000,
+  "requests": 3060,
+  "bytes": 218089260,
+  "achieved_rate": 203.99,
+  "target_rate": 204,
+  "target_rate_end": 204,
+  "rate_ratio": 1.0000,
+  "bytes_per_sec": 14538830.11,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 0,
+  "latency_us": {
+    "min": 147, "mean": 209.9, "stdev": 268.1, "max": 14135,
+    "p50": 195, "p75": 212, "p90": 227, "p99": 321, "p99_9": 1356, "p99_99": 14132
+  },
+  "status_codes": { "1xx": 0, "2xx": 3060, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAOx4nJNpmSzMwMBwiwECmKE0I5gzuZ3B/gNEYCkTEysTMxsTGwsXB4+EmJCMjJKGl5tXXEoPY05ezRTGJsaioIyqvJysmLyopJiEnIwML5+YsBS/BIcst5SIiCS/sLKSiDAvDw8vOxM9MysNJT41IzE5MSkRCQExHgEOPj4eLjEhLh4GNiYuASY2NiYGNg42BhYmBiY2JiYOFqDFDEwsLMwgRwAZQMzJxM3EziTMxOTK5AhkRDPlMm1nYrrPyDSThUmaSZnJlEmTiZdJlEmVSReogBuoXh0IBYHQH8jmZ2JmqmSaCVRtwgQATTAk7g=="
+}

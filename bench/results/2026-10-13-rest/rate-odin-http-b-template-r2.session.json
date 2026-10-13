@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v1/session", "method": "GET" },
+  "config": { "connections": 64, "launched": 64, "duration_s": 15.000, "closed": false, "target_rate": 6000, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 89966,
+  "bytes": 147724172,
+  "achieved_rate": 5997.51,
+  "target_rate": 6000,
+  "target_rate_end": 6000,
+  "rate_ratio": 0.9996,
+  "bytes_per_sec": 9847916.74,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 15071,
+  "latency_us": {
+    "min": 28, "mean": 149.0, "stdev": 774.1, "max": 25743,
+    "p50": 109, "p75": 118, "p90": 133, "p99": 192, "p99_9": 16164, "p99_99": 24056
+  },
+  "status_codes": { "1xx": 0, "2xx": 89966, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAyV4nC1SS0hUURi+57/nnrlz7zwc547zchxtdMbXlI6IRQ/L1MJNQW2iFtqDkNpltWkxyNDDpEIlXNhGXNUgLSRCQgYXESISUuGqwk0RImIS4arvHLuXc/7zv77/O/9/KgvjQU3jOW3v0/9LppTxB1rn1p6hgwyucU6WJcwyK1Ze7lTWt6Qj6cbjjV1dx3r7uy/13xll0+wJW2TzbJkVaIwWaI3yelHf0df5FN/mz0XJKIlp12tz2Vx2z1sb7hl7w17wFH2b/pXAfWeuYi66Wvm2er2mkPnQuJodaV3Nfc0tt0635LPbTcMNi3UPU+vVk1UTlVPRYvi7M+LsBl76t32/vD/tLWvRmrVK7k/mmllyLbneiS9iRfw1isaSUTBW+CwY7Oh5vqa/10f1P7RJH+kZTdIW22a7rMTesCKbYXk2xobZBLuZZ0P3rg6dPX+5r7u373TuyL7mg+n99ena5toqpypSG6n2xCqcCtMXKYuUlZuOcCzh8ZXFnJglfCY+x+Oxyi3T9FmmZgn0TAiuWdwSgizBuSk4cSISZApNCkJziTQYdXi4Bos6KZMgXUZz7CqCpKbJROIGuWHXpFHqGsYEYeDgJWkPwWuQC3+GwhQnm3C04fRjnYDrMFEIpX4zBHdImCTizlA7QdB1itIrRkG6gkOc2ug2PSXqRNJFesxg85ObXjCk/WA4X8Afp3FGCfrG4IkjtAE7aviBe42y9IgBNwgyKYIYgMsNGiGQqkGRA7CFoUXpLhh4oQ3SDViP0mcJKlOCEkKHL0PA8MOJIh24UhMyDwFN9qIOtpNwpvBHsdy4KNxZcGlHQALBITAbVL0IA8wF/RzYaxTAGkCqX52z8N1CRAYQwE2hm9LRBlUyluYeBQCKXmAlKMtPkWy5vJitZAB7QDaVS2oJJMOhS8AONMUGIC6RUIg9UJMI9yNBhjaglsZDSndj2cRtFPXKIdYhQldjlNOV88YDiKujJkeONDltG9LAHwX1sPIE8UYwNx5UvHRcI6y4JpDrVRFJVVDioA88wWWBuHpUsgxaBe7YE+qFpbiUWbi9AEoiNKmY/gMl1YwT"
+}
