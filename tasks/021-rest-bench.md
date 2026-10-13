@@ -536,9 +536,12 @@ Next session on the desktop (asked for 2026-10-13):
 2. `bench/rest.sh run`: accept those names in `SERVERS` and `start`; skip tier D (the
    checker's `d`, steps 2 and 4) for may-minihttp and Tina, and record each skip in
    `env.txt`; keep Tina's crash lines (`[FATAL] ...`) in its log.
-3. Pass `check.py` on the desktop against each, then one full run of all eight servers
-   (Goose's two loops, hyper, and the five): about 3 h at 3 rounds, from 65 minutes
-   for three servers on 2026-10-12.
+3. Pass `check.py` on the desktop against each, then one full run of the five alone:
+   Goose's two loops and hyper ran in full on 2026-10-12 (`2026-10-12-rest`, uploads
+   again after `find_bytes` in `2026-10-13-uploads-after`), and their binaries haven't
+   changed since. About 1 h 50 min at 3 rounds, from 65 minutes for three servers. Add
+   one round of hyper as an anchor (about 20 minutes): within its earlier range, the
+   earlier cells stand; outside, say by how much beside the tables.
 4. Record the run in `docs/results.md` and the README's REST table, servers as rows,
    each column's best in bold, with tier D's gaps shown, not left blank.
 
