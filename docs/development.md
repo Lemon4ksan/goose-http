@@ -9,7 +9,7 @@ neither is for benchmarks.
 
 | Tool | Where | Version used (2026-10-10) |
 |---|---|---|
-| Goose compiler | `../goose`, at the pin in `README.md` | `6448f3f` (2026-10-12) |
+| Goose compiler | `../goose`, at the pin in `README.md` | `a6249a4` (2026-10-13) |
 | WSL2 Ubuntu | | 26.04.1 LTS, kernel 6.18.40.1-microsoft-standard-WSL2 |
 | C compilers | WSL | gcc 15.2.0, clang 21.1.8 |
 | CMake, Ninja | WSL, apt | 4.2.3, 1.13.2 |
@@ -96,7 +96,7 @@ platforms: WSL builds into `build-linux/` and Windows into `build/`, and the che
 
    ```sh
    git clone -o upstream https://github.com/aardappel/goose.git ../goose
-   git -C ../goose checkout 6448f3f
+   git -C ../goose checkout a6249a4
    ```
 
 2. Build the Linux compiler, in WSL:

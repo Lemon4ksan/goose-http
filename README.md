@@ -313,7 +313,7 @@ tasks/         task tracking (tasks/README.md)
 
 | What | Pin | Why |
 |---|---|---|
-| Goose compiler | `aardappel/goose` `6448f3f` (`master`, 2026-10-12) | The language and stdlib change often |
+| Goose compiler | `aardappel/goose` `a6249a4` (`master`, 2026-10-13) | The language and stdlib change often |
 | Benchmarked | REST at `23aa531`, plaintext and JSON at `73dd28c`, both with Goose `6448f3f`; files at `fcfd80d` with Goose `5c83a5a` | Benchmarks run in overnight batches, so they lag the pin |
 
 Move the pin in its own commit once the tests pass; benchmarks don't wait for it
