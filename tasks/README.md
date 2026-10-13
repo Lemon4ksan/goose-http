@@ -59,11 +59,12 @@ point. Task 017 narrows the IOCP loop's gap to io_uring, on the benchmark deskto
 019 adds Tina to the benchmark, and can start at any point. Task 020 sends files on
 io_uring and IOCP without copying them, as the epoll loop does. Task 021 is the REST
 benchmark, in three tiers taken from HttpArena, snowtime, and a clinic booking app, and
-one of uploads; done, measured against six competitors (2026-10-13), and kept here for
-task 023.
-Task 023 plans goose-rest, a framework on this package, as a proof of concept for
-later, measured on task 021's tiers; it moves to a repository of its own once it has
-code. Task 024 looks for why nginx beats Goose at 64 KB files, where Goose's emulated
+one of uploads; done, measured against six competitors (2026-10-13), and kept here because
+goose-rest, a framework on this package planned in its own repository, is measured on
+its tiers. Task 024 looks for why nginx beats Goose at 64 KB files, where Goose's emulated
 ring doesn't lose, and can start at any point. Task 025 shrinks the REST server's
 memory, a copy of the records per worker. Task 026 brings the io_uring loop's reads
-beside uploads to the epoll loop's latency.
+beside uploads to the epoll loop's latency. Task 027 makes the API more idiomatic Goose
+where the benchmarks show speed holds, then rewrites the examples and the API reference.
+It comes next, since breaking changes cost least before programs such as goose-rest use
+the API.

@@ -56,10 +56,10 @@ Idle after startup, epoll loop, the desktop, `build/rest` binaries of
      again. It changes the benchmark's rule that servers load their records at startup,
      and 15 MB of JSON makes about 60 MB of generated C, so it stays out unless every
      server may do the same.
-4. One data thread that workers mail, as task 023 plans for a shared cache: one copy,
+4. One data thread that workers mail, as goose-rest plans for a shared cache: one copy,
    at the cost of a mailbox round trip per read, and on tier C every response's JSON
    built on that one thread. That measures Goose's concurrency model rather than its
-   HTTP layer, so it belongs beside the main cells as a variant, with task 023, not in
+   HTTP layer, so it belongs beside the main cells as a variant, with goose-rest, not in
    their place.
 
 ## Acceptance criteria

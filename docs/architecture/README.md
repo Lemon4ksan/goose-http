@@ -7,6 +7,10 @@ until the task named beside it confirms or replaces it.
 
 - **A Goose program, not a Goose feature.** This repository uses Goose as the pinned
   checkout ships it. Gaps go to `docs/goose-findings.md` (2026-10-10).
+- **The API isn't frozen.** Work until 2026-10-13 aimed at correctness and speed, not
+  idiom, and was written before parts of Goose existed (its `exception` module came on
+  2026-10-11). A change that makes the API more idiomatic Goose, breaking or not, is
+  welcome when the benchmarks show speed and memory hold (2026-10-13, task 027).
 - **Simple first, then io_uring.** The first server is an epoll loop per core; io_uring
   follows once epoll is measured (2026-10-10).
 - **Linux is the benchmark platform.** The fast paths (`SO_REUSEPORT`, epoll, io_uring)
