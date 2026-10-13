@@ -116,6 +116,63 @@ review's estimates; "unverified" marks what no program has checked yet.
 
 A proposal the work turns up later joins this list with its check before it lands.
 
+## The breaking proposals' benchmarks
+
+Run on the desktop on 2026-10-13, once the four breaking proposals were in (asked for
+2026-10-13: fast checks first, and only what's needed). Each revision is built into a
+name of its own, both loops, with the Goose pin at `a6249a4`:
+
+| Build | Commit | Benchmark server | REST server |
+|---|---|---|---|
+| base | `2afc12f` | `build/bench/goose-27base[-uring]` | `build/rest/rest-goose-base` |
+| p1 | `a9783c8` | `goose-27p1[-uring]` | not built: no tier named |
+| p2 | `070e830` | `goose-27p2[-uring]` | `rest-goose-p2` |
+| p3 | `dfc4a00` | `goose-27p3[-uring]` | `rest-goose-p3` |
+| p4 | `0962213` | the same code as p3 | `rest-goose-p4` |
+
+The commands, run as root in WSL, each build made from `git archive` of its commit with
+`scripts/build.sh` (`LOOP=epoll`, then `uring`) and `goose build --cc gcc --standalone`
+for `bench/rest/goose/rest.goose`:
+
+```sh
+RUNS=3 bench/count.sh goose-27{base,p1,p2,p3} goose-27{base,p1,p2,p3}-uring
+RUNS=3 bench/instructions.sh goose-27{base,p1,p2,p3} goose-27{base,p1,p2,p3}-uring
+SERVERS="goose-27base goose-27p1 goose-27p3 goose-27base-uring goose-27p1-uring goose-27p3-uring" \
+    TESTS="plaintext:256 json:256" LATENCY=0 bench/run.sh
+SERVERS="goose-uring-base goose-uring-p2 goose-uring-p3 goose-uring-p4 hyper dusty" \
+    RATE_A=140000 RATE_B=74000 RATE_C=16000 bench/rest.sh run
+```
+
+`bench/rest.sh` runs a `goose-uring-TAG` server from `build/rest/rest-goose-TAG`. The
+REST run's fixed rates are the 2026-10-13 rerun's, so dusty's cells, which task 021
+asked for, sit beside the existing tables, with hyper as the anchor.
+
+### Instructions and memory
+
+Ryzen 7 5800X3D, WSL2 kernel 6.18.40.1, gcc 15.2.0, one worker on CPU 0. `bench/count.sh`:
+10 million plaintext requests from h2load 1.68.0 (CPUs 4-15, 8 threads, 256
+connections, 16 in flight each), 3 runs, which repeat to 0.1 instruction
+([runs](../bench/results/2026-10-13-desktop-027-count/runs.tsv)). `bench/instructions.sh`:
+wrk 4.1.0 pipelining 16 deep at 256 connections for 20 s, perf on CPU 0 for 10 s, 3 runs
+([runs](../bench/results/2026-10-13-desktop-027-instructions/runs.tsv)).
+
+| Build | epoll, user insns/req (count.sh) | uring | epoll, peak RSS KB | uring |
+|---|---|---|---|---|
+| base | 1,826.9 | 1,875.2 | 2,448 | 4,896-4,992 |
+| p1 | 1,866.4 (+39.5) | 1,920.2 (+45.0) | 2,512-2,544 | 4,928-4,996 |
+| p2 | 1,822.4 (-4.5) | 1,874.1 (-1.1) | 2,448-2,484 | 4,768-4,980 |
+| p3 | 1,824.6 (-2.3) | 1,873.1 (-2.1) | 2,476-2,540 | 4,632-4,876 |
+
+`bench/count.sh`'s user cycles per request: base 476-478 on epoll and 445-454 on uring;
+p1 486-494 and 438-442; p2 461-465 and 426-428; p3 459-482 and 423-442.
+
+p1 alone costs about 40 instructions per request on each loop, beyond any noise of
+these counts, which step 4 above would revert. p2 more than wins it back, and the
+series from p2 on is at or under the baseline in instructions and cycles, with memory
+within 100 KB. A sampled profile (`perf record`, instructions) puts p1's extra in
+`answer`; where in it isn't found yet. Kept for now, since p1 and p2 land in the same
+stretch, until the maintainer decides whether p1 must hold on its own.
+
 ## Examples and docs
 
 Once the proposals are settled:
