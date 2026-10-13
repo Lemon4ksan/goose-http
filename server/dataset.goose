@@ -22,6 +22,8 @@ struct Item {
 }
 
 var items: Item[>..];
+// The gzip and deflate level, 1 by default, or COMPRESS_LEVEL's.
+var level: i64 = 1;
 
 // The string at r's cursor, which a field of capacity cap takes, or "" with
 // ok cleared for a longer one.
@@ -35,6 +37,12 @@ fn string_of(r: json::Reader&, scratch: u8[>..]&, cap: i64) -> const u8[:], bool
 // unreadable one leaves /json/{count} answering 404, and one that doesn't
 // parse ends the process.
 fn load_dataset() {
+    var given: u8[>..] = [];
+    if env("COMPRESS_LEVEL", given) {
+        let v, ok = parse_int(given);
+        guard ok && v >= 1 && v <= 9 else { abort("COMPRESS_LEVEL must be 1 to 9"); }
+        level = v;
+    }
     var path: u8[>..] = [];
     if !env("DATASET", path) { path.append("/data/dataset.json"); }
     var text: u8[>..] = [];
@@ -134,5 +142,5 @@ fn json_items(req: http::Request, count: const u8[:], out: http::Reply) {
     let m, m_ok = parse_int(mv);
     var body: u8[>..] = [];
     write_items(body, n, if has_m && m_ok { m } else { 1 });
-    http::respond_compressed(out, req, 200, "application/json", body);
+    http::respond_compressed(out, req, 200, "application/json", body, http::Compression { level: level, .. });
 }
