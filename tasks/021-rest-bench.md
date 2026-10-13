@@ -1,6 +1,7 @@
 # 021: A REST benchmark
 
-Status: done (asked for 2026-10-12; designed 2026-10-12; competitors measured 2026-10-13)
+Status: done (asked for 2026-10-12; designed 2026-10-12; competitors measured 2026-10-13);
+dusty added 2026-10-13, not yet measured
 
 Plaintext and JSON measure the loop and the parser. This measures what REST traffic
 costs an HTTP layer on top: request heads of 0.3-1.2 KB with a bearer token or session
@@ -13,6 +14,12 @@ responses from a few hundred bytes to about a megabyte, mixed on one connection.
   without a framework: hyper, tokio's hand-written entry, may-minihttp, xitca-http,
   odin-http, and Tina. Frameworks such as axum or Elysia belong in the framework that
   will sit on this package, in a repository of its own, against a Goose framework.
+- dusty joins them (asked for 2026-10-13), so that the field has a Zig server. It is a
+  framework, with a router and its own body readers, so it isn't a direct competitor to
+  this package; its peer is goose-rest. The results say so beside its rows. zix and zeemo
+  stay out: they are HttpArena entries cut down to HttpArena's requests (zeemo parses
+  only `GET` and `POST`, in a 2 KiB buffer), with no general request body to build tier
+  D on.
 - Handlers are thin and the same in each server: route, take the id or query, look the
   records up, and write the response. No business rules and no auth: a token or cookie
   is header bytes the server parses and carries.
@@ -598,6 +605,50 @@ table, and the run's timing, with what would shorten it, in
 - Beside uploads, Goose's epoll loop keeps tier C's reads at a p99 under 2.5 ms;
   xitca-web's reaches 13 ms, and tokio's reads fall behind, to 11-12K of 16K a second.
 
+## dusty (2026-10-13)
+
+`bench/rest/dusty` serves the four tiers on dusty `ae164fa` and zio 0.19.1, at
+`bench/dusty`'s pins, configured as that entry is: one dusty Server on a work-stealing zio
+runtime with `WORKERS` executors, the Server and Date fields, and `ReleaseFast` for
+HttpArena's target and CPU. `bench/rest.sh build` builds it into
+`build/rest/rest-dusty`, and `SERVERS` takes `dusty`.
+
+- The routes are a Zig port of `bench/rest/odin`: records read from the dataset files
+  with `std.json` into structs of the answers' shapes, and serialized per request with
+  `std.json.Stringify`, Zig's JSON library. The multipart reader is the Odin one's port,
+  since dusty's `multiFormData` takes only a whole body and Zig's standard library has
+  none.
+- One handler takes every path, registered with `router.any("/*path")`, and `rest.zig`
+  matches the paths itself, so that each tier's errors are answered as the other
+  servers answer them. xitca-web's REST server is one service the same way. dusty's
+  router still splits the path and parses the query of every request first, and answers
+  a query with a bad percent-escape with a bare 400 before the handler runs; the
+  checker sends none.
+- Tiers A to C read a body whole, with `Request.body`. Tier D reads the CSV and the
+  multipart body as they arrive, through `Request.reader`, which undoes chunked
+  framing, and joins the batch and the form.
+- `discardRemaining` on dusty's body reader doesn't return once the body has ended: the
+  first attachment answered with the multipart reader's 201 and then hung. The server
+  drains a body with the same `readVec` loop it reads one with.
+- After a handler returns, dusty drains an unread body of a known length before it
+  sends the response. A 413 for a declared length the peer never sends would wait
+  forever, so the handler sends the 413 itself, with `Response.write`, and closes.
+
+`check.py` passes against it on tiers A to D, both JSON ways, on the desktop in WSL with
+2 workers. A 3 s wrk run of each tier's script, at 16 connections, counted no socket
+error and no status but tier D's 422s; it was a smoke test, not a measurement, while the
+desktop ran other work.
+
+Next on the desktop, when it is otherwise idle:
+
+1. `bench/rest.sh build`.
+2. `SERVERS="hyper dusty" RATE_A=140000 RATE_B=74000 RATE_C=16000 bench/rest.sh run`,
+   about 35 min: dusty at the rerun's fixed rates, with hyper as an anchor. Within
+   hyper's earlier ranges, dusty's cells sit beside the 2026-10-13 tables; outside, say
+   by how much.
+3. Fill dusty's rows in `docs/results.md` and the README's REST table, which say "not run
+   yet", and keep the footnote that it is a framework.
+
 ## Acceptance criteria
 
 - [x] Tier D built as A to C are, and its mixed run with tier C
@@ -608,3 +659,6 @@ table, and the run's timing, with what would shorten it, in
       (2026-10-13, on the desktop; may-minihttp and Tina without tier D)
 - [x] Each tier at saturation and at a fixed rate on the desktop, in `docs/results.md`
       with how it was measured (2026-10-12, `bench/rest.sh`)
+- [x] dusty serving every tier, passing the checker (2026-10-13)
+- [ ] dusty measured on the desktop, in `docs/results.md` and the README, marked as a
+      framework

@@ -291,6 +291,12 @@ CPUs 4-15, a fresh server per cell warmed up for 5 s, 3 rounds of 15 s interleav
 | xitca-web | xitca-http 0.8.2, xitca-server 0.6.1, io_uring | serde_json | streamed |
 | odin-http | `fac113f`, Odin `dev-2026-10` | `core:encoding/json` | buffered whole |
 | Tina | `a2e8d4d`, Odin `dev-2026-10` | `core:encoding/json` | streamed; faults |
+| dusty\* | `ae164fa` on zio 0.19.1, Zig 0.16.0 | `std.json` | streamed; not run yet |
+
+\* dusty is a framework, with a router and its own body readers, so it isn't a direct
+competitor to this package; its peer is goose-rest, the framework planned on this
+package. It joined after this run, and passes the checker; its numbers wait for a run
+on the idle desktop (task 021).
 
 The Rust servers share their routes (`bench/rest/rust`, hyper keeps its own copy), and
 the Odin servers theirs (`bench/rest/odin`). Each is built with its `bench/` entry's

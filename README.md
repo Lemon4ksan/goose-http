@@ -192,11 +192,14 @@ the column's best; rows go by average rank.
 | may-minihttp (Rust) | 383 K/s | 186 K/s | 32.3 K/s | 100 K/s | ✗ | ✗ |
 | Tina (Odin) | 312 K/s | 52.2 K/s‡ | 3.4 K/s‡ | 99.8 K/s | ✗ | ✗ |
 | odin-http (Odin) | 210 K/s | 47.4 K/s‡ | 3.4 K/s‡ | 38.3 K/s | 706/s | 12-13 s† |
+| dusty (Zig)§ | not run yet | | | | | |
 
 \* Each record's JSON is prebuilt at startup, with the per-request values spliced in.  
 † The server fell behind the fixed rate, so the reads queued.  
 ‡ Odin's JSON library is the limit here.  
-✗ may-minihttp can't read a chunked body, and Tina crashes on some streamed ones.
+✗ may-minihttp can't read a chunked body, and Tina crashes on some streamed ones.  
+§ A framework, not a direct competitor: its peer is goose-rest, the framework planned on
+this package.
 
 Memory, in two parts: what the server holds at rest once its records are loaded (idle,
 measured apart with the same binaries), plus what serving the benchmark added at its

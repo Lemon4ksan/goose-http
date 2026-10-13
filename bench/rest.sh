@@ -9,9 +9,10 @@
 #   bench/rest.sh run      checks each server with bench/rest/check.py, then
 #                          measures, round by round
 #
-# The competitors are hyper, tokio, may-minihttp, xitca-web, odin-http, and
-# tina. The Odin ones build with the odin-http and Tina checkouts that
-# bench/build.sh fetches into CACHE, so it runs first.
+# The competitors are hyper, tokio, may-minihttp, xitca-web, odin-http, tina,
+# and dusty. The Odin ones build with the odin-http and Tina checkouts that
+# bench/build.sh fetches into CACHE, so it runs first. dusty is a framework,
+# not an HTTP layer as the others are (task 021).
 #
 # What a run measures, each server with WORKERS workers on SERVER_CPUS and the
 # load on CLIENT_CPUS, a fresh server per cell:
@@ -87,6 +88,25 @@ build)
     "$odin" build "$root/bench/rest/tina" -collection:deps="$cache/deps" \
         -o:speed -define:TINA_ASSERTS=false -define:HTTP_EGRESS_BUFFER_SIZE=63488 \
         -out:"$bin/rest-tina"
+    # As bench/build.sh builds bench/dusty: from a copy in CACHE, since zig
+    # fetches packages beside build.zig.zon, for HttpArena's target and CPU.
+    zig=${ZIG:-zig}
+    "$zig" version | grep -qx "$(pin ZIG_VERSION)" ||
+        { echo "bench/rest.sh: dusty needs Zig $(pin ZIG_VERSION)"; exit 1; }
+    case $(uname -m) in
+    aarch64)
+        target=aarch64-linux-musl cpu=native
+        grep -q '^CPU implementer.*0x61' /proc/cpuinfo && cpu=apple_m1
+        ;;
+    *) target=x86_64-linux-musl cpu=x86_64_v3+aes+pclmul+adx ;;
+    esac
+    rm -rf "$cache/app-rest-dusty"
+    mkdir -p "$cache/app-rest-dusty"
+    cp -r "$root/bench/rest/dusty/." "$cache/app-rest-dusty/"
+    (cd "$cache/app-rest-dusty" && "$zig" build --cache-dir "$cache/zig-cache" \
+        --global-cache-dir "$cache/zig-global" --prefix "$cache/rest-dusty-out" \
+        -Dtarget=$target -Dcpu=$cpu --release=fast)
+    cp "$cache/rest-dusty-out/bin/rest-dusty" "$bin/rest-dusty"
     if [ ! -x "$zrk" ]; then
         curl -sSLf -o "$cache/zrk.tar.gz" \
             "https://github.com/zoxy-io/zrk/releases/download/v$ZRK_VERSION/zrk-$ZRK_VERSION-x86_64-linux.tar.gz"
@@ -160,6 +180,11 @@ trap '[ -z "$pid" ] || kill "$pid" 2>/dev/null' EXIT
     case " $servers " in *" odin-http "* | *" tina "*)
         echo "odin: $(${ODIN:-odin} version), odin-http $(git -C "$cache/deps/odin-http" rev-parse --short HEAD)," \
             "tina $(git -C "$cache/deps/tina" rev-parse --short HEAD)"
+    ;; esac
+    case " $servers " in *" dusty "*)
+        echo "zig: $(${ZIG:-zig} version), dusty" \
+            "$(sed -n 's/.*dusty#\([0-9a-f]\{7\}\).*/\1/p' "$root/bench/rest/dusty/build.zig.zon")," \
+            "zio $(sed -n 's/.*zio?ref=v\([0-9.]*\)#.*/\1/p' "$root/bench/rest/dusty/build.zig.zon")"
     ;; esac
     echo "wrk: $(wrk -v 2>&1 | head -1)"
     echo "zrk: $ZRK_VERSION"
