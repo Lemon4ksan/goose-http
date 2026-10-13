@@ -67,4 +67,5 @@ memory, a copy of the records per worker. Task 026 brings the io_uring loop's re
 beside uploads to the epoll loop's latency. Task 027 makes the API more idiomatic Goose
 where the benchmarks show speed holds, then rewrites the examples and the API reference.
 It comes next, since breaking changes cost least before programs such as goose-rest use
-the API.
+the API. Task 028 tells a full mailbox from a message longer than a slot, and gives a
+sender the slot size, for goose-rest's replies in pieces; it can start at any point.
