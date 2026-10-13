@@ -267,52 +267,94 @@ Server CPU per request, in µs:
 
 ## REST APIs
 
-Task 021's four tiers, run by `bench/rest.sh run` on 2026-10-12: Goose at `73dd28c` with
-Goose `6448f3f`, on each loop, against hyper 1.12.0 on Tokio 1.53.2 (`bench/rest/hyper`,
-`-C target-cpu=native`). Each server with 4 workers on CPUs 0-3, the load on CPUs 4-15, a
-fresh server per cell warmed up for 5 s, 3 rounds of 15 s interleaved.
-`bench/rest/check.py` passed against every server on every tier first. Results in
-[2026-10-12-rest](../bench/results/2026-10-12-rest/summary.md), which also has every
-cell's range, each route's latency, and peak RSS. No run counted a socket error or an
-unexpected status.
+Task 021's four tiers, run by `bench/rest.sh run` on 2026-10-13 with all eight servers:
+Goose at `23aa531` with Goose `6448f3f`, on each loop, against six servers that serve the
+same routes without a framework. Each server with 4 workers on CPUs 0-3, the load on
+CPUs 4-15, a fresh server per cell warmed up for 5 s, 3 rounds of 15 s interleaved.
+`bench/rest/check.py` passed against every server on every tier it serves first.
+
+| Server | Version | JSON writer | Request bodies |
+|---|---|---|---|
+| hyper | 1.12.0 on Tokio 1.53.2 | serde_json | streamed |
+| tokio | Tokio 1.52.3, TechEmpower's hand-written entry | serde_json | buffered whole |
+| may-minihttp | 0.1.11 on may 0.3.51 | serde_json | streamed; no chunked bodies |
+| xitca-web | xitca-http 0.8.2, xitca-server 0.6.1, io_uring | serde_json | streamed |
+| odin-http | `fac113f`, Odin `dev-2026-10` | `core:encoding/json` | buffered whole |
+| Tina | `a2e8d4d`, Odin `dev-2026-10` | `core:encoding/json` | streamed; faults |
+
+The Rust servers share their routes (`bench/rest/rust`, hyper keeps its own copy), and
+the Odin servers theirs (`bench/rest/odin`). Each is built with its `bench/` entry's
+profile and flags (`bench/rest.sh build`). may-minihttp and Tina skip tier D: may-minihttp
+frames a body by `Content-Length` alone, and reading Tina's streamed body faults after a
+few bodies sent in small chunks (task 021). Results in
+[2026-10-13-rest](../bench/results/2026-10-13-rest/summary.md), and steps 3 and 4 again
+at 2026-10-12's rates in
+[2026-10-13-rest-rates](../bench/results/2026-10-13-rest-rates/summary.md). Goose's and
+hyper's cells fell within 1-3% of 2026-10-12's run with the same binaries.
 
 Tiers A to C at saturation: wrk 4.1.0 with each tier's script, 8 threads, 256
 connections. Requests per second, the median of 3 runs, and the server's CPU time per
-request:
+request. A is HttpArena's items of 0.2 KB, B a time tracker's 0.3-13 KB, and C a
+clinic's schedule of up to 728 KB:
 
-| Tier, JSON | Goose io_uring | Goose epoll | hyper |
-|---|---:|---:|---:|
-| A (items, 0.2 KB), serialize | **572K**, 6.9 µs | 441K, 9.1 µs | 271K, 14.8 µs |
-| A, template | **588K**, 6.8 µs | 459K, 8.7 µs | 290K, 13.8 µs |
-| B (snowtime, 0.3-13 KB), serialize | **269K**, 14.8 µs | 220K, 18.3 µs | 149K, 27.0 µs |
-| B, template | **372K**, 10.7 µs | 283K, 14.1 µs | 194K, 20.6 µs |
-| C (clinic, up to 728 KB), serialize | **52.5K**, 76 µs | 51.1K, 79 µs | 32.2K, 125 µs |
-| C, template | **146K**, 27 µs | 139K, 29 µs | 119K, 33 µs |
+| Server | A, serialize | A, template | B, serialize | B, template | C, serialize | C, template | Peak RSS |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Goose io_uring | **585K**, 6.8 µs | **595K**, 6.7 µs | **268K**, 14.9 µs | **376K**, 10.6 µs | 51.8K, 77 µs | **144K**, 28 µs | 33-387 MB |
+| Goose epoll | 456K, 8.8 µs | 471K, 8.5 µs | 222K, 18.1 µs | 295K, 13.6 µs | **51.9K**, 77 µs | 140K, 29 µs | 26-376 MB |
+| hyper | 274K, 14.6 µs | 293K, 13.7 µs | 150K, 26.7 µs | 197K, 20.3 µs | 32.0K, 126 µs | 119K, 33 µs | **13-75 MB** |
+| tokio | 394K, 10.1 µs | 428K, 9.4 µs | 183K, 21.9 µs | 269K, 14.9 µs | 31.7K, 127 µs | 101K, 40 µs | 16-368 MB |
+| may-minihttp | 383K, 10.4 µs | 413K, 9.7 µs | 186K, 21.6 µs | 273K, 14.7 µs | 32.3K, 124 µs | 100K, 40 µs | 45-490 MB |
+| xitca-web | 404K, 9.9 µs | 425K, 9.4 µs | 233K, 17.2 µs | 305K, 13.1 µs | 37.9K, 105 µs | 110K, 36 µs | 32-505 MB |
+| odin-http | 210K, 19.1 µs | 254K, 15.8 µs | 47.4K, 85 µs | 190K, 21.1 µs | 3.4K, 1,171 µs | 38.3K, 98 µs | 11-476 MB |
+| Tina | 312K, 12.9 µs | 439K, 9.1 µs | 52.2K, 77 µs | 337K, 11.9 µs | 3.4K, 1,180 µs | 99.8K, 40 µs | 482-672 MB |
 
-- Every run fell within 4% of its cell's median.
-- Goose's io_uring loop serves 2.0-2.1 times hyper's rate on tier A, 1.8-1.9 times on
-  B, and 1.6 times on C serialized. With templates, which copy prebuilt bytes, C's lead
-  shrinks to 1.2 times.
-- io_uring leads epoll on every tier: by 28-30% on A, 22-31% on B, and 3-5% on C. Tier
-  C's 4-5% loss to epoll in Docker on the Mac (task 021) doesn't appear here.
-- Goose uses 2 to 5 times hyper's memory: peak RSS 26-49 MB on A, 87-221 MB on B, and
-  129-387 MB on C, against hyper's 13-17, 29-46, and 37-75 MB. Each Goose worker loads
-  its own copy of the records, and templates add a copy of their JSON.
+- Every run fell within 5% of its cell's median, and no run counted a socket error or a
+  status other than 2xx.
+- Goose's io_uring loop leads every column but C serialized, where the two loops tie.
+  Against the best of the others it serves 1.45 times xitca-web's rate on A serialized,
+  1.35 times Tina's on A templated, 1.15 times xitca-web's on B serialized, 1.11 times
+  Tina's on B templated, 1.37 times xitca-web's on C serialized, and 1.21 times hyper's
+  on C templated.
+- The epoll loop loses tier B to xitca-web, by 5% serialized (222K against 233K) and 3%
+  templated (295K against 305K), and beats every other server but Goose's io_uring loop
+  on A and C.
+- The Odin servers serialize with `core:encoding/json`, which costs 1.2 ms of CPU per
+  tier C request, 9 to 15 times the others' cost: both serve 3.4K a second. With templates,
+  Tina is second on B (337K) and fourth on C (99.8K).
+- Peak RSS spans tiers A to C. Each Goose worker loads its own copy of the records, and
+  templates add a copy of their JSON. hyper's threads share one copy. Tina holds 482 MB
+  even on tier A, whose records take 1.6 MB as JSON; what it allocates isn't measured.
 
 Tier D, request bodies of 2 KB to 8 MB (`tier-d.lua`): the uploads role, chunked CSV
 imports and multipart attachments, on 1 thread and 32 connections, alone and beside
 the forms role, JSON batches and forms, on 7 threads and 224. Requests per second, the
 range of 3 runs:
 
-| Server | Uploads alone | p50 | Uploads beside forms | p50 | Forms role | p99 |
-|---|---:|---:|---:|---:|---:|---:|
-| Goose io_uring | 968-977 | 21-23 ms | **151-152** | 136-137 ms | 6.9-7.1K | **78-79 ms** |
-| Goose epoll | 983-998 | 20-24 ms | 115-116 | 157-244 ms | **7.3K** | 87-92 ms |
-| hyper | **1,056-1,072** | **15 ms** | 42-73 | 132-148 ms | 4.8-5.0K | 135-172 ms |
+| Server | Uploads alone | p50 | Uploads beside forms | p50 | Forms role | p99 | Peak RSS |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Goose io_uring | **1,143-1,164** | 16 ms | 160-166 | 127-131 ms | 7.1-7.3K | **74-78 ms** | 205 MB |
+| Goose epoll | 1,145-1,190 | **14-15 ms** | 113-117 | 172-213 ms | **7.4-7.6K** | 85-95 ms | 214 MB |
+| hyper | 1,084-1,113 | 15 ms | 51-60 | 143-150 ms | 4.9K | 143-155 ms | 195 MB |
+| tokio | 1,028-1,051 | 20 ms | **264-271** | **78-82 ms** | 3.7-3.8K | 110-120 ms | 477 MB |
+| may-minihttp | not run: no chunked bodies | | | | | | |
+| xitca-web | 986-1,039 | 17-23 ms | 47-71 | 270-348 ms | 4.3-4.5K | 166-177 ms | **185 MB** |
+| odin-http | 704-715 | 37 ms | 120-121 | 207-209 ms | 820-826 | 1,110-1,140 ms | 1,255 MB |
+| Tina | not run: faults on streamed bodies | | | | | | |
 
-- hyper took uploads alone 6-11% faster than either Goose loop, at a lower median
-  latency. perf put 19% of Goose's time in the multipart reader's delimiter search,
-  the stdlib's `find`, which compares the delimiter at every byte
+Bold marks each column's best, uploads alone by the median. wrk counts the invalid
+batches' 422s, about a seventh of the forms role's responses, as errors; no run counted
+any other error.
+
+- Uploads alone, Goose takes 3-4% more than hyper at the median, 10-12% more than tokio
+  and xitca-web, and 1.6 times odin-http's, which reads each body whole first.
+- Beside the forms role, tokio takes the most uploads, 1.6 times Goose io_uring's, while
+  its forms role runs at half of Goose's rate. hyper's and xitca-web's uploads starve
+  there, at 47-71 a second. Goose takes 1.5-1.8 times every other server's forms.
+- odin-http buffers each body whole: its forms role runs at 820 a second with a p99 of
+  1.1 s, in 1.3 GB.
+- On 2026-10-12, hyper took uploads alone 6-11% faster than either Goose loop. perf put
+  19% of Goose's time in the multipart reader's delimiter search, the stdlib's `find`,
+  which compares the delimiter at every byte
   ([finding](goose-findings.md#the-stdlibs-find-compares-the-whole-subsequence-at-every-offset)).
   With `http::find_bytes`, which compares only where the delimiter's first byte is, run
   on 2026-10-13 with `STEPS=2`, 3 rounds, before and after in one session
@@ -328,46 +370,71 @@ range of 3 runs:
   Goose now takes uploads alone 1-6% faster than hyper. Beside the forms role, nothing
   changed beyond the runs' spread. Per upload before the change, Goose ran 43.3 M user
   instructions to hyper's 33.4 M.
-- Beside the forms role, Goose takes 1.6 to 3.6 times hyper's uploads and 1.4-1.5 times
-  its forms, at 0.5-0.7 times its forms p99.
 
-Tiers A to C at a fixed rate, half the lowest median above: 140K requests per second on
-A, 74K on B, and 16K on C, from zrk 2.3.0, one process per route at its share of the
-tier's mix (`bench/rest/rate.py`), corrected for coordinated omission. Every server
-held every rate. The server's CPU time per request, and each tier's highest route p99
-over the 3 runs:
+Tiers A to C at a fixed rate: 140K requests per second on A, 74K on B, and 16K on C, from
+zrk 2.3.0, one process per route at its share of the tier's mix (`bench/rest/rate.py`),
+corrected for coordinated omission. These are 2026-10-12's rates, half the lowest median
+of Goose and hyper then, rerun for all eight servers (`STEPS="3 4"`). The run's own rule,
+half the lowest median of all eight, gave 100K, 24K, and 1.7K, set by odin-http and
+Tina, at which every server held every rate but odin-http on C serialized
+([2026-10-13-rest](../bench/results/2026-10-13-rest/summary.md)). The server's CPU time
+per request, and each tier's highest route p99 over the 3 runs:
 
-| Tier, JSON | Goose io_uring | Goose epoll | hyper |
-|---|---:|---:|---:|
-| A, serialize | 17.9-18.3 µs, 0.91 ms | **17.5-18.0 µs, 0.19 ms** | 22.6-23.0 µs, 0.80 ms |
-| A, template | 17.9-18.5 µs, 0.71 ms | **17.3-17.9 µs, 0.26 ms** | 22.4 µs, 9.6 ms |
-| B, serialize | **28.4-29.3 µs, 0.20 ms** | 29.0-29.8 µs, 0.38 ms | 38.9-39.5 µs, 2.1 ms |
-| B, template | 26.7-27.0 µs, 0.19 ms | **26.1-26.9 µs, 0.17 ms** | 35.6-35.7 µs, 0.24 ms |
-| C, serialize | 86.8-89.2 µs, 1.6 ms | **86.7-87.1 µs, 0.93 ms** | 141-144 µs, 2.1 ms |
-| C, template | 43.3-43.7 µs, 0.39 ms | **42.7-43.2 µs, 0.35 ms** | 54.0-54.4 µs, 0.42 ms |
+| Server | A, serialize | A, template | B, serialize | B, template | C, serialize | C, template |
+|---|---:|---:|---:|---:|---:|---:|
+| Goose io_uring | 17.9-18.2 µs, 0.21 ms | 17.7-18.2 µs, 4.7 ms | 28.7-29.5 µs, 2.8 ms | 26.8-27.2 µs, 0.19 ms | 87.0-88.5 µs, 1.0 ms | 43.5-44.3 µs, 0.40 ms |
+| Goose epoll | **17.8-18.0 µs**, 0.22 ms | **17.5-18.0 µs**, 12 ms | **28.3-29.2 µs**, 0.21 ms | **26.2-26.6 µs**, 17 ms | **86.7-87.3 µs**, 0.89 ms | **42.0-43.9 µs**, 0.40 ms |
+| hyper | 22.9-23.0 µs, 0.57 ms | 22.3-22.4 µs, 0.55 ms | 38.8-39.5 µs, 0.30 ms | 35.0-35.7 µs, 0.24 ms | 143-144 µs, 1.5 ms | 53.2-55.2 µs, 0.42 ms |
+| tokio | 18.9-19.4 µs, 35 ms | 18.0-18.8 µs, 0.24 ms | 31.7-32.2 µs, 0.28 ms | 27.8-28.6 µs, 0.20 ms | 134-135 µs, 2.7 ms | 47.1-48.3 µs, 0.43 ms |
+| may-minihttp | 18.7-19.1 µs, 0.21 ms | 18.5-18.8 µs, 0.82 ms | 31.1-31.7 µs, 0.33 ms | 26.9-27.3 µs, 7.9 ms | 128-133 µs, 22 ms | 47.9-49.2 µs, 0.49 ms |
+| xitca-web | 22.9-23.1 µs, 2.1 ms | 23.0 µs, 0.31 ms | 36.8-37.2 µs, 5.0 ms | 33.3-34.7 µs, 4.5 ms | 124-126 µs, 2.8 ms | 58.9-59.3 µs, 0.46 ms |
+| odin-http | 27.2-27.7 µs, 83 ms | 24.8-25.0 µs, 2.7 ms | missed: 50.0-51.4K of 74K, 6.5 s | 35.3-36.1 µs, 16 ms | missed: 4.0-10.8K of 16K, 14 s | 113-116 µs, 21 ms |
+| Tina | polls, 0.85 ms | polls, 0.30 ms | missed: 52.1-52.9K of 74K, 5.9 s | polls, 0.20 ms | missed: 10.4-10.5K of 16K, 13 s | polls, 1.2 ms |
 
-- At a fixed rate the two Goose loops spend the same CPU per request, 0.6 to 0.8 times
-  hyper's. Each request wakes an idle loop: on tier A that costs 1.9 times the epoll
-  loop's saturated figure and 2.6 times io_uring's.
-- Every route's median stays at 0.09-0.18 ms on every server, except C's 715 KB
-  bookings: 0.67 ms on Goose serialized, 1.15 ms on hyper, and 0.25-0.26 ms with
-  templates.
+Bold marks each column's lowest CPU per request. The p99s come from one route in one run
+each; most cells' other runs stay under 1 ms on A and B.
 
-The mixed run: a server with `TIER=d` takes tier C's reads at 16K requests per second,
-alone and beside the uploads role. Read latency in ms, p50 / p99, the range over the
-6 routes and 3 runs:
+- The Goose loops spend the least CPU per request in every column. At the medians, that
+  is 4-6% less than tokio and may-minihttp on A, 9-10% less on B serialized and 2-6%
+  templated, 30-39% less than the Rust servers on C serialized, and 10-27% less on C
+  templated. Against hyper it is 0.6 to 0.8 times.
+- odin-http and Tina can't hold B or C serialized, the tiers their JSON writer limits:
+  the requests queue, and the p99 reaches 5 to 14 s. Templated, both hold every rate.
+- Tina's threads poll: it used all 4 CPUs at every rate, so its CPU per request is 4
+  CPUs divided by the rate and says nothing about a request's cost.
+- Every route's median stays at 0.08-0.15 ms on every server that holds the rate, but
+  odin-http's on A serialized, 0.23-0.25 ms, and C's 715 KB bookings: 0.67 ms on Goose
+  serialized, 1.09-1.23 ms on the Rust servers, and 0.25-0.34 ms with templates
+  (odin-http's 0.9 ms).
+- odin-http counted one read error in each of two tier A runs, of about 2 million
+  requests each.
+
+The mixed run, in the same rerun: a server with `TIER=d` takes tier C's reads at 16K
+requests per second, alone and beside the uploads role. Read latency in ms, p50 / p99,
+the range over the 6 routes and 3 runs:
 
 | Server | Reads alone | Reads beside uploads | Uploads |
 |---|---:|---:|---:|
-| Goose io_uring | 0.10-0.67 / 0.65-1.0 | 2.6-3.6 / 8.9-17 | 636-650/s |
-| Goose epoll | 0.10-0.68 / 0.36-0.94 | **0.32-0.94 / 1.6-2.7** | 627-651/s |
-| hyper | 0.12-1.17 / 0.50-38 | 5.9-7.0 / 17-21 | 555-567/s |
+| Goose io_uring | **0.10-0.68 / 0.48-3.1** | 2.3-3.3 / 7.8-11 | 754-773/s |
+| Goose epoll | 0.10-0.68 / 0.51-20 | **0.27-0.90 / 1.4-2.5** | **769-781/s** |
+| hyper | 0.12-1.19 / 0.52-7.1 | 6.0-6.8 / 18-19 | 553-567/s |
+| tokio | 0.12-1.27 / 1.4-10 | missed: 11.1-11.8K of 16K, 155-2,246 / 5,032-7,420 | 647-653/s |
+| may-minihttp | not run: no chunked bodies | | |
+| xitca-web | 0.12-1.29 / 1.1-29 | 0.18-1.33 / 1.7-13 | 402-482/s |
+| odin-http | missed: 3.3-8.8K of 16K, p99 6-14 s | missed: 1.9-2.2K of 16K, p99 12-13 s | 260-293/s |
+| Tina | not run: faults on streamed bodies | | |
 
-- The epoll loop keeps reads beside uploads under 2.7 ms at p99, since it reads at most
-  `Config.max_read` (16 KB) from a connection per turn. io_uring's p99 there is 9-17 ms
-  and hyper's 17-21 ms.
-- hyper's reads alone had p99s of 19-38 ms in one of the 3 rounds, and under 1.5 ms in
-  the other two.
+- The epoll loop keeps reads beside uploads under 2.5 ms at p99, since it reads at most
+  `Config.max_read` (16 KB) from a connection per turn, and takes the most uploads.
+  xitca-web's p99 there is 1.7-13 ms with half the uploads, Goose io_uring's 7.8-11 ms,
+  and hyper's 18-19 ms.
+- tokio, which buffers each body whole before its handler runs, falls behind on the reads
+  beside uploads, at a p99 of 5-7 s, while it takes more uploads than hyper. Why isn't
+  measured.
+- odin-http can't hold the reads alone: its tier C serialized rate is 3.4K a second.
+- Each server's worst p99 alone comes from one round: Goose epoll's 20 ms, xitca-web's
+  29 ms, and tokio's 10 ms. Goose's uploads rose from 627-651 a second on 2026-10-12,
+  with `http::find_bytes`.
 
 ## Instructions per request
 

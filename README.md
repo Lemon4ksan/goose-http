@@ -168,11 +168,13 @@ client Windows runs two at a time (task 020).
 
 ### REST APIs
 
-Three API workloads and one of uploads (task 021), against hyper, the HTTP layer under
-axum. Records loaded from JSON files at startup, a bearer token or cookie on every
-request, and responses computed per request, which `bench/rest/check.py` verifies before
-each run. Same machine, `bench/rest.sh`, 2026-10-12, Goose at `73dd28c`. 4 workers on
-CPUs 0-3, the load on 4-15. Median of 3 runs of 15 s. Bold is the column's best.
+Three API workloads and one of uploads (task 021), against six servers that serve the
+same routes without a framework: hyper, the HTTP layer under axum, three more Rust
+servers, and two in Odin. Records loaded from JSON files at startup, a bearer token or
+cookie on every request, and responses computed per request, which `bench/rest/check.py`
+verifies before each run. Same machine, `bench/rest.sh`, 2026-10-13, Goose at `23aa531`.
+4 workers on CPUs 0-3, the load on 4-15. Median of 3 runs of 15 s. Bold is the column's
+best.
 
 - **A**: HttpArena's `production-stack` API, items of 0.2 KB.
 - **B**: a time tracker's hot path, 0.3-13 KB of JSON.
@@ -181,27 +183,40 @@ CPUs 0-3, the load on 4-15. Median of 3 runs of 15 s. Bold is the column's best.
 
 | Server | A | B | C | C, templates | Uploads | Reads beside uploads, p99 |
 |---|---:|---:|---:|---:|---:|---:|
-| Goose io_uring | **572 K/s** | **269 K/s** | **52.5 K/s** | **146 K/s** | 1,138/s | 9-17 ms |
-| Goose epoll | 441 K/s | 220 K/s | 51.1 K/s | 139 K/s | **1,153/s** | **1.6-2.7 ms** |
-| hyper 1.12 (Rust) | 271 K/s | 149 K/s | 32.2 K/s | 119 K/s | 1,092/s | 17-21 ms |
+| Goose io_uring | **585 K/s** | **268 K/s** | 51.8 K/s | **144 K/s** | **1,152/s** | 7.8-11 ms |
+| Goose epoll | 456 K/s | 222 K/s | **51.9 K/s** | 140 K/s | 1,147/s | **1.4-2.5 ms** |
+| hyper 1.12 (Rust) | 274 K/s | 150 K/s | 32.0 K/s | 119 K/s | 1,110/s | 18-19 ms |
+| tokio 1.52 (Rust) | 394 K/s | 183 K/s | 31.7 K/s | 101 K/s | 1,047/s | 5.0-7.4 s, behind |
+| may-minihttp 0.1 (Rust) | 383 K/s | 186 K/s | 32.3 K/s | 100 K/s | no chunked bodies | no chunked bodies |
+| xitca-web 0.8 (Rust) | 404 K/s | 233 K/s | 37.9 K/s | 110 K/s | 1,029/s | 1.7-13 ms |
+| odin-http (Odin) | 210 K/s | 47.4 K/s | 3.4 K/s | 38.3 K/s | 706/s | 12-13 s, behind |
+| Tina (Odin) | 312 K/s | 52.2 K/s | 3.4 K/s | 99.8 K/s | faults | faults |
 
-- The io_uring loop serves 1.6 to 2.1 times hyper's requests when it writes the JSON,
-  and the epoll loop 1.5 to 1.6 times. With templates, which copy prebuilt bytes, the
-  lead on C is 1.2 times.
-- At a fixed half of the slowest rate, Goose spends 0.6 to 0.8 times hyper's CPU per
-  request, and every route's p99 stays under 1.6 ms.
-- Uploads alone come from a run of their own on 2026-10-13, after the multipart reader
-  stopped comparing its delimiter at every byte, which had cost Goose 19% of an upload.
-  Before it, hyper took uploads 6-11% faster; now Goose takes them 1-6% faster. Beside
-  the other writes, Goose takes 1.6 to 3.6 times hyper's uploads.
+A to C write the JSON per request with each language's usual library; "C, templates"
+splices per-request values into prebuilt bytes. "Behind" means the server couldn't
+take the reads' fixed 16K a second.
+
+- Goose's io_uring loop leads every column but C, where the two loops tie: 1.45 times
+  the next server on A (xitca-web), 1.15 times on B (xitca-web), 1.37 times on C, and
+  1.21 times on C with templates (hyper).
+- Goose's epoll loop loses tier B to xitca-web, by 5%. On A and C it beats every server
+  but Goose's other loop.
+- At a fixed rate, Goose spends the least CPU per request of all eight on every tier,
+  0.6 to 0.8 times hyper's.
+- Uploads alone, Goose takes 3-4% more than hyper. Beside the other writes, tokio takes
+  the most uploads, 1.6 times Goose's, at half Goose's rate for the rest.
+- may-minihttp can't read a chunked request body, and Tina faults reading a streamed
+  one after a few bodies sent in small chunks, so neither runs uploads.
+- The Odin servers' JSON writer, `core:encoding/json`, costs 1.2 ms of CPU per tier C
+  request, so both serve 3.4K a second there.
 - Goose holds 2 to 5 times hyper's memory: each worker loads its own copy of the
-  records.
+  records. On tiers A to C, Tina holds the most, 482-672 MB.
 - Reads beside uploads: tier C's reads at a fixed rate while uploads stream in. The
-  epoll loop reads at most 16 KB from a connection per turn (`Config.max_read`, since
-  2026-10-12). Without that bound, reads waited seconds behind a multi-megabyte upload.
-- io_uring sends a response of 64 KB or more straight from the handler's buffer and
-  copies only what the socket doesn't take. Before that change, it lost 20-30% to epoll
-  on tier C in Docker on the Mac. Here it leads by 3-5%.
+  epoll loop reads at most 16 KB from a connection per turn (`Config.max_read`). Without
+  that bound, reads waited seconds behind a multi-megabyte upload.
+
+Every table and the run's details are in
+[docs/results.md](docs/results.md#rest-apis).
 
 ## API
 
