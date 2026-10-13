@@ -178,7 +178,7 @@ Shown in `server/`: `/files/NAME` serves the directory in `FILES`.
   `path.zst`, or `path.gz`, whichever the request's `Accept-Encoding` weighs highest,
   and not older than `path`. `serve_file` then adds `Content-Encoding`, `Vary`, and an
   `ETag` of the copy's own. Responses aren't compressed on the fly yet: task 022 adds
-  gzip and deflate through [goose-compress](https://github.com/kaitk/goose-compress).
+  gzip, deflate, and zstd through [goose-compress](https://github.com/kaitk/goose-compress).
 - `http::serve_file(req, out, f, http::content_type_of(path), st.file)`: answers `GET`
   or `HEAD` with 200, 206, 304, or 416, with `ETag`, `Last-Modified`, and
   `Accept-Ranges`.

@@ -16,7 +16,7 @@ the request had no `Accept-Encoding`. The static profiles send
 |---|---|---|---|
 | gzip | yes | `.gz` | First. Every client takes it, and it stays the fallback for any other. |
 | deflate | yes | none | The same DEFLATE stream in the zlib wrapper: a 2-byte header and Adler-32 in place of gzip's header and CRC-32. Offered, never preferred over gzip. |
-| zstd | later | `.zst` | Faster and smaller than gzip at low levels. Adds to gzip instead of replacing it, since not every client takes it (below). RFC 9659 caps its window at 8 MB for HTTP. |
+| zstd | yes | `.zst` | Faster and smaller than gzip at low levels. Adds to gzip instead of replacing it, since not every client takes it (below). RFC 9659 caps its window at 8 MB for HTTP. |
 | br | no | `.br` | Brotli pays off at quality 11, too slow per request; its fast qualities are a large encoder for little over gzip. Precompressed `.br` needs no brotli code. |
 
 Chrome, Edge, and Firefox take zstd. Safari asks for it from 26.3 (released
@@ -52,7 +52,9 @@ serves large dynamic text to many of them.
 2. [gzip in `goose-compress`](02-gzip.md), in steps that each give valid output
 3. [Compressing responses in `http`](03-http-compress.md), then json-comp
 
-zstd follows as a subtask of its own once gzip is measured.
+zstd was to follow once gzip was measured. goose-compress has measured gzip and added
+zstd at levels 1 and 3 (its tasks 001 and 004), so subtask 03 offers it beside gzip and
+deflate.
 
 ## Open questions
 
