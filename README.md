@@ -187,19 +187,20 @@ the column's best; rows go by average rank.
 | **Goose io_uring** | **585 K/s** | **268 K/s** | 51.8 K/s | **144 K/s** | **1,152/s** | 7.8-11 ms |
 | **Goose epoll** | 456 K/s | 222 K/s | **51.9 K/s** | 140 K/s | 1,147/s | **1.4-2.5 ms** |
 | xitca-web (Rust) | 404 K/s | 233 K/s | 37.9 K/s | 110 K/s | 1,029/s | 1.7-13 ms |
+| dusty (Zig)§ | 352 K/s | 164 K/s | 25.1 K/s | 126 K/s | 1,158/s | 17-1,863 ms |
 | hyper (Rust) | 274 K/s | 150 K/s | 32.0 K/s | 119 K/s | 1,110/s | 18-19 ms |
 | tokio (Rust) | 394 K/s | 183 K/s | 31.7 K/s | 101 K/s | 1,047/s | 5.0-7.4 s† |
 | may-minihttp (Rust) | 383 K/s | 186 K/s | 32.3 K/s | 100 K/s | ✗ | ✗ |
 | Tina (Odin) | 312 K/s | 52.2 K/s‡ | 3.4 K/s‡ | 99.8 K/s | ✗ | ✗ |
 | odin-http (Odin) | 210 K/s | 47.4 K/s‡ | 3.4 K/s‡ | 38.3 K/s | 706/s | 12-13 s† |
-| dusty (Zig)§ | not run yet | | | | | |
 
 \* Each record's JSON is prebuilt at startup, with the per-request values spliced in.  
 † The server fell behind the fixed rate, so the reads queued.  
 ‡ Odin's JSON library is the limit here.  
 ✗ may-minihttp can't read a chunked body, and Tina crashes on some streamed ones.  
 § A framework, not a direct competitor: its peer is goose-rest, the framework planned on
-this package.
+this package. Its row comes from a later run the same day, in which hyper ran 2-6%
+faster than in the others'; there, hyper took 1,131 uploads a second to dusty's 1,158.
 
 Memory, in two parts: what the server holds at rest once its records are loaded (idle,
 measured apart with the same binaries), plus what serving the benchmark added at its

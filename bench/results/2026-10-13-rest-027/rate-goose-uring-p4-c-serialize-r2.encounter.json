@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v2/encounters/1207", "method": "GET" },
+  "config": { "connections": 30, "launched": 30, "duration_s": 15.000, "closed": false, "target_rate": 1920, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 28797,
+  "bytes": 744373653,
+  "achieved_rate": 1919.73,
+  "target_rate": 1920,
+  "target_rate_end": 1920,
+  "rate_ratio": 0.9999,
+  "bytes_per_sec": 49623192.12,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 0,
+  "latency_us": {
+    "min": 65, "mean": 200.0, "stdev": 177.3, "max": 1696,
+    "p50": 127, "p75": 152, "p90": 487, "p99": 914, "p99_9": 1272, "p99_99": 1434
+  },
+  "status_codes": { "1xx": 0, "2xx": 28797, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAyp4nC1TsWtmRRDfN2/efpvN3mRYx3VdlsfjI3yEYBE8uUIk/gMiFhZyWBwpLS0ErxMOPRsJHoRwhCN/gAQrucLCwlpSH4eFpBS5OpWzm28fOzszO/Ob38x7rz559pYxeGXu1rg9h248+8F8/ObO8d0AKxjBtO1UWCM+Mm8+PD7+9OGjh4+//uZsuBz+HP4dzuAV/Drejtf4x3S6euKuds52r3dP6ZJu957vPeff917uXdD5vd/Ca3+2c+PO3e3qxn5vX0z/4VO8wOvxl/FvuILXcA6X8Becwpvhn+HVcDO8HC6G8+Hn4Wp4Mfw0nDw+Ofnqi0effP7lZ0fHD47f/+DB0Xsf5c26HMnh/uFmsxzkg/1Nnde1FpF1rnOtLtd9XpPMkZLMNUWhxFHSYgOFVGbKHHKIwlKCE59LYnaJYszBxcSK4yuLRmhqkZApE4m4VCUmykuIFHwkiTlL4HUMWS9jLrFwSDWzwsTic5RMVrOZWBafNJzJLYuSkRjEp0K58SIbquNAwpEscxCKkEJ0kaJ6oRVDZRo8oQZ7jikFnxRLI5nZcqtAHNgrp8ULJ1KixPucuUpdKG/SMuvE1kvJSylLSVUD8qLGZlZvpnXKkn3Zn22shyTJalFPMfjgpWj3Oac6RzmoDUK5EEWnc4s+ap9zEna21I3kEji1ZsqcYqY23djKLCysVLSblKgsbYxKvJacUlnyYeE+u1lZRipzrkEkJMn6UiQl5aGtpkwueO/RWbLonQ3Oea8bCW301rmAaDGoZoLVBc478g6DDUGlM06XtfpNY1sG0U0IaAENWETQT17zjSoqnO5maLixGgOjbs0Ea1uipms86g+CW4z+aLLtF7ZBNQVgQhxxVNCxXU3tt7JT/73UsA1C3XrdhGm8+tEMcFpBn0kJtdwWuM1T1LHHGz1X0IFVjMpQOe60whNuXYrTqqiExk6xey72yyY7dUVp4E2dutdsAaHXw6aYpnWmPRjv2BgLK2u8Hqazb0E60alxt9ho9IVduWMPFnaaueq078EKcXdrwLudmtEmJlzBO+re601M8LbG3Qc9Jrivjm/hxxH+B+tHaSs="
+}

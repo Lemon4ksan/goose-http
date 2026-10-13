@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v2/schedule/version?since=61188", "method": "GET" },
+  "config": { "connections": 140, "launched": 140, "duration_s": 15.000, "closed": false, "target_rate": 8800, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 131800,
+  "bytes": 23592200,
+  "achieved_rate": 8786.15,
+  "target_rate": 8800,
+  "target_rate_end": 8800,
+  "rate_ratio": 0.9984,
+  "bytes_per_sec": 1572721.14,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 10221,
+  "latency_us": {
+    "min": 23, "mean": 129.7, "stdev": 516.2, "max": 26143,
+    "p50": 106, "p75": 123, "p90": 149, "p99": 252, "p99_9": 8340, "p99_99": 22376
+  },
+  "status_codes": { "1xx": 0, "2xx": 131800, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAxR4nC1RW0gUURie850zt52Zbdd119TWW7qVpql0j6ikLKJ7YREli9W2ScQi3YigZRELi4haSCRsCRGRHkJESiJEwofah5AeJCR66EFMomJZLML6Z3QO55zv+//v/LdZ1v7IJ0n8lbTw8cWbOeTRbWnbjwVDNRQNtHNKStYX7TwSuX7pHrt6Nhp9wrpYD0uyEfaFTbEZlmUd6MV9vEWKD/A0n+JzvFd0yhkxJsflWXlO7lKmlHZ1Wh3TPuop16QxbXy2Or1Dvn5fd+69wCf/88CLvK78P/mZglQwW/SidLAsXvaufCT0uuLDyunKtzXpmu7aidrpur91vTWjq/tWzq/oq5gseRj8VZjKH1oaD4zkTuZ89U55vnvS7ow7bT2w2q1ZM2EmrU5CSWvenDPnzQfWHXPA7LdGjV+ul0aHMa4/0x9qSW1IG1Qn1DFlUMnIo1R1WnTIb0SWz/BP/Cvv4SmexQwSdA4jjTEMoR8DGMdz/GD9mKUpZFmGJdDHhlk37Ts0mwStsy1xFmuORqLhq3F2uTUcORUNxy7G7rMbreHmkycPdLCbTZFYy/VwU1tb7EZzgrWFL7a1tJ6INh5qbow0RY/t3bd9z4n1m4801Ndv3Lt2dUNlZaiypryovLZ+WSgUKslxFxTkmqYZ0BSP2wy4PKbLrQkNpiZcpqJJwiUgAJci0alAgkPtLUESsjAAbkPAIMChAxaWC8khKgwhEQadHDK4sNXcvimcg0BmGbab00PLCaXCIk6XanuxAtfwz4P3Gm7hN7COMv0EVuEuw1PgG8MmnMNpXMFy8h2n8xrwmGErRcqDj/hWBCnULuIVyCekU4QzohRHUUwKVBGVKch5uzgZB+ElQxWpqIYKgkFaHEsIFdJziqii2mlaRykZJYpCZht6sdCGSmqSiTXEgpTCDutzWqta6NdPIhqP8Dpii1o0nL692EBeO3OewyR6Xoz9hHdQXXZ6jjU4jFfcKYHTFHSnej9Jq0nmjEsnpWr/oDqCMvn9iykLnbINckrOi1LowrZw7MYWZ3wqLlBqP6H/ZO26gg=="
+}

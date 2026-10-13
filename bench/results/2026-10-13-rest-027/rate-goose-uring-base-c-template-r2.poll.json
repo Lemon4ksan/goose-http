@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v2/schedule/version?since=61196", "method": "GET" },
+  "config": { "connections": 140, "launched": 140, "duration_s": 15.000, "closed": false, "target_rate": 8800, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 131850,
+  "bytes": 23601150,
+  "achieved_rate": 8789.53,
+  "target_rate": 8800,
+  "target_rate_end": 8800,
+  "rate_ratio": 0.9988,
+  "bytes_per_sec": 1573325.23,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 11108,
+  "latency_us": {
+    "min": 20, "mean": 122.9, "stdev": 638.8, "max": 27023,
+    "p50": 97, "p75": 106, "p90": 118, "p99": 226, "p99_9": 9556, "p99_99": 24920
+  },
+  "status_codes": { "1xx": 0, "2xx": 131850, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAxV4nC1RbUgUaxSe88w7M7uzrru2bq5rmX14U8uCNDNcrOzbbLMv8UZJXG4QBVZ/KqLELCpCJCwiTPqxLGLfIbE/yh8RERGSESL9iFgiDPxxkaC4xOXS847OOzPnOec8zzlnzsy5eD1iGOaYMX2ZM1Y85/plY83UdGCxUrBt1w3PjsXLampq29uajrQePNlytltey1MZkjfyXiYkhQwm8cgcN4fNS2pQ9alXqs+6Zt+zxq0R+7uddZ74Jp3X/v/dTCAVTOX2h/4L/Qz35j2YNRYdjN6MvSz8XPSueGLewMIvfwxVZCs7V3xc9aKuf93wxkebexu/bhva0r/xZsNwYqKmp+rVsk9lvxZlSt4Xf46nC5/N/jfSNWs8/DE3m9OTc88d87/1pX3vnLf2P1anNWKlVLf6YGbMbnMKWTxDGt24gh5MSla+y5QMc/6nkpEHPP1ySwYkJX3SK3eko71Leoh65fjpjvZLclUuypkb0kXaVdIGJM10WkZIHaS4Y98N6ZS/9x9va21ONiWStc21iZbDyU1/7WlMtjTUnz6YbKzf1dTaVFu/Z9+uTQ1bmteubaxu3pBItFVXrCirXrqoZEEsFi8ui/HKj1fkuvH8cL4v7AuXuLk5PrgqbLuwfYAylatcWv1nDBg2AB9sKEPBmDkmHARhKGXYju2ACAEGDTDOmwRlwYIOmGCKOKChoTXmTAliA0Uo1KxTqMRtwaiLUcFzwUMLj4F1+BM/BBeAA1iIUuzEXpzDMZwXwm9ACIdwAlHacvh1a02az4oWa87nhAVYgtVERSzFCSwSVhMa2E3SVmq24ShRANv5jjC/BnmeX0q8g/IQ51zsxVYSF6CKnSLsqWtZzAVZ3GG8iFE//VI9gx/zCP0cLAiaPB2rJMXSu6ny1lBAZ4mnIDeK5XTLsd5ThNjsPjfg3XdF49v6ew1PPN14Lk9AV9NtQhQFacu9rYamd8tH9wkqv14vLBWkQOMAH8srxiw9baOqkFNa3n/J04ty4FcOAwVeCy0KgcNVetoAxyABdEkOqjp6end6kgjPb6fxqss="
+}

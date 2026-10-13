@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/items/7", "method": "POST" },
+  "config": { "connections": 15, "launched": 15, "duration_s": 15.000, "closed": false, "target_rate": 8400, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.000,
+  "requests": 125993,
+  "bytes": 9953447,
+  "achieved_rate": 8399.34,
+  "target_rate": 8400,
+  "target_rate_end": 8400,
+  "rate_ratio": 0.9999,
+  "bytes_per_sec": 663548.25,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 2300,
+  "latency_us": {
+    "min": 27, "mean": 133.4, "stdev": 99.7, "max": 4085,
+    "p50": 124, "p75": 149, "p90": 166, "p99": 282, "p99_9": 1683, "p99_99": 2873
+  },
+  "status_codes": { "1xx": 0, "2xx": 125993, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAA/d4nDVUTWhcVRS+99xz77vvzUwm836NneIY418jMRQsKPUHcV0ERV2UriQbS+iyC+mihHGQIcg0DCGEQUS6KCGEWEIpXRQJoZRBQhYhuAgSQgnFRSmlSAzVc+6deY95971zvvN93zn3MvW5G4kQRgwuNVil+7jxg/j4iQ+8BxAAIJQjY61NR+K8UR+ZmD731exMV/blbdmGFvwMf8KOaqkj1cMu9vSWPtDz5oHpmn5wPWjao6AX3rd3or/D5Wi/tB6tV7bKi5Xjyu7Io+rN0e3RVu2w9jB+msylz9OH6d20mz5OV7P9/DBbzdeKlfyn/CRff+lZsVjcLnaKreJWvpt386Vis9jLD4rn+eO8k/ez+0krWYzb2Z2smT6Lj0dv1ebiB/F2spTsxu10LdlIFpKjZDPZSw/TZnqU/pOtZgfpSrqWHccvasu1p9VO9aS8U2mX96PtqBf1wiP7gvx3g3vmiV7Se3gPW9hXf6mm+h36sAELMA8n8lD+Ie/KDbkpf6Tnr3KFpvKLbMuWXKD1urwpF2VHLsurHdmTF79vyTlae3Jezn7blFdnrnXkzOzllpy98uXlK5euXbxw6Zvpzz7/9OwnH5z56OzU9Pmpd8436o36dL0+PjE+9VZ8Jn/jXH2cIvlEw6Q2jeM0jxqj8cvGmiiKLdJWRThSxggsWlMWiICUMwhgLX0YNIBIDyhzDAXdZRMBGIugwBgQSJ9UYDlvGMpVYARawluupotgmhNAYFScFQBAP04ZxacGURmIjCDKCEXkaEgtIATDBAVAo7CW66hSoELBamhYgAw7VoEMJA1KEzXL0IOQ7lVRlEAkqDxScX/KtcaUDFLMT3AEHTEtk4GbjLfMPbNzw306Jghdjn06DwHBSAl8j4H3PjBDCda31HSAoRsD0YhBU5oNGR5WAKFxJBw+zY15Y0RDZCWWzcANDpxnMJqqnKJxytr5EU7PGVYQWg1V1vB6LMLeoUJ8bjo0YFq08TtjKcxg7lKhdhMamuBSAQm87htiiQArvMloNGvzPg7bYkeB4wy8ZW/P9+ROAxvRgwMhMGTSymC2SHMCv+GDwVadvOBDRYWBZ9PUBdToRoeuugbpSAW+N81dmuGWZENvAbBMieCB4X+vijPkB6pdXxqxxuUZYAkncTC6gjot0aHyRIqd0RpCQSQ4Rt4FOSEOYK8axnx2El7z3CWaW8UJhbwtxEr+Enq8Cq9wWcKGAE7x23DgmrAC3oS3oUbGxqi+oCylTxFUu+11o8uIPXC8vJack4BA5Dhh9RKcJo+JK1LEot0+snjJHytB4EkqYifvUiihdpyDkILvA3xIr9/hGHzhgl/jvxL+k/AbwP/wLKjV"
+}

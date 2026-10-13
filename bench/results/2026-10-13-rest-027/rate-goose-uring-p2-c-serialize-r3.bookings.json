@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v2/schedule/bookings?start=2026-09-07&end=2026-09-14&staff=1,2,3,4,5,6,7,8,9,10", "method": "GET" },
+  "config": { "connections": 23, "launched": 23, "duration_s": 15.000, "closed": false, "target_rate": 1440, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.000,
+  "requests": 21598,
+  "bytes": 15591445014,
+  "achieved_rate": 1439.83,
+  "target_rate": 1440,
+  "target_rate_end": 1440,
+  "rate_ratio": 0.9999,
+  "bytes_per_sec": 1039399599.64,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 19941,
+  "latency_us": {
+    "min": 586, "mean": 754.7, "stdev": 1038.5, "max": 35935,
+    "p50": 668, "p75": 693, "p90": 757, "p99": 1085, "p99_9": 18888, "p99_99": 31384
+  },
+  "status_codes": { "1xx": 0, "2xx": 21598, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAwZ4nC1RTWhUVxR+97vnXp8vb6bPZBKTSQzVTKZjnOjUn0kcx8SmadpG8SeOqMGFppVqcCEqrqL4BwqKihHFoGAFS0hduLJFSihSFFyIZGGriLgQF0UwCwnBld+d+N68e+/5vu9855w7DaeGqzxPj3szj/68q3IwfNrrnJwBhmcDHuCL+PEgiNtEZSoRZBtTi3PZ/PLFxe7Smh19g4NDl9WIGrrIZUzdVw/Ub2pCHcM79UyN4hwe4jwe4A2mcUo/1f/o13pCX5Ez8lHG5bE8lHEzKY/NTTNmpnkaM3fMOfNE7ppb5qVMyQu5L9flLzkhb/WI/K+n9Ut9V/+nJzGuR/UtfUV/wATuYYrrn3jKStPqEqbUKzWq7qi/1U01WBro6xvY+cOedb1dhZ7c+t7ursLOwX2Hju5fc2BPaai07fD+vm2ljQP9/f2lfPfGYr7j5458sbu3mM8tbW/pyeWLha50y/JspmNpIZfLftmTai/kUulMS3u+JZ3OZLMNUSaqzSxIJisXNFamkslcY21tOhHWJKLaBj+KEolE5CfiYZgMonhYGdTEozBeEw9twEuNwjAKJQjjgRVf/CDwedsIrG8hEAtYK6Hl/cPjB99D4Im1JBDw5HCgvIl1i8dYyhA8y4U5Ai1arLYedPkFZrtdtO/U/HmUwIDLTGjLuHOy/P+NMzF8K4jMwiyyFRIrZ2jMcXmIuVw0gxJqKqiqJ+6xTivaGBuswC9lj/kwclWR2kTCUBbDMqzFXEpvK+fAz+AnfINd+A5ULsFCcm203O3oOVjFo4cmqQZF81n3R3o4aCWLxFCFPxTBJawcw3FFE9ThhsJZhWoGt0HV96R+Vdzq0TRDfI3tlLn5d9NzBaNqPHJEJ601qXr8q1zBTjbxBfFv2dRCpu2lQwVbqJNFIOGutwnzmOTmMmiVOmzGBiJfucvZQjqGg8w37LBZXAJ7nMujZs4FxWQP1xTH5PO7YmGXsp3zN2M1Z6vGVtq0geItHFgTaiVYhUcaJxWeKza1wZ3eKxzBJ7e9je4="
+}

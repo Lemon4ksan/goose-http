@@ -291,12 +291,17 @@ CPUs 4-15, a fresh server per cell warmed up for 5 s, 3 rounds of 15 s interleav
 | xitca-web | xitca-http 0.8.2, xitca-server 0.6.1, io_uring | serde_json | streamed |
 | odin-http | `fac113f`, Odin `dev-2026-10` | `core:encoding/json` | buffered whole |
 | Tina | `a2e8d4d`, Odin `dev-2026-10` | `core:encoding/json` | streamed; faults |
-| dusty\* | `ae164fa` on zio 0.19.1, Zig 0.16.0 | `std.json` | streamed; not run yet |
+| dusty\* | `ae164fa` on zio 0.19.1, Zig 0.16.0 | `std.json` | streamed |
 
 \* dusty is a framework, with a router and its own body readers, so it isn't a direct
 competitor to this package; its peer is goose-rest, the framework planned on this
-package. It joined after this run, and passes the checker; its numbers wait for a run
-on the idle desktop (task 021).
+package. It joined after this run, and ran later on 2026-10-13, at this run's fixed
+rates, beside hyper and four Goose builds of task 027
+([2026-10-13-rest-027](../bench/results/2026-10-13-rest-027/summary.md)), with the
+same settings. In that session hyper ran 1.6-6.4% faster at saturation than in this
+run, and Goose's `2afc12f` 2.3-3.7% faster than `23aa531` here, within the 5% that
+sessions drift by; tier D held. dusty's rows below come from it, so compare them with
+that run's hyper first.
 
 The Rust servers share their routes (`bench/rest/rust`, hyper keeps its own copy), and
 the Odin servers theirs (`bench/rest/odin`). Each is built with its `bench/` entry's
@@ -323,9 +328,14 @@ clinic's schedule of up to 728 KB:
 | xitca-web | 404K, 9.9 µs | 425K, 9.4 µs | 233K, 17.2 µs | 305K, 13.1 µs | 37.9K, 105 µs | 110K, 36 µs | 32-505 MB |
 | odin-http | 210K, 19.1 µs | 254K, 15.8 µs | 47.4K, 85 µs | 190K, 21.1 µs | 3.4K, 1,171 µs | 38.3K, 98 µs | 11-476 MB |
 | Tina | 312K, 12.9 µs | 439K, 9.1 µs | 52.2K, 77 µs | 337K, 11.9 µs | 3.4K, 1,180 µs | 99.8K, 40 µs | 482-672 MB |
+| dusty\* | 352K, 11.4 µs | 392K, 10.2 µs | 164K, 24.5 µs | 287K, 14.0 µs | 25.1K, 160 µs | 126K, 32 µs | 16-241 MB |
+| hyper, dusty's run | 284K, 14.1 µs | 312K, 12.8 µs | 153K, 26.2 µs | 200K, 20.0 µs | 32.5K, 124 µs | 122K, 33 µs | 13-75 MB |
 
 - Every run fell within 5% of its cell's median, and no run counted a socket error or a
-  status other than 2xx.
+  status other than 2xx, but dusty's on A templated, whose fastest run came 6.6% over.
+- Against hyper in its run, dusty serves 1.24-1.26 times its rate on A, 1.07 times on B
+  serialized and 1.43 times templated, and 0.77 times on C serialized, where `std.json`
+  costs 160 µs a request to serde_json's 124 µs; 1.03 times on C templated.
 - Goose's io_uring loop leads every column but C serialized, where the two loops tie.
   Against the best of the others it serves 1.45 times xitca-web's rate on A serialized,
   1.35 times Tina's on A templated, 1.15 times xitca-web's on B serialized, 1.11 times
@@ -381,8 +391,10 @@ range of 3 runs:
 | xitca-web | 986-1,039 | 17-23 ms | 47-71 | 270-348 ms | 4.3-4.5K | 166-177 ms | **185 MB** |
 | odin-http | 704-715 | 37 ms | 120-121 | 207-209 ms | 820-826 | 1,110-1,140 ms | 1,255 MB |
 | Tina | not run: faults on streamed bodies | | | | | | |
+| dusty\* | 1,127-1,161 | 15-16 ms | 14-41 | 347-824 ms | 2.9K | 621-677 ms | 814 MB |
+| hyper, dusty's run | 1,081-1,155 | 15 ms | 51-69 | 129-228 ms | 4.9-5.0K | 164-172 ms | 219 MB |
 
-Bold marks each column's best, uploads alone by the median. wrk counts the invalid
+Bold marks each column's best, uploads alone by the median, dusty's run aside. wrk counts the invalid
 batches' 422s, about a seventh of the forms role's responses, as errors; no run counted
 any other error.
 
@@ -393,6 +405,9 @@ any other error.
   there, at 47-71 a second. Goose takes 1.5-1.8 times every other server's forms.
 - odin-http buffers each body whole: its forms role runs at 820 a second with a p99 of
   1.1 s, in 1.3 GB.
+- dusty takes uploads alone at about hyper's rate in their run, and Goose's here.
+  Beside the forms role its uploads starve, at 14-41 a second, its forms role runs at
+  2.9K with a p99 of 0.6 s, and it peaks at 814 MB; 5 uploads failed over the 3 runs.
 - On 2026-10-12, hyper took uploads alone 6-11% faster than either Goose loop. perf put
   19% of Goose's time in the multipart reader's delimiter search, the stdlib's `find`,
   which compares the delimiter at every byte
@@ -431,6 +446,7 @@ per request, and each tier's highest route p99 over the 3 runs:
 | xitca-web | 22.9-23.1 µs, 2.1 ms | 23.0 µs, 0.31 ms | 36.8-37.2 µs, 5.0 ms | 33.3-34.7 µs, 4.5 ms | 124-126 µs, 2.8 ms | 58.9-59.3 µs, 0.46 ms |
 | odin-http | 27.2-27.7 µs, 83 ms | 24.8-25.0 µs, 2.7 ms | missed: 50.0-51.4K of 74K, 6.5 s | 35.3-36.1 µs, 16 ms | missed: 4.0-10.8K of 16K, 14 s | 113-116 µs, 21 ms |
 | Tina | polls, 0.85 ms | polls, 0.30 ms | missed: 52.1-52.9K of 74K, 5.9 s | polls, 0.20 ms | missed: 10.4-10.5K of 16K, 13 s | polls, 1.2 ms |
+| dusty\* | 23.3-23.6 µs, 0.20 ms | 22.9-23.3 µs, 0.21 ms | 40.0-40.6 µs, 0.28 ms | 34.4-35.0 µs, 0.24 ms | 175 µs, 2.7 ms | 52.9-53.7 µs, 0.36 ms |
 
 Bold marks each column's lowest CPU per request. The p99s come from one route in one run
 each; most cells' other runs stay under 1 ms on A and B.
@@ -464,6 +480,7 @@ the range over the 6 routes and 3 runs:
 | xitca-web | 0.12-1.29 / 1.1-29 | 0.18-1.33 / 1.7-13 | 402-482/s |
 | odin-http | missed: 3.3-8.8K of 16K, p99 6-14 s | missed: 1.9-2.2K of 16K, p99 12-13 s | 260-293/s |
 | Tina | not run: faults on streamed bodies | | |
+| dusty\* | 0.11-1.46 / 1.6-2.7 | 0.88-105 / 17-1,863 | 327-363/s |
 
 - The epoll loop keeps reads beside uploads under 2.5 ms at p99, since it reads at most
   `Config.max_read` (16 KB) from a connection per turn, and takes the most uploads.
@@ -473,6 +490,9 @@ the range over the 6 routes and 3 runs:
   beside uploads, at a p99 of 5-7 s, while it takes more uploads than hyper. Why isn't
   measured.
 - odin-http can't hold the reads alone: its tier C serialized rate is 3.4K a second.
+- dusty holds the reads alone, at a p99 of 1.6-2.7 ms. Beside uploads, a read waits up
+  to 1.9 s in some rounds, and a few fall short of their rate (client 471 of 480 a
+  second, poll 8.5K of 8.8K); hyper, in the same run, kept them at 17-22 ms.
 - Each server's worst p99 alone comes from one round: Goose epoll's 20 ms, xitca-web's
   29 ms, and tokio's 10 ms. Goose's uploads rose from 627-651 a second on 2026-10-12,
   with `http::find_bytes`.

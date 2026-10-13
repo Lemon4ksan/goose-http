@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v1/timer", "method": "GET" },
+  "config": { "connections": 64, "launched": 64, "duration_s": 15.000, "closed": false, "target_rate": 18500, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 277311,
+  "bytes": 34941186,
+  "achieved_rate": 18486.75,
+  "target_rate": 18500,
+  "target_rate_end": 18500,
+  "rate_ratio": 0.9993,
+  "bytes_per_sec": 2329330.67,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 13780,
+  "latency_us": {
+    "min": 17, "mean": 109.0, "stdev": 240.2, "max": 17247,
+    "p50": 102, "p75": 118, "p90": 138, "p99": 179, "p99_9": 531, "p99_99": 14204
+  },
+  "status_codes": { "1xx": 0, "2xx": 277311, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAA3F4nC1RXWhURxSeOffcv733uv/ZrJtkWWN+NFZtWpFQYzZKatPEhkp8EB98tYW+SEsfKjTIUm0Iy2JEJNWwtFFsEQl5EAmpBClpCMFaEZGwSB5CCCKSB5GwSPCbiXfunZlzvu9835m5dYXRuBB8Tmw9xodV6mD0ouha30rkSDCHIs3t7SfOn38ob8s1OUJzVKUFY8m4wLd40/iL7/A7rnLZfGa+McvWc2vZemIPO+NuMTTv3fGLQTVYDb8Mj0XGY+XY81gl9k9sPX4lOZucSk6nJmsX0pN1xYZC9l7j0M5S8/XdU3uG9020lz7Z+PTuwULH3GeLh0tdlcNj+fv54pGxo8M9V4896N04NtQ/0zfTv9xfGHhzfHbg/lfzxzd7n3258sXG59Xumfwvh0Y63h68fGCuvbh3Y0+17VXr05ZS06Wdr3aM7VjIXcu+qFvPPNj+e22ldjE1klxOlBNP45OJa9GV6GJkc1spshauBNPBUlDxp/1H3iNv1psMXQ9dCC24t5zXTtV+bK9aL8x5s2KuccFcwT084WF+azw2JoxVumQs0gTdoyGqyodySU7JcVmQI7Isr2I++/235wbP5gfzRwb3727d37q3eXttQ0NiW6ImVhPx/UQMW5+dkO/HQuz7NQ5ZVoJ8xwmxY1m+hYctIgOz8B0mFTh4LcYev4sYj8WC2MEgYTEpKlkYiksCg9WCpAm6sAQbkBCqUtMUaKgJKqCwrTYYKPiAsd6RASNtaTBmg0yg2AmySWkbWxKAAHiqIE0uUxRMlxm5KGkICcjoIlvxUEueysR1Rpu7RAHSSUvZG5RC5OETmtGou7HpI9DakAfZ0EA9tAnkJOKczqUh0qlbVZphYDk6qTETWIA1CmQXMhlkTiFXj7WJ/pfoxkRBmPrg51IP1jjdlGD3Qr+P/pDURYr3HywzlKWLCsvQPrT0q4R0HLUt9KfUBxX0M/0rYZZG17u0vUkDqGpCFEcuQ6OS/pb0HZxctNOh7+NrIAH9hLgF8QFIReljRD9gVfsbEs1lMODo4nAp+k3CopO+gbmgk/yjvos0JTmMi2okm3s5C8lO0F0+gyZcnPioYujmAhiqyh4gWeIUisMgIBZAPDipz6bT+jbT1I3Yw65Nn70emRZ9uzbwgHPQC3AUD017Wj0NpFv9b3z1iN8DMrO8AA=="
+}

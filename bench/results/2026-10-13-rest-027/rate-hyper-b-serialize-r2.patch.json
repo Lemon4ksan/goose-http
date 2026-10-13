@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v1/organizations/01992367-5a80-7000-9001-f5b5f48cbe9e/entries/01a12ebb-eb5e-7000-935a-671cea7eb8f9", "method": "PATCH" },
+  "config": { "connections": 25, "launched": 25, "duration_s": 15.000, "closed": false, "target_rate": 7400, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.000,
+  "requests": 110992,
+  "bytes": 50279376,
+  "achieved_rate": 7399.27,
+  "target_rate": 7400,
+  "target_rate_end": 7400,
+  "rate_ratio": 0.9999,
+  "bytes_per_sec": 3351867.42,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 0,
+  "latency_us": {
+    "min": 38, "mean": 132.5, "stdev": 65.8, "max": 2593,
+    "p50": 126, "p75": 153, "p90": 170, "p99": 226, "p99_9": 1154, "p99_99": 2191
+  },
+  "status_codes": { "1xx": 0, "2xx": 110992, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAu54nD1R30sUURSeOffOvbMze2fnx+7Mpra5JmQRsoFEVFovBVFPZT32mtRb9AeIiIUsPqiIiIiISEhILD4tEiGyDxI+SIQPEiLRw7JI+LSISOfctebu3rnnO9/5vnPudIxORYbBQ6P1sPO3qYOp98a9Py3gMRgATNhgcO5xIUTsFNpKt/qevn770ayYW2bVrJuTsAWbUGZNGOYbfIvv8SVrWKyJddmU8/aeXHRqzppbdZfSG2pRzXg1teDP+Gd+LTwLG+FKtBY1sofZhdx0XMvNJqvJXjKSfE4Ok0Y8luzEv+LppB6fxh/i+eQ4t5xbyU1k96KzaCW7Go1H1fBbMBFWgpOgEjT87WDXP/BPve30SHrb2XE303X1SR2ro3TFPVA/1LL33dtVI96+WlY73olqqKY37zf9arDkT2bK3oL66o66407ZXpK7YliUxRdr0vrJ1/gcb7DfbIOts2lWh32owBw0zaZ5ZK7iHcya8+aY+W5w6OXg0IuBu4O9A/e7Ht7sK1zrflLqLvXcLl0vdfX0dnYW2uJ8h5fP5rMdhXw2G3bmw9j3PQd8z3actCecUDgO9x3BHQCBL85tmwPevP7hZwB6bNsDPBlgCIYUsEHnLAQ1bAHwFAj6eJpEVUxIRBniiGINNygHDJRgGEuKELMIl2RCeQGE0RKkpatITGIdoZIr1NRc2lRLkTgW9kML43MFC0hNJ2lHGlYSWXckMbBQ19DsljsZUK8WdiVJKMNpSKrR+lgpdTNkkyFn5FA/JODiSiGaIZjsyY3jpnQvBtlzXUKN85avoXtg58K0pUQE7SiSggitI537l5RwCQK6bBcLE8hhV9zVo2UwRF47BkXAO7oMF3VRhCRykJxGIyeGGi7iLqpjmdLwM4Su4F/yQCcjlLvzv7VAzyYxTjjJ4ZEcivBcj5xCKOD8BvRjVT+xEG4HujfGi/BAnyS84chS1JKCR6ie0qNYcAGgiDQLQYaahi6+iudXSOyHv/VCjAM="
+}

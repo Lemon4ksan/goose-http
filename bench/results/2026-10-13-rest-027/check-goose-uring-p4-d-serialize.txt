@@ -1,0 +1,9 @@
+tier d: imports ok
+tier d: attachments ok
+tier d: batches ok
+tier d: forms ok
+tier d: ok
+tier c: version, bookings, and shifts ok
+tier c: encounters ok
+tier c: clients ok
+tier c: ok

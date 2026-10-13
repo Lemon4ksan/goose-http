@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v1/organizations/01992367-5a80-7000-9001-f5b5f48cbe9e/entries?from=2026-09-28T21%3A00%3A00.000Z&to=2026-10-12T21%3A00%3A00.000Z&userId=0199f165-ba80-7000-91e1-2f279935e9e8", "method": "GET" },
+  "config": { "connections": 64, "launched": 64, "duration_s": 15.000, "closed": false, "target_rate": 18500, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 277445,
+  "bytes": 3145671410,
+  "achieved_rate": 18495.62,
+  "target_rate": 18500,
+  "target_rate_end": 18500,
+  "rate_ratio": 0.9998,
+  "bytes_per_sec": 209703314.25,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 9186,
+  "latency_us": {
+    "min": 23, "mean": 112.0, "stdev": 194.1, "max": 12647,
+    "p50": 107, "p75": 121, "p90": 138, "p99": 172, "p99_9": 464, "p99_99": 10356
+  },
+  "status_codes": { "1xx": 0, "2xx": 277445, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAA0J4nDVRXWgUVxSe+82d2buzP7M/ySZjdo0aE63bZfEvqUJqtZFsjDFWaKu20FfxsW+lLYSybCXGUDCVPAQpslARCUVQQiiyiMhSIUgQCSXkoQQRKYvIspQiod+9aebOnDnnO+d85+dmy9fTliXftzYf+/+/MMb1H61jbzaBQlxFM9nOvv7zF8//IObE7+KuaIl/RRlTWMUaZu1b9rJ9227YTXvDXpAb8rX821lylp0nobJ6oTbCtfCKt+otR/+Jzsfq/po/nyinVtLNtsftNzNvO34JWtumts90T++613dvXzX/vFA50Dq0fvDKkenByof1jx6eqJ24NfRqaHFosvRbqTlcK82UKqWJ0fXTS6fLZ16Or5xdH394bu1snVptrDX6aGSy1Dg5c3xh8N3RZv9i/9KB2eLtfDU/u7fZt9r7Z8/8rlc7JroXco+zD7ITwc3OiY5G5m7bZPvzVCVZS/yUmPNvxN/EnkUfRaqRd+z9gbqj1tzFUNO94f7FucpOXU7LOdmyn9kN1HEHL1FBFS/EqmiIP8QTURWzYlJMie++vHj560ufHTo19EH/vt3bth9NZFN9qd3ZHal4qi3jRTNRFfc6U/GojCqvTSUScSVTSnkJmsp1XQl4Uj+uFpDKtZTnup5GXaUsvnAhbUBaHqRrAbCUDrYYrfNo0+caoXULYQU6ATdEIaUD2BrXJDQZCFtGdKhDh8mwNkMgQ/zbUgO2pFsfImEijnSkprW2EglTCyGNJPUINQoHW2mOjjOwBR9pMndJUy0APibSgeM0dpLERx6f4iBJepFDO9Fh7Cepj8OUAS18RaUXPws8FSBjDMdYNoJuOmK4ChoxEnbgV4FRZuTovyqYk8Z9JnyOLraz39D7+AZjOGnKjbGRIyjie5ZPkmFYV0APY4u0CjJPGSAkL7DkHhRwDXjPQEmeHKFrgu2PmxG5dQ7DaLONEb2NHhIGGDCNpUnq41swLcajxx/Uk3BLPk/IqAG1JEakJi+SvohPyBthlwOcQe+8wCph6CtxyGDp5BiNATaZ5LYidNpE6M1p0b51uRGT3cWPfQUaSRrd4UB7uBddJZBd5jI2KWP0hU1WYLw+9Z34ghz/AW8srx4="
+}

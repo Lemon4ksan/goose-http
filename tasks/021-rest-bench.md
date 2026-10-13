@@ -649,6 +649,14 @@ Next on the desktop, when it is otherwise idle:
 3. Fill dusty's rows in `docs/results.md` and the README's REST table, which say "not run
    yet", and keep the footnote that it is a framework.
 
+Done on 2026-10-13, in one run with task 027's Goose builds
+([2026-10-13-rest-027](../bench/results/2026-10-13-rest-027/summary.md)). hyper ran
+1.6-6.4% over its earlier saturation cells, tier A templated the most, and Goose's
+`2afc12f` 2.3-3.7% over `23aa531`: the whole session ran faster, within the 5% that
+sessions drift by, and tier D held. So dusty's rows sit beside the tables, with
+hyper's from the same run beside them in `docs/results.md`, and the README's footnote
+says which run they come from.
+
 ## Acceptance criteria
 
 - [x] Tier D built as A to C are, and its mixed run with tier C
@@ -660,5 +668,5 @@ Next on the desktop, when it is otherwise idle:
 - [x] Each tier at saturation and at a fixed rate on the desktop, in `docs/results.md`
       with how it was measured (2026-10-12, `bench/rest.sh`)
 - [x] dusty serving every tier, passing the checker (2026-10-13)
-- [ ] dusty measured on the desktop, in `docs/results.md` and the README, marked as a
-      framework
+- [x] dusty measured on the desktop, in `docs/results.md` and the README, marked as a
+      framework (2026-10-13)
