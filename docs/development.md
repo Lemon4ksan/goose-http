@@ -10,7 +10,7 @@ neither is for benchmarks.
 | Tool | Where | Version used (2026-10-10) |
 |---|---|---|
 | Goose compiler | `../goose`, at the pin in `README.md` | `a6249a4` (2026-10-13) |
-| WSL2 Ubuntu | | 26.04.1 LTS, kernel 6.18.40.1-microsoft-standard-WSL2 |
+| WSL2 Ubuntu | | 26.04.1 LTS, kernel 6.18.40.1-microsoft-standard-WSL2; 6.18.54.1 from 2026-10-13 17:26, WSL 3.0.3 |
 | C compilers | WSL | gcc 15.2.0, clang 21.1.8 |
 | CMake, Ninja | WSL, apt | 4.2.3, 1.13.2 |
 | Visual Studio Build Tools | Windows | 2026 (18), MSVC 19.51 |
@@ -394,6 +394,14 @@ names. A static count covers a function's cold branches too: it flags what to lo
 at, and `bench/count.sh` says what a request costs (2026-10-13, task 027).
 
 What the benchmark has to work around on this machine:
+
+- Windows Update updates WSL on its own, and the install stops every distro, ending
+  whatever runs in them; while it runs, `wsl.exe` fails with "The file cannot be
+  accessed by the system". WSL 3.0.3 came this way on 2026-10-13 at 17:26, and moved
+  the kernel from 6.18.40.1 to 6.18.54.1. A kernel change means a new baseline:
+  compare only runs on the same kernel, which `wsl.exe --version` and each run's
+  `env.txt` name. The Application event log's `MsiInstaller` entries for "Windows
+  Subsystem for Linux" give the time of an update.
 
 - WSL2 steps the wall clock back by 0.4 to 2.6 ms every 30 s (measured with
   `bench/clockstep.py`, 2026-10-10). wrk 4.1.0 counts each request in flight across a

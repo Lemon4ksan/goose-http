@@ -1,5 +1,5 @@
 # Idle RSS after loading, 2026-10-13, wsl2-5800x3d: rest-dusty of this run (binaries.txt, sha256 matched), WORKERS=4 on CPUs 0-3,
-# no load, read 2 s after the port listens, in a later session the same day. Columns: server tier json VmRSS_KB VmHWM_KB
+# no load, read 2 s after the port listens, in a later session the same day, on kernel 6.18.54.1 (the run's was 6.18.40.1). Columns: server tier json VmRSS_KB VmHWM_KB
 dusty a serialize 7704 7704
 dusty b serialize 28716 28716
 dusty c serialize 29264 29264
