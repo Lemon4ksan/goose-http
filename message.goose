@@ -732,14 +732,23 @@ struct Reply {
 }
 
 // The framing of the response being written.
+// How a response's body ends: after a Content-Length, with the bytes still to
+// send; with a zero-length chunk; when the connection closes, as in HTTP/1.0
+// without a length; or, upgraded, with the connection, send writing bytes as
+// they are.
+enum Framing {
+    Length { left: i64 },
+    Chunked,
+    Close,
+    Raw,
+}
+
 struct Stream {
     bodyless: bool = false, // a status that has no body
     open: bool = false,     // begun and not yet ended
     in_head: bool = false,  // begun, without the blank line after the head yet
-    chunked: bool = false,
     moved: bool = false,    // send was given bytes, which HEAD and a bodyless status drop
-    raw: bool = false,      // upgraded: send writes bytes as they are
-    left: i64 = 0,          // of a Content-Length body, the bytes still to send; -1 for none
+    framing: Framing = Framing.Close,
     status: i32 = 0,        // what start was last given
     // later's: the exchange waits for a WAKE or its TIMEOUT, and rearm says
     // the loop has yet to start wait_ms's timer. later is the exchange's
@@ -819,15 +828,18 @@ fn begin(out: Reply, status: i32, length: i64) {
     let s .= out.stream;
     s.open = true;
     s.in_head = true;
-    s.chunked = length < 0 && out.minor > 0 && !s.bodyless;
-    s.left = length;
+    s.framing = if length >= 0 { Framing.Length { left: length } }
+                else if out.minor > 0 && !s.bodyless { Framing.Chunked }
+                else { Framing.Close };
     if s.bodyless { return; }
-    if s.chunked {
-        out.buf.append("Transfer-Encoding: chunked\r\n");
-    } else if length >= 0 {
-        out.buf.append("Content-Length: ");
-        format(out.buf, length);
-        out.buf.append("\r\n");
+    match s.framing {
+        Chunked => { out.buf.append("Transfer-Encoding: chunked\r\n"); },
+        Length => {
+            out.buf.append("Content-Length: ");
+            format(out.buf, length);
+            out.buf.append("\r\n");
+        },
+        Close, Raw => {},
     }
 }
 
@@ -842,23 +854,25 @@ fn send(out: Reply, data: const u8[:]) {
     }
     guard data.len > 0 else { return; }
     s.moved = true;
-    if s.raw {
+    if s.framing == Framing.Raw {
         out.buf.append(data);
         return;
     }
     guard !s.bodyless && !out.head else { return; }
-    if s.chunked {
-        hex_size(out.buf, data.len);
-        out.buf.append("\r\n");
-        out.buf.append(data);
-        out.buf.append("\r\n");
-    } else if s.left >= 0 {
-        let k = min(s.left, data.len);
-        out.buf.append(data[..k]);
-        s.left -= k;
-        if k < data.len { out.keep_alive = false; }
-    } else {
-        out.buf.append(data);
+    match s.framing {
+        Chunked => {
+            hex_size(out.buf, data.len);
+            out.buf.append("\r\n");
+            out.buf.append(data);
+            out.buf.append("\r\n");
+        },
+        Length l => {
+            let k = min(l.left, data.len);
+            out.buf.append(data[..k]);
+            s.framing = Framing.Length { left: l.left - k };
+            if k < data.len { out.keep_alive = false; }
+        },
+        Close, Raw => { out.buf.append(data); },
     }
 }
 
@@ -869,7 +883,7 @@ fn send(out: Reply, data: const u8[:]) {
 fn end(out: Reply, trailers: const u8[:] = "") {
     let s .= out.stream;
     guard s.open else { return; }
-    if s.raw {
+    if s.framing == Framing.Raw {
         s.open = false;
         out.keep_alive = false;
         return;
@@ -877,17 +891,19 @@ fn end(out: Reply, trailers: const u8[:] = "") {
     send(out, "");
     s.open = false;
     guard !s.bodyless && !out.head else { return; }
-    if s.chunked {
-        out.buf.append("0\r\n");
-        each_split(trailers, "\r\n") {
-            if it.len > 0 {
-                let colon = position(it, ':');
-                if colon > 0 { field(out, it[..colon], trim_ows(it[colon + 1..])); }
-            }
-        };
-        out.buf.append("\r\n");
-    } else if s.left > 0 {
-        out.keep_alive = false;
+    match s.framing {
+        Chunked => {
+            out.buf.append("0\r\n");
+            each_split(trailers, "\r\n") {
+                if it.len > 0 {
+                    let colon = position(it, ':');
+                    if colon > 0 { field(out, it[..colon], trim_ows(it[colon + 1..])); }
+                }
+            };
+            out.buf.append("\r\n");
+        },
+        Length l => { if l.left > 0 { out.keep_alive = false; } },
+        Close, Raw => {},
     }
 }
 
@@ -904,7 +920,7 @@ fn upgrade(out: Reply, protocol: const u8[:]) {
     let s .= out.stream;
     s.bodyless = false;
     s.open = true;
-    s.raw = true;
+    s.framing = Framing.Raw;
 }
 
 // The protocols a request asks to switch to, its Upgrade field's value, when

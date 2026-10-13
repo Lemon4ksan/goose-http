@@ -621,7 +621,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
             continue;
         }
         // The exchange goes on past this call, in c's slot.
-        x.body = if x.stream.raw { BodyReader { place: RAW, left: 0 } }
+        x.body = if x.stream.framing == Framing.Raw { BodyReader { place: RAW, left: 0 } }
                  else if whole { BodyReader { .. } }
                  else if req.chunked { BodyReader { place: CHUNK_SIZE, left: 0 } }
                  else { BodyReader { place: LENGTH, left: req.body } };

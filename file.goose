@@ -178,19 +178,20 @@ fn send_file(out: Reply, b: FileBody&) -> bool {
         close_body(b);
         return false;
     }
-    let framed = !s.raw && !s.chunked && s.left >= 0;
-    if s.direct && framed && min(b.left, s.left) >= DIRECT_MIN {
-        let k = min(b.left, s.left);
+    // What a Content-Length body has left to send, or -1 for another framing.
+    let left = match s.framing { Length l => l.left, _ => -1 };
+    if s.direct && left >= 0 && min(b.left, left) >= DIRECT_MIN {
+        let k = min(b.left, left);
         s.file = b.fd;
         s.file_off = b.off;
         s.file_left = k;
-        s.left -= k;
+        s.framing = Framing.Length { left: left - k };
         s.moved = true;
         b.fd = -1;
         b.left = 0;
         return false;
     }
-    let n =if framed { min(min(b.left, FILE_PIECE), s.left) } else { min(b.left, FILE_PIECE) };
+    let n = if left >= 0 { min(min(b.left, FILE_PIECE), left) } else { min(b.left, FILE_PIECE) };
     // Read apart from the write buffer, which can't shrink back past a failed
     // read: out holds slices of bytes, as common, that for all the checker
     // knows point into it (spec §5.1).

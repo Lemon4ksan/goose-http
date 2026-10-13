@@ -102,6 +102,16 @@ review's estimates; "unverified" marks what no program has checked yet.
       into `attach_piece`, 3 KB more in all.
 - [ ] `Stream`'s `chunked`, `raw`, and `left` as one framing enum. Taste. Check: the
       streaming routes' tests and `bench/files.sh`.
+      Done (2026-10-13), not breaking: `Stream.framing` is `Framing { Length{left},
+      Chunked, Close, Raw }`, `Close` for a body that ends with the connection (HTTP/1.0
+      without a length). `scripts/test.sh` passes in WSL and Git Bash. Codegen against
+      `0962213`: `send` 370 bytes smaller, `end` 128 larger, the loops' hot functions
+      within 3 instructions. `bench/count.sh`, 2 runs: 1,824.6 and 1,873.1 user
+      instructions per request, p3's to the tenth. `bench/files.sh`, one worker, 64
+      connections, 3 runs of 10 s, p3 against p5
+      ([summary](../bench/results/2026-10-13-desktop-027-files/summary.md)): every
+      cell within the runs' spread; the lowest, bytes:1048576 on uring, 2.62 GB/s
+      against 2.70 (2.52-2.73).
 - [ ] **Typed mail.** `mail_send_value<T>(to, tag, v)` over `to_bytes`, and a
       `from_bytes<T[>..]>` decode on take, checked by the language's verifier. Replaces
       `put`, `got`, `encode`, and `decode` in `server/backend.goose:22-48`. Additive,
