@@ -384,6 +384,15 @@ within 0.1 instruction per request, where `bench/instructions.sh`'s spreads by a
 with it, not servers: h2load brings fewer requests per read than wrk, which puts its
 totals about 300 higher.
 
+`bench/codegen.sh REV...` compares the code revisions generate, without running it,
+so it's safe while a benchmark runs elsewhere: it builds the benchmark server and
+`bench/rest`'s server at each revision (`work` for the working tree), keeps their
+generated C under `~/goose-http-codegen/`, and prints `.text`, each function family's
+bytes summed over its specializations, and the loops' hot functions' instruction
+counts. Goose numbers specializations anew per build, so compare families, not
+names. A static count covers a function's cold branches too: it flags what to look
+at, and `bench/count.sh` says what a request costs (2026-10-13, task 027).
+
 What the benchmark has to work around on this machine:
 
 - WSL2 steps the wall clock back by 0.4 to 2.6 ms every 30 s (measured with
