@@ -161,51 +161,45 @@ rank over the columns.
 | nginx 1.28.3 | 50.2 K/s | 173 K/s | **2.31 GB/s** | **8.15 GB/s** | 9.9 GB/s | 28.5 GB/s |
 | Caddy 2.10.2 (Go) | 13.0 K/s | 47 K/s | 0.83 GB/s | 2.99 GB/s | 6.8 GB/s | 20.1 GB/s |
 
-- 1 MB with 4 workers is wrk's limit, not the servers'.
-- Why nginx wins 64 KB is task 024's.
-
-CPU per request, in-memory responses, and Windows:
+1 MB with 4 workers is wrk's limit, not the servers'. CPU per request, in-memory
+responses, and Windows:
 [docs/results.md](docs/results.md#static-files).
 
 ### REST APIs
 
-Three API workloads and one of uploads (task 021), against six servers that serve the
-same routes without a framework. A bearer token or cookie on every request, and
-responses computed per request from records loaded at startup, which
-`bench/rest/check.py` verifies before each run. Same machine, `bench/rest.sh`,
-2026-10-13, Goose at `23aa531`. 4 workers on CPUs 0-3, the load on 4-15. Median of 3
-runs of 15 s. Bold is the column's best. Rows go by each server's average rank over the
-columns, a gap counted as last and a p99 or peak RSS by its highest.
+Three API workloads and one of uploads, against servers that serve the same routes
+without a framework. Responses are computed per request from records loaded at startup,
+and checked before each run. Same machine, `bench/rest.sh`, 2026-10-13, Goose at
+`23aa531`. 4 workers on CPUs 0-3, the load on 4-15. Median of 3 runs of 15 s.
 
 - **A**: HttpArena's `production-stack` API, items of 0.2 KB.
 - **B**: a time tracker's hot path, 0.3-13 KB of JSON.
 - **C**: a clinic's schedule and records, up to 728 KB.
-- **Uploads**: chunked CSVs of 2-8 MB and multipart files up to 1 MB, read as they arrive.
+- **Uploads**: chunked CSVs of 2-8 MB and multipart files up to 1 MB.
 
-| Server | A | B | C | C, templates | Uploads | Reads beside uploads, p99 | Peak RSS, A-C |
+A to C in thousands of requests per second, uploads per second, tier C's read p99 in ms
+beside uploads, and peak RSS in MB over A to C. Bold is the column's best; rows go by
+average rank.
+
+| Server | A | B | C | C, templates | Uploads | Reads p99 | Peak RSS |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| **Goose io_uring** | **585 K/s** | **268 K/s** | 51.8 K/s | **144 K/s** | **1,152/s** | 7.8-11 ms | 33-387 MB |
-| **Goose epoll** | 456 K/s | 222 K/s | **51.9 K/s** | 140 K/s | 1,147/s | **1.4-2.5 ms** | 26-376 MB |
-| xitca-web 0.8 (Rust) | 404 K/s | 233 K/s | 37.9 K/s | 110 K/s | 1,029/s | 1.7-13 ms | 32-505 MB |
-| hyper 1.12 (Rust) | 274 K/s | 150 K/s | 32.0 K/s | 119 K/s | 1,110/s | 18-19 ms | **13-75 MB** |
-| tokio 1.52 (Rust) | 394 K/s | 183 K/s | 31.7 K/s | 101 K/s | 1,047/s | 5.0-7.4 s, behind | 16-368 MB |
-| may-minihttp 0.1 (Rust) | 383 K/s | 186 K/s | 32.3 K/s | 100 K/s | no chunked bodies | no chunked bodies | 45-490 MB |
-| odin-http (Odin) | 210 K/s | 47.4 K/s | 3.4 K/s | 38.3 K/s | 706/s | 12-13 s, behind | 11-476 MB |
-| Tina (Odin) | 312 K/s | 52.2 K/s | 3.4 K/s | 99.8 K/s | faults | faults | 482-672 MB |
+| **Goose io_uring** | **585** | **268** | 51.8 | **144** | **1,152** | 7.8-11 | 33-387 |
+| **Goose epoll** | 456 | 222 | **51.9** | 140 | 1,147 | **1.4-2.5** | 26-376 |
+| xitca-web (Rust) | 404 | 233 | 37.9 | 110 | 1,029 | 1.7-13 | 32-505 |
+| hyper (Rust) | 274 | 150 | 32.0 | 119 | 1,110 | 18-19 | **13-75** |
+| tokio (Rust) | 394 | 183 | 31.7 | 101 | 1,047 | behind | 16-368 |
+| may-minihttp (Rust) | 383 | 186 | 32.3 | 100 | ✗ | ✗ | 45-490 |
+| odin-http (Odin) | 210 | 47.4 | 3.4 | 38.3 | 706 | behind | 11-476 |
+| Tina (Odin) | 312 | 52.2 | 3.4 | 99.8 | ✗ | ✗ | 482-672 |
 
-- A to C write the JSON per request with each language's usual library; "C, templates"
-  splices per-request values into prebuilt bytes.
-- "Reads beside uploads" is tier C's reads at a fixed 16K a second while uploads stream
-  in; "behind" means the server didn't keep that rate.
-- tokio and odin-http read each request body whole before the handler runs; the others
-  stream it.
-- may-minihttp can't read a chunked body, and Tina faults reading a streamed one, so
-  neither runs uploads.
-- The Odin servers' JSON library limits them on B and C: 1.2 ms of CPU per tier C
-  request.
-- Each Goose worker loads its own copy of the records; hyper's threads share one.
+- "C, templates": tier C with each record's JSON prebuilt at startup and the
+  per-request values spliced in, which takes the JSON library's cost out.
+- ✗: may-minihttp can't read a chunked body, and Tina crashes reading some streamed
+  ones.
+  "Behind": the server didn't keep up with the reads' fixed rate.
+- The Odin servers' JSON library is what limits them on B and C.
 
-CPU per request at a fixed rate, memory, and every route's latency:
+Fixed-rate CPU, every route's latency, and how each server reads bodies:
 [docs/results.md](docs/results.md#rest-apis).
 
 ## What isn't Goose, and why
