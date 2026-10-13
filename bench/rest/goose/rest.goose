@@ -60,7 +60,8 @@ struct Item {
 
 struct User { id: i64, name: u8[..48], email: u8[..48], plan: u8[..16] }
 
-// Loaded by main before the workers start, each of which copies them.
+// Loaded by the loader before it starts the workers, each of which copies
+// them.
 var items: Item[>..];
 var users: User[>..];
 var template: bool;
@@ -2693,18 +2694,14 @@ fn stopped(e: http::Error) {
     exit(1);
 }
 
-fn main() {
-    let argv = args();
-    var port: i32 = 8080;
-    if argv.len > 1 {
-        let p, ok = parse_int(argv[1]);
-        guard ok && p > 0 && p < 65536 else { abort("usage: rest [port]"); }
-        port = p as i32;
-    }
+// Loads the records into this thread's globals, spawns the workers, which
+// copy them, and sends main each worker's id. The runtime never gives a data
+// stack's pages back while its thread runs, so main would hold the records,
+// the image each spawn copies them through, and the files they were read
+// from for the program's life; a thread's return unmaps all three.
+thread_fn loader(cfg: http::Config, tier: u8[..1], count: i64, epoll: bool) {
     var dir: u8[>..] = [];
     if !env("REST_DATA", dir) { dir.append("build/rest"); }
-    var tier: u8[>..] = [];
-    if !env("TIER", tier) { tier.append("a"); }
     var mode: u8[>..] = [];
     template = env("JSON", mode) && mode == "template";
     if tier == "a" {
@@ -2716,12 +2713,34 @@ fn main() {
         load_people(dir);
         load_entries(dir);
         if template { prebuild_snow(); }
-    } else if tier == "c" || tier == "d" {
+    } else {
         load_heavy(dir);
         if template { prebuild_heavy(); }
-    } else {
-        abort("TIER is a, b, c, or d");
     }
+    let writes = tier == "d";
+    print("rest: tier ", tier, ", ", items.len + entries.len + bookings.len + visits.len, " records, ", count, " workers on port ", cfg.port,
+          if epoll { ", epoll" } else { ", uring" }, if template { ", template" } else { ", serialize" });
+    for i in count {
+        qput(if writes && epoll { thread_spawn(worker_writes_epoll, cfg) }
+             else if writes { thread_spawn(worker_writes, cfg) }
+             else if epoll { thread_spawn(worker_epoll, cfg) }
+             else { thread_spawn(worker, cfg) });
+    }
+}
+
+fn main() {
+    let argv = args();
+    var port: i32 = 8080;
+    if argv.len > 1 {
+        let p, ok = parse_int(argv[1]);
+        guard ok && p > 0 && p < 65536 else { abort("usage: rest [port]"); }
+        port = p as i32;
+    }
+    var name: u8[>..] = [];
+    if !env("TIER", name) { name.append("a"); }
+    guard name == "a" || name == "b" || name == "c" || name == "d" else { abort("TIER is a, b, c, or d"); }
+    var tier: u8[..1] = "";
+    tier.append(name);
     let writes = tier == "d";
     var workers: u8[>..] = [];
     var n: i64 = 0;
@@ -2735,14 +2754,6 @@ fn main() {
     let s = http::stop_on_signals();
     guard s == 0 else { stopped(http::Error { call: "sigaction", code: -s }); }
     let count = http::worker_count(cfg);
-    print("rest: tier ", tier, ", ", items.len + entries.len + bookings.len + visits.len, " records, ", count, " workers on port ", port,
-          if epoll { ", epoll" } else { ", uring" }, if template { ", template" } else { ", serialize" });
-    var ids: i64[>..] = [];
-    for i in count {
-        ids.push(if writes && epoll { thread_spawn(worker_writes_epoll, cfg) }
-                 else if writes { thread_spawn(worker_writes, cfg) }
-                 else if epoll { thread_spawn(worker_epoll, cfg) }
-                 else { thread_spawn(worker, cfg) });
-    }
-    for id in ids { thread_wait(id); }
+    thread_spawn(loader, cfg, tier, count, epoll);
+    for i in count { thread_wait(qget<i64>()); }
 }
