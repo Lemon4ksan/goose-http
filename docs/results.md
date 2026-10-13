@@ -264,6 +264,16 @@ Server CPU per request, in µs:
   the rates there measure wrk; CPU per request still separates the servers.
 - WSL2's kernel costs most of a small file: 12-20 µs a request at 4 KB for Goose and
   nginx, against 5.8 µs for an unpipelined JSON response.
+- Against that morning's `4a65d96`, which copied every file: 1 MB is 3.4 times faster
+  on epoll and 8 to 11 times on io_uring.
+- Responses built in memory (`/bytes`, Goose only, the same setup): io_uring is level
+  with epoll at 1 MB (2.51 against 2.49 GB/s with 1 worker) and 25% ahead at 64 KB
+  (2.58 against 2.06). That morning it ran at half of epoll's rate.
+- On Windows, each file request costs 100-200 µs of kernel time, mostly opening the
+  file, so IOCP serves 5,000-17,000 files a second at every size. `TransmitFile` is 3 to
+  4 times faster than copying a 1 MB file with 1 worker, and no faster with 4, because
+  client Windows runs two at a time (task 020).
+- Why nginx wins 64 KB, where the emulated ring doesn't lose, is task 024's.
 
 ## REST APIs
 
