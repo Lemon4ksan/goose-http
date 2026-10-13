@@ -290,7 +290,7 @@ few bodies sent in small chunks (task 021). Results in
 [2026-10-13-rest](../bench/results/2026-10-13-rest/summary.md), and steps 3 and 4 again
 at 2026-10-12's rates in
 [2026-10-13-rest-rates](../bench/results/2026-10-13-rest-rates/summary.md). Goose's and
-hyper's cells fell within 1-3% of 2026-10-12's run with the same binaries.
+hyper's cells fell within 3.3% of 2026-10-12's run with the same binaries.
 
 Tiers A to C at saturation: wrk 4.1.0 with each tier's script, 8 threads, 256
 connections. Requests per second, the median of 3 runs, and the server's CPU time per

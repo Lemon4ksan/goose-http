@@ -15,7 +15,7 @@ bench/httparena.sh     # HttpArena's harness, in Docker, with Goose as an entry
 bench/run-macos.sh     # a short matrix natively on macOS, into bench/results/<date>-<machine>/
 bench/files.sh         # static files, and /bytes from memory, against nginx and Caddy
 bench/oha.sh           # Goose builds with oha, on Windows (Git Bash) or Linux, for IOCP
-bench/rest.sh          # task 021's REST tiers against hyper: build, then run (about 75 minutes)
+bench/rest.sh          # task 021's REST tiers, 8 servers: build, then run (about 2 h 10 min)
 bench/table.py         # README.md's plaintext and JSON table from run.sh's runs.tsv files
 ```
 
@@ -200,6 +200,45 @@ its source in the `from` column, and the summary in its From column. Goose build
 run, so each run measures Goose fresh beside copied competitors. Separate sessions have
 drifted by up to 5%; rerunning an unchanged Goose build beside its earlier numbers shows
 the drift of the day.
+
+### How long `bench/rest.sh run` takes
+
+`bench/rest.sh` notes the start of every cell in `times.txt`. The full run of
+2026-10-13 on the desktop, 8 servers with the defaults (3 rounds, 5 s of warm-up and
+15 s measured per cell), took 2 h 08 min
+([times.txt](results/2026-10-13-rest/times.txt)):
+
+| Part | Cells | Time |
+|---|---:|---:|
+| WSL's git rereading the checkout, for `env.txt` | | 2.3 min |
+| The checks, `check.py` on every tier | 54 | 1.3 min |
+| Step 1, tiers A to C at saturation | 144 | 49.6 min |
+| Step 2, tier D | 36 | 12.8 min |
+| Step 3, tiers A to C at a fixed rate | 144 | 49.3 min |
+| Step 4, the mixed run | 36 | 12.3 min |
+
+A cell takes 20.5-21.4 s: its warm-up and measured run, and about 1 s to start the
+server, stop it, and wait for its port. A server with tier D takes 16.6 min of the run
+and one without 12.5 min, so the time grows with the server count alone. Steps 3 and 4
+again for all eight servers (`STEPS="3 4"`) took 63 min, plus 2.7 min of git.
+
+What would shorten a run, by how much at 8 servers, and what it costs:
+
+- Run only the servers whose binary changed, and keep the others' cells, as
+  `bench/run.sh`'s `REUSE` does ([above](#reusing-earlier-cells)). Goose's two loops
+  alone take 33 min. This saves the most, at the cost of comparing across sessions:
+  Goose's and hyper's cells moved by up to 3.3% between 2026-10-12 and 2026-10-13. `bench/rest.sh` has no `REUSE` yet; this is the change
+  to make first.
+- `DURATION=10`: about 34 min. Every saturation run fell within 5% of its cell's median
+  at 15 s; whether 10 s keeps that isn't measured.
+- `RUNS=2` for steps 3 and 4: about 20 min. Their CPU per request varied under 5%
+  between rounds for every server that held the rate, but a cell's p99 outlier often
+  comes from one round of three.
+- Step 3 in one JSON way on tiers A and B, where the two ways' CPU per request differs
+  by 2-14% at a fixed rate for the servers that hold it: about 16 min, and the template
+  column on A and B is lost.
+- Running `git status` in WSL before the run takes the 2-3 min of rereading out of the
+  measured session; it doesn't shorten the session.
 
 In a closed-loop test that keeps every connection busy, latency follows from the rate:
 the requests in flight divided by the requests per second (256 connections × 16 deep at

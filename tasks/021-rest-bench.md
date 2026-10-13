@@ -1,6 +1,6 @@
 # 021: A REST benchmark
 
-Status: in-progress (asked for 2026-10-12; designed 2026-10-12)
+Status: done (asked for 2026-10-12; designed 2026-10-12; competitors measured 2026-10-13)
 
 Plaintext and JSON measure the loop and the parser. This measures what REST traffic
 costs an HTTP layer on top: request heads of 0.3-1.2 KB with a bearer token or session
@@ -520,10 +520,10 @@ read errors, its chunked imports.
 
 Left for you (2026-10-13):
 
-- The competitors aren't measured yet. The Mac's runs waited for a 1-minute load
+- The competitors weren't measured on the Mac. Its runs waited for a 1-minute load
   average under 2.0, which macOS's idle desktop never reached overnight (2.4-16.7 from
-  22:08 to 06:37), with nothing else running. `bench/rest.sh` builds and runs only
-  Goose and hyper; it needs the five servers here added to measure them on the desktop.
+  22:08 to 06:37), with nothing else running. The desktop measured them on 2026-10-13
+  (below).
 - Tina's tier D fault (above) is Tina's to fix; it may be worth reporting upstream.
 - may-minihttp can't read a chunked request body, so it stays out of tier D.
 
@@ -573,6 +573,30 @@ On the desktop (2026-10-13). Decided while running the list unattended:
 - Before the run, Windows used 0-3% of the CPUs, Task Manager about 7% of one, and WSL
   nothing. Three Docker containers of another project stay up, idle: mailpit at 2.5% of
   one CPU and the other two under 0.3%. They were up through the 2026-10-12 run too.
+- The full run (`2026-10-13-rest`, `23aa531`) took 2 h 08 min. Its fixed rates came out
+  at 100K, 24K, and 1.7K requests per second, against 2026-10-12's 140K, 74K, and 16K:
+  odin-http and Tina serialize tier C at 3.4K a second and tier B at 47-52K, with
+  `core:encoding/json`, and the rule takes half the slowest. At 1.7K a second tier C
+  barely loads the other servers, so steps 3 and 4 ran again for all eight at
+  2026-10-12's rates (`2026-10-13-rest-rates`, `64d23a6`, 63 min). Both stay in the
+  results: the rule's rates in the first run's summary, and the rerun's in the tables,
+  beside 2026-10-12's figures. Servers that can't hold a rate show what they reached.
+- Goose's and hyper's saturation cells came within 3.3% of 2026-10-12's, with the same
+  binaries, so the anchor round wasn't needed.
+- No server needed a second start in either run, and Tina logged no `[FATAL]` line.
+  odin-http counted one read error in each of two tier A fixed-rate runs.
+
+The results are in [docs/results.md](../docs/results.md#rest-apis) and the README's REST
+table, and the run's timing, with what would shorten it, in
+[bench/README.md](../bench/README.md#how-long-benchrestsh-run-takes). In short:
+
+- Goose's io_uring loop leads every saturation column but C serialized, where the two
+  loops tie; the closest are xitca-web on A, B, and C serialized and Tina and hyper with
+  templates. Goose's epoll loop loses tier B to xitca-web by 3-5%.
+- At a fixed rate, the Goose loops spend the least CPU per request in every column.
+- Beside the forms role, tokio takes 1.6 times Goose's uploads, at half its forms rate.
+- Beside uploads, Goose's epoll loop keeps tier C's reads at a p99 under 2.5 ms;
+  xitca-web's reaches 13 ms, and tokio's reads fall behind, to 11-12K of 16K a second.
 
 ## Acceptance criteria
 
@@ -580,6 +604,7 @@ On the desktop (2026-10-13). Decided while running the list unattended:
 - [x] The generator, writing each tier's dataset files from a fixed seed
 - [x] Each tier's routes in Goose, loading the files, in both JSON ways
 - [x] Each tier's wrk script and checker, passing against Goose
-- [ ] The competitors serving the same tiers, built in release mode, passing the checker
+- [x] The competitors serving the same tiers, built in release mode, passing the checker
+      (2026-10-13, on the desktop; may-minihttp and Tina without tier D)
 - [x] Each tier at saturation and at a fixed rate on the desktop, in `docs/results.md`
       with how it was measured (2026-10-12, `bench/rest.sh`)
