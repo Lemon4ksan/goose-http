@@ -856,3 +856,58 @@ optional's type, since a literal branch adapts to the others' type (spec §6.4),
 
 Workaround: bind it to a typed local first (`let first: const Event? = if woke { wake }
 else { null };`, as task 027's `Event` enum did in the loops, `a9783c8`, since reverted).
+
+## An optional passed as `null` at one call and a value at another specializes twice
+
+Found on `0bdbd18`, task 027. Status: open
+
+A function that takes `const T?` and is called with the constant `null` at one site and
+with a value at another is specialized once for each, and so is every function it
+passes the optional on to. Task 027's p1 (`a9783c8`) passed the loops' wake that way
+through `go`, `drive`, `advance`, `pump`, and `answer`, which grew `.text` from 267 to
+424 KB and cost 39.5 user instructions per request on epoll and 45.0 on uring, and was
+reverted. The idiom it would have replaced is a sentinel: the event as a struct with a
+`u8` kind, a placeholder `NO_EVENT` passed as `const Event&`, and a flag beside it.
+
+A program in four variants tells the two parts of p1 apart: the event as a struct with
+a kind or as a fixed-mode enum matched by its tag, and the wake as `const Ev&` with a
+flag or as `const Ev?` passed `null` from one site and a value from another. With the
+optional, Goose makes 97 specializations where it makes 93 with the reference, struct
+or enum alike; the enum makes none more. gcc then folds all four to the same machine
+code: 10 user instructions per iteration (`perf stat -e instructions:u`, 10 and 110
+million iterations, the difference, 3 runs each, Ryzen 7 5800X3D, WSL2 kernel
+6.18.54.1, gcc 15.2.0, `goose build --cc gcc --standalone`) and the same 3,373 bytes of
+`.text`. So matching on the tag costs nothing, and the second specialization costs
+nothing where gcc can merge it. In the loops, whose `answer` holds the whole inlined
+handler (about 17 KB), the two copies stay apart, and p1's instructions came with
+them. The struct variant, alone:
+
+    struct Req { a: i64, b: i64 }
+    struct Ev { kind: u8, req: const Req&, data: const u8[:], tag: i32 = 0 }
+    var sink: i64 = 0;
+
+    fn handle(ev: Ev) { if ev.kind == 0 { sink += ev.req.a + ev.data.len; } else { sink += ev.tag; } }
+    fn answer(r: const Req&, data: const u8[:], wake: const Ev?) {
+        if wake { handle(wake); }
+        handle(Ev { kind: 0, req: r, data: data });
+    }
+    fn drive(r: const Req&, data: const u8[:], wake: const Ev?) {
+        for k in 4 { if k == 0 { answer(r, data[k..], wake); } else { answer(r, data[k..], null); } }
+    }
+    fn go(r: const Req&, data: const u8[:], wake: const Ev?) { drive(r, data, wake); }
+
+    fn main() {
+        let r = Req { a: 1, b: 2 };
+        let w = Ev { kind: 6, req: r, data: "", tag: 3 };
+        for i in 100000000 {
+            if i % 1024 == 1023 { go(r, "GET /x HTTP/1.1", w); } else { go(r, "GET /x HTTP/1.1", null); }
+        }
+        print(sink);
+    }
+
+`goose --check` reports 10 specializations for it, and 6 with `wake: const Ev&`, a
+`woke: bool` beside it, and a placeholder event where it passes `null`.
+
+Workaround: the sentinel the loops kept: `Event` with a `u8` kind and `NO_EVENT`,
+passed as `const Event&`. An enum `Event` would be free if Goose specialized a function
+once for an optional argument, whatever its call sites pass.
