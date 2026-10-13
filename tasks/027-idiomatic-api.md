@@ -3,9 +3,10 @@
 Status: in progress (asked for 2026-10-13). The maintainer decided what stays
 (2026-10-13, "Decisions" below). p1 is reverted, and p7 dropped. p2 to p6 are on
 `main`, tested and benchmarked at Goose `0bdbd18` (2026-10-14, "The series at Goose
-`0bdbd18`" below). Next: the examples and docs, whose four new examples wait on the
-`task-027-examples` branch, typechecked and not yet run. Breaking changes cost least
-before programs use the API, and goose-rest will be the first.
+`0bdbd18`" below). The four new examples are on `main`, built and run by
+`scripts/test.sh` (2026-10-14). Next: the README's quick start and concepts against
+them, and the API rough edges they found ("Examples and docs" below). Breaking changes
+cost least before programs use the API, and goose-rest will be the first.
 
 ## Decisions
 
@@ -424,13 +425,36 @@ without p1 ("Decisions", step 6).
 Once the proposals are settled:
 
 - [ ] `examples/README.md` describes the API as it now is, and its snippets compile.
-- [ ] New examples beside `hello` and `routes`, each a short program a reader can copy:
+      Its table lists the new examples, and it says not to `return` from a handler
+      block (below); its snippets aren't checked yet.
+- [x] New examples beside `hello` and `routes`, each a short program a reader can copy:
       a JSON API with path parameters, a body, cookies, and bearer auth; an upload read
       as a stream and as multipart; an answer that waits on a backend thread over mail;
-      and files with ranges and conditional requests.
-- [ ] `scripts/test.sh` builds every example and requests each route once, so an API
-      change can't leave an example broken.
+      and files with ranges and conditional requests. `examples/api/`, `upload/`,
+      `later/`, and `files/` (2026-10-14).
+- [x] `scripts/test.sh` builds every example and requests each route once, so an API
+      change can't leave an example broken: `scripts/test-examples.sh`, its last step,
+      passing in WSL and Git Bash (2026-10-14).
 - [ ] The README's quick start and concepts match the examples.
+
+Writing them turned up rough edges in the API, each a candidate for this task's list:
+
+- A `return` in a handler block returns from the function the block is written in
+  (the tutorial, "a block may also `return` from the lexically enclosing function"),
+  so a handler written as a block that returns early ends its worker's loop, and the
+  request waits unanswered. `api/`, `upload/`, and `later/` did, and hung on the
+  first such request in `scripts/test-examples.sh`; they now call a function. The
+  loop can't see it happen. A handler passed by name avoids it.
+- `http::cookie_of` called in a handler block was refused ("binding v to a slice
+  rooted at req, which does not outlive it"), where `field_of` in the same place
+  wasn't; in a function it compiles. Not reduced yet.
+- No bearer helper: `http::authorization`, then `http::eq_fold(scheme, "bearer")`,
+  whose second argument must be lowercase.
+- A 204 takes `start` and `finish(out, "", "")`, since `respond` always writes
+  `Content-Type`.
+- A handler takes state only to get `WAKE` and `TIMEOUT` (`serve(cfg, false)` in
+  `later/`).
+- A box's slot size is guessed from `to_bytes` image sizes (task 028).
 
 ## Kept as they are
 
