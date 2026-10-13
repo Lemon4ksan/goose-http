@@ -133,6 +133,9 @@ error when the stdlib is missing names the wrong path
 
 ### Move the pin
 
+Held at `6448f3f` (2026-10-13) until the performance work and the API changes are done;
+fetch upstream and note how far it lags, but don't move the pin before then.
+
 The Goose repository changes daily. Fetch it at the start of a session, and move the pin
 in its own commit with the builds and results that still hold (`README.md`):
 

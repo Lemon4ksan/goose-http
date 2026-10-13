@@ -25,7 +25,7 @@ directory. What only one machine needs, such as where its Goose checkout is, goe
 
 - The Goose repository changes daily. Fetch the Goose checkout `GOOSE` is built from
   (`../goose` unless `CLAUDE.local.md` says otherwise) at the start of a session and
-  move the pin when it lags (`docs/development.md`, "Move the pin").
+  move the pin when it lags, unless `docs/development.md` ("Move the pin") holds it.
 - Don't edit the Goose checkout. When the compiler rejects something it should accept,
   miscompiles, or the stdlib lacks something, reduce it to a minimal program, record it
   in `docs/goose-findings.md`, and work around it here. Report blockers to the maintainer.
