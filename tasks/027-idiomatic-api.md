@@ -1,7 +1,10 @@
 # 027: A more idiomatic API
 
-Status: in progress (asked for 2026-10-13). Next: the breaking proposals, then their
-overnight batch. Breaking changes cost least before programs use the API, and
+Status: in progress (asked for 2026-10-13). All seven proposals are on the `task-027`
+branch, each tested, the breaking four benchmarked. Next: the maintainer decides
+whether p1 must hold on its own (about 40 instructions per request, which p2 wins
+back) and whether p2's 3-6% on uploads, cycles at equal instructions, is layout or
+cost; then `task-027` merges, and the examples and docs below follow. Breaking changes cost least before programs use the API, and
 goose-rest will be the first.
 
 Baseline: `2afc12f`, the Goose pin moved to `a6249a4` (2026-10-13), with
