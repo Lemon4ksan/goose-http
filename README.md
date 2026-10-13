@@ -100,22 +100,22 @@ Ryzen 7 5800X3D, WSL2, kernel 6.18. `bench/run.sh`, 2026-10-12. 4 workers on CPU
 wrk on 4-15. Plaintext pipelined 16 deep, by connection count. Median of 3 runs of 15 s.
 Goose at `73dd28c`, Goose compiler `6448f3f`. Some competitors' cells come from earlier
 sessions with the same binaries, and sessions drift by up to 5%. Bold is the column's
-best.
+best. Rows go by each server's average rank over the columns, peak RSS by its highest.
 
 | Server | plaintext 256 | plaintext 1,024 | plaintext 4,096 | JSON 256 | JSON 1,024 | peak RSS |
 |---|---:|---:|---:|---:|---:|---:|
-| Goose io_uring | 6.74 M | 6.52 M | 6.02 M | 498 K | 487 K | 8.9-15 MB |
-| Goose epoll | 5.37 M | 5.31 M | 5.24 M | 416 K | 408 K | **2.7-3.6 MB** |
-| vanilla-io_uring (V) | **8.14 M** | **8.25 M** | **7.60 M** | 456 K | 453 K | 37-154 MB |
 | libreactorng (C) | 6.96 M | 7.38 M | 7.03 M | 545 K | 609 K | 6.1-80 MB |
+| **Goose io_uring** | 6.74 M | 6.52 M | 6.02 M | 498 K | 487 K | 8.9-15 MB |
+| vanilla-io_uring (V) | **8.14 M** | **8.25 M** | **7.60 M** | 456 K | 453 K | 37-154 MB |
 | zix (Zig) | 5.13 M | 5.44 M | 4.97 M | **552 K** | **614 K** | 6.7-39 MB |
+| **Goose epoll** | 5.37 M | 5.31 M | 5.24 M | 416 K | 408 K | **2.7-3.6 MB** |
+| zeemo (Zig) | 2.39 M | 2.69 M | 2.21 M | 540 K | 606 K | 6.6-37 MB |
+| xitca-web (Rust) | 3.30 M | 3.52 M | 3.21 M | 419 K | 442 K | 25-69 MB |
 | vanilla-epoll (V) | 6.10 M | 5.85 M | 5.46 M | (216 K) | (218 K) | 6.0-57 MB, 15 GB in JSON |
 | tokio (Rust) | 3.89 M | 3.83 M | 3.65 M | 394 K | 386 K | 12-183 MB |
 | may-minihttp (Rust) | 2.39 M | 4.31 M | 3.95 M | 375 K | 364 K | 40-621 MB |
-| xitca-web (Rust) | 3.30 M | 3.52 M | 3.21 M | 419 K | 442 K | 25-69 MB |
-| hyper (Rust) | 2.69 M | 2.67 M | 2.54 M | 303 K | 295 K | 8.0-88 MB |
-| zeemo (Zig) | 2.39 M | 2.69 M | 2.21 M | 540 K | 606 K | 6.6-37 MB |
 | Tina (Odin) | 0.73 M | 0.74 M | 0.47 M | 504 K | 446 K | 755 MB |
+| hyper (Rust) | 2.69 M | 2.67 M | 2.54 M | 303 K | 295 K | 8.0-88 MB |
 
 vanilla-epoll's JSON, in parentheses, is from 2026-10-11: it leaks 6-15 GB a cell, so
 it no longer runs in full matrices. The 1-worker table, latency, and CPU per request are
@@ -139,12 +139,13 @@ in [docs/results.md](docs/results.md#the-full-field).
 One file downloaded over and over, against nginx and Caddy, the usual static file
 servers. Same machine, `bench/files.sh`, 2026-10-12, Goose at `fcfd80d`. Files on tmpfs.
 1 worker on CPU 0 or 4 on CPUs 0-3, wrk on 4-15 with 12 threads and 96 connections.
-Median of 3 runs of 10 s. Bold is the column's best.
+Median of 3 runs of 10 s. Bold is the column's best. Rows go by each server's average
+rank over the columns.
 
 | Server | 4 KB, 1 worker | 4 KB, 4 | 64 KB, 1 | 64 KB, 4 | 1 MB, 1 | 1 MB, 4 |
 |---|---:|---:|---:|---:|---:|---:|
-| Goose io_uring | **81.6 K/s** | **219 K/s** | 2.08 GB/s | 6.42 GB/s | 11.0 GB/s | 30.4 GB/s |
-| Goose epoll | 56.0 K/s | 179 K/s | 2.23 GB/s | 7.41 GB/s | **11.6 GB/s** | **31.3 GB/s** |
+| **Goose epoll** | 56.0 K/s | 179 K/s | 2.23 GB/s | 7.41 GB/s | **11.6 GB/s** | **31.3 GB/s** |
+| **Goose io_uring** | **81.6 K/s** | **219 K/s** | 2.08 GB/s | 6.42 GB/s | 11.0 GB/s | 30.4 GB/s |
 | nginx 1.28.3 | 50.2 K/s | 173 K/s | **2.31 GB/s** | **8.15 GB/s** | 9.9 GB/s | 28.5 GB/s |
 | Caddy 2.10.2 (Go) | 13.0 K/s | 47 K/s | 0.83 GB/s | 2.99 GB/s | 6.8 GB/s | 20.1 GB/s |
 
@@ -174,7 +175,8 @@ servers, and two in Odin. Records loaded from JSON files at startup, a bearer to
 cookie on every request, and responses computed per request, which `bench/rest/check.py`
 verifies before each run. Same machine, `bench/rest.sh`, 2026-10-13, Goose at `23aa531`.
 4 workers on CPUs 0-3, the load on 4-15. Median of 3 runs of 15 s. Bold is the column's
-best.
+best. Rows go by each server's average rank over the columns, a gap counted as last and
+a p99 by its highest.
 
 - **A**: HttpArena's `production-stack` API, items of 0.2 KB.
 - **B**: a time tracker's hot path, 0.3-13 KB of JSON.
@@ -183,14 +185,14 @@ best.
 
 | Server | A | B | C | C, templates | Uploads | Reads beside uploads, p99 |
 |---|---:|---:|---:|---:|---:|---:|
-| Goose io_uring | **585 K/s** | **268 K/s** | 51.8 K/s | **144 K/s** | **1,152/s** | 7.8-11 ms |
-| Goose epoll | 456 K/s | 222 K/s | **51.9 K/s** | 140 K/s | 1,147/s | **1.4-2.5 ms** |
+| **Goose io_uring** | **585 K/s** | **268 K/s** | 51.8 K/s | **144 K/s** | **1,152/s** | 7.8-11 ms |
+| **Goose epoll** | 456 K/s | 222 K/s | **51.9 K/s** | 140 K/s | 1,147/s | **1.4-2.5 ms** |
+| xitca-web 0.8 (Rust) | 404 K/s | 233 K/s | 37.9 K/s | 110 K/s | 1,029/s | 1.7-13 ms |
 | hyper 1.12 (Rust) | 274 K/s | 150 K/s | 32.0 K/s | 119 K/s | 1,110/s | 18-19 ms |
 | tokio 1.52 (Rust) | 394 K/s | 183 K/s | 31.7 K/s | 101 K/s | 1,047/s | 5.0-7.4 s, behind |
 | may-minihttp 0.1 (Rust) | 383 K/s | 186 K/s | 32.3 K/s | 100 K/s | no chunked bodies | no chunked bodies |
-| xitca-web 0.8 (Rust) | 404 K/s | 233 K/s | 37.9 K/s | 110 K/s | 1,029/s | 1.7-13 ms |
-| odin-http (Odin) | 210 K/s | 47.4 K/s | 3.4 K/s | 38.3 K/s | 706/s | 12-13 s, behind |
 | Tina (Odin) | 312 K/s | 52.2 K/s | 3.4 K/s | 99.8 K/s | faults | faults |
+| odin-http (Odin) | 210 K/s | 47.4 K/s | 3.4 K/s | 38.3 K/s | 706/s | 12-13 s, behind |
 
 A to C write the JSON per request with each language's usual library; "C, templates"
 splices per-request values into prebuilt bytes. "Behind" means the server couldn't
