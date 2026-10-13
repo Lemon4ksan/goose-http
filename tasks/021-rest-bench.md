@@ -1,7 +1,7 @@
 # 021: A REST benchmark
 
 Status: done (asked for 2026-10-12; designed 2026-10-12; competitors measured 2026-10-13);
-dusty added 2026-10-13, not yet measured
+dusty added and measured 2026-10-13; its memory row is pending ("dusty" below)
 
 Plaintext and JSON measure the loop and the parser. This measures what REST traffic
 costs an HTTP layer on top: request heads of 0.3-1.2 KB with a bearer token or session
@@ -656,6 +656,14 @@ Done on 2026-10-13, in one run with task 027's Goose builds
 sessions drift by, and tier D held. So dusty's rows sit beside the tables, with
 hyper's from the same run beside them in `docs/results.md`, and the README's footnote
 says which run they come from.
+
+Pending:
+
+- [ ] dusty's row in the README's REST memory table and in `docs/results.md`'s. The
+      run gives its peak RSS: A 16 MB, B 42, C 216, C templated 241, uploads 814 (beside
+      forms; 31 alone). The table splits each cell into memory at rest plus what serving
+      adds, so it needs dusty's idle RSS, read as `idle-rss.txt` was, with the run's
+      binary (`build/rest/rest-dusty`).
 
 ## Acceptance criteria
 

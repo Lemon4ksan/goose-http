@@ -39,17 +39,6 @@ When a task is done and nothing still builds on its file, move it to `000-archiv
 unique across both folders: pick the next number after the highest in either. Refer to
 tasks by number ("task 008"), not by path, so a move breaks no reference.
 
-## Pending
-
-What is on `main` but not yet checked, or waits on a branch. Remove an item once its
-check passes.
-
-- Task 027's p2, p4, p5, and p6, cherry-picked onto `main` without p1 and p3
-  (2026-10-13): `scripts/test.sh` hasn't run on the result, and its benchmarks against
-  `2afc12f` are task 027's steps 6 and 7.
-- Task 027's p3, on `task-027-p3`, until a tier D run without p1 decides it (step 5).
-- Task 027's finding for p1's cost, from a minimal program (step 2).
-
 ## Order
 
 Tasks 001–004 build and measure the epoll server, and task 008 moved the pin upstream and

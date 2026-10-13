@@ -40,10 +40,22 @@ this package would use if Goose made it free.
 7. Benchmark the rebased series against `2afc12f`: the numbers below for p2 on were
    measured on top of p1.
 
-Done: step 1 (`c16cca6`), step 3 for what is kept, and step 4. Open: step 2's
-program, which needs a build, and steps 5 to 7, which need benchmarks. p3 waits on
+Done: step 1 (`c16cca6`), step 3 for what is kept, and step 4. p3 waits on
 `task-027-p3`, cut from `main` after p6, with p5's `Framing.Raw` test carried onto
 `BodyReader.Raw`.
+
+### Pending
+
+What `main` holds unchecked, or what waits on a branch. Remove an item once its check
+passes.
+
+- [ ] `scripts/test.sh` in WSL and Git Bash on `main`, where p2, p4, p5, and p6 were
+      cherry-picked without p1 and p3 and their conflicts resolved by hand.
+- [ ] Step 2: the finding for p1's cost, from a minimal program at `a6249a4`.
+- [ ] Step 5: a tier D run of `task-027-p3` without p1, which merges p3 or drops it.
+- [ ] Step 6: p2's upload cost without p1, and `perf stat` of its cache misses if it
+      holds.
+- [ ] Step 7: the series on `main` against `2afc12f`.
 
 Baseline: `2afc12f`, the Goose pin moved to `a6249a4` (2026-10-13), with
 `scripts/test.sh` passing in WSL and Git Bash. The proposals' benchmarks compare
