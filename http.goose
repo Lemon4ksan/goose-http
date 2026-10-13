@@ -338,7 +338,7 @@ fn abandon<H, C>(c: C&) {
     x.stream.waiting = false;
     var sink: u8[>..] = [];
     let none = Request { .. };
-    H(Event { kind: CLOSED, req: none, data: "", whole: false, trailers: "" }, x.state,
+    H(Event { kind: CLOSED, req: none, data: "", whole: false, trailers: "" }, &x.state,
       Reply { buf: sink, common: "", keep_alive: x.keep_alive, minor: x.minor, head: x.head, stream: x.stream,
             fd: c.fd });
     x.stream.open = false;
@@ -394,7 +394,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
         var keep = x.keep_alive;
         var st = x.stream;
         H(Event { kind: DONE, req: head, data: "", whole: false, trailers: "", status: status, sent: sent,
-                  ms: now - began }, x.state,
+                  ms: now - began }, &x.state,
           Reply { buf: sink, common: "", keep_alive: keep, minor: x.minor, head: x.head, stream: st, fd: c.fd });
     }
 
@@ -420,7 +420,9 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
     fn call(ev: Event) -> bool {
         let before = wbuf.len;
         let was_open = x.stream.open;
-        H(ev, x.state, Reply { buf: wbuf, common: common, keep_alive: x.keep_alive, minor: x.minor,
+        // &x.state: a block given x.state gets a copy, and loses what it
+        // writes there (docs/goose-findings.md).
+        H(ev, &x.state, Reply { buf: wbuf, common: common, keep_alive: x.keep_alive, minor: x.minor,
                                head: x.head, stream: x.stream, fd: c.fd });
         done++;
         let wrote = wbuf.len > before;
@@ -599,7 +601,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
             x.stream.later.key = (x.stream.later.key & ~0xFFFFF) | ((x.served & 0xFFFFF) as u64);
         }
         let before = wbuf.len;
-        H(Event { kind: REQUEST, req: req, data: data, whole: whole, trailers: trailers }, x.state,
+        H(Event { kind: REQUEST, req: req, data: data, whole: whole, trailers: trailers }, &x.state,
           Reply { buf: wbuf, common: common, keep_alive: x.keep_alive, minor: req.minor,
                   head: req.method == "HEAD", stream: x.stream, fd: c.fd });
         done++;
