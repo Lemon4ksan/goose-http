@@ -1,0 +1,110 @@
+// Uploads of any size, read as they arrive: a raw body, counted, and a
+// multipart form, each part's name, filename, and size.
+//
+//   curl --data-binary @big.iso localhost:8080/upload
+//   curl -F note=hi -F file=@photo.jpg localhost:8080/form
+import std;
+import http from "../../";
+
+// The most bytes a body may have on these routes.
+let LIMIT = 1 << 30;
+
+// A request's state, between the handler's calls for it.
+struct Upload {
+    route: u8 = NONE,
+    taken: i64 = 0,     // for body_within
+    bytes: i64 = 0,     // /upload: the body's bytes so far
+    parts: http::Multipart = http::Multipart { .. },
+    failed: bool = false,
+    size: i64 = 0,      // /form: the part's bytes so far
+    report: u8[..1024] = [],
+}
+
+let NONE: u8 = 0;
+let RAW: u8 = 1;
+let FORM: u8 = 2;
+
+thread_fn worker(cfg: http::Config) {
+    let e = http::serve(cfg, Upload { .. }) { ev, st, out =>
+        if ev.kind == http::REQUEST {
+            var r = http::router(ev.req);
+            var route = NONE;
+            if http::on(r, "POST", "/upload") { route = RAW; }
+            else if http::on(r, "POST", "/form") { route = FORM; }
+            else { http::otherwise(r, out); return; }
+            guard http::body_within(st.taken, ev, out, LIMIT) else { return; }
+            if route == FORM && !http::start_multipart(ev.req, st.parts) {
+                http::respond(out, 415, "text/plain", "want multipart/form-data\n");
+                return;
+            }
+            st.route = route;
+            // A body that fits in the read buffer with its head comes whole
+            // here, and no BODY or END follows.
+            piece(st, ev.data);
+            if ev.whole { answer(st, out); }
+        } else if st.route == NONE {
+            // Answered at REQUEST: the rest of the body is dropped.
+        } else if ev.kind == http::BODY {
+            if http::body_within(st.taken, ev, out, LIMIT) { piece(st, ev.data); }
+            else { st.route = NONE; }
+        } else if ev.kind == http::END {
+            answer(st, out);
+        }
+    };
+    guard e.code != 0 else { return; }
+    http::report(e);
+    exit(1);
+}
+
+fn piece(st: Upload&, data: const u8[:]) {
+    if st.route == RAW {
+        st.bytes += data.len;
+        return;
+    }
+    guard !st.failed else { return; }
+    let ok = http::each_part(st.parts, data) { part =>
+        match part {
+            Head h => part_head(st, h.fields),
+            Data d => { st.size += d.bytes.len; },
+            End => part_end(st),
+        }
+    };
+    if !ok { st.failed = true; }
+}
+
+// A part's line of the report starts with its name and filename, which last
+// only until each_part's block returns.
+fn part_head(st: Upload&, fields: const u8[:]) {
+    let name, filename, ok = http::disposition(fields);
+    guard ok && st.report.len + name.len + filename.len + 32 <= 1024 else {
+        st.failed = true;
+        return;
+    }
+    st.report.append(name);
+    if filename.len > 0 { format(st.report, " (", filename, ")"); }
+    st.size = 0;
+}
+
+fn part_end(st: Upload&) { format(st.report, ": ", st.size, " bytes\n"); }
+
+fn answer(st: Upload&, out: http::Reply) {
+    if st.route == RAW {
+        var text: u8[..32] = [];
+        format(text, st.bytes, " bytes\n");
+        http::respond(out, 200, "text/plain", text);
+    } else if st.failed || !http::multipart_done(st.parts) {
+        http::respond(out, 400, "text/plain", "not a multipart form\n");
+    } else {
+        http::respond(out, 200, "text/plain", st.report);
+    }
+}
+
+fn main() {
+    let s = http::stop_on_signals();
+    guard s == 0 else { http::report(http::Error { call: "sigaction", code: -s }); exit(1); }
+    let cfg = http::Config { port: 8080, max_body: LIMIT, .. };
+    print("listening on port ", cfg.port);
+    var ids: i64[>..] = [];
+    for i in http::worker_count(cfg) { ids.push(thread_spawn(worker, cfg)); }
+    for id in ids { thread_wait(id); }
+}
