@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v2/clients/42/encounters?limit=20", "method": "GET" },
+  "config": { "connections": 30, "launched": 30, "duration_s": 15.000, "closed": false, "target_rate": 1920, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.000,
+  "requests": 28797,
+  "bytes": 2052506175,
+  "achieved_rate": 1919.74,
+  "target_rate": 1920,
+  "target_rate_end": 1920,
+  "rate_ratio": 0.9999,
+  "bytes_per_sec": 136829474.33,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 0,
+  "latency_us": {
+    "min": 108, "mean": 245.9, "stdev": 167.3, "max": 2631,
+    "p50": 173, "p75": 218, "p90": 522, "p99": 763, "p99_9": 1520, "p99_99": 2255
+  },
+  "status_codes": { "1xx": 0, "2xx": 28797, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAxp4nC1TTYgdRRCerunX29uv6XTK2rZt27YZh2EdH1Gfq6i46+YkSAz+gKiIhAiexauXKAFBIggBDzlICEuQIEuQ4GERDx4kJxFZNHgInjzIIoIgIhKsyTozTHV/VfN9VTXV+ez5O5qm/aU5vNr/rbi9Of9B8/Qfh8BPQsoGGpCNBC0BQIEJNjuHfchb6yeePfni++KcuCR2xGdiX1wTH8MVuAXX2gvyy9nu7EB9t3JJf776o/l9/q35bX4wvzy/Pr9p9s1X5urqzuqOvqi/Wbm8sqeuqxuzW3JfnptdkXvyr/ag3WlvwoftDfgZdmEP/hV/i3/EGfhe/Cp+YKWvxZ64Ki6KL8QFsSs+EWfE6U/ZvHP6rHjt5Vdef+OtrVPbb584ufX846e2H9tebj21vfHk2A2LsR9zHeLY5WPrpeY8LpYD5oK1cyX2FGqXMaduwTZhGVKqAcdaarfol/1Ya8kV+27MMa6PA+GilBRLiF03YjxWA4WEqa7n5CoxgY+x+IA1Fmu8zcY5CjGGUnpcjzmb4CyVUAakvg7Z+RBriMa7TLYGF7NOSEg+BEcuY3DBOiTyyWeKzrM2WSLjidDkWAarEaNPAzlrMwtR8BQKORdtsCliTezFlJklRMqWLPNgIBycct4a1MYZazU/xhubE6Hl/EMgF7z2mGn68YorIopUykaM3MdYH0pdv1xuLEs3pZRTTYlr59xyNFxNCDEjhtTHvsfUDd4lxlh6iF10lD15NC5XzoVbwBLcPJakzuqUuWElBdR9CJi72I/DootxzEPf167ncinm5CsV/lOcoWYGRM/iFilpBR7RKLJojLbKGq20UqjdNMhSKwmNNwBSWp5taSTvwfLEg1FKKqWmgdfT/Ldy8ileqhbY18pWNZpPBZ8LNUXAoReAceZT0PINugWOmZgZhBkHzDhw8kw4hx+BVs5hzrBsYU0dhzV48HbcEdiE42yPwio8wsgm3M3v++A9Ae/yZhMegFcZuouhOznoYXgJnmPeo3AvrMA98JFgRwNv8vIFBu6fgCcmNf5qDR6FZ+BPweY/QUiChQ=="
+}

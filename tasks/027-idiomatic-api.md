@@ -1,13 +1,11 @@
 # 027: A more idiomatic API
 
 Status: in progress (asked for 2026-10-13). The maintainer decided what stays
-(2026-10-13, "Decisions" below). p1 is reverted, and p7 dropped. p2, p4, p5, and p6
-are on `main`, cherry-picked without p1 and p3 and checked by neither tests nor
-benchmarks since, which waited on another session's runs (asked for 2026-10-13: merge
-what is kept, and keep what needs deciding on a branch until it can be benchmarked).
-p3 waits on `task-027-p3`. Next: `scripts/test.sh` on `main`, then steps 2, 5, 6, and
-7 below, then the examples and docs. Breaking changes cost least before programs use
-the API, and goose-rest will be the first.
+(2026-10-13, "Decisions" below). p1 is reverted, and p7 dropped. p2 to p6 are on
+`main`, tested and benchmarked at Goose `0bdbd18` (2026-10-14, "The series at Goose
+`0bdbd18`" below). Next: the examples and docs, whose four new examples wait on the
+`task-027-examples` branch, typechecked and not yet run. Breaking changes cost least
+before programs use the API, and goose-rest will be the first.
 
 ## Decisions
 
@@ -49,20 +47,18 @@ Done: step 1 (`c16cca6`), step 3 for what is kept, and step 4. p3 waits on
 What `main` holds unchecked, or what waits on a branch. Remove an item once its check
 passes.
 
-- [ ] `scripts/test.sh` in WSL and Git Bash on `main`, where p2, p4, p5, and p6 were
-      cherry-picked without p1 and p3 and their conflicts resolved by hand.
-- [ ] Step 2: the finding for p1's cost, from a minimal program at `a6249a4`.
-- [ ] Step 5: a tier D run of `task-027-p3` without p1, which merges p3 or drops it.
-- [ ] Step 6: p2's upload cost without p1, and `perf stat` of its cache misses if it
-      holds.
-- [ ] Step 7: the series on `main` against `2afc12f`.
+- [ ] Where `main`'s 8 user instructions per request over the baseline go
+      (`bench/count.sh`, "The series at Goose `0bdbd18`"): no rate shows them.
 
-Steps 5 to 7 compare with runs made on kernel 6.18.40.1, and WSL is now on 6.18.54.1,
-so each reruns its baseline beside it.
+Done on 2026-10-14, at Goose `0bdbd18` on kernel 6.18.54.1: `scripts/test.sh` on
+`main` in WSL and Git Bash; step 2, the finding
+([An optional passed as `null` at one call and a value at another specializes twice](../docs/goose-findings.md#an-optional-passed-as-null-at-one-call-and-a-value-at-another-specializes-twice));
+step 5, p3 kept and merged; step 6, p2's upload cost gone; and step 7, the series on
+`main` against `2afc12f`, whose rates overlap the baseline's ranges but tier C
+templated's, 3.3% under, which the next REST run checks again.
 
-Baseline: `2afc12f`, the Goose pin moved to `a6249a4` (2026-10-13), with
-`scripts/test.sh` passing in WSL and Git Bash. The proposals' benchmarks compare
-against it.
+Baseline: `2afc12f`, rebuilt at each Goose pin the comparisons use, `0bdbd18` since
+2026-10-14.
 
 goose-http was written for correctness and speed, partly before Goose had features
 that fit it better. A review against the Goose docs and code at `a6249a4` (2026-10-13,
@@ -150,8 +146,15 @@ review's estimates; "unverified" marks what no program has checked yet.
       it is left in either binary. A variant with a payload has a type of its own and
       doesn't compare with `==` against the enum, so tests `match` it. Codegen against
       `070e830`: `answer` grows by 175 instructions on epoll and shrinks by 81 on
-      uring; `.text` grows by 1 KB. Commit `dfc4a00`. Waits on `task-027-p3` for a
-      tier D run without p1 ("Decisions", step 5).
+      uring; `.text` grows by 1 KB. Commit `dfc4a00`, rebased onto `48f8e37` as
+      `0e1f564`. Kept (2026-10-14): without p1 its upload loss is gone, uploads beside
+      tier C at 649-711 a second against main's 674-736, and its instructions per
+      request are main's to the tenth ("The series at Goose `0bdbd18`", below). Its
+      JSON on one epoll worker read 8% under main's in the first run, 0.122 M against
+      0.133 M; run again, both were 0.131 M (`bench/run.sh`, `TESTS="json:256
+      plaintext:256" WORKER_COUNTS=1`, 3 runs,
+      [summary](../bench/results/2026-10-14-027-json-recheck/summary.md)). Merged into
+      `main`.
 - [ ] `PART_HEAD`, `PART_DATA`, and `PART_END` (`form.goose:31`) as an enum
       `Part { Head{fields}, Data{bytes}, End }`. Taste. Check: tier D.
       Done (2026-10-13), not yet benchmarked; `scripts/test.sh` passes in WSL and Git
@@ -198,7 +201,113 @@ review's estimates; "unverified" marks what no program has checked yet.
       not 15 shorter, because the descriptors are declared before `setup` and
       `release` adds its own lines. Its reason was the line count.
 
+- [ ] **A `Router` built once, not per request.** `router(req)` returns `Router {
+      .., params: [], allow: [] }`, whose nested fixed arrays (`params: Param[..8]`, 264
+      bytes, and `allow: u8[..96]`) the literal zeroes and copies whole, as
+      goose-compress found for its encoder
+      ([its findings](https://github.com/kaitk/goose-compress/blob/main/docs/goose-findings.md#a-struct-literal-copies-each-nested-fixed-array-whole)):
+      `bench/codegen.sh work` at `48f8e37` shows three `rep stos` (about 728 bytes) and
+      two `rep movsq` (256 bytes, then about 387 for the return) in `http_router` of
+      `bench/rest`'s server, which calls it once per request. The benchmark server has
+      no router and no such literal on its path (2026-10-14). The fix: a
+      `reset(r: Router&, req)` that sets the fields and clears `params` and `allow` in
+      place, with one `Router` per worker, not in the state `S`, which `answer` copies
+      per request. Breaking. Estimated 20-40 instructions and 100-250 cycles per routed
+      request, unverified. Check: `bench/count.sh` against `bench/rest`'s server on a
+      tier A route, then tiers A-C.
+
 A proposal the work turns up later joins this list with its check before it lands.
+
+## The series at Goose `0bdbd18`
+
+Steps 5 to 7, run on the desktop overnight on 2026-10-14: Ryzen 7 5800X3D, WSL2 kernel
+6.18.54.1, gcc 15.2.0, with the Goose pin moved to `0bdbd18`. The tables in "The
+breaking proposals' benchmarks" below are from kernel 6.18.40.1 and Goose `a6249a4`, so
+nothing here compares with them; each run has its baseline beside it. Each build is
+made from `git archive` of its commit, both loops, as before:
+
+| Build | Commit | Benchmark server | REST server |
+|---|---|---|---|
+| base | `2afc12f` | `build/bench/goose-27b[-uring]` | `build/rest/rest-goose-27b` |
+| main | `48f8e37`: p2, p4, p5, p6 | `goose-27m[-uring]` | `rest-goose-27m` |
+| p3 | `0e1f564`: `task-027-p3`, rebased onto `48f8e37` | `goose-27q[-uring]` | `rest-goose-27q` |
+
+```sh
+RUNS=3 bench/count.sh goose-27{b,m,q} goose-27{b,m,q}-uring
+SERVERS="goose-uring-27b goose-uring-27m goose-uring-27q" STEPS="1 2 4" RATE_C=16000 \
+    bench/rest.sh run
+SERVERS="goose-27b goose-27m goose-27q goose-27b-uring goose-27m-uring goose-27q-uring" \
+    TESTS="plaintext:256 json:256" LATENCY=0 bench/run.sh
+```
+
+### Instructions
+
+`bench/count.sh`: one worker on CPU 0, exactly 10 million plaintext requests from
+h2load 1.68.0 (CPUs 4-15, 8 threads, 256 connections, 16 in flight each), 3 runs,
+which repeat to 0.1 instruction
+([runs](../bench/results/2026-10-14-desktop-027-count/runs.tsv)):
+
+| Build | epoll, user insns/req | user cycles/req | uring, user insns/req | user cycles/req |
+|---|---:|---:|---:|---:|
+| base | 1,838.9 | 495-531 | 1,887.2 | 468-485 |
+| main | 1,846.9 (+8.0) | 495-521 | 1,895.0 (+7.8) | 448-457 |
+| p3 | 1,846.1 (+7.2) | 473-579 | 1,895.2 (+8.0) | 475-504 |
+
+Main spends 8 instructions a request more than the baseline on each loop, where at
+`a6249a4` p2 to p5 spent 1-5 fewer. Its cycles are the same or fewer. `bench/codegen.sh
+2afc12f 48f8e37` finds the loops' hot functions smaller on main (`answer` 4,785 and
+4,761 instructions against 4,821 and 4,862), so the 8 are on the path a request takes,
+not in the code's size.
+
+### Plaintext and JSON
+
+`bench/run.sh`: wrk 4.1.0 for 15 s after 5 s of warm-up, server on CPUs 0-3 and wrk on
+4-15 with 8 threads, 256 connections, 3 runs, latency left out, medians and the runs'
+range ([summary](../bench/results/2026-10-14-027-run/summary.md)), in millions of
+requests per second:
+
+| Test, workers | base | main | p3 | base, uring | main, uring | p3, uring |
+|---|---|---|---|---|---|---|
+| plaintext, 1 | 1.752 (1.621-1.772) | 1.751 (1.603-1.776) | 1.732 (1.599-1.740) | 1.976 (1.872-2.022) | 2.030 (1.912-2.033) | 2.009 (1.964-2.016) |
+| plaintext, 4 | 5.467 (5.243-5.509) | 5.329 (5.326-5.459) | 5.317 (5.302-5.424) | 6.815 (6.668-6.939) | 7.006 (6.721-7.019) | 6.781 (6.721-6.809) |
+| json, 1 | 0.134 (0.125-0.134) | 0.133 (0.125-0.134) | 0.122 (0.117-0.123) | 0.165 (0.153-0.169) | 0.157 (0.150-0.163) | 0.162 (0.152-0.166) |
+| json, 4 | 0.402 (0.400-0.411) | 0.408 (0.399-0.409) | 0.408 (0.408-0.411) | 0.514 (0.506-0.517) | 0.508 (0.481-0.516) | 0.512 (0.511-0.512) |
+
+Peak RSS is the same for all three, to 0.1 MB.
+
+### REST
+
+`bench/rest.sh run`, steps 1, 2, and 4, uring, 4 workers on CPUs 0-3 and the load on
+4-15, 3 rounds of 15 s, tier C's reads at 16,000 a second in step 4
+([summary](../bench/results/2026-10-14-rest-027/summary.md)). Medians at saturation,
+and tier D:
+
+| Cell | base | main | p3 |
+|---|---:|---:|---:|
+| A serialize | 556.4K | 569.6K | 539.9K |
+| A template | 579.4K | 580.5K | 567.3K |
+| B serialize | 266.0K | 263.7K | 257.2K |
+| B template | 372.1K | 368.1K | 367.0K |
+| C serialize | 52.3K (51.9-53.0) | 51.2K (47.5-51.9) | 49.2K (45.1-51.1) |
+| C template | 145.1K (144.8-145.9) | 140.3K (130.7-144.0) | 143.5K (133.3-148.8) |
+| Uploads alone, p50 | 15.9-18.0 ms | 16.1-16.6 ms | 16.0-17.5 ms |
+| Uploads beside forms | 147-155/s | 151-162/s | 149-158/s |
+| Uploads beside tier C | 423-672/s | 674-736/s | 649-711/s |
+
+Peak RSS is the same in every cell. The ranges of A and B overlap for all three, and
+so do C serialized's. C templated is the one cell where main's range, 130.7-144.0K,
+stays under the baseline's, 144.8-145.9K: its median is 3.3% under, and p3's, on top
+of main, 1.1%. The baseline's uploads beside tier C spread from 423 to 672 a second,
+one round far under the others, so main's and p3's 649-736 aren't a gain over it.
+
+### Step 6: p2's upload cost
+
+Gone without p1: main's uploads alone, beside forms, and beside tier C are at or above
+the baseline's. `perf stat` on the server, uploads alone for 10 s, two rounds each
+([perf](../bench/results/2026-10-14-desktop-027-uploads-perf/perf.txt)): base and main
+miss the instruction cache 7.2-7.8 M times and the iTLB 5.6-6.1 M times, the same to
+within the rounds' spread, at 1,080-1,124 uploads a second. The 3-6% at `a6249a4` came
+with p1 or with that kernel, and no layout cost is left to pin down.
 
 ## The breaking proposals' benchmarks
 

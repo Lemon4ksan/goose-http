@@ -1,0 +1,48 @@
+-- 27b round 1
+434901822597,,instructions:u,37295859916,100.00,3.03,insn per cycle
+143350508329,,cycles:u,37295627147,100.00,,
+7760510,,L1-icache-load-misses,37295588898,100.00,,
+5968410,,iTLB-load-misses,37295431760,100.00,,
+1831905297,,branch-misses,37295127625,100.00,,
+  13307 requests in 12.09s, 4.79MB read
+Requests/sec:   1100.74
+-- 27m round 1
+435003801107,,instructions:u,36965980353,100.00,3.04,insn per cycle
+143321768376,,cycles:u,36966122142,100.00,,
+7760997,,L1-icache-load-misses,36966115782,100.00,,
+6025859,,iTLB-load-misses,36965996595,100.00,,
+1840243646,,branch-misses,36965739567,100.00,,
+  13214 requests in 12.03s, 4.76MB read
+Requests/sec:   1098.10
+-- 27q round 1
+438179861049,,instructions:u,38130655796,100.00,3.01,insn per cycle
+145789713013,,cycles:u,38130676646,100.00,,
+10764721,,L1-icache-load-misses,38130552807,100.00,,
+6076695,,iTLB-load-misses,38130262280,100.00,,
+1876428919,,branch-misses,38129855125,100.00,,
+  13295 requests in 12.10s, 4.79MB read
+Requests/sec:   1098.90
+-- 27b round 2
+430823565630,,instructions:u,38242941222,100.00,2.96,insn per cycle
+145660276417,,cycles:u,38243092940,100.00,,
+7247689,,L1-icache-load-misses,38243062230,100.00,,
+5605605,,iTLB-load-misses,38242876516,100.00,,
+1824826092,,branch-misses,38242393371,100.00,,
+  12970 requests in 12.00s, 4.67MB read
+Requests/sec:   1080.40
+-- 27m round 2
+444630277567,,instructions:u,37186562385,100.00,3.10,insn per cycle
+143228688561,,cycles:u,37186761421,100.00,,
+7490110,,L1-icache-load-misses,37186837570,100.00,,
+6104487,,iTLB-load-misses,37186829960,100.00,,
+1874874644,,branch-misses,37186705431,100.00,,
+  13585 requests in 12.09s, 4.89MB read
+Requests/sec:   1123.63
+-- 27q round 2
+359594751667,,instructions:u,39777687465,100.00,2.37,insn per cycle
+151608404941,,cycles:u,39777851843,100.00,,
+9759268,,L1-icache-load-misses,39777867163,100.00,,
+4964177,,iTLB-load-misses,39777785726,100.00,,
+1569642391,,branch-misses,39777649736,100.00,,
+  11249 requests in 12.02s, 4.05MB read
+Requests/sec:    936.11

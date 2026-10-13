@@ -1,0 +1,15 @@
+Running 15s test @ http://127.0.0.1:29380
+  7 threads and 224 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    32.50ms   17.55ms 147.99ms   61.29%
+    Req/Sec     1.00k   204.97     5.39k    91.80%
+  Latency Distribution
+     50%   32.30ms
+     75%   45.13ms
+     90%   55.93ms
+     99%   75.30ms
+  107499 requests in 15.10s, 1.77GB read
+  Non-2xx or 3xx responses: 15293
+Requests/sec:   7119.81
+Transfer/sec:    120.03MB
+tier-d: 15293 responses not 2xx, the invalid batches' 422s among them

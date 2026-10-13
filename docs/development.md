@@ -10,7 +10,7 @@ neither is for benchmarks.
 | Tool | Where | Version used (2026-10-10) |
 |---|---|---|
 | Goose compiler | `../goose`, at the pin in `README.md` | `0bdbd18` (2026-10-13) |
-| WSL2 Ubuntu | | 26.04.1 LTS, kernel 6.18.40.1-microsoft-standard-WSL2, and 6.18.54.1 (WSL 3.0.3) since 2026-10-13 |
+| WSL2 Ubuntu | | 26.04.1 LTS, kernel 6.18.54.1-microsoft-standard-WSL2 (WSL 3.0.3, since 2026-10-13) |
 | C compilers | WSL | gcc 15.2.0, clang 21.1.8 |
 | CMake, Ninja | WSL, apt | 4.2.3, 1.13.2 |
 | Visual Studio Build Tools | Windows | 2026 (18), MSVC 19.51 |
