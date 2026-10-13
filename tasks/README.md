@@ -64,4 +64,6 @@ task 023.
 Task 023 plans goose-rest, a framework on this package, as a proof of concept for
 later, measured on task 021's tiers; it moves to a repository of its own once it has
 code. Task 024 looks for why nginx beats Goose at 64 KB files, where Goose's emulated
-ring doesn't lose, and can start at any point.
+ring doesn't lose, and can start at any point. Task 025 shrinks the REST server's
+memory, a copy of the records per worker. Task 026 brings the io_uring loop's reads
+beside uploads to the epoll loop's latency.
