@@ -57,9 +57,8 @@ passes.
       holds.
 - [ ] Step 7: the series on `main` against `2afc12f`.
 
-Steps 5 to 7 compare with runs made on kernel 6.18.40.1. WSL moved to 6.18.54.1 on
-2026-10-13 at 17:26 (`docs/development.md`, "Benchmark"), so each rebuilds and reruns
-its baseline beside it.
+Steps 5 to 7 compare with runs made on kernel 6.18.40.1, and WSL is now on 6.18.54.1,
+so each reruns its baseline beside it.
 
 Baseline: `2afc12f`, the Goose pin moved to `a6249a4` (2026-10-13), with
 `scripts/test.sh` passing in WSL and Git Bash. The proposals' benchmarks compare
