@@ -2,8 +2,9 @@
 # Runs every test this repository has, and fails on the first failure: the
 # typecheck of each root file, the unit tests through TinyCC
 # (scripts/test-unit.sh), then each loop's build of the server
-# (scripts/build.sh) with scripts/test-http.sh against it, and
-# scripts/test-echo.sh.
+# (scripts/build.sh) with scripts/test-http.sh against it,
+# scripts/test-echo.sh, and scripts/test-examples.sh, which builds each
+# example and requests each of its routes on port 8080.
 #
 # The loops are uring and epoll on Linux and macOS, where the uring build is
 # also tested over the emulation on epoll it falls back to (LOOP=uring-epoll)
@@ -41,7 +42,9 @@ drain() {
 
 for f in "$root"/server/server.goose "$root"/server/server_epoll.goose \
     "$root"/test/test_*.goose "$root"/server/test_*.goose \
-    "$root"/examples/hello/hello.goose "$root"/examples/routes/routes.goose; do
+    "$root"/examples/hello/hello.goose "$root"/examples/routes/routes.goose \
+    "$root"/examples/api/api.goose "$root"/examples/upload/upload.goose \
+    "$root"/examples/later/later.goose "$root"/examples/files/files.goose; do
     step "check ${f#"$root"/}"
     "$goose" --check "$f"
 done
@@ -65,6 +68,9 @@ done
 drain
 step "test-echo.sh"
 "$root/scripts/test-echo.sh"
+
+step "test-examples.sh"
+"$root/scripts/test-examples.sh"
 
 echo
 echo "test.sh: all passed"

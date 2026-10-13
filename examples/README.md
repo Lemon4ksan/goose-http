@@ -12,6 +12,10 @@ program of your own imports it as the [Quick start](../README.md#quick-start) do
 |---|---|
 | [`hello/`](hello/hello.goose) | One route, one worker per core: the Quick start |
 | [`routes/`](routes/routes.goose) | The router: parameters, 404 and 405, a JSON response, a request body, and a stop on Ctrl+C |
+| [`api/`](api/api.goose) | A JSON API: path parameters, a JSON request body, a bearer token, and a cookie |
+| [`upload/`](upload/upload.goose) | Uploads read as they arrive: a raw body, and a multipart form part by part, with a body limit |
+| [`later/`](later/later.goose) | An answer that waits for a backend thread over mail, with 504 when it takes too long |
+| [`files/`](files/files.goose) | A directory's files, with ranges, conditional requests, and precompressed copies |
 | [`server/`](../server/routes.goose) | The benchmark server: bodies and responses in pieces, files, an upgrade, answers that wait, the access log |
 
 Build and run one from the repository's root:
@@ -22,7 +26,9 @@ goose build -o build/examples/routes examples/routes/routes.goose
 curl localhost:8080/users/42
 ```
 
-Each one listens on port 8080. `scripts/test.sh` typechecks them.
+Each one listens on port 8080. `scripts/test.sh` typechecks them, and
+`scripts/test-examples.sh`, its last step, builds each and requests each of its
+routes once.
 
 ## Requests and responses
 
@@ -56,6 +62,12 @@ A handler passed by name, `http::serve(cfg, route)`, should be an `inline fn`, a
 `server/routes.goose`. As a call, it keeps `http::start` from folding a constant status:
 about 190 instructions per request in the benchmark server.
 
+Don't `return` from a handler written as a block. A block's `return` returns from the
+function the block is written in, the worker's `thread_fn`, which ends its loop with
+the request unanswered and the client waiting. A handler that returns early is a
+function: passed by name, as `upload/` does, or called from the block, as `api/` and
+`later/` do.
+
 ### Routes
 
 Shown in `routes/`.
@@ -82,8 +94,9 @@ else { http::otherwise(r, out); }
 
 ### Helpers for APIs
 
-`respond_json` is shown in `routes/`, the client address in `server/`; the rest have no
-example yet.
+`respond_json` is shown in `routes/` and `api/`; `require_type`, cookies, and
+`authorization` in `api/`; multipart and `body_within` in `upload/`; the client address
+in `server/`. The rest have no example yet.
 
 The helpers that read a request take it as `const http::Request&`, so a call doesn't
 copy it. Pass them a variable, such as the handler's `req`: Goose doesn't yet bind a
@@ -115,7 +128,8 @@ call's result to a reference parameter
 
 ### Conditional requests and ranges
 
-`http::serve_file` uses these ([Files](#files)); no example uses them alone yet.
+`http::serve_file` uses these ([Files](#files)), as `files/` shows; no example uses
+them alone yet.
 
 - `http::not_modified(req, etag, modified)`: whether a `GET` gets 304. `If-None-Match`
   first, else `If-Modified-Since`.
@@ -127,7 +141,8 @@ call's result to a reference parameter
 
 ### Streaming
 
-Shown in `server/`: `/upload`, `/echo`, `/bytes`, `/stream`, and `/upgrade`.
+Shown in `upload/`, and in `server/`: `/upload`, `/echo`, `/bytes`, `/stream`, and
+`/upgrade`.
 
 Each loop also takes a handler it calls again for each part of an exchange. `st` is
 state of the program's own type, reset to `fresh` per request, kept in the connection's
@@ -177,7 +192,7 @@ thread_fn worker(cfg: http::Config) {
 
 ### Files
 
-Shown in `server/`: `/files/NAME` serves the directory in `FILES`.
+Shown in `files/`, and in `server/`: `/files/NAME` serves the directory in `FILES`.
 
 - `http::open_file(path)`: opens a regular file, or 404 or 403.
 - `http::open_precompressed(req, path)`: the same, or in its place `path.br`,
@@ -201,7 +216,7 @@ Shown in `server/`: `/files/NAME` serves the directory in `FILES`.
 
 ## Answers that wait
 
-Shown in `server/`: `/later` and `/events` wait for a worker thread with a box and a
+Shown in `later/`, and in `server/`: `/later` and `/events` wait for a worker thread with a box and a
 timer table of its own (`server/backend.goose`), with `MAIL_SLOTS` set, and `/delay/MS`
 for a timer.
 
