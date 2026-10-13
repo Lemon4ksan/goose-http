@@ -466,6 +466,67 @@ upload far more than the reads gain. What's left to try: a budget that holds byt
 without canceling the receive, bounded by the ring's 256 buffers rather than rbuf, or
 submitting a pass's sends before its held turns.
 
+The other competitors (2026-10-12). tokio's entry, may-minihttp, and xitca-web serve the
+tiers from one crate, `bench/rest/rust`, a port of hyper's routes behind a request head
+and a response of its own; each server only frames requests and responses around it.
+hyper keeps its own copy, so its measured binary doesn't change. odin-http and Tina
+share `bench/rest/odin`, which reads each dataset file with `core:encoding/json` into
+structs of the answers' shapes and serializes them per request with the same library;
+the files already hold each record in the shape the routes answer it. Odin has no
+multipart library, so `bench/rest/odin/writes.odin` has a streaming reader of its own,
+which accepts and refuses what multer does for the checker's bodies. Each server keeps
+its configuration in `bench/`: its crate versions in `Cargo.lock`, started from its
+`bench/` entry's, its release profile, and its build flags. The Rust routes write JSON
+with serde_json, as hyper's do, where xitca-web's `/json` entry uses sonic-rs.
+
+How each server reads tier D's CSV and multipart body, and what it changes:
+
+| Server | Reads | Changes and gaps |
+|---|---|---|
+| tokio | whole: the entry's read loop answers a request once its body is buffered | The entry closes a connection whose buffer passes 1 MB; here 17 MB. A chunked body is walked chunk by chunk and copied out once, where the entry copied it again on each read. A body over its route's limit is refused with 413 as soon as its length or its chunks show it. |
+| may-minihttp | as it arrives, through `BodyReader`'s `fill_buf` | Tier D is a gap: the crate frames a body by `Content-Length` alone, and leaves a chunked body's bytes to be parsed as the next request. The server answers a chunked body with 411, and the checker fails on its first chunked import. The forms role, all `Content-Length`, works. |
+| xitca-web | as it arrives, from the h1 dispatcher's body stream | One service in place of the entry's router. multer takes a `Send` stream and xitca's isn't, so multer is polled with a no-op waker as each piece is pushed into its queue. |
+| odin-http | whole: `http.body` hands the handler the whole body, a chunked one decoded | `http.body` on a request without a body marks the body failed, which closes the connection, so only POST and PATCH bodies are read. |
+| Tina | as it arrives, in `Body_Chunk` events of up to 10 KB | Tier D is a gap; see below. |
+
+Tina needed more than its defaults, each in a comment in `bench/rest/tina/main.odin`:
+
+- Tina answers an unmatched path with a 404 and an unregistered method with a 405 of its
+  own, so one event handler takes every path of one to eight segments, for GET, POST,
+  PATCH, PUT, and DELETE, and the app routes from there.
+- `respond_bytes` takes only a body that fits the connection's egress buffer, 4 KB by
+  default. Responses go out as fixed-length streams through a buffer of 62 KB
+  (`-define:HTTP_EGRESS_BUFFER_SIZE=63488`); the documented maximum, 65535, fails a
+  compile-time assertion, since the buffer is part of a connection that must fit in 64 KB.
+- Tina's scratch arena lasts one handler call. Each request takes an arena from its
+  shard's pool and gives it back once its response is written.
+- A streamed body's bytes that a receive leaves over are kept in the pipeline tail, 8 KB
+  by default, and the connection is closed when they and the next receive don't fit.
+  Receives are up to 10 KB, so any body over about 8 KB failed. The tail holds two
+  receives here (`pipeline_size_max`).
+- After a few bodies sent in chunks of 1 to 3 bytes, with pauses of 3 s between
+  requests, on one kept-alive connection, reading a `Body_Chunk`'s data faults with
+  SIGSEGV and Tina quarantines the shard. A handler that only sums each piece's bytes
+  faults the same way; one that never reads them doesn't. The checker sends such bodies,
+  and pauses while it computes each answer, so Tina fails tier D's checker, on the
+  defaults as well. Buffered bodies would avoid the stream, but Tina reserves a buffered
+  route's whole limit for every connection slot: 16 MB times 1,024 slots per shard.
+
+`check.py` passes against tokio, xitca-web, and odin-http on tiers A to D, and against
+may-minihttp and Tina on tiers A to C, both JSON ways each, in Docker (`goose-http-dev3`,
+`--security-opt seccomp=unconfined`). A 3 s wrk run of each tier's script counted no
+socket error and no status but tier D's 422s, except may-minihttp's uploads role: 224
+read errors, its chunked imports.
+
+Left for you (2026-10-13):
+
+- The competitors aren't measured yet. The Mac's runs waited for a 1-minute load
+  average under 2.0, which macOS's idle desktop never reached overnight (2.4-16.7 from
+  22:08 to 06:37), with nothing else running. `bench/rest.sh` builds and runs only
+  Goose and hyper; it needs the five servers here added to measure them on the desktop.
+- Tina's tier D fault (above) is Tina's to fix; it may be worth reporting upstream.
+- may-minihttp can't read a chunked request body, so it stays out of tier D.
+
 ## Acceptance criteria
 
 - [x] Tier D built as A to C are, and its mixed run with tier C

@@ -1,0 +1,23 @@
+[package]
+name = "rest-may-minihttp"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# bench/may-minihttp's crates, and the routes (bench/rest/rust). Cargo.lock
+# started from bench/may-minihttp's.
+[dependencies]
+may = { version = "=0.3.51", default-features = false }
+may_minihttp = { version = "=0.1.11", default-features = false }
+mimalloc = { version = "0.1", default-features = false }
+rest-app = { path = "../rust" }
+
+# TechEmpower's profile for may-minihttp.
+[profile.release]
+opt-level = 3
+codegen-units = 1
+panic = "abort"
+lto = "thin"
+debug = false
+incremental = false
+overflow-checks = false

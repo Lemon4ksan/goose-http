@@ -1,0 +1,14 @@
+[package]
+name = "rest-app"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# bench/rest/hyper's crates for the routes; each server's Cargo.lock pins them,
+# at hyper's versions where its own crates allow.
+[dependencies]
+bytes = "1"
+futures-util = { version = "0.3", default-features = false }
+multer = "=3.1.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
