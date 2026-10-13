@@ -527,6 +527,20 @@ Left for you (2026-10-13):
 - Tina's tier D fault (above) is Tina's to fix; it may be worth reporting upstream.
 - may-minihttp can't read a chunked request body, so it stays out of tier D.
 
+Next session on the desktop (asked for 2026-10-13):
+
+1. `bench/rest.sh build`: build `bench/rest/tokio`, `may-minihttp`, and `xitca-web` as it
+   builds hyper (a `--target-dir` each under `CACHE`, `--cfg tokio_unstable` for
+   xitca-web), and `bench/rest/odin-http` and `tina` with the Odin flags and the odin-http
+   and Tina checkouts `bench/build.sh` pins, into `build/rest/rest-NAME`.
+2. `bench/rest.sh run`: accept those names in `SERVERS` and `start`; skip tier D (the
+   checker's `d`, steps 2 and 4) for may-minihttp and Tina, and record each skip in
+   `env.txt`; keep Tina's crash lines (`[FATAL] ...`) in its log.
+3. Pass `check.py` on the desktop against each, then one full run of all eight servers
+   (Goose's two loops, hyper, and the five): about 2.5 h at 3 rounds.
+4. Record the run in `docs/results.md` and the README's REST table, servers as rows,
+   each column's best in bold, with tier D's gaps shown, not left blank.
+
 ## Acceptance criteria
 
 - [x] Tier D built as A to C are, and its mixed run with tier C
