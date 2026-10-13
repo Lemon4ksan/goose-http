@@ -54,29 +54,33 @@ fn primes_below(n: i64) -> i64 {
 
 // The handler needs state for WAKE and TIMEOUT, though it keeps none.
 thread_fn worker(cfg: http::Config, backend: http::MailAddress) {
-    let e = http::serve(cfg, false) { ev, st, out =>
-        if ev.kind == http::REQUEST {
-            var r = http::router(ev.req);
-            if http::on(r, "GET", "/primes/:n") {
-                let n, ok = parse_int(http::param(r, "n"));
-                guard ok && n >= 0 && n <= MAX_N else { http::respond(out, 404, "text/plain", ""); return; }
-                let job = Job { reply: http::later(out, 2000), n: n };
-                guard http::mail_send_value(backend, JOB, job) == http::SENT else {
-                    http::respond(out, 503, "text/plain", "busy\n");
-                    return;
-                }
-            } else {
-                http::otherwise(r, out);
-            }
-        } else if ev.kind == http::WAKE {
-            http::respond(out, 200, "text/plain", ev.data);
-        } else if ev.kind == http::TIMEOUT {
-            http::respond(out, 504, "text/plain", "timeout\n");
-        }
-    };
+    // A function of its own, not the block: a block's return would return from
+    // worker, ending its loop with the request unanswered.
+    let e = http::serve(cfg, false) { ev, st, out => handle(ev, out, backend); };
     guard e.code != 0 else { return; }
     http::report(e);
     exit(1);
+}
+
+fn handle(ev: http::Event, out: http::Reply, backend: http::MailAddress) {
+    if ev.kind == http::REQUEST {
+        var r = http::router(ev.req);
+        if http::on(r, "GET", "/primes/:n") {
+            let n, ok = parse_int(http::param(r, "n"));
+            guard ok && n >= 0 && n <= MAX_N else { http::respond(out, 404, "text/plain", ""); return; }
+            let job = Job { reply: http::later(out, 2000), n: n };
+            guard http::mail_send_value(backend, JOB, job) == http::SENT else {
+                http::respond(out, 503, "text/plain", "busy\n");
+                return;
+            }
+        } else {
+            http::otherwise(r, out);
+        }
+    } else if ev.kind == http::WAKE {
+        http::respond(out, 200, "text/plain", ev.data);
+    } else if ev.kind == http::TIMEOUT {
+        http::respond(out, 504, "text/plain", "timeout\n");
+    }
 }
 
 fn main() {

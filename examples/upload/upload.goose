@@ -25,35 +25,39 @@ let RAW: u8 = 1;
 let FORM: u8 = 2;
 
 thread_fn worker(cfg: http::Config) {
-    let e = http::serve(cfg, Upload { .. }) { ev, st, out =>
-        if ev.kind == http::REQUEST {
-            var r = http::router(ev.req);
-            var route = NONE;
-            if http::on(r, "POST", "/upload") { route = RAW; }
-            else if http::on(r, "POST", "/form") { route = FORM; }
-            else { http::otherwise(r, out); return; }
-            guard http::body_within(st.taken, ev, out, LIMIT) else { return; }
-            if route == FORM && !http::start_multipart(ev.req, st.parts) {
-                http::respond(out, 415, "text/plain", "want multipart/form-data\n");
-                return;
-            }
-            st.route = route;
-            // A body that fits in the read buffer with its head comes whole
-            // here, and no BODY or END follows.
-            piece(st, ev.data);
-            if ev.whole { answer(st, out); }
-        } else if st.route == NONE {
-            // Answered at REQUEST: the rest of the body is dropped.
-        } else if ev.kind == http::BODY {
-            if http::body_within(st.taken, ev, out, LIMIT) { piece(st, ev.data); }
-            else { st.route = NONE; }
-        } else if ev.kind == http::END {
-            answer(st, out);
-        }
-    };
+    // A function by name, not a block: a block's return would return from
+    // worker, ending its loop with the request unanswered.
+    let e = http::serve(cfg, Upload { .. }, handle);
     guard e.code != 0 else { return; }
     http::report(e);
     exit(1);
+}
+
+inline fn handle(ev: http::Event, st: Upload&, out: http::Reply) {
+    if ev.kind == http::REQUEST {
+        var r = http::router(ev.req);
+        var route = NONE;
+        if http::on(r, "POST", "/upload") { route = RAW; }
+        else if http::on(r, "POST", "/form") { route = FORM; }
+        else { http::otherwise(r, out); return; }
+        guard http::body_within(st.taken, ev, out, LIMIT) else { return; }
+        if route == FORM && !http::start_multipart(ev.req, st.parts) {
+            http::respond(out, 415, "text/plain", "want multipart/form-data\n");
+            return;
+        }
+        st.route = route;
+        // A body that fits in the read buffer with its head comes whole
+        // here, and no BODY or END follows.
+        piece(st, ev.data);
+        if ev.whole { answer(st, out); }
+    } else if st.route == NONE {
+        // Answered at REQUEST: the rest of the body is dropped.
+    } else if ev.kind == http::BODY {
+        if http::body_within(st.taken, ev, out, LIMIT) { piece(st, ev.data); }
+        else { st.route = NONE; }
+    } else if ev.kind == http::END {
+        answer(st, out);
+    }
 }
 
 fn piece(st: Upload&, data: const u8[:]) {

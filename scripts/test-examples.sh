@@ -101,8 +101,8 @@ start api
 json='Content-Type: application/json'
 expect 401 -H "$json" -d '{"text":"buy milk"}' "$url/notes"
 # A worker's notes are its own, so the read goes on the same connection.
-code=$(curl -sS -o "$tmp/body" -w '%{http_code} ' -H 'Authorization: Bearer let-me-in' -H "$json" \
-    -d '{"text":"buy milk"}' "$url/notes" --next "$url/notes/1")
+code=$(curl -sS -o /dev/null -w '%{http_code} ' -H 'Authorization: Bearer let-me-in' -H "$json" \
+    -d '{"text":"buy milk"}' "$url/notes" --next -sS -o "$tmp/body" -w '%{http_code} ' "$url/notes/1")
 [ "$code" = "201 200 " ] || fail "api: POST then GET: $code"
 holds "buy milk"
 expect 422 -H 'Authorization: Bearer let-me-in' -H "$json" -d '{"note":1}' "$url/notes"

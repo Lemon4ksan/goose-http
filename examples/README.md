@@ -62,6 +62,12 @@ A handler passed by name, `http::serve(cfg, route)`, should be an `inline fn`, a
 `server/routes.goose`. As a call, it keeps `http::start` from folding a constant status:
 about 190 instructions per request in the benchmark server.
 
+Don't `return` from a handler written as a block. A block's `return` returns from the
+function the block is written in, the worker's `thread_fn`, which ends its loop with
+the request unanswered and the client waiting. A handler that returns early is a
+function: passed by name, as `upload/` does, or called from the block, as `api/` and
+`later/` do.
+
 ### Routes
 
 Shown in `routes/`.

@@ -18,48 +18,52 @@ thread_fn worker(cfg: http::Config) {
     // Each worker has its own notes: a note written through one connection
     // isn't there for a connection another worker took.
     var notes: Note[>..] = [];
-    let e = http::serve(cfg) { req, body, out =>
-        var r = http::router(req);
-        if http::on(r, "GET", "/notes/:id") {
-            let i = index_of(http::param(r, "id"), notes);
-            guard i >= 0 else { http::respond(out, 404, "text/plain", ""); return; }
-            http::respond_json(out, 200) { b =>
-                b.push('{');
-                json::format_key(b, "id");
-                json::format_int(b, i + 1);
-                b.push(',');
-                json::format_key(b, "text");
-                json::format_string(b, notes[i].text);
-                b.push('}');
-            };
-        } else if http::on(r, "POST", "/notes") {
-            guard authorized(req, out) else { return; }
-            guard http::require_type(req, out, "application/json") else { return; }
-            var n = Note { text: "", .. };
-            guard read_note(body, n) else { http::respond(out, 422, "text/plain", "want {\"text\": \"...\"}"); return; }
-            notes.push(n);
-            http::respond_json(out, 201) { b =>
-                b.push('{');
-                json::format_key(b, "id");
-                json::format_int(b, notes.len);
-                b.push('}');
-            };
-        } else if http::on(r, "DELETE", "/notes/:id") {
-            guard authorized(req, out) else { return; }
-            let i = index_of(http::param(r, "id"), notes);
-            guard i >= 0 else { http::respond(out, 404, "text/plain", ""); return; }
-            notes[i].live = false;
-            http::start(out, 204);
-            http::finish(out, "", "");
-        } else if http::on(r, "GET", "/visits") {
-            count_visit(req, out);
-        } else {
-            http::otherwise(r, out);
-        }
-    };
+    // A function of its own, not the block: a block's return would return from
+    // worker, ending its loop with the request unanswered.
+    let e = http::serve(cfg) { req, body, out => answer(req, body, out, notes); };
     guard e.code != 0 else { return; }
     http::report(e);
     exit(1);
+}
+
+fn answer(req: http::Request, body: const u8[:], out: http::Reply, notes: Note[>..]&) {
+    var r = http::router(req);
+    if http::on(r, "GET", "/notes/:id") {
+        let i = index_of(http::param(r, "id"), notes);
+        guard i >= 0 else { http::respond(out, 404, "text/plain", ""); return; }
+        http::respond_json(out, 200) { b =>
+            b.push('{');
+            json::format_key(b, "id");
+            json::format_int(b, i + 1);
+            b.push(',');
+            json::format_key(b, "text");
+            json::format_string(b, notes[i].text);
+            b.push('}');
+        };
+    } else if http::on(r, "POST", "/notes") {
+        guard authorized(req, out) else { return; }
+        guard http::require_type(req, out, "application/json") else { return; }
+        var n = Note { text: "", .. };
+        guard read_note(body, n) else { http::respond(out, 422, "text/plain", "want {\"text\": \"...\"}"); return; }
+        notes.push(n);
+        http::respond_json(out, 201) { b =>
+            b.push('{');
+            json::format_key(b, "id");
+            json::format_int(b, notes.len);
+            b.push('}');
+        };
+    } else if http::on(r, "DELETE", "/notes/:id") {
+        guard authorized(req, out) else { return; }
+        let i = index_of(http::param(r, "id"), notes);
+        guard i >= 0 else { http::respond(out, 404, "text/plain", ""); return; }
+        notes[i].live = false;
+        http::start(out, 204);
+        http::finish(out, "", "");
+    } else if http::on(r, "GET", "/visits") {
+        count_visit(req, out);
+    } else {
+        http::otherwise(r, out);
+    }
 }
 
 // Whether req carries the bearer token; if not, answers 401.
