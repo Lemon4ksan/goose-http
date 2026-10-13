@@ -11,10 +11,13 @@
 # totals are about 300 higher. Compare builds with it, not servers. Run as
 # root, for perf.
 #
-#   bench/count.sh SERVER...   (RUNS 1, N 10000000, PORT 29281)
+#   bench/count.sh SERVER...   (RUNS 1, N 10000000, PORT 29281, TARGET /plaintext,
+#                               STATUS 2)
 #
-# Prints one line per run: user instructions and user cycles per request,
-# and h2load's rate.
+# TARGET is the request's path, and STATUS the class every response must have,
+# 4 for a 404 or 405: h2load counts a 4xx as failed, so the run checks its
+# status-code line instead. Prints one line per run: user instructions and
+# user cycles per request, and h2load's rate.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -22,6 +25,8 @@ bin=$root/build/bench
 runs=${RUNS:-1}
 n=${N:-10000000}
 port=${PORT:-29281}
+target=${TARGET:-/plaintext}
+class=${STATUS:-2}
 accept='Accept: text/plain,text/html;q=0.9,application/xhtml+xml;q=0.9,application/xml;q=0.8,*/*;q=0.7'
 tmp=$(mktemp -d)
 pid=
@@ -38,13 +43,13 @@ for server in "$@"; do
     until nc -z 127.0.0.1 "$port" 2>/dev/null; do sleep 0.1; done
     perf stat -x, -e instructions:u,cycles:u -p "$pid" -o "$tmp/perf" -- \
         taskset -c 4-15 h2load --h1 -n "$n" -c 256 -m 16 -t 8 -H "Connection: keep-alive" \
-        -H "$accept" "http://127.0.0.1:$port/plaintext" >"$tmp/h2load" 2>&1
+        -H "$accept" "http://127.0.0.1:$port$target" >"$tmp/h2load" 2>&1
     kill "$pid"
     wait "$pid" 2>/dev/null || true
     pid=
-    ok=$(awk '/^requests:/ {print $8}' "$tmp/h2load")
+    ok=$(awk -v c="$class" '/^status codes:/ {print $(2 * c - 1)}' "$tmp/h2load")
     if [ "$ok" != "$n" ]; then
-        echo "$server: $ok of $n requests succeeded" >&2
+        echo "$server: $ok of $n responses were ${class}xx" >&2
         exit 1
     fi
     rps=$(awk '/^finished in/ {print $4}' "$tmp/h2load")
