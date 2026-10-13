@@ -4,7 +4,7 @@
 //
 //   // Once, before serving:
 //   let proxies, ok = http::network("10.0.0.0/8");
-//   // In the handler, at Request:
+//   // In the handler, at REQUEST:
 //   let a, known = http::client(req, out, [proxies]);
 //   var text: u8[>..] = [];
 //   if known { http::format_address(text, a); }

@@ -24,7 +24,7 @@ struct EpollConn<S> {
     ready: bool,        // stopped reading at cfg.max_read, with the socket not empty
     listed: bool,       // in turns
     deadline: i64,      // the time after which the sweep closes it
-    x: Exchange<S>,     // the request in progress past its handler's Request call
+    x: Exchange<S>,     // the request in progress past its handler's REQUEST call
     held: u8[:],        // received and not yet answered
     out: u8[:],         // still to send
 }
@@ -33,12 +33,7 @@ struct EpollConn<S> {
 // or stop ends it, and returns its error, with every socket it opened
 // closed. On Windows it fails at once with ENOSYS.
 fn serve_epoll<H>(cfg: Config) -> Error {
-    return serve_epoll(cfg, false) { ev, st, out =>
-        match ev {
-            Request r => { if whole_only(r, out) { H(r.req, r.data, out); } },
-            _ => {},
-        }
-    };
+    return serve_epoll(cfg, false) { ev, st, out => if whole_only(ev, out) { H(ev.req, ev.data, out); } };
 }
 
 // serve_epoll(cfg), with a handler H that's called for each Event of a
@@ -75,11 +70,13 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     }
     let waiting = box.handle.slot >= 0;
     var timers = timer_table(if waiting { cfg.max_waiting } else { 0 });
-    // Exchanges owed Timeout for want of a timer, by their keys.
+    // Exchanges owed TIMEOUT for want of a timer, by their keys.
     var overdue: u64[>..] = [];
     // Connections that stopped at cfg.max_read, by slot, for another turn.
     var turns: u64[>..] = [];
     var generation: u64 = 0;
+    let nothing = Request { .. };
+    let none = Event { kind: NO_EVENT, req: nothing, data: "", whole: false, trailers: "" };
 
     let started = stops();
     var stopping = false;
@@ -163,7 +160,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     // buffers, and keeps what's left over in spill. hup is whether the event
     // reported the client's side closed, and wake goes to answer first
     // (answer). False when the connection is done.
-    fn drive(c: EpollConn<S>&, hup: bool, wake: const Event?) -> bool {
+    fn drive(c: EpollConn<S>&, hup: bool, wake: const Event&) -> bool {
         rlen = c.held.len;
         if rlen > 0 {
             copy_into(rbuf[..rlen], c.held);
@@ -216,20 +213,17 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     // arrive raises a new event, so it isn't followed by a recv that would
     // block, unless hup: a close that arrived with the last bytes raises none.
     // While the exchange waits, it stops reading once rbuf is full.
-    fn advance(c: EpollConn<S>&, hup: bool, wake: const Event?) -> bool {
+    fn advance(c: EpollConn<S>&, hup: bool, wake: const Event&) -> bool {
         var progress = false;
         var drained = false;
         var got = 0;
         c.ready = false;
-        // Not a var reference rebound to null: wbuf.clear() would count it as
-        // one that may point into wbuf (spec §5.1).
-        var woke = wake != null;
+        var ev = wake;
         loop {
             var full = false;
-            if c.state == OPEN && c.x.stream.file < 0 && (rlen > 0 || c.x.stream.open && c.x.body.place == NO_BODY || woke) {
-                let first: const Event? = if woke { wake } else { null };
-                let rest, done, f = answer(c, rbuf, rlen, wbuf, common, cfg, fresh, stopping, now, first, H) { false };
-                woke = false;
+            if c.state == OPEN && c.x.stream.file < 0 && (rlen > 0 || c.x.stream.open && c.x.body.place == NO_BODY || ev.kind != NO_EVENT) {
+                let rest, done, f = answer(c, rbuf, rlen, wbuf, common, cfg, fresh, stopping, now, ev, H) { false };
+                ev.kind = NO_EVENT;
                 rlen = rest;
                 if done > 0 { progress = true; }
                 full = f;
@@ -349,13 +343,13 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     }
 
     // Goes on with the exchange of connection i, which waited, with ev, its
-    // Wake or Timeout, and then with what it holds.
+    // WAKE or TIMEOUT, and then with what it holds.
     fn resume(i: i64, ev: const Event&) { go(i, false, ev); }
 
     // Drives connection i, and lists it for another turn if it stopped at
     // cfg.max_read: its socket raises no new event until the client sends
     // more, which it may not while the socket is full.
-    fn go(i: i64, hup: bool, ev: const Event?) {
+    fn go(i: i64, hup: bool, ev: const Event&) {
         guard drive(conns[i], hup, ev) && watch(i) else {
             close_conn(i);
             return;
@@ -373,19 +367,19 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
         guard i < conns.len && waits_for(conns[i], key) else { return; }
         cancel(timers, conns[i].x.timer);
         conns[i].x.stream.waiting = false;
-        let ev: Event = Event.Wake { data: bytes, tag: tag };
+        let ev = Event { kind: WAKE, req: nothing, data: bytes, whole: false, trailers: "", tag: tag };
         resume(i, ev);
     }
 
     // The exchange of key, which waited, or wanted to and found no timer,
-    // is owed Timeout.
+    // is owed TIMEOUT.
     fn timed_out(key: u64, waited: bool) {
         let i = later_slot(key);
         guard i < conns.len else { return; }
         let c .= conns[i];
         guard c.fd >= 0 && c.state == OPEN && c.x.stream.later.key == key && c.x.stream.waiting == waited else { return; }
         c.x.stream.waiting = false;
-        let ev: Event = Event.Timeout;
+        let ev = Event { kind: TIMEOUT, req: nothing, data: "", whole: false, trailers: "" };
         resume(i, ev);
     }
 
@@ -419,9 +413,9 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
                 continue;
             }
             let i = ev.tag as i64;
-            // A Wake earlier in the batch may have closed it.
+            // A WAKE earlier in the batch may have closed it.
             if conns[i].fd < 0 { continue; }
-            go(i, ev.events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR) != 0, null);
+            go(i, ev.events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR) != 0, none);
         }
         // One more turn each for the connections listed so far, after this
         // pass's events. A slot that closed and opened again since has ready
@@ -430,7 +424,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
         for k in listed {
             let i = turns[k] as i64;
             conns[i].listed = false;
-            if conns[i].fd >= 0 && conns[i].ready { go(i, true, null); }
+            if conns[i].fd >= 0 && conns[i].ready { go(i, true, none); }
         }
         drop_first(turns, listed);
         if waiting {

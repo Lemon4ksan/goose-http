@@ -741,7 +741,7 @@ struct Stream {
     raw: bool = false,      // upgraded: send writes bytes as they are
     left: i64 = 0,          // of a Content-Length body, the bytes still to send; -1 for none
     status: i32 = 0,        // what start was last given
-    // later's: the exchange waits for a Wake or its Timeout, and rearm says
+    // later's: the exchange waits for a WAKE or its TIMEOUT, and rearm says
     // the loop has yet to start wait_ms's timer. later is the exchange's
     // address, which the loop sets when it has a box (Config.mail_slots).
     waiting: bool = false,
@@ -893,7 +893,7 @@ fn end(out: Reply, trailers: const u8[:] = "") {
 
 // Answers a request that asked to switch to protocol (upgrade_of) with 101,
 // and switches the connection to it (RFC 9110 §7.8): the bytes after the
-// request go to the handler as Body, and send writes bytes as they are,
+// request go to the handler as BODY, and send writes bytes as they are,
 // until end, which closes the connection, or the client closes it. The
 // connection then waits idle_ms for the client, not body_ms.
 fn upgrade(out: Reply, protocol: const u8[:]) {

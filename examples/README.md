@@ -96,12 +96,12 @@ example yet.
   decoded)`: the user and password. `http::challenge(out, "Basic realm=\"api\"")`:
   401.
 - Forms: `http::form_value(body, key, out)` and `http::each_form(body) { key, value =>
-  }`. Multipart: `http::start_multipart(req, st.parts)` at `Request`, then
-  `http::each_part(st.parts, data) { kind, data => }` for each piece of the body, with
+  }`. Multipart: `http::start_multipart(req, st.parts)` at `REQUEST`, then
+  `http::each_part(st.parts, ev.data) { kind, data => }` for each piece of the body, with
   `http::disposition` for a part's name and filename.
 - `http::respond_json(out, status) { b => json::format_key(b, "id"); ... }`.
 - `Config.max_requests` caps a connection's requests. `http::body_within(st.taken, ev,
-  out, limit)` at `Request` and each `Body` answers 413 past a route's own limit.
+  out, limit)` at `REQUEST` and each `BODY` answers 413 past a route's own limit.
 - `http::peer(out)`: the connection's address and port. `http::client(req, out,
   trusted)`: the client a trusted proxy forwarded for, from `Forwarded` or
   `X-Forwarded-For`, with `trusted` from `http::network("10.0.0.0/8")`.
@@ -130,39 +130,33 @@ slot.
 ```goose
 struct Upload { bytes: i64 = 0 }
 
-fn uploaded(st: Upload&, out: http::Reply) {
-    var text: u8[..24] = [];
-    format(text, st.bytes);
-    http::respond(out, 200, "text/plain", text);
-}
-
 thread_fn worker(cfg: http::Config) {
     let e = http::serve(cfg, Upload { .. }) { ev, st, out =>
-        match ev {
-            // Unless whole, the body comes in Body pieces; answer at End.
-            Request r => { if r.whole { st.bytes = r.data.len; uploaded(st, out); } },
-            Body b => { st.bytes += b.data.len; },
-            End => uploaded(st, out),
-            _ => {},
+        if ev.kind == http::REQUEST && !ev.whole {
+            // The body comes in BODY pieces; answer at END.
+        } else if ev.kind == http::REQUEST || ev.kind == http::END {
+            st.bytes += ev.data.len;
+            var text: u8[..24] = [];
+            format(text, st.bytes);
+            http::respond(out, 200, "text/plain", text);
+        } else if ev.kind == http::BODY {
+            st.bytes += ev.data.len;
         }
     };
     http::report(e);
 }
 ```
 
-The handler gets an `http::Event`, an enum whose variants carry only what applies to
-them. A `match` binds a variant's fields by value, as `r` and `b` above.
-
-| Variant | When |
+| Event | When |
 |---|---|
-| `Request { req, data, whole, trailers }` | Head parsed, in `req`. With `whole`, the body is in `data`, as it always is when it fits in the read buffer with the head, and a chunked one's trailers are in `trailers`. |
-| `Body { data }` | A piece of a longer body, decoded if chunked, up to `Config.max_body`. |
-| `End { trailers }` | The body is complete. Request trailers are in `trailers`, here or at a whole body's `Request`; `http::field_in` finds one. |
-| `More` | A response is open, the body has ended, and the connection has room to send. |
-| `Closed` | The connection closed while the handler was owed a call. Release what `st` holds. |
-| `Wake { data, tag }` | A message came to the address `later` returned: its bytes and its tag. ([Answers that wait](#answers-that-wait)) |
-| `Timeout` | `later`'s time limit passed first, or there was no room to wait. |
-| `Done { req, status, sent, ms }` | With `Config.log`, the response is whole: its status, the bytes sent, and the milliseconds from the head's first byte, for an access log. `req` is an optional reference, set only when the response was whole at `Request`. |
+| `REQUEST` | Head parsed, in `ev.req`. With `ev.whole`, the body is in `ev.data`, as it always is when it fits in the read buffer with the head. |
+| `BODY` | A piece of a longer body, decoded if chunked, up to `Config.max_body`. |
+| `END` | The body is complete. Request trailers are in `ev.trailers`, here or at a whole body's `REQUEST`; `http::field_in` finds one. |
+| `MORE` | A response is open, the body has ended, and the connection has room to send. |
+| `CLOSED` | The connection closed while the handler was owed a call. Release what `st` holds. |
+| `WAKE` | A message came to the address `later` returned: its bytes in `ev.data`, its tag in `ev.tag`. ([Answers that wait](#answers-that-wait)) |
+| `TIMEOUT` | `later`'s time limit passed first, or there was no room to wait. |
+| `DONE` | With `Config.log`, the response is whole: `ev.status`, `ev.sent` bytes, and `ev.ms` from the head's first byte, for an access log. `ev.req` is the request only when it was answered at `REQUEST`. |
 
 - `http::begin(out, status, length)` opens a response: `Content-Length`, or chunked
   for -1. HTTP/1.0 then closes at the end.
@@ -170,9 +164,9 @@ them. A `match` binds a variant's fields by value, as `r` and `b` above.
   `http::end(out, trailers)` adds trailer fields to a chunked one.
 - A response before the body has arrived drops the rest, up to `Config.max_drain`,
   then closes.
-- `Expect: 100-continue` gets `100 Continue` unless the handler answers at `Request`.
+- `Expect: 100-continue` gets `100 Continue` unless the handler answers at `REQUEST`.
 - `http::upgrade_of(req)`: the protocol asked for, such as `websocket`.
-  `http::upgrade(out, protocol)` answers 101. After that, bytes come as `Body`,
+  `http::upgrade(out, protocol)` answers 101. After that, bytes come as `BODY`,
   `http::send` writes them raw, and `http::end` closes.
 
 ### Files
@@ -188,14 +182,14 @@ Shown in `server/`: `/files/NAME` serves the directory in `FILES`.
 - `http::serve_file(req, out, f, http::content_type_of(path), st.file)`: answers `GET`
   or `HEAD` with 200, 206, 304, or 416, with `ETag`, `Last-Modified`, and
   `Accept-Ranges`.
-- `http::send_file(out, st.file)` at each `More` until false, then `http::end(out)`.
+- `http::send_file(out, st.file)` at each `MORE` until false, then `http::end(out)`.
   With a `Content-Length` of 64 KB or more, it hands the file to the loop, which sends
   it without copying it through the program: `sendfile` on the epoll loop and the
   emulated ring, splice through a pipe on io_uring, and `TransmitFile` on IOCP. Client
   editions of Windows run two `TransmitFile` calls at a time across the system, so many
   downloads at once may queue there. A smaller file, which one read and a send serve
   faster, and a chunked response read up to 64 KB with `pread` per call.
-- `http::close_body(st.file)` at `Closed`.
+- `http::close_body(st.file)` at `CLOSED`.
 - `http::is_safe_path(path)`: rejects `.` and `..` segments, backslashes, and colons.
   Check the decoded path before joining it to a directory.
 
@@ -210,23 +204,23 @@ answer later without blocking its worker. `Config.mail_slots` and `Config.max_wa
 turn it on; both are 0 by default, and then a loop opens no box and arms no timer.
 
 ```goose
-// At Request: the reply's address, with a time limit the handler must give.
+// At REQUEST: the reply's address, with a time limit the handler must give.
 let reply = http::later(out, 5000);
 guard http::mail_send(worker, JOB, job_for(reply)) == http::SENT
 else { http::respond(out, 503, "text/plain", "busy"); return; }
 
-// At Wake: its data and tag are what the worker sent to reply.
-// At Timeout: the limit passed first; answer 504.
+// At WAKE: ev.data and ev.tag are what the worker sent to reply.
+// At TIMEOUT: the limit passed first; answer 504.
 ```
 
 - `http::later(out, ms)` makes the exchange wait for a message to the address it
-  returns, then calls the handler with `Wake` or `Timeout`. After `begin`, or at
-  `More`, it pauses an open response, for Server-Sent Events and long polling. A call
+  returns, then calls the handler with `WAKE` or `TIMEOUT`. After `begin`, or at
+  `MORE`, it pauses an open response, for Server-Sent Events and long polling. A call
   that writes a whole response doesn't wait.
 - Requests pipelined behind a waiting exchange wait in the read buffer, and reading
   stops once it's full.
 - A message to an exchange that has ended, or to a connection that closed, is
-  dropped. At stop, a waiting exchange gets `Config.grace_ms`, then `Closed`.
+  dropped. At stop, a waiting exchange gets `Config.grace_ms`, then `CLOSED`.
 - A worker thread owns a box: `http::mail_open(slots, size)`, `http::mail_wait(box,
   ms)`, `http::mail_take(box) { key, tag, bytes => }`. `http::mail_send(address, tag,
   bytes)` returns `SENT`, `FULL`, or `STALE` at once, from any thread, and never blocks.

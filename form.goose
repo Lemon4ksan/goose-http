@@ -2,15 +2,15 @@
 // pairs message.goose's each_form gives, and the parts of
 // multipart/form-data (RFC 7578) from a body that comes in pieces.
 //
-//   // At Request:
+//   // At REQUEST:
 //   guard http::start_multipart(req, st.parts) else { ... 400 or 415 ... }
-//   // At Request with its whole data, and at each Body:
+//   // At REQUEST with its whole data, and at each BODY:
 //   let ok = http::each_part(st.parts, ev.data) { kind, data =>
 //       if kind == http::PART_HEAD { ... field_in(data, "content-disposition") ... }
 //       else if kind == http::PART_DATA { ... }
 //       else { ... PART_END ... }
 //   };
-//   // At End, the body is whole if http::multipart_done(st.parts).
+//   // At END, the body is whole if http::multipart_done(st.parts).
 namespace http;
 
 import std;

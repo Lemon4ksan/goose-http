@@ -1,4 +1,4 @@
-// A router for a handler's Request: method and path patterns with
+// A router for a handler's REQUEST: method and path patterns with
 // parameters, tried in order in an if chain, and 405 with Allow, or 404,
 // from the routes that didn't match. Nothing allocates: the parameters are
 // slices of the target and the patterns.

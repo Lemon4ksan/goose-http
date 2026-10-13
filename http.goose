@@ -113,13 +113,13 @@ struct Config {
     // limit. Beside uploads, 16 KB kept tier C's reads at a p99 of 4 ms, where
     // no limit let them wait seconds (task 021).
     max_read: i64 = 16384,
-    // Call the handler given state with Done after each response, for an
+    // Call the handler given state with DONE after each response, for an
     // access log.
     log: bool = false,
     // Answers that wait (later): each worker's box takes mail_slots replies
     // of up to mail_size bytes at once, and its timer table max_waiting
     // exchanges waiting at once. With either at 0, the default, the loop opens
-    // no box and later's exchange gets Timeout at once: a program that never
+    // no box and later's exchange gets TIMEOUT at once: a program that never
     // waits pays nothing. A box needs max_conns of at most 2^20.
     mail_slots: i32 = 0,
     mail_size: i32 = 256,
@@ -172,61 +172,73 @@ let CLOSING: u8 = 1;    // sending what's left, then shutting down its side
 let DRAINING: u8 = 2;   // shut down, and dropping what arrives until the client closes
 
 // What a handler given to serve(cfg, fresh) or serve_epoll(cfg, fresh) is
-// called for. Slices point into the loop's buffers, and last until the
-// handler returns.
-enum Event {
-    // A request's head, and its body if it came whole. req is a reference, so
-    // that the request isn't copied for each call: about 20 instructions per
-    // request. With whole, data is the whole body, as a body that fits in the
-    // read buffer with its head always is, and no Body or End follows.
-    // trailers are those of a whole chunked body, as at End.
-    Request { req: const Request&, data: const u8[:], whole: bool, trailers: const u8[:] },
-    // The next piece of a body that didn't come whole, decoded if chunked.
-    Body { data: const u8[:] },
-    // The end of that body, with the trailer fields of a chunked one (RFC 9112
-    // §7.1.2): field lines, each ending in CRLF, that field_in finds a field
-    // in. A handler that reads one lets the sender know it may send them with
-    // its TE field.
-    End { trailers: const u8[:] },
-    // Room for more of a response begun with begin, once the body has ended.
-    More,
-    // The connection closed, or the loop stopped, while the handler was owed
-    // another call: its response begun and not ended, or its body not read to
-    // the end. The handler releases what its state holds, as a file
-    // (close_body); what it writes goes nowhere.
-    Closed,
-    // With Config.log, the response is whole in the write buffer: its status,
-    // as start, begin, or a refusal of the loop's gave it; the bytes of the
-    // response, head included, written to the write buffer; and the
-    // milliseconds of the loop's clock from the read that brought the head's
-    // first byte. Reply.fd gives the peer. req is the request's head when its
-    // response was whole at Request, and null otherwise; the state is still
-    // the request's. A response cut short by a close gets Closed instead, as
-    // does an upgraded connection, and a request the loop refused before
-    // Request gets neither.
-    Done { req: const Request?, status: i32, sent: i64, ms: i64 },
-    // An exchange that later made wait got a message at its address: its
-    // bytes, and its tag as the sender gave it. The handler keeps in its state
-    // what of the request it needs. It answers, sends more of an open
-    // response, or calls later again; a handler that does none of these gets
-    // 500, as at Request.
-    Wake { data: const u8[:], tag: i32 },
-    // later's time limit passed first, or there was no room to wait: no box, or
-    // Config.max_waiting exchanges waiting already. As Wake otherwise.
-    Timeout,
+// called for: Event.kind.
+let REQUEST: u8 = 0;    // a request's head, and its body if it came whole
+let BODY: u8 = 1;       // the next piece of a body that didn't come whole
+let END: u8 = 2;        // the end of that body
+let MORE: u8 = 3;       // room for more of a response begun with begin, once the body has ended
+// The connection closed, or the loop stopped, while the handler was owed
+// another call: its response begun and not ended, or its body not read to the
+// end. The handler releases what its state holds, as a file (close_body);
+// what it writes goes nowhere.
+let CLOSED: u8 = 4;
+// With Config.log, the response is whole in the write buffer: Event.status,
+// sent, and ms say how it went, and Reply.fd gives the peer. req is the
+// request's head when its response was whole at REQUEST, and empty
+// otherwise; the state is still the request's. A response cut short by a
+// close gets CLOSED instead, as does an upgraded connection, and a request
+// the loop refused before REQUEST gets neither.
+let DONE: u8 = 5;
+// An exchange that later made wait got a message at its address: its bytes
+// in data, valid until the handler returns, and its tag. req is empty: the
+// handler keeps in its state what of the request it needs. The handler
+// answers, sends more of an open response, or calls later again; a handler
+// that does none of these gets 500, as at REQUEST.
+let WAKE: u8 = 6;
+// later's time limit passed first, or there was no room to wait: no box, or
+// Config.max_waiting exchanges waiting already. As WAKE otherwise.
+let TIMEOUT: u8 = 7;
+// No event, for answer's wake.
+let NO_EVENT: u8 = 255;
+
+struct Event {
+    kind: u8,
+    // REQUEST's parsed head. Its slices point into the read buffer, and last
+    // until the handler returns. A reference, so that the request isn't
+    // copied for each call: about 20 instructions per request.
+    req: const Request&,
+    // REQUEST's body, when whole; BODY's piece, decoded if chunked.
+    data: const u8[:],
+    // REQUEST's data is the whole body, as a body that fits in the read buffer
+    // with its head always is, and no BODY or END follows.
+    whole: bool,
+    // The trailer fields of a chunked body (RFC 9112 §7.1.2), at END, or at
+    // REQUEST when whole: field lines, each ending in CRLF, that field_in
+    // finds a field in. A handler that reads one lets the sender know it may
+    // send them with its TE field.
+    trailers: const u8[:],
+    // DONE's status, as start, begin, or a refusal of the loop's gave it; the
+    // bytes of the response, head included, written to the write buffer; and
+    // the milliseconds of the loop's clock from the read that brought the
+    // head's first byte.
+    status: i32 = 0,
+    sent: i64 = 0,
+    ms: i64 = 0,
+    // WAKE's tag, as the sender gave it.
+    tag: i32 = 0,
 }
 
 // Makes the exchange wait, after this call to the handler, for a message to
 // its address, which this returns, for at most ms milliseconds: then the
-// handler is called with Wake or Timeout. At Request or Wake it holds back
-// the response; at More, or after begin, it pauses an open response, for
+// handler is called with WAKE or TIMEOUT. At REQUEST or WAKE it holds back
+// the response; at MORE, or after begin, it pauses an open response, for
 // Server-Sent Events and long polling. While an exchange waits, the requests
 // pipelined behind it wait in the read buffer, and the loop stops reading
 // once that's full. The address is the same for each call in one exchange,
 // and a message to it after the exchange has ended, or once the connection
 // has closed, is dropped. A call that writes a whole response doesn't wait,
 // so a handler that can't hand the work on answers instead, as below. Only
-// the handler given state gets Wake and Timeout.
+// the handler given state gets WAKE and TIMEOUT.
 //
 //   let reply = http::later(out, 5000);
 //   guard http::mail_send(worker, JOB, job_with(reply)) == http::SENT
@@ -269,7 +281,7 @@ fn close_waiting(b: Box, waker: i64) {
     if b.handle.slot >= 0 { mail_close(b); } else { net_waker_close(waker); }
 }
 
-// Takes out of overdue the first n keys, those of the exchanges owed Timeout
+// Takes out of overdue the first n keys, those of the exchanges owed TIMEOUT
 // before a pass's calls added more.
 fn drop_first(overdue: u64[>..]&, n: i64) {
     let rest = overdue.len - n;
@@ -278,7 +290,7 @@ fn drop_first(overdue: u64[>..]&, n: i64) {
 }
 
 // Starts the timer of c's exchange, which later asked for. With no room for
-// it, the exchange stops waiting and true says it's owed Timeout now.
+// it, the exchange stops waiting and true says it's owed TIMEOUT now.
 fn start_wait(c, timers: Timers&, now: i64) -> bool {
     let s .= c.x.stream;
     s.rearm = false;
@@ -297,7 +309,7 @@ fn wait_for(timers: const Timers&, now: i64) -> i32 {
     return min(max(due - now, 0), 1000) as i32;
 }
 
-// A request whose exchange outlasts the handler's Request call: what of its
+// A request whose exchange outlasts the handler's REQUEST call: what of its
 // body is still to come, what its response needs, and the handler's state.
 // Each connection's slot holds one.
 struct Exchange<S> {
@@ -319,14 +331,14 @@ struct Exchange<S> {
     state: S,
 }
 
-// Calls H with Closed for c's exchange, if it was owed another call.
+// Calls H with CLOSED for c's exchange, if it was owed another call.
 fn abandon<H, C>(c: C&) {
     let x .= c.x;
     guard x.stream.open || x.stream.waiting || (!x.skip && x.body.place != NO_BODY) else { return; }
     x.stream.waiting = false;
     var sink: u8[>..] = [];
-    let ev: Event = Event.Closed;
-    H(ev, x.state,
+    let none = Request { .. };
+    H(Event { kind: CLOSED, req: none, data: "", whole: false, trailers: "" }, x.state,
       Reply { buf: sink, common: "", keep_alive: x.keep_alive, minor: x.minor, head: x.head, stream: x.stream,
             fd: c.fd });
     x.stream.open = false;
@@ -341,22 +353,24 @@ fn interim() -> const u8[:] { "HTTP/1.1 100 Continue\r\n\r\n" }
 // into wbuf, and moves the rest of rbuf to its front. rbuf's length is the
 // longest head it takes. A request's state starts as fresh, and while
 // stopping, its response closes the connection. Before a
-// request, a piece of a body, or a More call, if wbuf holds
+// request, a piece of a body, or a MORE call, if wbuf holds
 // cfg.write_buffer bytes or more, it calls ROOM(), which empties wbuf and
 // returns true, or returns false to stop there. Returns the bytes left in
 // rbuf, the number of calls to H, and whether ROOM, or a file for the loop
 // to send (Stream.direct), stopped it. A refused
 // request, or a response that doesn't keep the connection open, leaves c
-// CLOSING and rbuf empty. wake, unless null, is a Wake or Timeout for c's
-// exchange, which stopped waiting, for H before the rest. It does nothing
-// while c's exchange waits, and stops when it starts to.
+// CLOSING and rbuf empty. wake, unless its kind is NO_EVENT, is a WAKE or
+// TIMEOUT for c's exchange, which stopped waiting, for H before the rest. It
+// does nothing while c's exchange waits, and stops when it starts to.
 fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: const u8[:],
                          cfg: const Config&, fresh: const S&, stopping: bool, now: i64,
-                         wake: const Event?) -> i64, i64, bool {
+                         wake: const Event&) -> i64, i64, bool {
     var off = 0;
     var done = 0;
     var full = false;
     let x .= c.x;
+    // The req of the events after REQUEST.
+    let gone = Request { .. };
     // Read once per call: gcc can't tell an append to wbuf from a write to
     // cfg, so a field of cfg read per request is a load per request. Read
     // there, these cost 10-15 instructions per request.
@@ -373,14 +387,14 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
         off = rlen;
     }
 
-    // Calls H with Done for the request in x, whose response of sent bytes
+    // Calls H with DONE for the request in x, whose response of sent bytes
     // ended with status. Its writes go nowhere.
-    fn log_done(head: const Request?, status: i32, sent: i64, began: i64) {
+    fn log_done(head: const Request&, status: i32, sent: i64, began: i64) {
         var sink: u8[>..] = [];
         var keep = x.keep_alive;
         var st = x.stream;
-        let ev: Event = Event.Done { req: head, status: status, sent: sent, ms: now - began };
-        H(ev, x.state,
+        H(Event { kind: DONE, req: head, data: "", whole: false, trailers: "", status: status, sent: sent,
+                  ms: now - began }, x.state,
           Reply { buf: sink, common: "", keep_alive: keep, minor: x.minor, head: x.head, stream: st, fd: c.fd });
     }
 
@@ -391,7 +405,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
             let before = wbuf.len;
             refuse(wbuf, status, common);
             x.answered = true;
-            if log { log_done(null, status, x.sent + wbuf.len - before, x.began); }
+            if log { log_done(gone, status, x.sent + wbuf.len - before, x.began); }
         }
         close();
     }
@@ -415,7 +429,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
         if x.stream.file >= 0 { x.sent += x.stream.file_left; }
         if !x.answered && !x.stream.open && (wrote || was_open) {
             x.answered = true;
-            if log { log_done(null, x.stream.status, x.sent, x.began); }
+            if log { log_done(gone, x.stream.status, x.sent, x.began); }
         }
         return wrote;
     }
@@ -453,7 +467,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
     }
 
     var go = !x.stream.waiting;
-    if wake {
+    if wake.kind != NO_EVENT {
         call(wake);
         go = settle();
     }
@@ -503,8 +517,8 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
                 fail(413);
                 break;
             }
-            if piece.len > 0 { call(Event.Body { data: piece }); }
-            if x.body.place == NO_BODY && !x.answered { call(Event.End { trailers: trailers }); }
+            if piece.len > 0 { call(Event { kind: BODY, req: gone, data: piece, whole: false, trailers: "" }); }
+            if x.body.place == NO_BODY && !x.answered { call(Event { kind: END, req: gone, data: "", whole: false, trailers: trailers }); }
             guard settle() else { break; }
             continue;
         }
@@ -513,10 +527,10 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
                 full = true;
                 break;
             }
-            // A More that neither sends, ends, nor waits would be called
+            // A MORE that neither sends, ends, nor waits would be called
             // forever.
             x.stream.moved = false;
-            if !call(Event.More) && !x.stream.moved &&
+            if !call(Event { kind: MORE, req: gone, data: "", whole: false, trailers: "" }) && !x.stream.moved &&
                x.stream.open && !x.stream.waiting {
                 close();
                 break;
@@ -585,8 +599,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
             x.stream.later.key = (x.stream.later.key & ~0xFFFFF) | ((x.served & 0xFFFFF) as u64);
         }
         let before = wbuf.len;
-        let ev: Event = Event.Request { req: req, data: data, whole: whole, trailers: trailers };
-        H(ev, x.state,
+        H(Event { kind: REQUEST, req: req, data: data, whole: whole, trailers: trailers }, x.state,
           Reply { buf: wbuf, common: common, keep_alive: x.keep_alive, minor: req.minor,
                   head: req.method == "HEAD", stream: x.stream, fd: c.fd });
         done++;
@@ -655,7 +668,7 @@ fn idle(c) -> bool {
     return c.held.len == 0 && c.x.body.place == NO_BODY && !c.x.stream.open && !c.x.stream.waiting;
 }
 
-// The handler of serve(cfg) and serve_epoll(cfg) on a Request, ahead of
+// The handler of serve(cfg) and serve_epoll(cfg) on an Event, ahead of
 // their H: whether H answers it, with the body when it came whole and an
 // empty one otherwise, which is dropped as it arrives. H can't tell an empty
 // chunked body from one dropped, so a chunked body that doesn't come whole
@@ -663,7 +676,8 @@ fn idle(c) -> bool {
 // function that takes a function value (docs/goose-findings.md), and as a
 // call, gcc kept this one, and H with it, out of line, which cost 60-120
 // instructions per request.
-inline fn whole_only(ev: Event.Request, out: Reply) -> bool {
+inline fn whole_only(ev: Event, out: Reply) -> bool {
+    if ev.kind != REQUEST { return false; }
     if ev.req.chunked && !ev.whole {
         out.keep_alive = false;
         start(out, 413);
@@ -674,20 +688,18 @@ inline fn whole_only(ev: Event.Request, out: Reply) -> bool {
 }
 
 // A body limit for one route, below Config.max_body, for a handler that
-// takes the body in pieces: call it at Request and at each Body, with taken
+// takes the body in pieces: call it at REQUEST and at each BODY, with taken
 // in the request's state. Returns whether the body is within limit bytes so
 // far; past it, answers 413 and closes the connection, rather than drop the
-// rest. A Content-Length is checked at Request, and a chunked body as it
+// rest. A Content-Length is checked at REQUEST, and a chunked body as it
 // comes. The handler mustn't have answered yet.
 fn body_within(taken: i64&, ev: Event, out: Reply, limit: i64) -> bool {
     var over = false;
-    match ev {
-        Request r => {
-            taken = r.data.len;
-            over = !r.whole && !r.req.chunked && r.req.body > limit;
-        },
-        Body b => { taken += b.data.len; },
-        _ => {},
+    if ev.kind == REQUEST {
+        taken = ev.data.len;
+        over = !ev.whole && !ev.req.chunked && ev.req.body > limit;
+    } else if ev.kind == BODY {
+        taken += ev.data.len;
     }
     guard over || taken > limit else { return true; }
     out.keep_alive = false;

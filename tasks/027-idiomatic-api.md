@@ -52,6 +52,8 @@ review's estimates; "unverified" marks what no program has checked yet.
       into the write buffer they shrink. A typed local works around a `null` branch
       that doesn't take the optional's type (`docs/goose-findings.md`). `bench/rest`'s
       server changes with it.
+      Reverted (2026-10-13): it cost about 40 instructions per request on each loop.
+      The `task-027` branch records the measurements.
 - [ ] **Request helpers take `const Request&`**, not `Request` by value: `field_of`
       (`message.goose:225`), `cookie_of` (`cookie.goose:39`), `authorization`
       (`auth.goose:16`), `has_type` (`media.goose:124`), and `range_of`

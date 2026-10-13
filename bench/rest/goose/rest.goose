@@ -2599,7 +2599,7 @@ fn write_end(st: Upload&, out: http::Reply) {
 }
 
 // A tier D request's head, and its body if it came whole.
-fn write_begin(ev: http::Event.Request, st: Upload&, out: http::Reply) {
+fn write_begin(ev: http::Event, st: Upload&, out: http::Reply) {
     var r = http::router(ev.req);
     var route = NO_WRITE;
     if http::on(r, "POST", "/api/v3/imports") { route = IMPORT; }
@@ -2633,18 +2633,17 @@ fn write_begin(ev: http::Event.Request, st: Upload&, out: http::Reply) {
 // TIER=d's handler: tier D's writes, in pieces, and the other tiers' routes,
 // as serve(cfg) answers them.
 inline fn handle_writes(ev: http::Event, st: Upload&, out: http::Reply) {
-    match ev {
-        Request r => {
-            if starts_with(r.req.target, "/api/v3/") { write_begin(r, st, out); }
-            else if http::whole_only(r, out) { handle(r.req, r.data, out); }
-        },
-        Body b => {
-            guard st.route != NO_WRITE else { return; }
-            if http::body_within(st.taken, ev, out, write_limit(st.route)) { write_piece(st, b.data); } else { release(st); }
-        },
-        End => { if st.route != NO_WRITE { write_end(st, out); } },
-        Closed => { if st.route != NO_WRITE { release(st); } },
-        _ => {},
+    if ev.kind == http::REQUEST {
+        if starts_with(ev.req.target, "/api/v3/") { write_begin(ev, st, out); }
+        else if http::whole_only(ev, out) { handle(ev.req, ev.data, out); }
+    } else if st.route != NO_WRITE {
+        if ev.kind == http::BODY {
+            if http::body_within(st.taken, ev, out, write_limit(st.route)) { write_piece(st, ev.data); } else { release(st); }
+        } else if ev.kind == http::END {
+            write_end(st, out);
+        } else if ev.kind == http::CLOSED {
+            release(st);
+        }
     }
 }
 

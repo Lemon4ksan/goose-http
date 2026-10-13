@@ -675,11 +675,8 @@ shorter-lived of the two, as two separate bindings would be.
         f(a);
     }
 
-Workaround: an optional reference rebound to `null`, which `.=` accepts. Since task 027
-the loops pass the wake as a `const Event?`, and keep a flag for whether it's still owed
-(`uring.goose`'s `pump`, `epoll.goose`'s `advance`): a `var` reference, even one only
-ever rebound to `null`, counts as one that may point into the write buffer they shrink
-(spec §5.1).
+Workaround: copy the value into a local and change its field (`var ev = wake; ...
+ev.kind = NO_EVENT;`, in `uring.goose`'s `pump` and `epoll.goose`'s `advance`).
 
 ## A struct literal can't be passed to a `const T&` parameter
 
@@ -696,8 +693,8 @@ already places it.
 
     fn main() { print(g(E { k: 1 })); }   // error: cannot pass E as const E&
 
-Workaround: bind the literal to a local first (`let ev: Event = Event.Wake { ... };
-resume(c, ev);` in the loops' `delivered` and `timed_out`).
+Workaround: bind the literal to a local first (`let ev = Event { ... }; resume(c, ev);`
+in the loops' `delivered` and `timed_out`).
 
 ## A package's JIT library links the externs of every file under its root
 
@@ -853,4 +850,4 @@ optional's type, since a literal branch adapts to the others' type (spec §6.4),
     }
 
 Workaround: bind it to a typed local first (`let first: const Event? = if woke { wake }
-else { null };`, in `uring.goose`'s `pump` and `epoll.goose`'s `advance`).
+else { null };`, as task 027's `Event` enum did in the loops, `a9783c8`, since reverted).
