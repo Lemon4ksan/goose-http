@@ -1,10 +1,13 @@
 # 027: A more idiomatic API
 
-Status: in progress (asked for 2026-10-13). All seven proposals are on the `task-027`
-branch, each tested, the breaking four benchmarked. The maintainer decided what stays
-(2026-10-13, "Decisions" below); next is carrying that out, then `task-027` merges,
-and the examples and docs below follow. Breaking changes cost least before programs
-use the API, and goose-rest will be the first.
+Status: in progress (asked for 2026-10-13). The maintainer decided what stays
+(2026-10-13, "Decisions" below). p1 is reverted, and p7 dropped. p2, p4, p5, and p6
+are on `main`, cherry-picked without p1 and p3 and checked by neither tests nor
+benchmarks since, which waited on another session's runs (asked for 2026-10-13: merge
+what is kept, and keep what needs deciding on a branch until it can be benchmarked).
+p3 waits on `task-027-p3`. Next: `scripts/test.sh` on `main`, then steps 2, 5, 6, and
+7 below, then the examples and docs. Breaking changes cost least before programs use
+the API, and goose-rest will be the first.
 
 ## Decisions
 
@@ -36,6 +39,11 @@ this package would use if Goose made it free.
    layout.
 7. Benchmark the rebased series against `2afc12f`: the numbers below for p2 on were
    measured on top of p1.
+
+Done: step 1 (`c16cca6`), step 3 for what is kept, and step 4. Open: step 2's
+program, which needs a build, and steps 5 to 7, which need benchmarks. p3 waits on
+`task-027-p3`, cut from `main` after p6, with p5's `Framing.Raw` test carried onto
+`BodyReader.Raw`.
 
 Baseline: `2afc12f`, the Goose pin moved to `a6249a4` (2026-10-13), with
 `scripts/test.sh` passing in WSL and Git Bash. The proposals' benchmarks compare
@@ -98,6 +106,9 @@ review's estimates; "unverified" marks what no program has checked yet.
       machine code, `answer` grew from 4,821 to 4,994 instructions on epoll and from
       4,862 to 5,145 on uring, cold branches included. Whether a request pays for it
       is for `bench/count.sh` to say.
+      Dropped (2026-10-13): it costs 39.5 user instructions per request on epoll and
+      45.0 on uring (`bench/count.sh`, below), with or without p2, and no rate shows a
+      gain for it. Reverted on `main` by `c16cca6`.
 - [ ] **Request helpers take `const Request&`**, not `Request` by value: `field_of`
       (`message.goose:225`), `cookie_of` (`cookie.goose:39`), `authorization`
       (`auth.goose:16`), `has_type` (`media.goose:124`), and `range_of`
@@ -124,7 +135,8 @@ review's estimates; "unverified" marks what no program has checked yet.
       it is left in either binary. A variant with a payload has a type of its own and
       doesn't compare with `==` against the enum, so tests `match` it. Codegen against
       `070e830`: `answer` grows by 175 instructions on epoll and shrinks by 81 on
-      uring; `.text` grows by 1 KB. Commit `dfc4a00`.
+      uring; `.text` grows by 1 KB. Commit `dfc4a00`. Waits on `task-027-p3` for a
+      tier D run without p1 ("Decisions", step 5).
 - [ ] `PART_HEAD`, `PART_DATA`, and `PART_END` (`form.goose:31`) as an enum
       `Part { Head{fields}, Data{bytes}, End }`. Taste. Check: tier D.
       Done (2026-10-13), not yet benchmarked; `scripts/test.sh` passes in WSL and Git
@@ -144,7 +156,8 @@ review's estimates; "unverified" marks what no program has checked yet.
       connections, 3 runs of 10 s, p3 against p5
       ([summary](../bench/results/2026-10-13-desktop-027-files/summary.md)): every
       cell within the runs' spread; the lowest, bytes:1048576 on uring, 2.62 GB/s
-      against 2.70 (2.52-2.73).
+      against 2.70 (2.52-2.73). On `main` it comes before p3, so `answer` sets the
+      `BodyReader` struct's `RAW` place from `Framing.Raw`.
 - [ ] **Typed mail.** `mail_send_value<T>(to, tag, v)` over `to_bytes`, and a
       `from_bytes<T[>..]>` decode on take, checked by the language's verifier. Replaces
       `put`, `got`, `encode`, and `decode` in `server/backend.goose:22-48`. Additive,
@@ -165,6 +178,10 @@ review's estimates; "unverified" marks what no program has checked yet.
       pattern: file descriptors start at -1, with one cleanup site. `Error.call` is
       always a literal, which a long-distance return may carry. About 15 lines fewer,
       on a cold path. Taste.
+      Dropped (2026-10-13): built as `927a268`, a nested `setup()` that throws to
+      `exception::try<Error>` and a nested `release()`, it came out 16 lines longer,
+      not 15 shorter, because the descriptors are declared before `setup` and
+      `release` adds its own lines. Its reason was the line count.
 
 A proposal the work turns up later joins this list with its check before it lands.
 
@@ -222,8 +239,8 @@ p1 alone costs about 40 instructions per request on each loop, beyond any noise 
 these counts, which step 4 above would revert. p2 more than wins it back, and the
 series from p2 on is at or under the baseline in instructions and cycles, with memory
 within 100 KB. A sampled profile (`perf record`, instructions) puts p1's extra in
-`answer`; where in it isn't found yet. Kept for now, since p1 and p2 land in the same
-stretch, until the maintainer decides whether p1 must hold on its own.
+`answer`; where in it isn't found yet. p1 must hold on its own, and p2's gain doesn't
+depend on it, so p1 was reverted ("Decisions", step 1).
 
 ### Plaintext and JSON
 
@@ -275,7 +292,8 @@ alone base 15.8-16.2 ms, p1 16.0-16.8, p2 16.7-17.7. perf stat on the server, up
 alone for 10 s, twice each: p1 and p2 spend the same user instructions per upload,
 39.6-39.9 M, but p2 1-3% more cycles. p2 changes no code an upload's body runs
 through, and an upload spends its 40 M instructions in the body, so this too looks like
-code layout; it isn't pinned down. Whether that keeps p2 is the maintainer's call.
+code layout; it isn't pinned down. p2 stays, and its upload cost is measured again
+without p1 ("Decisions", step 6).
 
 ## Examples and docs
 
