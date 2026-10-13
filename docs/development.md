@@ -399,6 +399,11 @@ What the benchmark has to work around on this machine:
   whatever runs in them; while it runs, `wsl.exe` fails with "The file cannot be
   accessed by the system". An update can move the kernel, and runs compare only on the
   same kernel, which each run's `env.txt` names.
+- After that update (2026-10-13), Docker Desktop kept running without its engine: WSL
+  had no `docker` ("could not be found in this WSL 2 distro"), `docker info` from
+  Windows said "Docker Desktop is unable to start", and `bench/httparena.sh` failed at
+  once. `docker desktop restart`, from Windows, brought it back. Check `docker version`
+  in WSL before an unattended HttpArena run.
 
 - WSL2 steps the wall clock back by 0.4 to 2.6 ms every 30 s (measured with
   `bench/clockstep.py`, 2026-10-10). wrk 4.1.0 counts each request in flight across a
