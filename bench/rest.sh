@@ -36,7 +36,9 @@
 # put tier C's p99 at 20-70 ms in a 3 s run, where warm it stays under 2 ms.
 #
 # Settings, from the environment:
-#   SERVERS        goose-uring goose-epoll hyper, or any of the competitors
+#   SERVERS        goose-uring goose-epoll hyper, or any of the competitors.
+#                  goose-uring-TAG and goose-epoll-TAG run another Goose
+#                  build, build/rest/rest-goose-TAG, to compare builds.
 #   SERVER_CPUS    0-3, WORKERS the number of them
 #   CLIENT_CPUS    4-15, CLIENT_THREADS 8
 #   RUNS 3, DURATION 15, WARMUP 5, PORT 29380
@@ -144,6 +146,7 @@ hz=$(getconf CLK_TCK)
 binary() {
     case $1 in
     goose-uring | goose-epoll) echo rest ;;
+    goose-uring-* | goose-epoll-*) echo "rest-goose-${1#goose-*-}" ;;
     *) echo "rest-$1" ;;
     esac
 }
@@ -202,8 +205,8 @@ start() {
         exit 1
     fi
     case $1 in
-    goose-uring) loop=uring ;;
-    goose-epoll) loop=epoll ;;
+    goose-uring | goose-uring-*) loop=uring ;;
+    goose-epoll | goose-epoll-*) loop=epoll ;;
     *) loop= ;;
     esac
     # A server that exits or doesn't listen gets one more try, in case its
