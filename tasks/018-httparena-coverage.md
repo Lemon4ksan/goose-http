@@ -67,4 +67,6 @@ request against tokio's 30.6 µs and vanilla-epoll's 30.0 µs.
 - [x] async and latency-10k in the entry's `meta.json` and `bench/httparena.sh`
 - [x] `bench/httparena.sh validate` and `run` with them on the desktop (2026-10-12,
       [results](../docs/results.md#httparenas-profiles))
-- [ ] Compression (task 022), then json-comp
+- [x] Compression (task 022), then json-comp: in the entry, `validate` passing and
+      `run` on the desktop (2026-10-14,
+      [022.03](022-compression/03-http-compress.md#httparenas-json-comp))

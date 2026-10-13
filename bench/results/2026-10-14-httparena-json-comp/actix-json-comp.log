@@ -1,0 +1,929 @@
+[info] available CPUs: 16
+[info] load generators: docker mode
+[info] framework: actix (actix, Rust)
+[info] subscribed tests: baseline,async,latency-1m,latency-10k,latency-500k-8cpu,pipelined,limited-conn,json-comp,json-tls,8gbit,static-tls,async-db,baseline-h2,static-h2
+[info] building image: httparena-actix
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 445B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/rust:1.94
+#2 ...
+
+#3 [auth] library/rust:pull token for registry-1.docker.io
+#3 DONE 0.0s
+
+#4 [internal] load metadata for docker.io/library/debian:bookworm-slim
+#4 DONE 2.5s
+
+#2 [internal] load metadata for docker.io/library/rust:1.94
+#2 DONE 3.5s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.1s
+
+#6 [stage-1 1/2] FROM docker.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+#6 CACHED
+
+#7 [internal] load build context
+#7 transferring context: 23.53kB done
+#7 DONE 0.1s
+
+#8 [build 1/6] FROM docker.io/library/rust:1.94@sha256:652612f07bfbbdfa3af34761c1e435094c00dde4a98036132fca28c7bb2b165c
+#8 resolve docker.io/library/rust:1.94@sha256:652612f07bfbbdfa3af34761c1e435094c00dde4a98036132fca28c7bb2b165c 0.0s done
+#8 sha256:b644cc33aee7a2b32ff3e1198711f8ad3a69ae29a58e1a674e97f75776b88186 1.93kB / 1.93kB done
+#8 sha256:1ebdfa4f7c7ccd1b4221f94a6b62f744f8e803fa354e7069fbfaf19b653c6f37 4.87kB / 4.87kB done
+#8 sha256:a7730063fcfe708b222d34c4f07d633dfe087a28c05c4daaab2fa9943854c155 0B / 49.30MB 0.1s
+#8 sha256:f33970743aee750df25f6c661132b7401c8fefe930e5f4803f4c8b6f567a6b55 0B / 25.62MB 0.1s
+#8 sha256:5397da1d1537c4d725f3090c5688a582e14eeaf7743d75d9b38bad1649554987 0B / 67.78MB 0.1s
+#8 sha256:652612f07bfbbdfa3af34761c1e435094c00dde4a98036132fca28c7bb2b165c 8.99kB / 8.99kB done
+#8 sha256:a7730063fcfe708b222d34c4f07d633dfe087a28c05c4daaab2fa9943854c155 3.15MB / 49.30MB 0.6s
+#8 sha256:a7730063fcfe708b222d34c4f07d633dfe087a28c05c4daaab2fa9943854c155 6.29MB / 49.30MB 1.2s
+#8 sha256:f33970743aee750df25f6c661132b7401c8fefe930e5f4803f4c8b6f567a6b55 2.10MB / 25.62MB 1.2s
+#8 sha256:5397da1d1537c4d725f3090c5688a582e14eeaf7743d75d9b38bad1649554987 4.19MB / 67.78MB 1.5s
+#8 sha256:f33970743aee750df25f6c661132b7401c8fefe930e5f4803f4c8b6f567a6b55 4.19MB / 25.62MB 2.2s
+#8 sha256:5397da1d1537c4d725f3090c5688a582e14eeaf7743d75d9b38bad1649554987 9.44MB / 67.78MB 2.2s
+#8 sha256:a7730063fcfe708b222d34c4f07d633dfe087a28c05c4daaab2fa9943854c155 9.44MB / 49.30MB 2.8s
+#8 sha256:5397da1d1537c4d725f3090c5688a582e14eeaf7743d75d9b38bad1649554987 14.68MB / 67.78MB 2.8s
+#8 sha256:5397da1d1537c4d725f3090c5688a582e14eeaf7743d75d9b38bad1649554987 18.87MB / 67.78MB 3.2s
+#8 sha256:f33970743aee750df25f6c661132b7401c8fefe930e5f4803f4c8b6f567a6b55 6.29MB / 25.62MB 3.5s
+#8 sha256:5397da1d1537c4d725f3090c5688a582e14eeaf7743d75d9b38bad1649554987 24.12MB / 67.78MB 3.8s
+#8 sha256:5397da1d1537c4d725f3090c5688a582e14eeaf7743d75d9b38bad1649554987 28.31MB / 67.78MB 4.2s
+#8 sha256:5397da1d1537c4d725f3090c5688a582e14eeaf7743d75d9b38bad1649554987 32.51MB / 67.78MB 4.6s
+#8 sha256:5397da1d1537c4d725f3090c5688a582e14eeaf7743d75d9b38bad1649554987 37.75MB / 67.78MB 5.1s
+#8 sha256:5397da1d1537c4d725f3090c5688a582e14eeaf7743d75d9b38bad1649554987 42.99MB / 67.78MB 5.6s
+#8 sha256:f33970743aee750df25f6c661132b7401c8fefe930e5f4803f4c8b6f567a6b55 8.39MB / 25.62MB 6.0s
+#8 sha256:5397da1d1537c4d725f3090c5688a582e14eeaf7743d75d9b38bad1649554987 47.19MB / 67.78MB 6.0s
+#8 sha256:5397da1d1537c4d725f3090c5688a582e14eeaf7743d75d9b38bad1649554987 51.38MB / 67.78MB 6.4s
+#8 sha256:5397da1d1537c4d725f3090c5688a582e14eeaf7743d75d9b38bad1649554987 55.57MB / 67.78MB 6.8s
+#8 sha256:5397da1d1537c4d725f3090c5688a582e14eeaf7743d75d9b38bad1649554987 60.82MB / 67.78MB 7.3s
+#8 sha256:a7730063fcfe708b222d34c4f07d633dfe087a28c05c4daaab2fa9943854c155 12.58MB / 49.30MB 7.5s
+#8 sha256:5397da1d1537c4d725f3090c5688a582e14eeaf7743d75d9b38bad1649554987 65.01MB / 67.78MB 7.7s
+#8 sha256:5397da1d1537c4d725f3090c5688a582e14eeaf7743d75d9b38bad1649554987 67.78MB / 67.78MB 8.0s done
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 0B / 236.08MB 8.1s
+#8 sha256:f33970743aee750df25f6c661132b7401c8fefe930e5f4803f4c8b6f567a6b55 10.49MB / 25.62MB 8.5s
+#8 sha256:a7730063fcfe708b222d34c4f07d633dfe087a28c05c4daaab2fa9943854c155 15.73MB / 49.30MB 9.2s
+#8 sha256:f33970743aee750df25f6c661132b7401c8fefe930e5f4803f4c8b6f567a6b55 12.58MB / 25.62MB 9.5s
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 12.58MB / 236.08MB 10.1s
+#8 sha256:a7730063fcfe708b222d34c4f07d633dfe087a28c05c4daaab2fa9943854c155 18.87MB / 49.30MB 10.4s
+#8 sha256:f33970743aee750df25f6c661132b7401c8fefe930e5f4803f4c8b6f567a6b55 14.68MB / 25.62MB 10.4s
+#8 sha256:f33970743aee750df25f6c661132b7401c8fefe930e5f4803f4c8b6f567a6b55 16.78MB / 25.62MB 11.0s
+#8 sha256:a7730063fcfe708b222d34c4f07d633dfe087a28c05c4daaab2fa9943854c155 22.02MB / 49.30MB 11.7s
+#8 sha256:f33970743aee750df25f6c661132b7401c8fefe930e5f4803f4c8b6f567a6b55 18.87MB / 25.62MB 11.7s
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 25.17MB / 236.08MB 12.1s
+#8 sha256:f33970743aee750df25f6c661132b7401c8fefe930e5f4803f4c8b6f567a6b55 20.97MB / 25.62MB 12.4s
+#8 sha256:a7730063fcfe708b222d34c4f07d633dfe087a28c05c4daaab2fa9943854c155 25.17MB / 49.30MB 12.8s
+#8 sha256:f33970743aee750df25f6c661132b7401c8fefe930e5f4803f4c8b6f567a6b55 23.07MB / 25.62MB 13.1s
+#8 sha256:f33970743aee750df25f6c661132b7401c8fefe930e5f4803f4c8b6f567a6b55 25.17MB / 25.62MB 13.9s
+#8 sha256:a7730063fcfe708b222d34c4f07d633dfe087a28c05c4daaab2fa9943854c155 28.31MB / 49.30MB 14.0s
+#8 sha256:f33970743aee750df25f6c661132b7401c8fefe930e5f4803f4c8b6f567a6b55 25.62MB / 25.62MB 14.0s done
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 0B / 213.03MB 14.0s
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 37.75MB / 236.08MB 14.2s
+#8 sha256:a7730063fcfe708b222d34c4f07d633dfe087a28c05c4daaab2fa9943854c155 31.46MB / 49.30MB 14.9s
+#8 sha256:a7730063fcfe708b222d34c4f07d633dfe087a28c05c4daaab2fa9943854c155 34.60MB / 49.30MB 15.8s
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 50.33MB / 236.08MB 16.4s
+#8 sha256:a7730063fcfe708b222d34c4f07d633dfe087a28c05c4daaab2fa9943854c155 37.75MB / 49.30MB 16.9s
+#8 sha256:a7730063fcfe708b222d34c4f07d633dfe087a28c05c4daaab2fa9943854c155 40.89MB / 49.30MB 17.8s
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 11.53MB / 213.03MB 18.0s
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 63.96MB / 236.08MB 18.8s
+#8 sha256:a7730063fcfe708b222d34c4f07d633dfe087a28c05c4daaab2fa9943854c155 44.04MB / 49.30MB 19.3s
+#8 sha256:a7730063fcfe708b222d34c4f07d633dfe087a28c05c4daaab2fa9943854c155 47.19MB / 49.30MB 20.5s
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 76.55MB / 236.08MB 21.2s
+#8 sha256:a7730063fcfe708b222d34c4f07d633dfe087a28c05c4daaab2fa9943854c155 49.30MB / 49.30MB 21.2s done
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 23.07MB / 213.03MB 21.3s
+#8 extracting sha256:a7730063fcfe708b222d34c4f07d633dfe087a28c05c4daaab2fa9943854c155
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 34.60MB / 213.03MB 23.2s
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 89.13MB / 236.08MB 23.4s
+#8 extracting sha256:a7730063fcfe708b222d34c4f07d633dfe087a28c05c4daaab2fa9943854c155 2.5s done
+#8 extracting sha256:f33970743aee750df25f6c661132b7401c8fefe930e5f4803f4c8b6f567a6b55
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 47.19MB / 213.03MB 25.0s
+#8 extracting sha256:f33970743aee750df25f6c661132b7401c8fefe930e5f4803f4c8b6f567a6b55 0.9s done
+#8 extracting sha256:5397da1d1537c4d725f3090c5688a582e14eeaf7743d75d9b38bad1649554987
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 101.71MB / 236.08MB 26.0s
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 58.72MB / 213.03MB 26.7s
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 71.30MB / 213.03MB 28.4s
+#8 extracting sha256:5397da1d1537c4d725f3090c5688a582e14eeaf7743d75d9b38bad1649554987 3.6s done
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 114.29MB / 236.08MB 29.3s
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 82.84MB / 213.03MB 29.8s
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 94.37MB / 213.03MB 31.4s
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 126.88MB / 236.08MB 32.0s
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 105.91MB / 213.03MB 33.2s
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 139.46MB / 236.08MB 34.3s
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 117.44MB / 213.03MB 35.2s
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 152.04MB / 236.08MB 36.4s
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 128.97MB / 213.03MB 37.1s
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 164.63MB / 236.08MB 38.3s
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 178.26MB / 236.08MB 40.0s
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 140.51MB / 213.03MB 40.0s
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 190.84MB / 236.08MB 42.1s
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 153.09MB / 213.03MB 42.1s
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 164.63MB / 213.03MB 44.1s
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 203.42MB / 236.08MB 44.4s
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 176.16MB / 213.03MB 45.8s
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 216.01MB / 236.08MB 47.1s
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 187.70MB / 213.03MB 47.4s
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 199.23MB / 213.03MB 49.3s
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 228.59MB / 236.08MB 49.9s
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 210.76MB / 213.03MB 51.0s
+#8 sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 236.08MB / 236.08MB 52.1s done
+#8 sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 213.03MB / 213.03MB 52.1s done
+#8 extracting sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc
+#8 extracting sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 5.1s
+#8 extracting sha256:1ecbddc58afba44ec9b55fb51ec8bfdee5112cd31b39b564f5abb4567d094ffc 8.3s done
+#8 extracting sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f
+#8 extracting sha256:abf743e24bcd7fb54d70a738452def0250bd0c6226a4770e91d1f549a781239f 2.4s done
+#8 DONE 63.5s
+
+#9 [build 2/6] WORKDIR /app
+#9 DONE 2.3s
+
+#10 [build 3/6] COPY Cargo.toml .
+#10 DONE 0.1s
+
+#11 [build 4/6] RUN mkdir src && echo "fn main() {}" > src/main.rs && cargo build --release && rm -rf src/ target/release/httparena-actix* target/release/deps/httparena_actix*
+#11 0.252     Updating git repository `https://github.com/actix/actix-web`
+#11 4.999     Updating crates.io index
+#11 10.36      Locking 225 packages to latest compatible versions
+#11 10.39  Downloading crates ...
+#11 10.62   Downloaded cmov v0.5.4
+#11 10.63   Downloaded cookie v0.16.2
+#11 10.64   Downloaded async-trait v0.1.92
+#11 10.65   Downloaded alloc-no-stdlib v2.0.4
+#11 10.67   Downloaded adler2 v2.0.1
+#11 10.67   Downloaded percent-encoding v2.3.2
+#11 10.68   Downloaded block-buffer v0.12.1
+#11 10.70   Downloaded equivalent v1.0.2
+#11 10.71   Downloaded crypto-common v0.2.2
+#11 10.71   Downloaded pin-project-lite v0.2.17
+#11 10.72   Downloaded httpdate v1.0.3
+#11 10.73   Downloaded postgres-types v0.2.14
+#11 10.73   Downloaded local-channel v0.1.5
+#11 10.73   Downloaded futures-task v0.3.34
+#11 10.74   Downloaded num-conv v0.2.2
+#11 10.74   Downloaded http-range v0.1.5
+#11 10.74   Downloaded futures-core v0.3.34
+#11 10.74   Downloaded futures-macro v0.3.34
+#11 10.75   Downloaded local-waker v0.1.4
+#11 10.75   Downloaded powerfmt v0.2.1
+#11 10.75   Downloaded form_urlencoded v1.2.2
+#11 10.76   Downloaded futures-sink v0.3.34
+#11 10.76   Downloaded potential_utf v0.1.6
+#11 10.76   Downloaded num_cpus v1.17.0
+#11 10.77   Downloaded multiversion_no_op v1.0.0
+#11 10.77   Downloaded itoa v1.0.18
+#11 10.78   Downloaded idna_adapter v1.2.2
+#11 10.78   Downloaded mime v0.3.17
+#11 10.79   Downloaded fnv v1.0.7
+#11 10.79   Downloaded actix-service v2.0.3
+#11 10.79   Downloaded rustc_version v0.4.1
+#11 10.80   Downloaded alloc-stdlib v0.2.4
+#11 10.81   Downloaded bytestring v1.5.1
+#11 10.81   Downloaded cpufeatures v0.3.1
+#11 10.81   Downloaded cfg-if v1.0.5
+#11 10.82   Downloaded deadpool-runtime v0.3.1
+#11 10.82   Downloaded errno v0.3.14
+#11 10.83   Downloaded phf_shared v0.13.1
+#11 10.84   Downloaded core_detect v1.0.0
+#11 10.84   Downloaded fallible-iterator v0.2.0
+#11 10.84   Downloaded digest v0.11.3
+#11 10.85   Downloaded mime_guess v2.0.5
+#11 10.86   Downloaded dashmap v6.2.1
+#11 10.86   Downloaded jobserver v0.1.35
+#11 10.87   Downloaded foldhash v0.2.0
+#11 10.87   Downloaded md-5 v0.11.0
+#11 10.88   Downloaded scopeguard v1.2.0
+#11 10.88   Downloaded impl-more v0.3.10
+#11 10.89   Downloaded serde_urlencoded v0.7.1
+#11 10.89   Downloaded byteorder v1.5.0
+#11 10.99   Downloaded deranged v0.5.9
+#11 11.00   Downloaded zerofrom-derive v0.1.8
+#11 11.00   Downloaded unicode-xid v0.2.6
+#11 11.00   Downloaded lock_api v0.4.14
+#11 11.01   Downloaded displaydoc v0.2.7
+#11 11.01   Downloaded zerofrom v0.1.8
+#11 11.01   Downloaded utf8_iter v1.0.4
+#11 11.01   Downloaded phf v0.13.1
+#11 11.02   Downloaded crossbeam-utils v0.8.23
+#11 11.02   Downloaded hybrid-array v0.4.15
+#11 11.03   Downloaded deadpool-postgres v0.14.2
+#11 11.03   Downloaded parking_lot_core v0.9.12
+#11 11.04   Downloaded parking_lot v0.12.5
+#11 11.04   Downloaded futures-channel v0.3.34
+#11 11.04   Downloaded crc32fast v1.5.2
+#11 11.05   Downloaded getrandom v0.2.17
+#11 11.06   Downloaded hmac v0.13.0
+#11 11.06   Downloaded httparse v1.10.1
+#11 11.07   Downloaded language-tags v0.3.2
+#11 11.07   Downloaded icu_provider v2.3.1
+#11 11.08   Downloaded getrandom v0.4.3
+#11 11.08   Downloaded const-oid v0.10.2
+#11 11.09   Downloaded actix-tls v3.6.1
+#11 11.09   Downloaded siphasher v1.0.4
+#11 11.10   Downloaded bitflags v2.13.2
+#11 11.11   Downloaded log v0.4.34
+#11 11.11   Downloaded bytes v1.12.1
+#11 11.12   Downloaded subtle v2.6.1
+#11 11.12   Downloaded flate2 v1.1.10
+#11 11.13   Downloaded base64 v0.22.1
+#11 11.14   Downloaded miniz_oxide v0.9.1
+#11 11.15   Downloaded icu_normalizer_data v2.3.0
+#11 11.15   Downloaded derive_more v2.1.1
+#11 11.18   Downloaded mio v1.2.4
+#11 11.19   Downloaded untrusted v0.9.0
+#11 11.20   Downloaded cc v1.8.0
+#11 11.21   Downloaded memchr v2.8.3
+#11 11.22   Downloaded indexmap v2.14.2
+#11 11.23   Downloaded yoke-derive v0.8.4
+#11 11.23   Downloaded hashbrown v0.14.5
+#11 11.24   Downloaded hashbrown v0.17.1
+#11 11.25   Downloaded tokio-macros v2.7.2
+#11 11.25   Downloaded idna v1.1.0
+#11 11.26   Downloaded h2 v0.3.27
+#11 11.27   Downloaded futures-util v0.3.34
+#11 11.29   Downloaded brotli-decompressor v5.0.3
+#11 11.30   Downloaded aho-corasick v1.1.5
+#11 11.31   Downloaded icu_properties_data v2.3.0
+#11 11.33   Downloaded actix-macros v0.2.5
+#11 11.33   Downloaded actix-utils v3.0.2
+#11 11.33   Downloaded actix-rt v2.15.0
+#11 11.34   Downloaded actix-codec v0.5.4
+#11 11.34   Downloaded icu_properties v2.3.0
+#11 11.35   Downloaded postgres-protocol v0.6.12
+#11 11.35   Downloaded time-core v0.1.9
+#11 11.35   Downloaded slab v0.4.12
+#11 11.36   Downloaded rustls-pemfile v2.2.0
+#11 11.36   Downloaded rand_core v0.10.1
+#11 11.37   Downloaded actix-server v2.10.0
+#11 11.37   Downloaded simdutf8 v0.1.5
+#11 11.38   Downloaded icu_collections v2.3.0
+#11 11.39   Downloaded zerovec-derive v0.11.6
+#11 11.39   Downloaded http v0.2.12
+#11 11.40   Downloaded whoami v2.1.3
+#11 11.40   Downloaded zmij v1.0.23
+#11 11.41   Downloaded synstructure v0.14.0
+#11 11.41   Downloaded stringprep v0.1.5
+#11 11.41   Downloaded derive_more-impl v2.1.1
+#11 11.42   Downloaded pkg-config v0.3.34
+#11 11.43   Downloaded icu_locale_core v2.3.0
+#11 11.44   Downloaded quote v1.0.47
+#11 11.45   Downloaded icu_normalizer v2.3.0
+#11 11.46   Downloaded encoding_rs v0.8.42
+#11 11.47   Downloaded deadpool v0.13.1
+#11 11.48   Downloaded shlex v2.0.1
+#11 11.48   Downloaded chacha20 v0.10.2
+#11 11.49   Downloaded once_cell v1.21.4
+#11 11.49   Downloaded signal-hook-registry v1.4.8
+#11 11.49   Downloaded brotli v8.0.4
+#11 11.51   Downloaded zeroize v1.9.1
+#11 11.52   Downloaded unicase v2.10.0
+#11 11.52   Downloaded tinystr v0.8.4
+#11 11.52   Downloaded litemap v0.8.3
+#11 11.53   Downloaded find-msvc-tools v0.1.14
+#11 11.53   Downloaded ctutils v0.4.3
+#11 11.54   Downloaded zstd-safe v7.3.0
+#11 11.54   Downloaded tokio-rustls v0.26.6
+#11 11.54   Downloaded convert_case v0.10.0
+#11 11.54   Downloaded zstd v0.13.3
+#11 11.55   Downloaded writeable v0.6.4
+#11 11.56   Downloaded version_check v0.9.5
+#11 11.56   Downloaded libc v0.2.190
+#11 11.69   Downloaded v_htmlescape v0.17.0
+#11 11.69   Downloaded simd-adler32 v0.3.10
+#11 11.70   Downloaded rustls-pki-types v1.15.1
+#11 11.70   Downloaded smallvec v1.16.3
+#11 11.70   Downloaded time-macros v0.2.32
+#11 11.71   Downloaded unicode-properties v0.1.4
+#11 11.71   Downloaded sha2 v0.11.1
+#11 11.72   Downloaded tracing-attributes v0.1.31
+#11 11.73   Downloaded v_escape-base v0.1.0
+#11 11.73   Downloaded yoke v0.8.3
+#11 11.73   Downloaded serde_core v1.0.229
+#11 11.74   Downloaded ryu v1.0.23
+#11 11.75   Downloaded unicode-ident v1.0.27
+#11 11.75   Downloaded semver v1.0.28
+#11 11.76   Downloaded tracing-core v0.1.36
+#11 11.77   Downloaded socket2 v0.6.5
+#11 11.77   Downloaded serde_derive v1.0.229
+#11 11.77   Downloaded rustversion v1.0.23
+#11 11.78   Downloaded proc-macro2 v1.0.107
+#11 11.79   Downloaded stable_deref_trait v1.2.1
+#11 11.79   Downloaded sha1 v0.11.0
+#11 11.82   Downloaded tinyvec v1.13.3
+#11 11.84   Downloaded url v2.5.8
+#11 11.86   Downloaded regex-lite v0.1.9
+#11 11.86   Downloaded serde v1.0.229
+#11 11.87   Downloaded rustls-webpki v0.103.15
+#11 11.87   Downloaded zerotrie v0.2.5
+#11 11.88   Downloaded unicode-bidi v0.3.18
+#11 11.90   Downloaded typenum v1.20.1
+#11 11.91   Downloaded tokio-postgres v0.7.18
+#11 11.93   Downloaded rand v0.10.3
+#11 11.96   Downloaded unicode-segmentation v1.13.3
+#11 11.99   Downloaded unicode-normalization v0.1.25
+#11 12.00   Downloaded zerovec v0.11.8
+#11 12.06   Downloaded tokio-util v0.7.20
+#11 12.08   Downloaded serde_json v1.0.154
+#11 12.09   Downloaded regex v1.13.1
+#11 12.18   Downloaded zlib-rs v0.6.8
+#11 12.25   Downloaded time v0.3.55
+#11 12.29   Downloaded syn v3.0.9
+#11 12.31   Downloaded syn v2.0.119
+#11 12.33   Downloaded rustls v0.23.45
+#11 12.35   Downloaded regex-syntax v0.8.11
+#11 12.44   Downloaded tracing v0.1.44
+#11 12.54   Downloaded regex-automata v0.4.18
+#11 12.62   Downloaded zstd-sys v2.1.1+zstd.1.5.7
+#11 12.65   Downloaded tokio v1.53.3
+#11 12.73   Downloaded ring v0.17.14
+#11 13.06    Compiling proc-macro2 v1.0.107
+#11 13.06    Compiling unicode-ident v1.0.27
+#11 13.06    Compiling quote v1.0.47
+#11 13.06    Compiling libc v0.2.190
+#11 13.06    Compiling cfg-if v1.0.5
+#11 13.06    Compiling smallvec v1.16.3
+#11 13.06    Compiling bytes v1.12.1
+#11 13.06    Compiling pin-project-lite v0.2.17
+#11 13.06    Compiling scopeguard v1.2.0
+#11 13.06    Compiling parking_lot_core v0.9.12
+#11 13.06    Compiling log v0.4.34
+#11 13.07    Compiling shlex v2.0.1
+#11 13.07    Compiling find-msvc-tools v0.1.14
+#11 13.07    Compiling futures-core v0.3.34
+#11 13.07    Compiling stable_deref_trait v1.2.1
+#11 13.07    Compiling typenum v1.20.1
+#11 13.11    Compiling once_cell v1.21.4
+#11 13.11    Compiling lock_api v0.4.14
+#11 13.12    Compiling cmov v0.5.4
+#11 13.13    Compiling memchr v2.8.3
+#11 13.13    Compiling futures-sink v0.3.34
+#11 13.17    Compiling const-oid v0.10.2
+#11 13.20    Compiling cpufeatures v0.3.1
+#11 13.21    Compiling serde_core v1.0.229
+#11 13.22    Compiling itoa v1.0.18
+#11 13.22    Compiling getrandom v0.4.3
+#11 13.23    Compiling rand_core v0.10.1
+#11 13.23    Compiling percent-encoding v2.3.2
+#11 13.25    Compiling writeable v0.6.4
+#11 13.26    Compiling zeroize v1.9.1
+#11 13.29    Compiling ctutils v0.4.3
+#11 13.30    Compiling tracing-core v0.1.36
+#11 13.34    Compiling pkg-config v0.3.34
+#11 13.34    Compiling litemap v0.8.3
+#11 13.35    Compiling chacha20 v0.10.2
+#11 13.35    Compiling slab v0.4.12
+#11 13.35    Compiling rustversion v1.0.23
+#11 13.39    Compiling rustls-pki-types v1.15.1
+#11 13.47    Compiling icu_normalizer_data v2.3.0
+#11 13.49    Compiling icu_properties_data v2.3.0
+#11 13.50    Compiling zmij v1.0.23
+#11 13.51    Compiling utf8_iter v1.0.4
+#11 13.54    Compiling untrusted v0.9.0
+#11 13.57    Compiling futures-task v0.3.34
+#11 13.59    Compiling serde_json v1.0.154
+#11 13.60    Compiling rustls v0.23.45
+#11 13.62    Compiling base64 v0.22.1
+#11 13.75    Compiling tinyvec v1.13.3
+#11 13.76    Compiling serde v1.0.229
+#11 13.84    Compiling fnv v1.0.7
+#11 13.86    Compiling syn v3.0.9
+#11 13.89    Compiling syn v2.0.119
+#11 13.90    Compiling local-waker v0.1.4
+#11 13.90    Compiling crc32fast v1.5.2
+#11 13.92    Compiling alloc-no-stdlib v2.0.4
+#11 13.92    Compiling unicode-segmentation v1.13.3
+#11 13.92    Compiling hybrid-array v0.4.15
+#11 13.94    Compiling subtle v2.6.1
+#11 13.94    Compiling zstd-safe v7.3.0
+#11 13.97    Compiling alloc-stdlib v0.2.4
+#11 13.98    Compiling http v0.2.12
+#11 14.02    Compiling aho-corasick v1.1.5
+#11 14.03    Compiling actix-service v2.0.3
+#11 14.03    Compiling hashbrown v0.17.1
+#11 14.04    Compiling num-conv v0.2.2
+#11 14.04    Compiling unicode-xid v0.2.6
+#11 14.12    Compiling unicode-properties v0.1.4
+#11 14.13    Compiling unicode-bidi v0.3.18
+#11 14.13    Compiling encoding_rs v0.8.42
+#11 14.16    Compiling unicode-normalization v0.1.25
+#11 14.23    Compiling convert_case v0.10.0
+#11 14.31    Compiling httparse v1.10.1
+#11 14.33    Compiling jobserver v0.1.35
+#11 14.39    Compiling errno v0.3.14
+#11 14.40    Compiling mio v1.2.4
+#11 14.45    Compiling socket2 v0.6.5
+#11 14.51    Compiling cc v1.8.0
+#11 14.54    Compiling parking_lot v0.12.5
+#11 14.57    Compiling signal-hook-registry v1.4.8
+#11 14.60    Compiling crypto-common v0.2.2
+#11 14.60    Compiling block-buffer v0.12.1
+#11 14.65    Compiling getrandom v0.2.17
+#11 14.73    Compiling equivalent v1.0.2
+#11 14.76    Compiling rand v0.10.3
+#11 14.80    Compiling version_check v0.9.5
+#11 14.81    Compiling regex-syntax v0.8.11
+#11 14.85    Compiling adler2 v2.0.1
+#11 14.89    Compiling time-core v0.1.9
+#11 14.93    Compiling simd-adler32 v0.3.10
+#11 14.96    Compiling tracing v0.1.44
+#11 15.01    Compiling indexmap v2.14.2
+#11 15.04    Compiling cookie v0.16.2
+#11 15.05    Compiling time-macros v0.2.32
+#11 15.13    Compiling miniz_oxide v0.9.1
+#11 15.15    Compiling stringprep v0.1.5
+#11 15.26    Compiling digest v0.11.3
+#11 15.38    Compiling bytestring v1.5.1
+#11 15.38    Compiling brotli-decompressor v5.0.3
+#11 15.40    Compiling md-5 v0.11.0
+#11 15.41    Compiling hmac v0.13.0
+#11 15.47    Compiling sha2 v0.11.1
+#11 15.54    Compiling actix-utils v3.0.2
+#11 15.56    Compiling form_urlencoded v1.2.2
+#11 15.66    Compiling siphasher v1.0.4
+#11 15.71    Compiling bitflags v2.13.2
+#11 15.76    Compiling byteorder v1.5.0
+#11 15.79    Compiling mime v0.3.17
+#11 15.80    Compiling impl-more v0.3.10
+#11 15.84    Compiling core_detect v1.0.0
+#11 15.92    Compiling simdutf8 v0.1.5
+#11 15.96    Compiling powerfmt v0.2.1
+#11 16.06    Compiling unicase v2.10.0
+#11 16.07    Compiling multiversion_no_op v1.0.0
+#11 16.09    Compiling regex-lite v0.1.9
+#11 16.10    Compiling fallible-iterator v0.2.0
+#11 16.12    Compiling deranged v0.5.9
+#11 16.17    Compiling mime_guess v2.0.5
+#11 16.29    Compiling brotli v8.0.4
+#11 16.33    Compiling ring v0.17.14
+#11 16.42    Compiling zstd-sys v2.1.1+zstd.1.5.7
+#11 16.48    Compiling regex-automata v0.4.18
+#11 16.56    Compiling postgres-protocol v0.6.12
+#11 16.75    Compiling actix-router v0.5.4 (https://github.com/actix/actix-web?rev=67490f9e75d3262446449481c510e5ab36c9bcfa#67490f9e)
+#11 16.80    Compiling phf_shared v0.13.1
+#11 16.81    Compiling flate2 v1.1.10
+#11 16.89    Compiling sha1 v0.11.0
+#11 17.15    Compiling synstructure v0.14.0
+#11 17.21    Compiling local-channel v0.1.5
+#11 17.28    Compiling time v0.3.55
+#11 17.30    Compiling httpdate v1.0.3
+#11 17.30    Compiling foldhash v0.2.0
+#11 17.32    Compiling language-tags v0.3.2
+#11 17.36    Compiling crossbeam-utils v0.8.23
+#11 17.44    Compiling ryu v1.0.23
+#11 17.46    Compiling phf v0.13.1
+#11 17.50    Compiling postgres-types v0.2.14
+#11 17.53    Compiling whoami v2.1.3
+#11 17.60    Compiling futures-channel v0.3.34
+#11 17.61    Compiling v_escape-base v0.1.0
+#11 17.77    Compiling v_htmlescape v0.17.0
+#11 18.03    Compiling hashbrown v0.14.5
+#11 18.07    Compiling http-range v0.1.5
+#11 18.18    Compiling num_cpus v1.17.0
+#11 18.25    Compiling rustls-pemfile v2.2.0
+#11 18.48    Compiling tracing-attributes v0.1.31
+#11 18.60    Compiling derive_more-impl v2.1.1
+#11 18.61    Compiling zerofrom-derive v0.1.8
+#11 18.63    Compiling tokio-macros v2.7.2
+#11 18.72    Compiling yoke-derive v0.8.4
+#11 18.74    Compiling zerovec-derive v0.11.6
+#11 18.76    Compiling displaydoc v0.2.7
+#11 19.11    Compiling tokio v1.53.3
+#11 19.31    Compiling futures-macro v0.3.34
+#11 19.51    Compiling actix-macros v0.2.5
+#11 19.61    Compiling serde_derive v1.0.229
+#11 19.61    Compiling zerofrom v0.1.8
+#11 19.67    Compiling yoke v0.8.3
+#11 19.68    Compiling regex v1.13.1
+#11 19.74    Compiling async-trait v0.1.92
+#11 19.80    Compiling zerovec v0.11.8
+#11 19.84    Compiling zerotrie v0.2.5
+#11 19.91    Compiling futures-util v0.3.34
+#11 20.22    Compiling actix-web-codegen v4.3.0 (https://github.com/actix/actix-web?rev=67490f9e75d3262446449481c510e5ab36c9bcfa#67490f9e)
+#11 20.31    Compiling dashmap v6.2.1
+#11 20.35    Compiling tinystr v0.8.4
+#11 20.42    Compiling potential_utf v0.1.6
+#11 20.48    Compiling icu_locale_core v2.3.0
+#11 20.50    Compiling icu_collections v2.3.0
+#11 20.96    Compiling derive_more v2.1.1
+#11 22.14    Compiling icu_provider v2.3.1
+#11 22.46    Compiling icu_properties v2.3.0
+#11 22.52    Compiling rustls-webpki v0.103.15
+#11 22.68    Compiling tokio-util v0.7.20
+#11 22.72    Compiling actix-rt v2.15.0
+#11 23.25    Compiling icu_normalizer v2.3.0
+#11 23.25    Compiling h2 v0.3.27
+#11 23.26    Compiling actix-codec v0.5.4
+#11 23.26    Compiling actix-server v2.10.0
+#11 23.34    Compiling deadpool-runtime v0.3.1
+#11 23.43    Compiling serde_urlencoded v0.7.1
+#11 23.51    Compiling deadpool v0.13.1
+#11 23.56    Compiling idna_adapter v1.2.2
+#11 23.61    Compiling tokio-postgres v0.7.18
+#11 23.63    Compiling idna v1.1.0
+#11 23.89    Compiling url v2.5.8
+#11 24.98    Compiling deadpool-postgres v0.14.2
+#11 25.62    Compiling tokio-rustls v0.26.6
+#11 25.75    Compiling actix-tls v3.6.1
+#11 27.40    Compiling zstd v0.13.3
+#11 27.51    Compiling actix-http v3.13.1 (https://github.com/actix/actix-web?rev=67490f9e75d3262446449481c510e5ab36c9bcfa#67490f9e)
+#11 28.93    Compiling actix-web v4.14.0 (https://github.com/actix/actix-web?rev=67490f9e75d3262446449481c510e5ab36c9bcfa#67490f9e)
+#11 30.59    Compiling actix-files v0.6.10 (https://github.com/actix/actix-web?rev=67490f9e75d3262446449481c510e5ab36c9bcfa#67490f9e)
+#11 32.80    Compiling httparena-actix v0.1.0 (/app)
+#11 34.68     Finished `release` profile [optimized] target(s) in 34.45s
+#11 DONE 34.8s
+
+#12 [build 5/6] COPY src ./src
+#12 DONE 1.5s
+
+#13 [build 6/6] RUN RUSTFLAGS="-C target-cpu=native" cargo build --release
+#13 0.496    Compiling proc-macro2 v1.0.107
+#13 0.496    Compiling unicode-ident v1.0.27
+#13 0.496    Compiling quote v1.0.47
+#13 0.496    Compiling libc v0.2.190
+#13 0.497    Compiling cfg-if v1.0.5
+#13 0.498    Compiling smallvec v1.16.3
+#13 0.500    Compiling pin-project-lite v0.2.17
+#13 0.501    Compiling bytes v1.12.1
+#13 0.501    Compiling scopeguard v1.2.0
+#13 0.502    Compiling parking_lot_core v0.9.12
+#13 0.503    Compiling log v0.4.34
+#13 0.504    Compiling find-msvc-tools v0.1.14
+#13 0.505    Compiling shlex v2.0.1
+#13 0.506    Compiling futures-core v0.3.34
+#13 0.507    Compiling typenum v1.20.1
+#13 0.508    Compiling stable_deref_trait v1.2.1
+#13 0.526    Compiling once_cell v1.21.4
+#13 0.546    Compiling lock_api v0.4.14
+#13 0.546    Compiling futures-sink v0.3.34
+#13 0.550    Compiling cmov v0.5.4
+#13 0.561    Compiling memchr v2.8.3
+#13 0.593    Compiling const-oid v0.10.2
+#13 0.604    Compiling itoa v1.0.18
+#13 0.621    Compiling serde_core v1.0.229
+#13 0.630    Compiling cpufeatures v0.3.1
+#13 0.639    Compiling rand_core v0.10.1
+#13 0.641    Compiling getrandom v0.4.3
+#13 0.668    Compiling tracing-core v0.1.36
+#13 0.668    Compiling litemap v0.8.3
+#13 0.677    Compiling percent-encoding v2.3.2
+#13 0.686    Compiling writeable v0.6.4
+#13 0.728    Compiling ctutils v0.4.3
+#13 0.734    Compiling zeroize v1.9.1
+#13 0.737    Compiling pkg-config v0.3.34
+#13 0.739    Compiling chacha20 v0.10.2
+#13 0.755    Compiling slab v0.4.12
+#13 0.770    Compiling futures-task v0.3.34
+#13 0.819    Compiling rustls-pki-types v1.15.1
+#13 0.833    Compiling untrusted v0.9.0
+#13 0.870    Compiling utf8_iter v1.0.4
+#13 0.878    Compiling rustversion v1.0.23
+#13 0.888    Compiling zmij v1.0.23
+#13 0.906    Compiling icu_properties_data v2.3.0
+#13 0.932    Compiling icu_normalizer_data v2.3.0
+#13 0.949    Compiling base64 v0.22.1
+#13 1.001    Compiling serde_json v1.0.154
+#13 1.036    Compiling rustls v0.23.45
+#13 1.136    Compiling alloc-no-stdlib v2.0.4
+#13 1.164    Compiling fnv v1.0.7
+#13 1.192    Compiling unicode-segmentation v1.13.3
+#13 1.195    Compiling tinyvec v1.13.3
+#13 1.223    Compiling zstd-safe v7.3.0
+#13 1.247    Compiling local-waker v0.1.4
+#13 1.261    Compiling crc32fast v1.5.2
+#13 1.265    Compiling serde v1.0.229
+#13 1.299    Compiling syn v3.0.9
+#13 1.304    Compiling syn v2.0.119
+#13 1.309    Compiling subtle v2.6.1
+#13 1.330    Compiling http v0.2.12
+#13 1.334    Compiling alloc-stdlib v0.2.4
+#13 1.343    Compiling hybrid-array v0.4.15
+#13 1.400    Compiling aho-corasick v1.1.5
+#13 1.403    Compiling actix-service v2.0.3
+#13 1.448    Compiling version_check v0.9.5
+#13 1.502    Compiling encoding_rs v0.8.42
+#13 1.511    Compiling convert_case v0.10.0
+#13 1.522    Compiling equivalent v1.0.2
+#13 1.555    Compiling simd-adler32 v0.3.10
+#13 1.580    Compiling unicode-normalization v0.1.25
+#13 1.600    Compiling httparse v1.10.1
+#13 1.698    Compiling regex-syntax v0.8.11
+#13 1.776    Compiling jobserver v0.1.35
+#13 1.815    Compiling errno v0.3.14
+#13 1.824    Compiling socket2 v0.6.5
+#13 1.866    Compiling mio v1.2.4
+#13 1.908    Compiling signal-hook-registry v1.4.8
+#13 1.939    Compiling block-buffer v0.12.1
+#13 1.992    Compiling cc v1.8.0
+#13 2.041    Compiling parking_lot v0.12.5
+#13 2.052    Compiling crypto-common v0.2.2
+#13 2.055    Compiling getrandom v0.2.17
+#13 2.144    Compiling time-core v0.1.9
+#13 2.158    Compiling unicode-bidi v0.3.18
+#13 2.188    Compiling rand v0.10.3
+#13 2.209    Compiling hashbrown v0.17.1
+#13 2.300    Compiling num-conv v0.2.2
+#13 2.343    Compiling unicode-xid v0.2.6
+#13 2.358    Compiling unicode-properties v0.1.4
+#13 2.395    Compiling adler2 v2.0.1
+#13 2.408    Compiling time-macros v0.2.32
+#13 2.457    Compiling miniz_oxide v0.9.1
+#13 2.511    Compiling tracing v0.1.44
+#13 2.531    Compiling stringprep v0.1.5
+#13 2.542    Compiling bytestring v1.5.1
+#13 2.649    Compiling cookie v0.16.2
+#13 2.729    Compiling digest v0.11.3
+#13 2.866    Compiling hmac v0.13.0
+#13 2.873    Compiling sha2 v0.11.1
+#13 2.876    Compiling md-5 v0.11.0
+#13 2.894    Compiling indexmap v2.14.2
+#13 2.904    Compiling brotli-decompressor v5.0.3
+#13 3.027    Compiling actix-utils v3.0.2
+#13 3.035    Compiling form_urlencoded v1.2.2
+#13 3.114    Compiling fallible-iterator v0.2.0
+#13 3.134    Compiling mime v0.3.17
+#13 3.173    Compiling deranged v0.5.9
+#13 3.449    Compiling regex-automata v0.4.18
+#13 3.466    Compiling regex-lite v0.1.9
+#13 3.487    Compiling impl-more v0.3.10
+#13 3.548    Compiling unicase v2.10.0
+#13 3.628    Compiling multiversion_no_op v1.0.0
+#13 3.675    Compiling byteorder v1.5.0
+#13 3.768    Compiling simdutf8 v0.1.5
+#13 3.805    Compiling bitflags v2.13.2
+#13 3.815    Compiling core_detect v1.0.0
+#13 3.869    Compiling ring v0.17.14
+#13 3.915    Compiling zstd-sys v2.1.1+zstd.1.5.7
+#13 3.928    Compiling powerfmt v0.2.1
+#13 3.930    Compiling siphasher v1.0.4
+#13 4.011    Compiling actix-router v0.5.4 (https://github.com/actix/actix-web?rev=67490f9e75d3262446449481c510e5ab36c9bcfa#67490f9e)
+#13 4.024    Compiling postgres-protocol v0.6.12
+#13 4.064    Compiling mime_guess v2.0.5
+#13 4.104    Compiling phf_shared v0.13.1
+#13 4.225    Compiling brotli v8.0.4
+#13 4.330    Compiling time v0.3.55
+#13 4.343    Compiling sha1 v0.11.0
+#13 4.350    Compiling flate2 v1.1.10
+#13 4.511    Compiling local-channel v0.1.5
+#13 4.551    Compiling httpdate v1.0.3
+#13 4.581    Compiling crossbeam-utils v0.8.23
+#13 4.586    Compiling language-tags v0.3.2
+#13 4.711    Compiling synstructure v0.14.0
+#13 4.734    Compiling foldhash v0.2.0
+#13 4.791    Compiling ryu v1.0.23
+#13 4.872    Compiling postgres-types v0.2.14
+#13 4.891    Compiling phf v0.13.1
+#13 4.957    Compiling whoami v2.1.3
+#13 4.974    Compiling futures-channel v0.3.34
+#13 5.023    Compiling v_escape-base v0.1.0
+#13 5.157    Compiling v_htmlescape v0.17.0
+#13 5.379    Compiling http-range v0.1.5
+#13 5.418    Compiling hashbrown v0.14.5
+#13 5.469    Compiling num_cpus v1.17.0
+#13 5.541    Compiling rustls-pemfile v2.2.0
+#13 5.725    Compiling regex v1.13.1
+#13 5.831    Compiling tracing-attributes v0.1.31
+#13 5.847    Compiling derive_more-impl v2.1.1
+#13 5.984    Compiling actix-web-codegen v4.3.0 (https://github.com/actix/actix-web?rev=67490f9e75d3262446449481c510e5ab36c9bcfa#67490f9e)
+#13 6.042    Compiling dashmap v6.2.1
+#13 6.225    Compiling zerofrom-derive v0.1.8
+#13 6.327    Compiling yoke-derive v0.8.4
+#13 6.465    Compiling tokio-macros v2.7.2
+#13 6.547    Compiling zerovec-derive v0.11.6
+#13 6.646    Compiling displaydoc v0.2.7
+#13 6.837    Compiling futures-macro v0.3.34
+#13 6.963    Compiling tokio v1.53.3
+#13 7.191    Compiling actix-macros v0.2.5
+#13 7.213    Compiling serde_derive v1.0.229
+#13 7.255    Compiling zerofrom v0.1.8
+#13 7.322    Compiling yoke v0.8.3
+#13 7.406    Compiling futures-util v0.3.34
+#13 7.410    Compiling async-trait v0.1.92
+#13 7.455    Compiling zerovec v0.11.8
+#13 7.651    Compiling zerotrie v0.2.5
+#13 8.015    Compiling tinystr v0.8.4
+#13 8.097    Compiling potential_utf v0.1.6
+#13 8.148    Compiling icu_locale_core v2.3.0
+#13 8.178    Compiling icu_collections v2.3.0
+#13 8.215    Compiling derive_more v2.1.1
+#13 9.536    Compiling icu_provider v2.3.1
+#13 9.784    Compiling rustls-webpki v0.103.15
+#13 9.847    Compiling icu_properties v2.3.0
+#13 9.915    Compiling icu_normalizer v2.3.0
+#13 10.48    Compiling tokio-util v0.7.20
+#13 10.56    Compiling actix-rt v2.15.0
+#13 10.62    Compiling deadpool-runtime v0.3.1
+#13 10.68    Compiling deadpool v0.13.1
+#13 10.77    Compiling actix-server v2.10.0
+#13 10.84    Compiling idna_adapter v1.2.2
+#13 10.89    Compiling idna v1.1.0
+#13 10.91    Compiling serde_urlencoded v0.7.1
+#13 10.96    Compiling h2 v0.3.27
+#13 10.98    Compiling actix-codec v0.5.4
+#13 11.01    Compiling tokio-postgres v0.7.18
+#13 11.18    Compiling url v2.5.8
+#13 12.36    Compiling deadpool-postgres v0.14.2
+#13 13.07    Compiling tokio-rustls v0.26.6
+#13 13.20    Compiling actix-tls v3.6.1
+#13 15.27    Compiling zstd v0.13.3
+#13 15.38    Compiling actix-http v3.13.1 (https://github.com/actix/actix-web?rev=67490f9e75d3262446449481c510e5ab36c9bcfa#67490f9e)
+#13 16.84    Compiling actix-web v4.14.0 (https://github.com/actix/actix-web?rev=67490f9e75d3262446449481c510e5ab36c9bcfa#67490f9e)
+#13 18.49    Compiling actix-files v0.6.10 (https://github.com/actix/actix-web?rev=67490f9e75d3262446449481c510e5ab36c9bcfa#67490f9e)
+#13 20.79    Compiling httparena-actix v0.1.0 (/app)
+#13 38.28     Finished `release` profile [optimized] target(s) in 38.05s
+#13 DONE 39.7s
+
+#14 [stage-1 2/2] COPY --from=build /app/target/release/httparena-actix /server
+#14 DONE 0.1s
+
+#15 exporting to image
+#15 exporting layers 0.0s done
+#15 writing image sha256:1d1e24059ad764e135daa24170941ca433b0c4d0fe4c86321d8709fc2985050b done
+#15 naming to docker.io/library/httparena-actix done
+#15 DONE 0.1s
+[info] skipping system tuning as requested (SKIP_TUNE=true)
+[info] starting postgres sidecar
+[info] postgres ready (seeded)
+
+==============================================
+=== actix / json-comp / 4096c (tool=gcannon) ===
+==============================================
+[info] waiting for server...
+[info] server ready
+
+[run 1/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  1
+  Req/conn:  25
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   54.55ms   61.50ms   73.20ms   93.30ms   182.10ms
+
+  314987 requests in 5.00s, 310889 responses
+  Throughput: 62.17K req/s
+  Bandwidth:  107.72MB/s
+  Status codes: 2xx=310889, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 310889 / 310889 responses (100.0%)
+  Reconnects: 10342
+  Errors: connect 0, read 2, timeout 0
+  Per-template: 103555,103636,103698
+  Per-template-ok: 103555,103636,103698
+[info] CPU 304.8% | Mem 129MiB
+
+[run 2/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  1
+  Req/conn:  25
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   64.68ms   62.10ms   78.70ms   106.00ms   116.90ms
+
+  317314 requests in 5.00s, 313216 responses
+  Throughput: 62.63K req/s
+  Bandwidth:  108.51MB/s
+  Status codes: 2xx=313216, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 313216 / 313216 responses (100.0%)
+  Reconnects: 10888
+  Errors: connect 0, read 4, timeout 0
+  Per-template: 104482,104334,104400
+  Per-template-ok: 104482,104334,104400
+[info] CPU 280.6% | Mem 141MiB
+
+[run 3/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  1
+  Req/conn:  25
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   64.93ms   62.40ms   78.70ms   108.20ms   132.50ms
+
+  310182 requests in 5.00s, 306083 responses
+  Throughput: 61.21K req/s
+  Bandwidth:  106.03MB/s
+  Status codes: 2xx=306083, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 306083 / 306083 responses (100.0%)
+  Reconnects: 11049
+  Errors: connect 0, read 3, timeout 0
+  Per-template: 102107,102102,101874
+  Per-template-ok: 102107,102102,101874
+[info] CPU 321.9% | Mem 139MiB
+
+=== Best: 62643 req/s (CPU: 280.6%, Mem: 141MiB) ===
+[info] input BW: 4.66MB/s (avg template: 78 bytes)
+[info] dry-run — not saving (use --save to persist)
+httparena-bench-actix
+httparena-bench-actix
+
+==============================================
+=== actix / json-comp / 16384c (tool=gcannon) ===
+==============================================
+[info] waiting for server...
+[info] server ready
+
+[run 1/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     16384 (4096/thread)
+  Pipeline:  1
+  Req/conn:  25
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   145.32ms   138.20ms   199.80ms    1.16s    1.69s
+
+  321324 requests in 5.00s, 305182 responses
+  Throughput: 60.98K req/s
+  Bandwidth:  105.68MB/s
+  Status codes: 2xx=305182, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 305182 / 305182 responses (100.0%)
+  Reconnects: 6194
+  Errors: connect 0, read 6, timeout 0
+  Per-template: 101618,101669,101895
+  Per-template-ok: 101618,101669,101895
+[info] CPU 343.5% | Mem 368MiB
+
+[run 2/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     16384 (4096/thread)
+  Pipeline:  1
+  Req/conn:  25
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   240.84ms   253.70ms   302.10ms   997.70ms    1.83s
+
+  294996 requests in 5.00s, 278611 responses
+  Throughput: 55.71K req/s
+  Bandwidth:  96.60MB/s
+  Status codes: 2xx=278611, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 278611 / 278611 responses (100.0%)
+  Reconnects: 273
+  Errors: connect 0, read 3, timeout 0
+  Per-template: 92433,92842,93336
+  Per-template-ok: 92433,92842,93336
+[info] CPU 377.4% | Mem 439MiB
+
+[run 3/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     16384 (4096/thread)
+  Pipeline:  1
+  Req/conn:  25
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   247.06ms   261.10ms   293.10ms   933.70ms    1.75s
+
+  291324 requests in 5.00s, 274938 responses
+  Throughput: 54.98K req/s
+  Bandwidth:  95.23MB/s
+  Status codes: 2xx=274938, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 274938 / 274938 responses (100.0%)
+  Reconnects: 1323
+  Errors: connect 0, read 3, timeout 0
+  Per-template: 91815,91750,91373
+  Per-template-ok: 91815,91750,91373
+[info] CPU 275.7% | Mem 441MiB
+
+=== Best: 61036 req/s (CPU: 343.5%, Mem: 368MiB) ===
+[info] input BW: 4.54MB/s (avg template: 78 bytes)
+[info] dry-run — not saving (use --save to persist)
+httparena-bench-actix
+httparena-bench-actix
+[info] done
+httparena-postgres
