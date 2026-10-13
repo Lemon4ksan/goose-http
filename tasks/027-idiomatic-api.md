@@ -191,6 +191,40 @@ Every cell is within the runs' spread of the baseline. p3 is at or above it in a
 eight, by 0.8-2.6%; p1 is from 1.3% under to 1.8% over, so its 40 instructions don't
 show in a rate. Peak RSS is the same to 0.1 MB.
 
+### REST
+
+`bench/rest.sh run` with `SERVERS="goose-uring-base goose-uring-p2 goose-uring-p3
+goose-uring-p4 hyper dusty"` at the fixed rates above, 4 workers on CPUs 0-3, the load
+on 4-15, 3 rounds of 15 s, the uring loop
+([summary](../bench/results/2026-10-13-rest-027/summary.md)). Medians at saturation,
+and tier D's uploads:
+
+| Cell | base | p2 | p3 | p4 |
+|---|---:|---:|---:|---:|
+| A serialize | 598.6K | 592.7K | 591.3K | 590.2K |
+| A template | 609.8K | 602.9K | 608.0K | 603.4K |
+| B serialize | 272.2K | 276.7K | 272.0K | 278.8K |
+| B template | 386.8K | 385.8K | 380.9K | 385.4K |
+| C serialize | 53.1K, 75.4 µs | 54.1K, 73.9 µs | 51.7K, 77.3 µs | 54.2K, 73.7 µs |
+| C template | 149.2K | 149.9K | 147.4K | 149.0K |
+| Uploads alone, p50 | 15.8-16.6 ms | 16.3-16.9 ms | 16.5-17.8 ms | 16.4-17.3 ms |
+| Uploads beside forms | 162-164/s | 155-159/s | 154-160/s | 161-163/s |
+| Uploads beside tier C | 781-786/s | 733-750/s | 670-737/s | 722-748/s |
+
+Peak RSS is the same in every cell. Tiers A to C hold for every proposal: within 1.5%
+of the baseline but p3's C, 2.6% under on serialize and 1.2% on templates, which p4,
+whose change no tier C request runs, doesn't share, so code layout is the likelier
+cause. p2 gains 1.7-1.9% on B and C serialized, which it was meant to check.
+
+Uploads cost 3-6% from p2 on. A second tier D run with the order reversed
+(`STEPS=2`, p2 first, and p1's REST server added,
+[summary](../bench/results/2026-10-13-rest-027-uploads/summary.md)) repeated it: p50
+alone base 15.8-16.2 ms, p1 16.0-16.8, p2 16.7-17.7. perf stat on the server, uploads
+alone for 10 s, twice each: p1 and p2 spend the same user instructions per upload,
+39.6-39.9 M, but p2 1-3% more cycles. p2 changes no code an upload's body runs
+through, and an upload spends its 40 M instructions in the body, so this too looks like
+code layout; it isn't pinned down. Whether that keeps p2 is the maintainer's call.
+
 ## Examples and docs
 
 Once the proposals are settled:
