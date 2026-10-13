@@ -462,6 +462,18 @@ may-minihttp and Tina on tiers A to C, both JSON ways each, in Docker (`goose-ht
 socket error and no status but tier D's 422s, except may-minihttp's uploads role: 224
 read errors, its chunked imports.
 
+Left for you (2026-10-13):
+
+- The competitors aren't measured yet. Each benchmark phase waits for the host to be
+  idle, with a 1-minute load average under 2.0 twice in a row, 5 minutes apart. From
+  22:08 to at least 04:04 it never was: 2.9-13.8, with no container but the always-on
+  ones and no load tool running. Docker Desktop's window renderer (about 50% of a CPU),
+  Spotlight, `syspolicyd`, and iTerm's `pidinfo` helpers made up the load. The script
+  is ready: it runs every phase for all eight servers in about 40 minutes, and a dry
+  run with 1 s durations passed.
+- Tina's tier D fault (above) is Tina's to fix; it may be worth reporting upstream.
+- may-minihttp can't read a chunked request body, so it stays out of tier D.
+
 ## Acceptance criteria
 
 - [x] Tier D built as A to C are, and its mixed run with tier C
