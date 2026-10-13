@@ -936,19 +936,42 @@ about twice the 11 and 37 MB its globals take (estimated from the record types).
 it parsed, and that worker. Expected: the packet freed once the thunk has unpacked
 it, or the globals unpacked straight from the spawner's image.
 
+    import std;
+    import os;
+
     var big: u8[>..];
 
-    thread_fn worker(n: i64) { print(big.len); qget<i64>(); }
+    // VmRSS, in MB.
+    fn rss() -> i64 {
+        var text: u8[>..] = [];
+        guard read_file("/proc/self/status", text) else { return -1; }
+        var at = find(text, "VmRSS:");
+        var n: i64 = 0;
+        for c in text[at + 6..] {
+            if c >= '0' && c <= '9' { n = n * 10 + (c - '0'); }
+            else if n > 0 { break; }
+        }
+        return n / 1024;
+    }
+
+    thread_fn worker(n: i64) {
+        print("worker sees ", big.len / 1048576, " MB; process ", rss(), " MB");
+        qget<i64>();
+    }
 
     fn main() {
         for i in 100000000 { big.push(1); }
+        print("main filled 95 MB; process ", rss(), " MB");
         let id = thread_spawn(worker, 0);
-        big.clear();    // lowers no RSS
-        // Read from the source, not measured: about 400 MB resident, big and its
-        // image in main, the packet and big in the worker.
         qput(0);
         thread_wait(id);
+        print("after the worker returned; process ", rss(), " MB");
     }
+
+Measured on the desktop (WSL2 kernel 6.18.54.1, `goose build --cc gcc --standalone`,
+2026-10-14): 97 MB after main fills `big`, 383 MB while the worker runs (`big`, the
+image, the packet, and the worker's copy: four of 95 MB), and 192 MB after it returns
+(`big` and the image, still in main).
 
 Workaround: `rest.goose` loads the records on a loader thread, which spawns the workers
 and returns, so the runtime unmaps its stacks, the image among them. It clears what
