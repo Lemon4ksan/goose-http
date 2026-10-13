@@ -537,7 +537,8 @@ Next session on the desktop (asked for 2026-10-13):
    checker's `d`, steps 2 and 4) for may-minihttp and Tina, and record each skip in
    `env.txt`; keep Tina's crash lines (`[FATAL] ...`) in its log.
 3. Pass `check.py` on the desktop against each, then one full run of all eight servers
-   (Goose's two loops, hyper, and the five): about 2.5 h at 3 rounds.
+   (Goose's two loops, hyper, and the five): about 3 h at 3 rounds, from 65 minutes
+   for three servers on 2026-10-12.
 4. Record the run in `docs/results.md` and the README's REST table, servers as rows,
    each column's best in bold, with tier D's gaps shown, not left blank.
 
