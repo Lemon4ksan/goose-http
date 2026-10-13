@@ -25,7 +25,7 @@ import statistics
 import sys
 from collections import defaultdict
 
-ORDER = ["goose-uring", "goose-epoll", "hyper"]
+ORDER = ["goose-uring", "goose-epoll", "hyper", "tokio", "may-minihttp", "xitca-web", "odin-http", "tina"]
 UNITS = {"us": 1e-3, "ms": 1.0, "s": 1e3}
 
 

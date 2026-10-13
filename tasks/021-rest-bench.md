@@ -545,6 +545,27 @@ Next session on the desktop (asked for 2026-10-13):
 4. Record the run in `docs/results.md` and the README's REST table, servers as rows,
    each column's best in bold, with tier D's gaps shown, not left blank.
 
+On the desktop (2026-10-13). Decided while running the list unattended:
+
+- The Goose pin stays at `6448f3f`. Upstream's 7 new commits, up to `a6249a4`, change the
+  build driver, its progress output, and the C bindings' emitted types. The two codegen
+  fixes rename locals and test relative references against null. None changes the
+  stdlib or a hot path.
+- All eight servers run together, 3 rounds, at the rates `bench/rest.sh` computes from
+  this run (asked for 2026-10-13). This replaces step 3's five servers and hyper's
+  anchor round. A run of the five alone would have offered them rates computed from
+  their own saturation, not the 2026-10-12 run's, and their fixed-rate rows couldn't sit
+  beside Goose's and hyper's.
+- `bench/rest.sh build` builds the five as the list says. It reads the Odin version and
+  the odin-http and Tina commits from `bench/build.sh`, and refuses checkouts at any
+  other commit. Goose's and hyper's binaries hash as in `2026-10-13-uploads-after`.
+- `bench/rest.sh run` skips tier D for may-minihttp and Tina, with each reason in
+  `env.txt`. It also writes `times.txt`, the start of every cell, to time each step.
+- odin-http's and Tina's listeners outlive their process by up to 50 ms, so the next
+  cell found the port taken. `bench/rest.sh` now waits for the port after each stop.
+- `check.py` passes on the desktop against all eight servers, on every tier each serves,
+  both JSON ways. Tina logged no `[FATAL]` line.
+
 ## Acceptance criteria
 
 - [x] Tier D built as A to C are, and its mixed run with tier C

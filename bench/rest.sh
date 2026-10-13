@@ -4,10 +4,14 @@
 #
 #   bench/rest.sh build    the datasets (bench/rest/gen.goose) into DATA, the
 #                          Goose server (bench/rest/goose) into build/rest/rest,
-#                          hyper's (bench/rest/hyper) into build/rest/rest-hyper,
-#                          and zrk into CACHE
+#                          the competitors (bench/rest/NAME) into
+#                          build/rest/rest-NAME, and zrk into CACHE
 #   bench/rest.sh run      checks each server with bench/rest/check.py, then
 #                          measures, round by round
+#
+# The competitors are hyper, tokio, may-minihttp, xitca-web, odin-http, and
+# tina. The Odin ones build with the odin-http and Tina checkouts that
+# bench/build.sh fetches into CACHE, so it runs first.
 #
 # What a run measures, each server with WORKERS workers on SERVER_CPUS and the
 # load on CLIENT_CPUS, a fresh server per cell:
@@ -24,11 +28,14 @@
 #   4. The mixed run: a TIER=d server, warmed up with tier C at saturation,
 #      then tier C's reads at RATE_C, alone and beside the uploads role.
 #
+# may-minihttp and Tina have no tier D (task 021, and no_d below), so they
+# skip its checker and steps 2 and 4, and env.txt says why.
+#
 # Each step warms each server up first: cold, Goose's first seconds
 # put tier C's p99 at 20-70 ms in a 3 s run, where warm it stays under 2 ms.
 #
 # Settings, from the environment:
-#   SERVERS        goose-uring goose-epoll hyper
+#   SERVERS        goose-uring goose-epoll hyper, or any of the competitors
 #   SERVER_CPUS    0-3, WORKERS the number of them
 #   CLIENT_CPUS    4-15, CLIENT_THREADS 8
 #   RUNS 3, DURATION 15, WARMUP 5, PORT 29380
@@ -56,10 +63,30 @@ build)
     "$goose" build --cc gcc --standalone -o "$bin/gen" "$root/bench/rest/gen.goose"
     "$bin/gen" "$data"
     "$goose" build --cc gcc --standalone -o "$bin/rest" "$root/bench/rest/goose/rest.goose"
-    # As bench/build.sh builds bench/hyper: for this machine, from CACHE.
-    (cd "$cache" && RUSTFLAGS="-C target-cpu=native" cargo build --release --locked \
-        --manifest-path "$root/bench/rest/hyper/Cargo.toml" --target-dir "$cache/target-rest-hyper")
-    cp "$cache/target-rest-hyper/release/rest-hyper" "$bin/rest-hyper"
+    # As bench/build.sh builds bench/NAME: for this machine, from CACHE, and
+    # xitca-web with its TechEmpower entry's flags.
+    for name in hyper tokio may-minihttp xitca-web; do
+        flags="-C target-cpu=native"
+        [ "$name" != xitca-web ] || flags="$flags --cfg tokio_unstable"
+        (cd "$cache" && RUSTFLAGS="$flags" cargo build --release --locked \
+            --manifest-path "$root/bench/rest/$name/Cargo.toml" --target-dir "$cache/target-rest-$name")
+        cp "$cache/target-rest-$name/release/rest-$name" "$bin/rest-$name"
+    done
+    odin=${ODIN:-odin}
+    pin() { sed -n "s/^$1=//p" "$root/bench/build.sh"; }
+    "$odin" version | grep -q "$(pin ODIN_VERSION)" ||
+        { echo "bench/rest.sh: odin-http and Tina need Odin $(pin ODIN_VERSION)"; exit 1; }
+    for dep in odin-http:ODIN_HTTP_COMMIT tina:TINA_COMMIT; do
+        [ "$(git -C "$cache/deps/${dep%%:*}" rev-parse HEAD 2>/dev/null)" = "$(pin "${dep#*:}")" ] ||
+            { echo "bench/rest.sh: $cache/deps/${dep%%:*} isn't at its pin; run bench/build.sh"; exit 1; }
+    done
+    # bench/build.sh's flags for each. Tina's egress buffer is the largest that
+    # compiles (bench/rest/tina/main.odin).
+    "$odin" build "$root/bench/rest/odin-http" -collection:deps="$cache/deps" \
+        -o:speed -disable-assert -no-bounds-check -out:"$bin/rest-odin-http"
+    "$odin" build "$root/bench/rest/tina" -collection:deps="$cache/deps" \
+        -o:speed -define:TINA_ASSERTS=false -define:HTTP_EGRESS_BUFFER_SIZE=63488 \
+        -out:"$bin/rest-tina"
     if [ ! -x "$zrk" ]; then
         curl -sSLf -o "$cache/zrk.tar.gz" \
             "https://github.com/zoxy-io/zrk/releases/download/v$ZRK_VERSION/zrk-$ZRK_VERSION-x86_64-linux.tar.gz"
@@ -93,9 +120,26 @@ out=${OUT:-$root/bench/results/$(date -u +%Y-%m-%dT%H%M)-rest-$machine}
 url=http://127.0.0.1:$port
 hz=$(getconf CLK_TCK)
 
-for b in "$bin/rest" "$bin/rest-hyper" "$zrk"; do
-    [ -x "$b" ] || { echo "bench/rest.sh: no $b; run bench/rest.sh build"; exit 1; }
+# The binary in build/rest that serves server $1.
+binary() {
+    case $1 in
+    goose-uring | goose-epoll) echo rest ;;
+    *) echo "rest-$1" ;;
+    esac
+}
+
+# Why server $1 has no tier D (task 021), or nothing if it has one.
+no_d() {
+    case $1 in
+    may-minihttp) echo "it frames a request body by Content-Length alone, so can't read a chunked one" ;;
+    tina) echo "reading a streamed body's pieces faults (SIGSEGV) after a few bodies in small chunks" ;;
+    esac
+}
+
+for s in $servers; do
+    [ -x "$bin/$(binary "$s")" ] || { echo "bench/rest.sh: no server $s; run bench/rest.sh build"; exit 1; }
 done
+[ -x "$zrk" ] || { echo "bench/rest.sh: no $zrk; run bench/rest.sh build"; exit 1; }
 [ -e "$root/build/bench/wrk-monotonic.so" ] || { echo "bench/rest.sh: run bench/build.sh"; exit 1; }
 ulimit -n 65536
 mkdir -p "$out"
@@ -113,10 +157,18 @@ trap '[ -z "$pid" ] || kill "$pid" 2>/dev/null' EXIT
     echo "goose: $(git -C "$root/../goose" rev-parse --short HEAD)"
     echo "cc: $(${CC:-cc} --version | head -1)"
     echo "rustc: $(rustc --version)"
+    case " $servers " in *" odin-http "* | *" tina "*)
+        echo "odin: $(${ODIN:-odin} version), odin-http $(git -C "$cache/deps/odin-http" rev-parse --short HEAD)," \
+            "tina $(git -C "$cache/deps/tina" rev-parse --short HEAD)"
+    ;; esac
     echo "wrk: $(wrk -v 2>&1 | head -1)"
     echo "zrk: $ZRK_VERSION"
+    echo "servers: $servers"
+    for s in $servers; do
+        [ -z "$(no_d "$s")" ] || echo "tier d skipped for $s: $(no_d "$s")"
+    done
 } >"$out/env.txt"
-(cd "$bin" && sha256sum rest rest-hyper) >"$out/binaries.txt"
+(cd "$bin" && sha256sum $(for s in $servers; do binary "$s"; done | sort -u)) >"$out/binaries.txt"
 
 # Starts server $1 on tier $2 with JSON way $3, and waits until it listens.
 start() {
@@ -125,13 +177,14 @@ start() {
         exit 1
     fi
     case $1 in
-    goose-uring) exe=$bin/rest loop=uring ;;
-    goose-epoll) exe=$bin/rest loop=epoll ;;
-    hyper) exe=$bin/rest-hyper loop= ;;
-    *) echo "bench/rest.sh: no server $1"; exit 1 ;;
+    goose-uring) loop=uring ;;
+    goose-epoll) loop=epoll ;;
+    *) loop= ;;
     esac
+    # Tina logs its crashes as lines like "[FATAL] Shard 0 caught sig=11",
+    # so nothing is filtered out of the log.
     REST_DATA=$data TIER=$2 JSON=$3 WORKERS=$workers LOOP=$loop \
-        taskset -c "$server_cpus" "$exe" "$port" >>"$out/$1.log" 2>&1 &
+        taskset -c "$server_cpus" "$bin/$(binary "$1")" "$port" >>"$out/$1.log" 2>&1 &
     pid=$!
     tries=0
     # Loading tier C's records takes a few seconds.
@@ -148,9 +201,22 @@ ticks() { awk '{print $14 + $15}' "/proc/$pid/stat"; }
 # per second, and its peak RSS in KB into $1.stat.
 stop() {
     echo "$c0 $(ticks) $hz $(awk '/^VmHWM/ {print $2}' "/proc/$pid/status")" >"$1.stat"
+    halt
+}
+
+# Stops the server and waits for its port. odin-http's and Tina's listeners
+# outlive their process by up to 50 ms, while the kernel releases their
+# io_uring rings' files.
+halt() {
     kill $pid
     wait $pid 2>/dev/null || true
     pid=
+    tries=0
+    while nc -z 127.0.0.1 "$port" 2>/dev/null; do
+        tries=$((tries + 1))
+        [ $tries -lt 100 ] || { echo "bench/rest.sh: port $port stays taken"; exit 1; }
+        sleep 0.1
+    done
 }
 
 wrk_() {
@@ -158,20 +224,23 @@ wrk_() {
         wrk --timeout 10s --latency "$@"
 }
 
+# Notes the start of cell $1 in times.txt, which times each step.
+cell() {
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $1" | tee -a "$out/times.txt"
+}
+
 # Each server answers the checker before its runs, on each tier it serves.
 for s in $servers; do
     for t in a b c d; do
         for j in serialize template; do
-            [ "$t" = d ] && [ "$j" = template ] && continue
+            [ "$t" = d ] && { [ "$j" = template ] || [ -n "$(no_d "$s")" ]; } && continue
+            cell "check-$s-$t-$j"
             start "$s" "$t" "$j"
             f=$out/check-$s-$t-$j.txt
             python3 "$root/bench/rest/check.py" "$port" "$data" "$t" >"$f" 2>&1 &&
                 { [ "$t" != d ] || python3 "$root/bench/rest/check.py" "$port" "$data" c >>"$f" 2>&1; } ||
                 { echo "bench/rest.sh: $s fails tier $t ($j):"; tail -3 "$f"; exit 1; }
-            kill $pid
-            wait $pid 2>/dev/null || true
-            pid=
-            echo "check $s $t $j: ok"
+            halt
         done
     done
 done
@@ -182,7 +251,7 @@ for run in $(seq "$runs"); do
     for t in a b c; do
     for j in serialize template; do
         name=$out/sat-$s-$t-$j-r$run
-        echo "${name##*/}"
+        cell "${name##*/}"
         start "$s" "$t" "$j"
         set -- -t "$threads" -c 256 -s "$root/bench/rest/tier-$t.lua" "$url" -- "$data"
         wrk_ -d "$warmup" "$@" >/dev/null
@@ -196,9 +265,10 @@ for run in $(seq "$runs"); do
 
     case " $steps " in *" 2 "*)
     for s in $servers; do
+    [ -z "$(no_d "$s")" ] || continue
     for role in alone both; do
         name=$out/d-$s-$role-r$run
-        echo "${name##*/}"
+        cell "${name##*/}"
         start "$s" d serialize
         set -- -s "$root/bench/rest/tier-d.lua" "$url" -- "$data"
         wrk_ -t 1 -c 32 -d "$warmup" "$@" uploads >/dev/null
@@ -232,7 +302,7 @@ for run in $(seq "$runs"); do
     for t in a b c; do
     for j in serialize template; do
         name=$out/rate-$s-$t-$j-r$run
-        echo "${name##*/}"
+        cell "${name##*/}"
         start "$s" "$t" "$j"
         wrk_ -t "$threads" -c 256 -d "$warmup" -s "$root/bench/rest/tier-$t.lua" "$url" -- "$data" >/dev/null
         eval "r=\$rate_$t"
@@ -247,9 +317,10 @@ for run in $(seq "$runs"); do
 
     case " $steps " in *" 4 "*)
     for s in $servers; do
+    [ -z "$(no_d "$s")" ] || continue
     for role in alone uploads; do
         name=$out/mixed-$s-$role-r$run
-        echo "${name##*/}"
+        cell "${name##*/}"
         start "$s" d serialize
         wrk_ -t "$threads" -c 256 -d "$warmup" -s "$root/bench/rest/tier-c.lua" "$url" -- "$data" >/dev/null
         c0=$(ticks)
@@ -267,5 +338,6 @@ for run in $(seq "$runs"); do
     ;; esac
 done
 
+cell end
 echo "results: $out"
 python3 "$root/bench/rest/summary.py" "$out" | tee "$out/summary.md"

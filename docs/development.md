@@ -395,6 +395,10 @@ What the benchmark has to work around on this machine:
   times on a monotonic clock, summarized by `bench/latency.c` through a FIFO.
 - `mkfifo` fails on `/mnt/c` ("File exists"), so the FIFO goes in a Linux temporary
   directory.
+- A killed io_uring server's listener can outlive its process: odin-http's and Tina's
+  accept connections for up to 50 ms after `wait` returns, while the kernel releases
+  their rings' files (2026-10-13). A script that starts the next server on the same port
+  waits for the port to close, as `bench/rest.sh` does.
 - `bench/run.sh` writes the host name into `env.txt` unless `MACHINE` is set, and
   results name no machines, so a run on WSL sets `MACHINE=wsl2-5800x3d`.
 - The load generator needs more CPU than the server. wrk spends about 1.4 times the
