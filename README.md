@@ -85,7 +85,30 @@ The first build fetches the package into `~/.goose` and compiles the shim. Linux
 liburing (`liburing-dev`), Windows the Visual Studio Build Tools. Setup:
 [docs/development.md](docs/development.md).
 
-More in [examples/](examples/README.md): the router, JSON, and a handler written in C.
+## Concepts
+
+- **Workers.** The program spawns a thread per worker, and each runs a loop with the
+  same handler. Each worker has its own connections, and on Linux its own listener.
+  `thread_spawn` can't take a `thread_fn` passed to a package function
+  ([findings](docs/goose-findings.md#thread_spawn-doesnt-take-a-function-value-bound-to-a-thread_fn)),
+  so the spawning stays in the program. `goose hello.goose` runs in the compiler, which
+  can't reach `thread_spawn`: call `http::serve` from `main` there, for one worker.
+- **Two loops.** `http::serve` is io_uring on Linux, a ring emulated on kqueue on macOS,
+  and IOCP on Windows; `http::serve_epoll` is epoll or kqueue. A program calls one, and
+  only that one is compiled in.
+- **A handler for whole requests**, `{ req, body, out => }`: the parsed head, the body
+  if it fits in the read buffer, and one response of any size.
+- **A handler with state**, `{ ev, st, out => }`, for everything else: the loop calls it
+  for each event of an exchange (the head, each piece of a body, room to send more, a
+  message from another thread, a time limit), with state of the program's own type kept
+  per connection. Bodies and responses of any size, files, upgrades, and answers that
+  wait all go through it.
+- **The request is borrowed.** The head, its fields, and route parameters are slices
+  into the read buffer, valid until the handler returns; the router allocates nothing.
+- **`http::Config`** holds the address, limits, timeouts, and buffer sizes, all with
+  defaults. `http::stop()` or `http::stop_on_signals()` ends the loops gracefully.
+
+The API by topic, with the examples that show it: [examples/](examples/README.md).
 
 ## Benchmarks
 
@@ -152,23 +175,23 @@ responses computed per request from records loaded at startup, which
 `bench/rest/check.py` verifies before each run. Same machine, `bench/rest.sh`,
 2026-10-13, Goose at `23aa531`. 4 workers on CPUs 0-3, the load on 4-15. Median of 3
 runs of 15 s. Bold is the column's best. Rows go by each server's average rank over the
-columns, a gap counted as last and a p99 by its highest.
+columns, a gap counted as last and a p99 or peak RSS by its highest.
 
 - **A**: HttpArena's `production-stack` API, items of 0.2 KB.
 - **B**: a time tracker's hot path, 0.3-13 KB of JSON.
 - **C**: a clinic's schedule and records, up to 728 KB.
 - **Uploads**: chunked CSVs of 2-8 MB and multipart files up to 1 MB, read as they arrive.
 
-| Server | A | B | C | C, templates | Uploads | Reads beside uploads, p99 |
-|---|---:|---:|---:|---:|---:|---:|
-| **Goose io_uring** | **585 K/s** | **268 K/s** | 51.8 K/s | **144 K/s** | **1,152/s** | 7.8-11 ms |
-| **Goose epoll** | 456 K/s | 222 K/s | **51.9 K/s** | 140 K/s | 1,147/s | **1.4-2.5 ms** |
-| xitca-web 0.8 (Rust) | 404 K/s | 233 K/s | 37.9 K/s | 110 K/s | 1,029/s | 1.7-13 ms |
-| hyper 1.12 (Rust) | 274 K/s | 150 K/s | 32.0 K/s | 119 K/s | 1,110/s | 18-19 ms |
-| tokio 1.52 (Rust) | 394 K/s | 183 K/s | 31.7 K/s | 101 K/s | 1,047/s | 5.0-7.4 s, behind |
-| may-minihttp 0.1 (Rust) | 383 K/s | 186 K/s | 32.3 K/s | 100 K/s | no chunked bodies | no chunked bodies |
-| Tina (Odin) | 312 K/s | 52.2 K/s | 3.4 K/s | 99.8 K/s | faults | faults |
-| odin-http (Odin) | 210 K/s | 47.4 K/s | 3.4 K/s | 38.3 K/s | 706/s | 12-13 s, behind |
+| Server | A | B | C | C, templates | Uploads | Reads beside uploads, p99 | Peak RSS, A-C |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **Goose io_uring** | **585 K/s** | **268 K/s** | 51.8 K/s | **144 K/s** | **1,152/s** | 7.8-11 ms | 33-387 MB |
+| **Goose epoll** | 456 K/s | 222 K/s | **51.9 K/s** | 140 K/s | 1,147/s | **1.4-2.5 ms** | 26-376 MB |
+| xitca-web 0.8 (Rust) | 404 K/s | 233 K/s | 37.9 K/s | 110 K/s | 1,029/s | 1.7-13 ms | 32-505 MB |
+| hyper 1.12 (Rust) | 274 K/s | 150 K/s | 32.0 K/s | 119 K/s | 1,110/s | 18-19 ms | **13-75 MB** |
+| tokio 1.52 (Rust) | 394 K/s | 183 K/s | 31.7 K/s | 101 K/s | 1,047/s | 5.0-7.4 s, behind | 16-368 MB |
+| may-minihttp 0.1 (Rust) | 383 K/s | 186 K/s | 32.3 K/s | 100 K/s | no chunked bodies | no chunked bodies | 45-490 MB |
+| odin-http (Odin) | 210 K/s | 47.4 K/s | 3.4 K/s | 38.3 K/s | 706/s | 12-13 s, behind | 11-476 MB |
+| Tina (Odin) | 312 K/s | 52.2 K/s | 3.4 K/s | 99.8 K/s | faults | faults | 482-672 MB |
 
 - A to C write the JSON per request with each language's usual library; "C, templates"
   splices per-request values into prebuilt bytes.
@@ -180,246 +203,10 @@ columns, a gap counted as last and a p99 by its highest.
   neither runs uploads.
 - The Odin servers' JSON library limits them on B and C: 1.2 ms of CPU per tier C
   request.
+- Each Goose worker loads its own copy of the records; hyper's threads share one.
 
 CPU per request at a fixed rate, memory, and every route's latency:
 [docs/results.md](docs/results.md#rest-apis).
-
-## API
-
-### Handler
-
-- **`req`**: the parsed head, `http::Request`. Slices into the read buffer, valid until
-  the handler returns.
-  - `http::field_of(req, name)`: a field's value, and whether it's there. Name is
-    case-insensitive.
-  - `http::each_field(req) { name, value => }`: all fields, repeats included.
-  - `http::authority(req)`: the host and port, from an absolute-form target before
-    `Host` (RFC 9112 §3.2.2).
-  - `http::path_of(req.target)`, `http::query_of(req.target, key)`,
-    `http::each_query(req.target) { key, value => }`: still percent-encoded.
-  - `http::decode(s, out)`: decodes one. With `plus` set, `+` is a space.
-  - A target with a bad `%` escape gets 400.
-- **`body`**: the whole body, if it fits in the read buffer with the head. Chunked is
-  decoded. A longer body is dropped and `body` is empty; see
-  [Streaming](#streaming).
-- **`out`**: an `http::Reply`. One whole response, any size.
-  - `http::respond(out, status, content_type, body)`, or
-  - `http::start(out, status)`, `http::field(out, name, value)`,
-    `http::finish(out, fields, body)`.
-  - `http::field` drops a field with CR, LF, or an invalid name, so request data can't
-    split the response; `http::is_field(name, value)` checks one first. `finish`'s
-    `fields` are written as they are, for constant text.
-  - Clear `out.keep_alive` before `start` to close after the response.
-
-A handler passed by name, `http::serve(cfg, route)`, should be an `inline fn`, as in
-`server/routes.goose`. As a call, it keeps `http::start` from folding a constant status:
-about 190 instructions per request in the benchmark server.
-
-The program spawns its own workers. `thread_spawn` can't take a `thread_fn` passed to a
-package function
-([findings](docs/goose-findings.md#thread_spawn-doesnt-take-a-function-value-bound-to-a-thread_fn)).
-`goose hello.goose` runs in the compiler, which can't reach `thread_spawn`: call
-`http::serve` from `main` there, for one worker.
-
-### Config and shutdown
-
-`http::Config`: address, port, workers, limits, timeouts, buffer sizes. All have
-defaults.
-
-`Config.address` is where to listen: empty for every IPv4 address (127.0.0.1 on
-Windows), an IPv4 or IPv6 address, `"::"` for every address, IPv4 too unless
-`Config.ipv6_only`, or `"unix:/run/app.sock"` for a Unix socket on Linux and macOS,
-whose path fits in 104 bytes on macOS and 108 on Linux. The server removes a socket file
-left at the path before it binds, and its own when it stops.
-
-A loop returns:
-
-- when a call fails, with an `http::Error`. `http::report` prints it to stderr.
-- after `http::stop()`, with error code 0. The listener and idle connections close.
-  Each other connection gets `Connection: close` on its next response. The loop returns
-  when they close, or after `Config.grace_ms`.
-
-`http::stop_on_signals()` makes `SIGTERM` and `SIGINT` stop the loops.
-
-### Routes
-
-```goose
-var r = http::router(req);
-if http::on(r, "GET", "/users/:id") { show(http::param(r, "id"), out); }
-else if http::on(r, "PUT", "/users/:id") { update(http::param(r, "id"), body, out); }
-else if http::on(r, "GET", "/files/*path") { file(http::param(r, "path"), out); }
-else { http::otherwise(r, out); }
-```
-
-- `:name` matches one segment, `*name` the rest of the path, last only.
-- A `GET` route takes `HEAD` too.
-- A literal segment matches an escape of an unreserved character (`/%75sers` is
-  `/users`); an escaped `/` doesn't split a segment.
-- A path with a `.` or `..` segment, escaped or not, or an escaped control byte, matches
-  no route: a handler that checks access by a path's prefix can't be walked around.
-- `http::otherwise`: 501 for a method the server doesn't know, 400 for a path the
-  router refused, 204 for `OPTIONS *`, 405 with `Allow` from the routes whose path
-  matched, 204 with it for `OPTIONS`, else 404.
-- Parameters are slices of the target, still encoded, valid until the handler returns.
-  Nothing allocates.
-
-### Conditional requests and ranges
-
-- `http::not_modified(req, etag, modified)`: whether a `GET` gets 304. `If-None-Match`
-  first, else `If-Modified-Since`.
-- `http::range_of(req, size, etag)`: the one byte range asked for, with 206, 416, or
-  200 for the whole (for example when `If-Range` names another entity tag).
-- `http::content_range(out, start, end, size)`: writes `Content-Range`.
-
-### Streaming
-
-Each loop also takes a handler it calls again for each part of an exchange. `st` is
-state of the program's own type, reset to `fresh` per request, kept in the connection's
-slot.
-
-```goose
-struct Upload { bytes: i64 = 0 }
-
-thread_fn worker(cfg: http::Config) {
-    let e = http::serve(cfg, Upload { .. }) { ev, st, out =>
-        if ev.kind == http::REQUEST && !ev.whole {
-            // The body comes in BODY pieces; answer at END.
-        } else if ev.kind == http::REQUEST || ev.kind == http::END {
-            st.bytes += ev.data.len;
-            var text: u8[..24] = [];
-            format(text, st.bytes);
-            http::respond(out, 200, "text/plain", text);
-        } else if ev.kind == http::BODY {
-            st.bytes += ev.data.len;
-        }
-    };
-    http::report(e);
-}
-```
-
-| Event | When |
-|---|---|
-| `REQUEST` | Head parsed, in `ev.req`. With `ev.whole`, the body is in `ev.data`, as it always is when it fits in the read buffer with the head. |
-| `BODY` | A piece of a longer body, decoded if chunked, up to `Config.max_body`. |
-| `END` | The body is complete. Request trailers are in `ev.trailers`, here or at a whole body's `REQUEST`; `http::field_in` finds one. |
-| `MORE` | A response is open, the body has ended, and the connection has room to send. |
-| `CLOSED` | The connection closed while the handler was owed a call. Release what `st` holds. |
-| `WAKE` | A message came to the address `later` returned: its bytes in `ev.data`, its tag in `ev.tag`. ([Answers that wait](#answers-that-wait)) |
-| `TIMEOUT` | `later`'s time limit passed first, or there was no room to wait. |
-| `DONE` | With `Config.log`, the response is whole: `ev.status`, `ev.sent` bytes, and `ev.ms` from the head's first byte, for an access log. `ev.req` is the request only when it was answered at `REQUEST`. |
-
-- `http::begin(out, status, length)` opens a response: `Content-Length`, or chunked
-  for -1. HTTP/1.0 then closes at the end.
-- `http::send(out, bytes)` writes a piece. `http::end(out)` ends it;
-  `http::end(out, trailers)` adds trailer fields to a chunked one.
-- A response before the body has arrived drops the rest, up to `Config.max_drain`,
-  then closes.
-- `Expect: 100-continue` gets `100 Continue` unless the handler answers at `REQUEST`.
-- `http::upgrade_of(req)`: the protocol asked for, such as `websocket`.
-  `http::upgrade(out, protocol)` answers 101. After that, bytes come as `BODY`,
-  `http::send` writes them raw, and `http::end` closes.
-
-### Files
-
-- `http::open_file(path)`: opens a regular file, or 404 or 403.
-- `http::open_precompressed(req, path)`: the same, or in its place `path.br`,
-  `path.zst`, or `path.gz`, whichever the request's `Accept-Encoding` weighs highest,
-  and not older than `path`. `serve_file` then adds `Content-Encoding`, `Vary`, and an
-  `ETag` of the copy's own. Responses aren't compressed on the fly yet: task 022 adds
-  gzip and deflate through [goose-compress](https://github.com/kaitk/goose-compress).
-- `http::serve_file(req, out, f, http::content_type_of(path), st.file)`: answers `GET`
-  or `HEAD` with 200, 206, 304, or 416, with `ETag`, `Last-Modified`, and
-  `Accept-Ranges`.
-- `http::send_file(out, st.file)` at each `MORE` until false, then `http::end(out)`.
-  With a `Content-Length` of 64 KB or more, it hands the file to the loop, which sends it without copying
-  it through the program: `sendfile` on the epoll loop and the emulated ring, splice
-  through a pipe on io_uring, and `TransmitFile` on IOCP. Client editions of Windows run
-  two `TransmitFile` calls at a time across the system, so many downloads at once may
-  queue there. A smaller file, which one read and a send serve faster, and a chunked
-  response read up to 64 KB with `pread` per call.
-- `http::close_body(st.file)` at `CLOSED`.
-- `http::is_safe_path(path)`: rejects `.` and `..` segments, backslashes, and colons.
-  Check the decoded path before joining it to a directory.
-
-The benchmark server serves the directory in `FILES` at `/files/`.
-
-### Helpers for APIs
-
-- Media types: `http::require_type(req, out, "application/json")` answers 415 for
-  another `Content-Type`; `http::accept_or_406(req, out, ["application/json",
-  "text/csv"])` picks an offer by `Accept`, or answers 406. `http::media_type` and
-  `http::param_of` parse a type and its parameters.
-- Cookies: `http::cookie_of(req, name)`, `http::each_cookie(req) { name, value => }`,
-  and `http::set_cookie(out, http::Cookie { name: "sid", value: id, max_age: 3600,
-  http_only: true, same_site: "Lax", .. })`.
-- `http::authorization(req)`: the scheme and credentials. `http::basic_auth(req,
-  decoded)`: the user and password. `http::challenge(out, "Basic realm=\"api\"")`:
-  401.
-- Forms: `http::form_value(body, key, out)` and `http::each_form(body) { key, value =>
-  }`. Multipart: `http::start_multipart(req, st.parts)` at `REQUEST`, then
-  `http::each_part(st.parts, ev.data) { kind, data => }` for each piece of the body, with
-  `http::disposition` for a part's name and filename.
-- `http::respond_json(out, status) { b => json::format_key(b, "id"); ... }`.
-- `Config.max_requests` caps a connection's requests. `http::body_within(st.taken, ev,
-  out, limit)` at `REQUEST` and each `BODY` answers 413 past a route's own limit.
-- `http::peer(out)`: the connection's address and port. `http::client(req, out,
-  trusted)`: the client a trusted proxy forwarded for, from `Forwarded` or
-  `X-Forwarded-For`, with `trusted` from `http::network("10.0.0.0/8")`.
-  `http::format_address(text, a)` writes one.
-
-### Answers that wait
-
-A handler given state can hand a request to another thread, or wait for a timer, and
-answer later without blocking its worker. `Config.mail_slots` and `Config.max_waiting`
-turn it on; both are 0 by default, and then a loop opens no box and arms no timer.
-
-```goose
-// At REQUEST: the reply's address, with a time limit the handler must give.
-let reply = http::later(out, 5000);
-guard http::mail_send(worker, JOB, job_for(reply)) == http::SENT
-else { http::respond(out, 503, "text/plain", "busy"); return; }
-
-// At WAKE: ev.data and ev.tag are what the worker sent to reply.
-// At TIMEOUT: the limit passed first; answer 504.
-```
-
-- `http::later(out, ms)` makes the exchange wait for a message to the address it
-  returns, then calls the handler with `WAKE` or `TIMEOUT`. After `begin`, or at
-  `MORE`, it pauses an open response, for Server-Sent Events and long polling. A call
-  that writes a whole response doesn't wait.
-- Requests pipelined behind a waiting exchange wait in the read buffer, and reading
-  stops once it's full.
-- A message to an exchange that has ended, or to a connection that closed, is
-  dropped. At stop, a waiting exchange gets `Config.grace_ms`, then `CLOSED`.
-- A worker thread owns a box: `http::mail_open(slots, size)`, `http::mail_wait(box,
-  ms)`, `http::mail_take(box) { key, tag, bytes => }`. `http::mail_send(address, tag,
-  bytes)` returns `SENT`, `FULL`, or `STALE` at once, from any thread, and never blocks.
-- `http::timer_table(n)`, `http::arm`, `http::cancel`, and `http::expire` are the
-  loops' timers, for a worker's own.
-
-The benchmark server's `/later` and `/events` (`server/routes.goose`) wait for a worker
-thread with a box and a timer table of its own (`server/backend.goose`), with
-`MAIL_SLOTS` set.
-
-### Event loops
-
-The program calls one. Goose compiles a generic function only where it's called, so the
-other isn't in the binary.
-
-| Loop | Linux | macOS | Windows |
-|---|---|---|---|
-| `http::serve` | io_uring, kernel 6.1+ | ring emulated on kqueue | IOCP |
-| `http::serve_epoll` | epoll | kqueue | `ENOSYS` |
-
-- `http::serve` is the default. On Linux 12-22% faster than epoll, at 2-5 times the
-  peak RSS, 10-16 MB with 4 workers. Where
-  `io_uring_setup` fails, as under Docker's default seccomp profile, it emulates the
-  ring on epoll; `http::ring_probe()` says why.
-- `http::serve_epoll` is faster on macOS, and on Linux uses a quarter of the memory.
-  The plaintext and JSON numbers above are this loop.
-
-The benchmark server links both. `LOOP` picks: `uring` (`iocp` on Windows), `epoll`,
-or `uring-epoll`. See [architecture](docs/architecture/README.md#the-io_uring-loop-task-005).
 
 ## What isn't Goose, and why
 
@@ -503,7 +290,7 @@ http.goose     the package's entry: settings, errors, what both loops share
 http.build     the package's sidecar: each platform's shim
 shim/          C for syscalls: sockets, epoll, io_uring, kqueue, IOCP, and mailboxes
 server/        the benchmark server, importing the package from "../"
-examples/      small servers, one with its handler in C
+examples/      small servers, and the API by topic (examples/README.md)
 test/          unit tests
 bench/         competing servers, load scripts, recorded results
 scripts/       build and run scripts
