@@ -46,22 +46,48 @@ import os;
 import json;
 import http from "../../../";
 
+// A record's string, text[at..at + len]. A string many records share, such
+// as a status, is a word instead: a u8 naming one of words, of which 0, a
+// word field's default, is the empty string.
+struct Str { at: u32, len: u32 }
+
+// Loaded by the loader before it starts the workers, each of which copies
+// them.
+var text: u8[>..];
+var words: Str[>..];
+
+fn keep(s: const u8[:]) -> Str {
+    let at = text.len;
+    guard at + s.len <= 4294967295 else { abort("more than 4 GB of strings"); }
+    text.append(s);
+    return Str { at: at as u32, len: s.len as u32 };
+}
+
+fn view(s: Str) -> const u8[:] { text[s.at..s.at + s.len] }
+
+fn intern(s: const u8[:]) -> u8 {
+    for w, i in words { if view(w) == s { return i as u8; } }
+    guard words.len < 256 else { abort("more than 256 distinct words"); }
+    words.push(keep(s));
+    return (words.len - 1) as u8;
+}
+
+fn word(w: u8) -> const u8[:] { view(words[w]) }
+
 struct Item {
     id: i64,
-    name: u8[..48],
-    category: u8[..24],
+    name: Str,
+    category: u8,
     price: i64,
     quantity: i64,
     active: bool,
-    tags: u8[..24][..4],
+    tags: u8[..4],
     score: i64,
     count: i64,
 }
 
-struct User { id: i64, name: u8[..48], email: u8[..48], plan: u8[..16] }
+struct User { id: i64, name: Str, email: Str, plan: u8 }
 
-// Loaded by the loader before it starts the workers, each of which copies
-// them.
 var items: Item[>..];
 var users: User[>..];
 var template: bool;
@@ -72,9 +98,9 @@ var item_at: i64[>..];
 var user_json: u8[>..];
 var user_at: i64[>..];
 
-fn load(dir: const u8[:], name: const u8[:], text: u8[>..]&) {
+fn load(dir: const u8[:], name: const u8[:], file: u8[>..]&) {
     let path = str(dir, "/", name);
-    guard read_file(path, text) else { abort(str("can't read ", path, "; run bench/rest/gen.goose")); }
+    guard read_file(path, file) else { abort(str("can't read ", path, "; run bench/rest/gen.goose")); }
 }
 
 // The string at r's cursor, at most cap bytes, which a field of that capacity
@@ -86,25 +112,36 @@ fn string_of(r: json::Reader&, scratch: u8[>..]&, cap: i64) -> const u8[:] {
     return s;
 }
 
+// The string at r's cursor, kept in text.
+fn kept(r: json::Reader&, scratch: u8[>..]&) -> Str {
+    scratch.clear();
+    return keep(json::read_string(r, scratch));
+}
+
+// The string at r's cursor as a word.
+fn word_at(r: json::Reader&, scratch: u8[>..]&) -> u8 {
+    scratch.clear();
+    return intern(json::read_string(r, scratch));
+}
+
 fn load_items(dir: const u8[:]) {
-    var text: u8[>..] = [];
-    load(dir, "arena-items.json", text);
+    var file: u8[>..] = [];
+    load(dir, "arena-items.json", file);
     var scratch: u8[>..] = [];
-    var r = json::reader(text);
+    var r = json::reader(file);
     json::each_element(r) {
         var it = Item { .. };
         json::each_member(r) { key =>
             if key == "id" { it.id = json::read_int(r); }
-            else if key == "name" { it.name.append(string_of(r, scratch, it.name.cap)); }
-            else if key == "category" { it.category.append(string_of(r, scratch, it.category.cap)); }
+            else if key == "name" { it.name = kept(r, scratch); }
+            else if key == "category" { it.category = word_at(r, scratch); }
             else if key == "price" { it.price = json::read_int(r); }
             else if key == "quantity" { it.quantity = json::read_int(r); }
             else if key == "active" { it.active = json::read_bool(r); }
             else if key == "tags" {
                 json::each_element(r) {
                     guard it.tags.len < it.tags.cap else { abort("more than 4 tags"); }
-                    let t .= it.tags.push("");
-                    t.append(string_of(r, scratch, t.cap));
+                    it.tags.push(word_at(r, scratch));
                 };
             } else if key == "rating" {
                 json::each_member(r) { k =>
@@ -121,17 +158,17 @@ fn load_items(dir: const u8[:]) {
 }
 
 fn load_users(dir: const u8[:]) {
-    var text: u8[>..] = [];
-    load(dir, "arena-users.json", text);
+    var file: u8[>..] = [];
+    load(dir, "arena-users.json", file);
     var scratch: u8[>..] = [];
-    var r = json::reader(text);
+    var r = json::reader(file);
     json::each_element(r) {
         var u = User { .. };
         json::each_member(r) { key =>
             if key == "id" { u.id = json::read_int(r); }
-            else if key == "name" { u.name.append(string_of(r, scratch, u.name.cap)); }
-            else if key == "email" { u.email.append(string_of(r, scratch, u.email.cap)); }
-            else if key == "plan" { u.plan.append(string_of(r, scratch, u.plan.cap)); }
+            else if key == "name" { u.name = kept(r, scratch); }
+            else if key == "email" { u.email = kept(r, scratch); }
+            else if key == "plan" { u.plan = word_at(r, scratch); }
             else { json::skip(r); }
         };
         guard u.id == users.len + 1 else { abort("arena-users.json's ids aren't 1, 2, ..."); }
@@ -145,9 +182,9 @@ fn item_open(out: u8[>..]&, it: Item) {
     out.append("{\"id\":");
     format(out, it.id);
     out.append(",\"name\":");
-    json::format_string(out, it.name);
+    json::format_string(out, view(it.name));
     out.append(",\"category\":");
-    json::format_string(out, it.category);
+    json::format_string(out, word(it.category));
     out.append(",\"price\":");
     format(out, it.price);
     out.append(",\"quantity\":");
@@ -155,7 +192,7 @@ fn item_open(out: u8[>..]&, it: Item) {
     out.append(if it.active { ",\"active\":true,\"tags\":[" } else { ",\"active\":false,\"tags\":[" });
     for t, i in it.tags {
         if i > 0 { out.push(','); }
-        json::format_string(out, t);
+        json::format_string(out, word(t));
     }
     out.append("],\"rating\":{\"score\":");
     format(out, it.score);
@@ -168,11 +205,11 @@ fn user_open(out: u8[>..]&, u: User) {
     out.append("{\"id\":");
     format(out, u.id);
     out.append(",\"name\":");
-    json::format_string(out, u.name);
+    json::format_string(out, view(u.name));
     out.append(",\"email\":");
-    json::format_string(out, u.email);
+    json::format_string(out, view(u.email));
     out.append(",\"plan\":");
-    json::format_string(out, u.plan);
+    json::format_string(out, word(u.plan));
 }
 
 fn prebuild() {
@@ -187,6 +224,10 @@ fn prebuild() {
     }
     user_at.push(user_json.len);
 }
+
+fn item_count() -> i64 { if template { item_at.len - 1 } else { items.len } }
+
+fn user_count() -> i64 { if template { user_at.len - 1 } else { users.len } }
 
 // The record's JSON, and servedAt, the time in seconds, into body.
 fn served(body: u8[>..]&) {
@@ -227,52 +268,54 @@ fn session_cookie() -> const u8[:] { "__Secure-better-auth.session_token" }
 let DAY: i64 = 86400000;
 let MINUTE: i64 = 60000;
 
-struct Org { id: u8[..36], name: u8[..16], slug: u8[..16], links: u8[..64], first: i64, count: i64 }
+// A nullable string is empty for null.
+struct Org { id: u8[..36], name: Str, slug: Str, links: Str, first: i64, count: i64 }
 
 struct Project {
     id: u8[..36],
-    name: u8[..48],
-    color: u8[..7],         // empty for null
+    name: Str,
+    color: u8,              // a word, empty for null
     archived: i64,          // ms, -1 for null
     has_entries: bool,
     teams: u8[..36][..2],
 }
 
-struct Member { org: i64, role: u8[..6] }
+struct Member { org: i64, role: u8 }
 
+// Each string a word, empty for null.
 struct Settings {
-    time_zone: u8[..32],
-    week_start: u8[..3],
-    locale: u8[..2],
-    theme: u8[..6],
-    timer_layout: u8[..5],
+    time_zone: u8,
+    week_start: u8,
+    locale: u8,
+    theme: u8,
+    timer_layout: u8,
     show_summary: bool,
     compact_rows: bool,
     wide_timer: bool,
-    timer_view: u8[..8],
+    timer_view: u8,
     calendar_weekend: bool,
-    app_icon: u8[..8],
-    scene_collection: u8[..16],
-    scene_pin: u8[..16],    // empty for null
+    app_icon: u8,
+    scene_collection: u8,
+    scene_pin: u8,
     scene_background: bool,
-    scene_strength: u8[..6],
-    surfaces: u8[..5],
+    scene_strength: u8,
+    surfaces: u8,
     scene_weather: bool,
     scene_intro: bool,
     scene_tagline: bool,
-    duration_format: u8[..5],
-    date_format: u8[..3],
-    time_format: u8[..3],
-    copy_pattern: u8[..16],
-    copy_control: u8[..6],
-    country: u8[..2],       // empty for null
+    duration_format: u8,
+    date_format: u8,
+    time_format: u8,
+    copy_pattern: u8,
+    copy_control: u8,
+    country: u8,
 }
 
 struct Fill {
-    date: u8[..10],
+    date: u8,               // a word
     timer_started: i64,     // -1 for null
-    today: u8[..6],
-    last_day: u8[..10],     // empty for null
+    today: u8,              // a word
+    last_day: u8,           // a word, empty for null
     last_day_filled: bool,
     last_week: i64,         // 0, 1, or -1 for null
     last_month: i64,
@@ -283,9 +326,9 @@ struct Fill {
 
 struct Person {
     id: u8[..36],
-    name: u8[..48],
-    email: u8[..48],
-    image: u8[..96],        // empty for null
+    name: Str,
+    email: Str,
+    image: Str,
     token: u8[..64],
     signed_in: i64,
     orgs: Member[..6],      // as the session lists them
@@ -300,11 +343,11 @@ struct Person {
 
 struct Entry {
     id: u8[..36],
-    user: i64,
-    org: i64,
-    project: i64,           // -1 for null
-    description: u8[..96],
-    ticket: u8[..16],       // empty for null
+    user: i32,
+    org: i32,
+    project: i32,           // -1 for null
+    description: Str,
+    ticket: Str,            // empty for null
     started: i64,
     stopped: i64,           // -1 for null
 }
@@ -466,6 +509,16 @@ fn read_nullable(r: json::Reader&, scratch: u8[>..]&, cap: i64) -> const u8[:] {
     return string_of(r, scratch, cap);
 }
 
+fn kept_nullable(r: json::Reader&, scratch: u8[>..]&) -> Str {
+    if json::peek(r) == 'n' { json::skip(r); return Str { at: 0, len: 0 }; }
+    return kept(r, scratch);
+}
+
+fn word_nullable(r: json::Reader&, scratch: u8[>..]&) -> u8 {
+    if json::peek(r) == 'n' { json::skip(r); return 0; }
+    return word_at(r, scratch);
+}
+
 fn read_time(r: json::Reader&, scratch: u8[>..]&) -> i64 {
     if json::peek(r) == 'n' { json::skip(r); return -1; }
     let v, ok = parse_iso(string_of(r, scratch, 24));
@@ -500,25 +553,25 @@ fn entry_index(id: const u8[:]) -> i64 {
 }
 
 fn load_orgs(dir: const u8[:]) {
-    var text: u8[>..] = [];
-    load(dir, "snow-orgs.json", text);
+    var file: u8[>..] = [];
+    load(dir, "snow-orgs.json", file);
     var scratch: u8[>..] = [];
-    var r = json::reader(text);
+    var r = json::reader(file);
     json::each_element(r) {
         var o = Org { .. };
         json::each_member(r) { key =>
             if key == "id" { o.id.append(string_of(r, scratch, o.id.cap)); }
-            else if key == "name" { o.name.append(string_of(r, scratch, o.name.cap)); }
-            else if key == "slug" { o.slug.append(string_of(r, scratch, o.slug.cap)); }
-            else if key == "issueLinks" { o.links.append(read_nullable(r, scratch, o.links.cap)); }
+            else if key == "name" { o.name = kept(r, scratch); }
+            else if key == "slug" { o.slug = kept(r, scratch); }
+            else if key == "issueLinks" { o.links = kept_nullable(r, scratch); }
             else if key == "projects" {
                 o.first = projects.len;
                 json::each_element(r) {
                     var p = Project { archived: -1, .. };
                     json::each_member(r) { k =>
                         if k == "id" { p.id.append(string_of(r, scratch, p.id.cap)); }
-                        else if k == "name" { p.name.append(string_of(r, scratch, p.name.cap)); }
-                        else if k == "color" { p.color.append(read_nullable(r, scratch, p.color.cap)); }
+                        else if k == "name" { p.name = kept(r, scratch); }
+                        else if k == "color" { p.color = word_nullable(r, scratch); }
                         else if k == "archivedAt" { p.archived = read_time(r, scratch); }
                         else if k == "hasEntries" { p.has_entries = json::read_bool(r); }
                         else if k == "teamIds" {
@@ -541,46 +594,46 @@ fn load_orgs(dir: const u8[:]) {
 
 fn load_settings(r: json::Reader&, scratch: u8[>..]&, s: Settings&) {
     json::each_member(r) { k =>
-        if k == "timeZone" { s.time_zone.append(string_of(r, scratch, s.time_zone.cap)); }
-        else if k == "weekStart" { s.week_start.append(string_of(r, scratch, s.week_start.cap)); }
-        else if k == "locale" { s.locale.append(string_of(r, scratch, s.locale.cap)); }
-        else if k == "theme" { s.theme.append(string_of(r, scratch, s.theme.cap)); }
-        else if k == "timerLayout" { s.timer_layout.append(string_of(r, scratch, s.timer_layout.cap)); }
+        if k == "timeZone" { s.time_zone = word_at(r, scratch); }
+        else if k == "weekStart" { s.week_start = word_at(r, scratch); }
+        else if k == "locale" { s.locale = word_at(r, scratch); }
+        else if k == "theme" { s.theme = word_at(r, scratch); }
+        else if k == "timerLayout" { s.timer_layout = word_at(r, scratch); }
         else if k == "showSummary" { s.show_summary = json::read_bool(r); }
         else if k == "compactRows" { s.compact_rows = json::read_bool(r); }
         else if k == "wideTimer" { s.wide_timer = json::read_bool(r); }
-        else if k == "timerView" { s.timer_view.append(string_of(r, scratch, s.timer_view.cap)); }
+        else if k == "timerView" { s.timer_view = word_at(r, scratch); }
         else if k == "calendarWeekend" { s.calendar_weekend = json::read_bool(r); }
-        else if k == "appIcon" { s.app_icon.append(string_of(r, scratch, s.app_icon.cap)); }
-        else if k == "sceneCollection" { s.scene_collection.append(string_of(r, scratch, s.scene_collection.cap)); }
-        else if k == "scenePin" { s.scene_pin.append(read_nullable(r, scratch, s.scene_pin.cap)); }
+        else if k == "appIcon" { s.app_icon = word_at(r, scratch); }
+        else if k == "sceneCollection" { s.scene_collection = word_at(r, scratch); }
+        else if k == "scenePin" { s.scene_pin = word_nullable(r, scratch); }
         else if k == "sceneBackground" { s.scene_background = json::read_bool(r); }
-        else if k == "sceneStrength" { s.scene_strength.append(string_of(r, scratch, s.scene_strength.cap)); }
-        else if k == "surfaces" { s.surfaces.append(string_of(r, scratch, s.surfaces.cap)); }
+        else if k == "sceneStrength" { s.scene_strength = word_at(r, scratch); }
+        else if k == "surfaces" { s.surfaces = word_at(r, scratch); }
         else if k == "sceneWeather" { s.scene_weather = json::read_bool(r); }
         else if k == "sceneIntro" { s.scene_intro = json::read_bool(r); }
         else if k == "sceneTagline" { s.scene_tagline = json::read_bool(r); }
-        else if k == "durationFormat" { s.duration_format.append(string_of(r, scratch, s.duration_format.cap)); }
-        else if k == "dateFormat" { s.date_format.append(string_of(r, scratch, s.date_format.cap)); }
-        else if k == "timeFormat" { s.time_format.append(string_of(r, scratch, s.time_format.cap)); }
-        else if k == "copyDurationPattern" { s.copy_pattern.append(string_of(r, scratch, s.copy_pattern.cap)); }
-        else if k == "copyDurationControl" { s.copy_control.append(string_of(r, scratch, s.copy_control.cap)); }
-        else if k == "country" { s.country.append(read_nullable(r, scratch, s.country.cap)); }
+        else if k == "durationFormat" { s.duration_format = word_at(r, scratch); }
+        else if k == "dateFormat" { s.date_format = word_at(r, scratch); }
+        else if k == "timeFormat" { s.time_format = word_at(r, scratch); }
+        else if k == "copyDurationPattern" { s.copy_pattern = word_at(r, scratch); }
+        else if k == "copyDurationControl" { s.copy_control = word_at(r, scratch); }
+        else if k == "country" { s.country = word_nullable(r, scratch); }
         else { json::skip(r); }
     };
 }
 
 fn load_fill(r: json::Reader&, scratch: u8[>..]&, f: Fill&) {
     json::each_member(r) { k =>
-        if k == "date" { f.date.append(string_of(r, scratch, f.date.cap)); }
+        if k == "date" { f.date = word_at(r, scratch); }
         else if k == "timerStartedAt" {
             f.timer_started = if json::peek(r) == 'n' { json::skip(r); -1 } else { json::read_int(r) };
-        } else if k == "today" { f.today.append(string_of(r, scratch, f.today.cap)); }
+        } else if k == "today" { f.today = word_at(r, scratch); }
         else if k == "lastWorkingDay" {
             if json::peek(r) == 'n' { json::skip(r); }
             else {
                 json::each_member(r) { kk =>
-                    if kk == "date" { f.last_day.append(string_of(r, scratch, f.last_day.cap)); }
+                    if kk == "date" { f.last_day = word_at(r, scratch); }
                     else if kk == "filled" { f.last_day_filled = json::read_bool(r); }
                     else { json::skip(r); }
                 };
@@ -595,17 +648,17 @@ fn load_fill(r: json::Reader&, scratch: u8[>..]&, f: Fill&) {
 }
 
 fn load_people(dir: const u8[:]) {
-    var text: u8[>..] = [];
-    load(dir, "snow-users.json", text);
+    var file: u8[>..] = [];
+    load(dir, "snow-users.json", file);
     var scratch: u8[>..] = [];
-    var r = json::reader(text);
+    var r = json::reader(file);
     json::each_element(r) {
         var p = Person { active: -1, running: -1, .. };
         json::each_member(r) { key =>
             if key == "id" { p.id.append(string_of(r, scratch, p.id.cap)); }
-            else if key == "name" { p.name.append(string_of(r, scratch, p.name.cap)); }
-            else if key == "email" { p.email.append(string_of(r, scratch, p.email.cap)); }
-            else if key == "image" { p.image.append(read_nullable(r, scratch, p.image.cap)); }
+            else if key == "name" { p.name = kept(r, scratch); }
+            else if key == "email" { p.email = kept(r, scratch); }
+            else if key == "image" { p.image = kept_nullable(r, scratch); }
             else if key == "token" { p.token.append(string_of(r, scratch, p.token.cap)); }
             else if key == "signedInAt" { p.signed_in = read_time(r, scratch); }
             else if key == "organizations" {
@@ -614,7 +667,7 @@ fn load_people(dir: const u8[:]) {
                     let m .= p.orgs.push(Member { org: -1, .. });
                     json::each_member(r) { k =>
                         if k == "id" { m.org = org_index(string_of(r, scratch, 36)); }
-                        else if k == "role" { m.role.append(string_of(r, scratch, m.role.cap)); }
+                        else if k == "role" { m.role = word_at(r, scratch); }
                         else { json::skip(r); }
                     };
                     guard m.org >= 0 else { abort("a member of an organization snow-orgs.json lacks"); }
@@ -640,31 +693,31 @@ fn load_people(dir: const u8[:]) {
 }
 
 fn load_entries(dir: const u8[:]) {
-    var text: u8[>..] = [];
-    load(dir, "snow-entries.json", text);
+    var file: u8[>..] = [];
+    load(dir, "snow-entries.json", file);
     var scratch: u8[>..] = [];
-    var r = json::reader(text);
+    var r = json::reader(file);
     json::each_element(r) {
         var e = Entry { user: -1, org: -1, project: -1, .. };
         var project: u8[..36] = "";
         json::each_member(r) { key =>
             if key == "id" { e.id.append(string_of(r, scratch, e.id.cap)); }
-            else if key == "organizationId" { e.org = org_index(string_of(r, scratch, 36)); }
+            else if key == "organizationId" { e.org = org_index(string_of(r, scratch, 36)) as i32; }
             else if key == "userId" {
                 let id = string_of(r, scratch, 36);
                 // The file has each user's entries together.
                 e.user = if entries.len > 0 && people[last(entries).user].id == id { last(entries).user }
-                         else { person_index(id) };
+                         else { person_index(id) as i32 };
             } else if key == "projectId" { project.append(read_nullable(r, scratch, project.cap)); }
-            else if key == "description" { e.description.append(string_of(r, scratch, e.description.cap)); }
-            else if key == "ticket" { e.ticket.append(read_nullable(r, scratch, e.ticket.cap)); }
+            else if key == "description" { e.description = kept(r, scratch); }
+            else if key == "ticket" { e.ticket = kept_nullable(r, scratch); }
             else if key == "startedAt" { e.started = read_time(r, scratch); }
             else if key == "stoppedAt" { e.stopped = read_time(r, scratch); }
             else { json::skip(r); }
         };
         guard e.user >= 0 && e.org >= 0 else { abort("an entry of a user or organization the files lack"); }
         if project.len > 0 {
-            e.project = project_index(project, e.org);
+            e.project = project_index(project, e.org) as i32;
             guard e.project >= 0 else { abort("an entry of a project snow-orgs.json lacks"); }
         }
         let p .= people[e.user];
@@ -684,11 +737,11 @@ fn session_open(out: u8[>..]&, p: Person) {
     out.append("{\"user\":{\"id\":");
     json::format_string(out, p.id);
     out.append(",\"name\":");
-    json::format_string(out, p.name);
+    json::format_string(out, view(p.name));
     out.append(",\"email\":");
-    json::format_string(out, p.email);
+    json::format_string(out, view(p.email));
     out.append(",\"image\":");
-    string_or_null(out, p.image);
+    string_or_null(out, view(p.image));
     out.append("},\"signedInAt\":");
     iso_or_null(out, p.signed_in);
     out.append(",\"organizations\":[");
@@ -698,28 +751,28 @@ fn session_open(out: u8[>..]&, p: Person) {
         out.append("{\"id\":");
         json::format_string(out, o.id);
         out.append(",\"name\":");
-        json::format_string(out, o.name);
+        json::format_string(out, view(o.name));
         out.append(",\"slug\":");
-        json::format_string(out, o.slug);
+        json::format_string(out, view(o.slug));
         out.append(",\"issueLinks\":");
-        string_or_null(out, o.links);
+        string_or_null(out, view(o.links));
         out.append(",\"role\":");
-        json::format_string(out, m.role);
+        json::format_string(out, word(m.role));
         out.push('}');
     }
     out.append("],\"activeOrganizationId\":");
     json::format_string(out, orgs[p.active].id);
     let s = p.settings;
     out.append(",\"settings\":{\"timeZone\":");
-    json::format_string(out, s.time_zone);
+    json::format_string(out, word(s.time_zone));
     out.append(",\"weekStart\":");
-    json::format_string(out, s.week_start);
+    json::format_string(out, word(s.week_start));
     out.append(",\"locale\":");
-    json::format_string(out, s.locale);
+    json::format_string(out, word(s.locale));
     out.append(",\"theme\":");
-    json::format_string(out, s.theme);
+    json::format_string(out, word(s.theme));
     out.append(",\"timerLayout\":");
-    json::format_string(out, s.timer_layout);
+    json::format_string(out, word(s.timer_layout));
     out.append(",\"showSummary\":");
     json::format_bool(out, s.show_summary);
     out.append(",\"compactRows\":");
@@ -727,21 +780,21 @@ fn session_open(out: u8[>..]&, p: Person) {
     out.append(",\"wideTimer\":");
     json::format_bool(out, s.wide_timer);
     out.append(",\"timerView\":");
-    json::format_string(out, s.timer_view);
+    json::format_string(out, word(s.timer_view));
     out.append(",\"calendarWeekend\":");
     json::format_bool(out, s.calendar_weekend);
     out.append(",\"appIcon\":");
-    json::format_string(out, s.app_icon);
+    json::format_string(out, word(s.app_icon));
     out.append(",\"sceneCollection\":");
-    json::format_string(out, s.scene_collection);
+    json::format_string(out, word(s.scene_collection));
     out.append(",\"scenePin\":");
-    string_or_null(out, s.scene_pin);
+    string_or_null(out, word(s.scene_pin));
     out.append(",\"sceneBackground\":");
     json::format_bool(out, s.scene_background);
     out.append(",\"sceneStrength\":");
-    json::format_string(out, s.scene_strength);
+    json::format_string(out, word(s.scene_strength));
     out.append(",\"surfaces\":");
-    json::format_string(out, s.surfaces);
+    json::format_string(out, word(s.surfaces));
     out.append(",\"sceneWeather\":");
     json::format_bool(out, s.scene_weather);
     out.append(",\"sceneIntro\":");
@@ -749,29 +802,29 @@ fn session_open(out: u8[>..]&, p: Person) {
     out.append(",\"sceneTagline\":");
     json::format_bool(out, s.scene_tagline);
     out.append(",\"durationFormat\":");
-    json::format_string(out, s.duration_format);
+    json::format_string(out, word(s.duration_format));
     out.append(",\"dateFormat\":");
-    json::format_string(out, s.date_format);
+    json::format_string(out, word(s.date_format));
     out.append(",\"timeFormat\":");
-    json::format_string(out, s.time_format);
+    json::format_string(out, word(s.time_format));
     out.append(",\"copyDurationPattern\":");
-    json::format_string(out, s.copy_pattern);
+    json::format_string(out, word(s.copy_pattern));
     out.append(",\"copyDurationControl\":");
-    json::format_string(out, s.copy_control);
+    json::format_string(out, word(s.copy_control));
     out.append(",\"country\":");
-    string_or_null(out, s.country);
+    string_or_null(out, word(s.country));
     let f = p.fill;
     out.append("},\"fill\":{\"date\":");
-    json::format_string(out, f.date);
+    json::format_string(out, word(f.date));
     out.append(",\"timerStartedAt\":");
     if f.timer_started >= 0 { format(out, f.timer_started); } else { out.append("null"); }
     out.append(",\"today\":");
-    json::format_string(out, f.today);
+    json::format_string(out, word(f.today));
     out.append(",\"lastWorkingDay\":");
-    if f.last_day.len == 0 { out.append("null"); }
+    if f.last_day == 0 { out.append("null"); }
     else {
         out.append("{\"date\":");
-        json::format_string(out, f.last_day);
+        json::format_string(out, word(f.last_day));
         out.append(",\"filled\":");
         json::format_bool(out, f.last_day_filled);
         out.push('}');
@@ -809,7 +862,7 @@ fn entry_head(out: u8[>..]&, e: Entry) {
 // closing brace.
 fn entry_tail_open(out: u8[>..]&, e: Entry) {
     out.append(",\"ticket\":");
-    string_or_null(out, e.ticket);
+    string_or_null(out, view(e.ticket));
     out.append(",\"startedAt\":");
     iso_or_null(out, e.started);
     out.append(",\"stoppedAt\":");
@@ -827,9 +880,9 @@ fn project_full(out: u8[>..]&, p: Project) {
     out.append("{\"id\":");
     json::format_string(out, p.id);
     out.append(",\"name\":");
-    json::format_string(out, p.name);
+    json::format_string(out, view(p.name));
     out.append(",\"color\":");
-    string_or_null(out, p.color);
+    string_or_null(out, word(p.color));
     out.append(",\"archivedAt\":");
     iso_or_null(out, p.archived);
     out.append(if p.has_entries { ",\"hasEntries\":true,\"teamIds\":[" } else { ",\"hasEntries\":false,\"teamIds\":[" });
@@ -843,7 +896,7 @@ fn project_full(out: u8[>..]&, p: Project) {
 // GET /timer's answer for a running entry: the entry and its project.
 fn timer_full(out: u8[>..]&, e: Entry) {
     entry_head(out, e);
-    json::format_string(out, e.description);
+    json::format_string(out, view(e.description));
     entry_tail_open(out, e);
     out.append("null,\"project\":");
     if e.project < 0 { out.append("null}"); return; }
@@ -851,9 +904,9 @@ fn timer_full(out: u8[>..]&, e: Entry) {
     out.append("{\"id\":");
     json::format_string(out, p.id);
     out.append(",\"name\":");
-    json::format_string(out, p.name);
+    json::format_string(out, view(p.name));
     out.append(",\"color\":");
-    string_or_null(out, p.color);
+    string_or_null(out, word(p.color));
     out.append("}}");
 }
 
@@ -875,7 +928,7 @@ fn prebuild_snow() {
         entry_at.push(entry_json.len);
         entry_head(entry_json, e);
         entry_desc.push(entry_json.len);
-        json::format_string(entry_json, e.description);
+        json::format_string(entry_json, view(e.description));
         entry_tail.push(entry_json.len);
         entry_tail_open(entry_json, e);
         iso_or_null(entry_json, e.stopped);
@@ -886,7 +939,7 @@ fn prebuild_snow() {
 
 fn snow_entry(out: u8[>..]&, i: i64) {
     if template { out.append(entry_json[entry_at[i]..entry_at[i + 1]]); }
-    else { let e = entries[i]; entry_full(out, e, e.description, e.stopped); }
+    else { let e = entries[i]; entry_full(out, e, view(e.description), e.stopped); }
 }
 
 // Entry i with another description.
@@ -912,7 +965,7 @@ fn snow_stopped(out: u8[>..]&, i: i64, now: i64) {
         iso_or_null(out, at);
         out.push('}');
     } else {
-        entry_full(out, e, e.description, at);
+        entry_full(out, e, view(e.description), at);
     }
 }
 
@@ -931,7 +984,7 @@ fn membership(p: Person, id: const u8[:]) -> i64 {
     return -1;
 }
 
-fn is_admin(m: Member) -> bool { m.role == "owner" || m.role == "admin" }
+fn is_admin(m: Member) -> bool { word(m.role) == "owner" || word(m.role) == "admin" }
 
 // listProjects's visibility: an admin sees every project, a member those
 // with no team and those of a team of theirs.
@@ -1210,25 +1263,27 @@ fn snow(req: http::Request, body: const u8[:], buf: u8[>..]&, out: http::Reply) 
 // bearer token shaped as a JWT, which isn't verified. Ids are 1, 2, ... in
 // each file, and the schedule's days are UTC's.
 
-struct Staffer { name: u8[..32], title: u8[..32] }
+struct Staffer { name: Str, title: Str }
 
-struct Service { code: u8[..8], name: u8[..32], minutes: i64, price: i64 }
+struct Service { code: u8[..8], name: Str, minutes: i64, price: i64 }
 
+// Strings of a few bytes each stay fixed, which a Str and its bytes in text
+// would outgrow.
 struct Client {
-    name: u8[..48],
+    name: Str,
     code: u8[..8],
     born: u8[..10],
     phone: u8[..16],
-    email: u8[..40],
-    street: u8[..32],
-    city: u8[..16],
+    email: Str,
+    street: Str,
+    city: u8,               // a word, as are channel, language, flags, and relation
     postcode: u8[..8],
-    channel: u8[..5],
-    language: u8[..2],
-    flags: u8[..12][..3],
-    contact: u8[..48],
+    channel: u8,
+    language: u8,
+    flags: u8[..3],
+    contact: Str,
     contact_phone: u8[..16],
-    relation: u8[..8],
+    relation: u8,
     sms: bool,
     mail: bool,
     research: bool,
@@ -1238,17 +1293,17 @@ struct Client {
     count: i64,
 }
 
-struct Line { id: i64, service: i64 }
+struct Line { id: i32, service: u8 }
 
-struct Note { id: i64, visit: i64, kind: i64, author: i64, at: i64, text_at: i64, text_len: i64 }
+struct Note { id: i64, visit: i64, kind: u8, author: i64, at: i64, text: Str }
 
 struct Visit {
     case_id: i64,
     client: i64,
     staff: i64,
-    status: u8[..10],
-    kind: u8[..12],
-    priority: u8[..8],
+    status: u8,             // a word, as are kind and priority
+    kind: u8,
+    priority: u8,
     start: i64,
     end: i64,
     lines: Line[..3],
@@ -1259,7 +1314,8 @@ struct Visit {
     case_count: i64,
 }
 
-struct Reminder { channel: u8[..5], kind: u8[..12], status: u8[..9], at: i64 }
+// Each string a word.
+struct Reminder { channel: u8, kind: u8, status: u8, at: i64 }
 
 struct Booking {
     start: i64,
@@ -1269,22 +1325,22 @@ struct Booking {
     visit: i64,
     lines: Line[..3],
     reminders: Reminder[..3],
-    status: u8[..10],
-    source: u8[..8],
-    note_at: i64,           // in text, or -1 for null
-    note_len: i64,
+    status: u8,             // a word, as is source
+    source: u8,
+    noted: bool,            // false for a null note
+    note: Str,
     created: i64,
     updated: i64,
 }
 
-struct Shift { staff: i64, start: i64, end: i64, kind: u8[..8], room: i64, room_name: u8[..16], note: u8[..64] }
+// kind and room_name are words; note is empty for null.
+struct Shift { staff: i64, start: i64, end: i64, kind: u8, room: i64, room_name: u8, note: Str }
 
 var staffers: Staffer[>..];
 var services: Service[>..];
 var clients: Client[>..];
 var visits: Visit[>..];
 var notes: Note[>..];
-var text: u8[>..];              // the notes' text, and the bookings'
 var bookings: Booking[>..];     // by start
 var shifts: Shift[>..];         // by start
 var past: i64[>..];             // completed visits, by client, newest first
@@ -1320,8 +1376,8 @@ fn ref_in(r: json::Reader&, n: i64, what: const u8[:]) -> i64 {
     return i;
 }
 
-fn service_of(code: const u8[:]) -> i64 {
-    for s, i in services { if s.code == code { return i; } }
+fn service_of(code: const u8[:]) -> u8 {
+    for s, i in services { if s.code == code { return i as u8; } }
     abort(str("a service heavy-services.json lacks: ", code));
 }
 
@@ -1330,8 +1386,11 @@ fn load_lines(r: json::Reader&, scratch: u8[>..]&, lines: Line[..3]&) {
         guard lines.len < lines.cap else { abort("more than 3 items"); }
         let l .= lines.push(Line { .. });
         json::each_member(r) { k =>
-            if k == "id" { l.id = json::read_int(r); }
-            else if k == "code" { l.service = service_of(string_of(r, scratch, 8)); }
+            if k == "id" {
+                let id = json::read_int(r);
+                guard id >= 0 && id <= 2147483647 else { abort(str("an item id past 2^31: ", id)); }
+                l.id = id as i32;
+            } else if k == "code" { l.service = service_of(string_of(r, scratch, 8)); }
             else { json::skip(r); }
         };
     };
@@ -1342,9 +1401,9 @@ struct Cursor { r: json::Reader& }
 
 // A file's records, each read by F, which pushes it.
 fn load_each<F>(dir: const u8[:], name: const u8[:]) {
-    var text_in: u8[>..] = [];
-    load(dir, name, text_in);
-    var r = json::reader(text_in);
+    var file: u8[>..] = [];
+    load(dir, name, file);
+    var r = json::reader(file);
     json::each_element(r) { F(Cursor { r: r }); };
     guard json::finish(r) else { abort(str(name, ": ", json::message(r))); }
 }
@@ -1360,18 +1419,19 @@ fn load_heavy(dir: const u8[:]) {
         let r .= c.r;
         let s .= staffers.push(Staffer { .. });
         json::each_member(r) { k =>
-            if k == "name" { s.name.append(string_of(r, scratch, s.name.cap)); }
-            else if k == "title" { s.title.append(string_of(r, scratch, s.title.cap)); }
+            if k == "name" { s.name = kept(r, scratch); }
+            else if k == "title" { s.title = kept(r, scratch); }
             else if k == "id" { guard json::read_int(r) == staffers.len else { abort("heavy-staff.json's ids aren't 1, 2, ..."); } }
             else { json::skip(r); }
         };
     };
     load_each(dir, "heavy-services.json") { c =>
         let r .= c.r;
+        guard services.len < 256 else { abort("more than 256 services"); }
         let s .= services.push(Service { .. });
         json::each_member(r) { k =>
             if k == "code" { s.code.append(string_of(r, scratch, s.code.cap)); }
-            else if k == "name" { s.name.append(string_of(r, scratch, s.name.cap)); }
+            else if k == "name" { s.name = kept(r, scratch); }
             else if k == "minutes" { s.minutes = json::read_int(r); }
             else if k == "price" { s.price = json::read_int(r); }
             else { json::skip(r); }
@@ -1382,35 +1442,34 @@ fn load_heavy(dir: const u8[:]) {
         let c .= clients.push(Client { .. });
         json::each_member(r) { k =>
             if k == "id" { guard json::read_int(r) == clients.len else { abort("heavy-clients.json's ids aren't 1, 2, ..."); } }
-            else if k == "name" { c.name.append(string_of(r, scratch, c.name.cap)); }
+            else if k == "name" { c.name = kept(r, scratch); }
             else if k == "code" { c.code.append(string_of(r, scratch, c.code.cap)); }
             else if k == "born" { c.born.append(string_of(r, scratch, c.born.cap)); }
             else if k == "phone" { c.phone.append(string_of(r, scratch, c.phone.cap)); }
-            else if k == "email" { c.email.append(string_of(r, scratch, c.email.cap)); }
+            else if k == "email" { c.email = kept(r, scratch); }
             else if k == "address" {
                 json::each_member(r) { kk =>
-                    if kk == "street" { c.street.append(string_of(r, scratch, c.street.cap)); }
-                    else if kk == "city" { c.city.append(string_of(r, scratch, c.city.cap)); }
+                    if kk == "street" { c.street = kept(r, scratch); }
+                    else if kk == "city" { c.city = word_at(r, scratch); }
                     else if kk == "postcode" { c.postcode.append(string_of(r, scratch, c.postcode.cap)); }
                     else { json::skip(r); }
                 };
             } else if k == "preferences" {
                 json::each_member(r) { kk =>
-                    if kk == "channel" { c.channel.append(string_of(r, scratch, c.channel.cap)); }
-                    else if kk == "language" { c.language.append(string_of(r, scratch, c.language.cap)); }
+                    if kk == "channel" { c.channel = word_at(r, scratch); }
+                    else if kk == "language" { c.language = word_at(r, scratch); }
                     else { json::skip(r); }
                 };
             } else if k == "flags" {
                 json::each_element(r) {
                     guard c.flags.len < c.flags.cap else { abort("more than 3 flags"); }
-                    let f .= c.flags.push("");
-                    f.append(string_of(r, scratch, f.cap));
+                    c.flags.push(word_at(r, scratch));
                 };
             } else if k == "emergencyContact" {
                 json::each_member(r) { kk =>
-                    if kk == "name" { c.contact.append(string_of(r, scratch, c.contact.cap)); }
+                    if kk == "name" { c.contact = kept(r, scratch); }
                     else if kk == "phone" { c.contact_phone.append(string_of(r, scratch, c.contact_phone.cap)); }
-                    else if kk == "relation" { c.relation.append(string_of(r, scratch, c.relation.cap)); }
+                    else if kk == "relation" { c.relation = word_at(r, scratch); }
                     else { json::skip(r); }
                 };
             } else if k == "consents" {
@@ -1433,9 +1492,9 @@ fn load_heavy(dir: const u8[:]) {
             else if k == "caseId" { v.case_id = json::read_int(r); }
             else if k == "client" { v.client = ref_in(r, clients.len, "client"); }
             else if k == "staff" { v.staff = ref_in(r, staffers.len, "staff"); }
-            else if k == "status" { v.status.append(string_of(r, scratch, v.status.cap)); }
-            else if k == "kind" { v.kind.append(string_of(r, scratch, v.kind.cap)); }
-            else if k == "priority" { v.priority.append(string_of(r, scratch, v.priority.cap)); }
+            else if k == "status" { v.status = word_at(r, scratch); }
+            else if k == "kind" { v.kind = word_at(r, scratch); }
+            else if k == "priority" { v.priority = word_at(r, scratch); }
             else if k == "start" { v.start = read_time(r, scratch); }
             else if k == "end" { v.end = read_time(r, scratch); }
             else if k == "items" { load_lines(r, scratch, v.lines); }
@@ -1450,16 +1509,12 @@ fn load_heavy(dir: const u8[:]) {
                 json::each_member(r) { kk =>
                     guard kk == note_kind(kind) else { abort(str("notes out of order: ", kk)); }
                     json::each_element(r) {
-                        let n .= notes.push(Note { visit: visits.len - 1, kind: kind, author: -1, .. });
+                        let n .= notes.push(Note { visit: visits.len - 1, kind: kind as u8, author: -1, .. });
                         json::each_member(r) { nk =>
                             if nk == "id" { n.id = json::read_int(r); }
                             else if nk == "author" { n.author = ref_in(r, staffers.len, "staff"); }
-                            else if nk == "text" {
-                                n.text_at = text.len;
-                                scratch.clear();
-                                text.append(json::read_string(r, scratch));
-                                n.text_len = text.len - n.text_at;
-                            } else if nk == "at" { n.at = read_time(r, scratch); }
+                            else if nk == "text" { n.text = kept(r, scratch); }
+                            else if nk == "at" { n.at = read_time(r, scratch); }
                             else { json::skip(r); }
                         };
                     };
@@ -1482,7 +1537,7 @@ fn load_heavy(dir: const u8[:]) {
     };
     load_each(dir, "heavy-bookings.json") { c =>
         let r .= c.r;
-        let b .= bookings.push(Booking { client: -1, staff: -1, visit: -1, note_at: -1, .. });
+        let b .= bookings.push(Booking { client: -1, staff: -1, visit: -1, .. });
         json::each_member(r) { k =>
             if k == "id" { guard json::read_int(r) == bookings.len else { abort("heavy-bookings.json's ids aren't 1, 2, ..."); } }
             else if k == "slot" {
@@ -1500,22 +1555,20 @@ fn load_heavy(dir: const u8[:]) {
                     guard b.reminders.len < b.reminders.cap else { abort("more than 3 reminders"); }
                     let m .= b.reminders.push(Reminder { .. });
                     json::each_member(r) { kk =>
-                        if kk == "channel" { m.channel.append(string_of(r, scratch, m.channel.cap)); }
-                        else if kk == "kind" { m.kind.append(string_of(r, scratch, m.kind.cap)); }
-                        else if kk == "status" { m.status.append(string_of(r, scratch, m.status.cap)); }
+                        if kk == "channel" { m.channel = word_at(r, scratch); }
+                        else if kk == "kind" { m.kind = word_at(r, scratch); }
+                        else if kk == "status" { m.status = word_at(r, scratch); }
                         else if kk == "at" { m.at = read_time(r, scratch); }
                         else { json::skip(r); }
                     };
                 };
-            } else if k == "status" { b.status.append(string_of(r, scratch, b.status.cap)); }
-            else if k == "source" { b.source.append(string_of(r, scratch, b.source.cap)); }
+            } else if k == "status" { b.status = word_at(r, scratch); }
+            else if k == "source" { b.source = word_at(r, scratch); }
             else if k == "note" {
                 if json::peek(r) == 'n' { json::skip(r); }
                 else {
-                    b.note_at = text.len;
-                    scratch.clear();
-                    text.append(json::read_string(r, scratch));
-                    b.note_len = text.len - b.note_at;
+                    b.noted = true;
+                    b.note = kept(r, scratch);
                 }
             } else if k == "createdAt" { b.created = read_time(r, scratch); }
             else if k == "updatedAt" { b.updated = read_time(r, scratch); }
@@ -1532,20 +1585,20 @@ fn load_heavy(dir: const u8[:]) {
             else if k == "staff" { s.staff = ref_in(r, staffers.len, "staff"); }
             else if k == "start" { s.start = read_time(r, scratch); }
             else if k == "end" { s.end = read_time(r, scratch); }
-            else if k == "kind" { s.kind.append(string_of(r, scratch, s.kind.cap)); }
+            else if k == "kind" { s.kind = word_at(r, scratch); }
             else if k == "room" {
                 json::each_member(r) { kk =>
                     if kk == "id" { s.room = json::read_int(r); }
-                    else if kk == "name" { s.room_name.append(string_of(r, scratch, s.room_name.cap)); }
+                    else if kk == "name" { s.room_name = word_at(r, scratch); }
                     else { json::skip(r); }
                 };
-            } else if k == "note" { s.note.append(read_nullable(r, scratch, s.note.cap)); }
+            } else if k == "note" { s.note = kept_nullable(r, scratch); }
             else { json::skip(r); }
         };
         guard s.staff >= 0 else { abort("a shift without staff"); }
         guard shifts.len == 1 || shifts[shifts.len - 2].start <= s.start else { abort("shifts out of order"); }
     };
-    for v, i in visits { if v.status == "completed" { past.push(i); } }
+    for v, i in visits { if word(v.status) == "completed" { past.push(i); } }
     // Newest first, and of two at once the later id first.
     sort(past) { a, b =>
         let va = visits[a];
@@ -1563,10 +1616,10 @@ fn staff_ref(out: u8[>..]&, s: i64, title: bool) {
     out.append("{\"id\":");
     format(out, s + 1);
     out.append(",\"name\":");
-    json::format_string(out, staffers[s].name);
+    json::format_string(out, view(staffers[s].name));
     if title {
         out.append(",\"title\":");
-        json::format_string(out, staffers[s].title);
+        json::format_string(out, view(staffers[s].title));
     }
     out.push('}');
 }
@@ -1575,7 +1628,7 @@ fn client_ref(out: u8[>..]&, c: i64) {
     out.append("{\"id\":");
     format(out, c + 1);
     out.append(",\"name\":");
-    json::format_string(out, clients[c].name);
+    json::format_string(out, view(clients[c].name));
     out.append(",\"code\":");
     json::format_string(out, clients[c].code);
     out.push('}');
@@ -1591,7 +1644,7 @@ fn lines_full(out: u8[>..]&, lines: Line[:]) {
         out.append(",\"code\":");
         json::format_string(out, s.code);
         out.append(",\"name\":");
-        json::format_string(out, s.name);
+        json::format_string(out, view(s.name));
         out.append(",\"minutes\":");
         format(out, s.minutes);
         out.append(",\"price\":");
@@ -1617,7 +1670,7 @@ fn booking_full(out: u8[>..]&, i: i64) {
     out.append(",\"encounter\":{\"id\":");
     format(out, b.visit + 1);
     out.append(",\"status\":");
-    json::format_string(out, v.status);
+    json::format_string(out, word(v.status));
     out.append(",\"start\":");
     iso_or_null(out, v.start);
     out.append(",\"end\":");
@@ -1628,21 +1681,21 @@ fn booking_full(out: u8[>..]&, i: i64) {
     for m, k in b.reminders {
         if k > 0 { out.push(','); }
         out.append("{\"channel\":");
-        json::format_string(out, m.channel);
+        json::format_string(out, word(m.channel));
         out.append(",\"kind\":");
-        json::format_string(out, m.kind);
+        json::format_string(out, word(m.kind));
         out.append(",\"status\":");
-        json::format_string(out, m.status);
+        json::format_string(out, word(m.status));
         out.append(",\"at\":");
         iso_or_null(out, m.at);
         out.push('}');
     }
     out.append("],\"status\":");
-    json::format_string(out, b.status);
+    json::format_string(out, word(b.status));
     out.append(",\"source\":");
-    json::format_string(out, b.source);
+    json::format_string(out, word(b.source));
     out.append(",\"note\":");
-    if b.note_at < 0 { out.append("null"); } else { json::format_string(out, text[b.note_at..b.note_at + b.note_len]); }
+    if b.noted { json::format_string(out, view(b.note)); } else { out.append("null"); }
     out.append(",\"createdAt\":");
     iso_or_null(out, b.created);
     out.append(",\"updatedAt\":");
@@ -1661,13 +1714,13 @@ fn shift_full(out: u8[>..]&, i: i64) {
     out.append(",\"end\":");
     iso_or_null(out, s.end);
     out.append(",\"kind\":");
-    json::format_string(out, s.kind);
+    json::format_string(out, word(s.kind));
     out.append(",\"room\":{\"id\":");
     format(out, s.room);
     out.append(",\"name\":");
-    json::format_string(out, s.room_name);
+    json::format_string(out, word(s.room_name));
     out.append("},\"note\":");
-    string_or_null(out, s.note);
+    string_or_null(out, view(s.note));
     out.push('}');
 }
 
@@ -1676,7 +1729,7 @@ fn client_full(out: u8[>..]&, i: i64) {
     out.append("{\"id\":");
     format(out, i + 1);
     out.append(",\"name\":");
-    json::format_string(out, c.name);
+    json::format_string(out, view(c.name));
     out.append(",\"code\":");
     json::format_string(out, c.code);
     out.append(",\"born\":");
@@ -1684,28 +1737,28 @@ fn client_full(out: u8[>..]&, i: i64) {
     out.append(",\"phone\":");
     json::format_string(out, c.phone);
     out.append(",\"email\":");
-    json::format_string(out, c.email);
+    json::format_string(out, view(c.email));
     out.append(",\"address\":{\"street\":");
-    json::format_string(out, c.street);
+    json::format_string(out, view(c.street));
     out.append(",\"city\":");
-    json::format_string(out, c.city);
+    json::format_string(out, word(c.city));
     out.append(",\"postcode\":");
     json::format_string(out, c.postcode);
     out.append("},\"preferences\":{\"channel\":");
-    json::format_string(out, c.channel);
+    json::format_string(out, word(c.channel));
     out.append(",\"language\":");
-    json::format_string(out, c.language);
+    json::format_string(out, word(c.language));
     out.append("},\"flags\":[");
     for f, k in c.flags {
         if k > 0 { out.push(','); }
-        json::format_string(out, f);
+        json::format_string(out, word(f));
     }
     out.append("],\"emergencyContact\":{\"name\":");
-    json::format_string(out, c.contact);
+    json::format_string(out, view(c.contact));
     out.append(",\"phone\":");
     json::format_string(out, c.contact_phone);
     out.append(",\"relation\":");
-    json::format_string(out, c.relation);
+    json::format_string(out, word(c.relation));
     out.append("},\"consents\":{\"sms\":");
     json::format_bool(out, c.sms);
     out.append(",\"email\":");
@@ -1725,7 +1778,7 @@ fn note_body(out: u8[>..]&, n: Note) {
     out.append(",\"author\":");
     staff_ref(out, n.author, true);
     out.append(",\"text\":");
-    json::format_string(out, text[n.text_at..n.text_at + n.text_len]);
+    json::format_string(out, view(n.text));
     out.append(",\"at\":");
     iso_or_null(out, n.at);
     out.push('}');
@@ -1754,11 +1807,11 @@ fn visit_open(out: u8[>..]&, i: i64) {
     out.append(",\"staff\":");
     staff_ref(out, v.staff, true);
     out.append(",\"status\":");
-    json::format_string(out, v.status);
+    json::format_string(out, word(v.status));
     out.append(",\"kind\":");
-    json::format_string(out, v.kind);
+    json::format_string(out, word(v.kind));
     out.append(",\"priority\":");
-    json::format_string(out, v.priority);
+    json::format_string(out, word(v.priority));
     out.append(",\"start\":");
     iso_or_null(out, v.start);
     out.append(",\"end\":");
@@ -2657,20 +2710,20 @@ inline fn handle(req: http::Request, body: const u8[:], out: http::Reply) {
     if starts_with(req.target, "/api/v2/") { heavy(req, buf, out); return; }
     var r = http::router(req);
     if http::on(r, "GET", "/api/items/:id") {
-        let i = index_of(http::param(r, "id"), items.len);
+        let i = index_of(http::param(r, "id"), item_count());
         guard i >= 0 else { http::respond(out, 404, "text/plain", ""); return; }
         if template { buf.append(item_json[item_at[i]..item_at[i + 1]]); } else { item_open(buf, items[i]); }
         served(buf);
         http::respond(out, 200, "application/json", buf);
     } else if http::on(r, "GET", "/api/me") {
         let id, has = http::field_of(req, "x-user-id");
-        let i = if has { index_of(id, users.len) } else { -1 };
+        let i = if has { index_of(id, user_count()) } else { -1 };
         guard i >= 0 else { http::respond(out, 401, "text/plain", ""); return; }
         if template { buf.append(user_json[user_at[i]..user_at[i + 1]]); } else { user_open(buf, users[i]); }
         served(buf);
         http::respond(out, 200, "application/json", buf);
     } else if http::on(r, "POST", "/api/items/:id") {
-        let i = index_of(http::param(r, "id"), items.len);
+        let i = index_of(http::param(r, "id"), item_count());
         guard i >= 0 else { http::respond(out, 404, "text/plain", ""); return; }
         guard valid_write(body) else { http::respond(out, 422, "text/plain", ""); return; }
         http::start(out, 204);
@@ -2704,6 +2757,7 @@ thread_fn loader(cfg: http::Config, tier: u8[..1], count: i64, epoll: bool) {
     if !env("REST_DATA", dir) { dir.append("build/rest"); }
     var mode: u8[>..] = [];
     template = env("JSON", mode) && mode == "template";
+    intern("");
     if tier == "a" {
         load_items(dir);
         load_users(dir);
@@ -2720,6 +2774,16 @@ thread_fn loader(cfg: http::Config, tier: u8[..1], count: i64, epoll: bool) {
     let writes = tier == "d";
     print("rest: tier ", tier, ", ", items.len + entries.len + bookings.len + visits.len, " records, ", count, " workers on port ", cfg.port,
           if epoll { ", epoll" } else { ", uring" }, if template { ", template" } else { ", serialize" });
+    // Each worker copies only what's left. Once the JSON is built, tiers A
+    // and C read none of the strings, and tier A none of its records, whose
+    // counts item_at and user_at keep; tier B's routes still compare ids.
+    if template && tier != "b" {
+        items.clear();
+        users.clear();
+        notes.clear();
+        text.clear();
+        words.clear();
+    }
     for i in count {
         qput(if writes && epoll { thread_spawn(worker_writes_epoll, cfg) }
              else if writes { thread_spawn(worker_writes, cfg) }
