@@ -313,8 +313,8 @@ fn wait_for(timers: const Timers&, now: i64) -> i32 {
 // body is still to come, what its response needs, and the handler's state.
 // Each connection's slot holds one.
 struct Exchange<S> {
-    body: BodyReader,
-    skip: bool,         // drop the rest of the body: the response is done without it
+    body: BodyReader = BodyReader.None,
+    skip: bool,        // drop the rest of the body: the response is done without it
     taken: i64,         // body bytes so far, or dropped since skip, if chunked
     answered: bool,     // the handler's response is whole
     continued: bool,    // 100 Continue went out for the request in the read buffer
@@ -334,7 +334,7 @@ struct Exchange<S> {
 // Calls H with CLOSED for c's exchange, if it was owed another call.
 fn abandon<H, C>(c: C&) {
     let x .= c.x;
-    guard x.stream.open || x.stream.waiting || (!x.skip && x.body.place != NO_BODY) else { return; }
+    guard x.stream.open || x.stream.waiting || (!x.skip && x.body != BodyReader.None) else { return; }
     x.stream.waiting = false;
     var sink: u8[>..] = [];
     let none = Request { .. };
@@ -342,7 +342,7 @@ fn abandon<H, C>(c: C&) {
       Reply { buf: sink, common: "", keep_alive: x.keep_alive, minor: x.minor, head: x.head, stream: x.stream,
             fd: c.fd });
     x.stream.open = false;
-    x.body.place = NO_BODY;
+    x.body = BodyReader.None;
 }
 
 // The interim response a client that sent Expect: 100-continue waits for.
@@ -440,7 +440,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
     // closes, or the exchange waits.
     fn settle() -> bool {
         if x.stream.waiting { return false; }
-        if x.body.place == NO_BODY {
+        if x.body == BodyReader.None {
             if x.stream.open { return true; }
             if !x.answered {
                 fail(500);
@@ -459,8 +459,8 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
             // cfg.max_drain. Then the connection closes.
             x.skip = true;
             x.taken = 0;
-            if (x.expect && !x.continued) || !x.keep_alive ||
-               (x.body.place == LENGTH && x.body.left > cfg.max_drain) {
+            let long = match x.body { Length l => l.left > cfg.max_drain, _ => false };
+            if (x.expect && !x.continued) || !x.keep_alive || long {
                 close();
                 return false;
             }
@@ -479,13 +479,13 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
             full = true;
             break;
         }
-        if x.body.place != NO_BODY {
+        if x.body != BodyReader.None {
             guard off < rlen else { break; }
             if wbuf.len >= write_buffer && !ROOM() {
                 full = true;
                 break;
             }
-            let chunked = x.body.place >= CHUNK_SIZE && x.body.place <= CHUNK_TRAILER;
+            let chunked = match x.body { ChunkSize, ChunkData, ChunkEnd, ChunkTrailer => true, _ => false };
             let d0, d1, s = read_body(rbuf[off..rlen], x.body);
             if s == INCOMPLETE {
                 // A size or trailer line longer than rbuf can't fit.
@@ -497,30 +497,30 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
                 break;
             }
             // A chunked body ends with its trailers, not data.
-            let ended = chunked && x.body.place == NO_BODY;
+            let ended = chunked && x.body == BodyReader.None;
             let piece = rbuf[off + d0..if ended { off + d0 } else { off + d1 }];
             let trailers = rbuf[off + d0..if ended { off + d1 - 2 } else { off + d0 }];
             off += d1;
             x.taken += piece.len;
             // A chunk's size tells, before its data, whether it's too long.
-            let coming = if x.body.place == CHUNK_DATA { x.body.left } else { 0 };
+            let coming = match x.body { ChunkData d => d.left, _ => 0 };
             if x.skip {
                 done++;
                 if x.taken > cfg.max_drain {
                     close();
                     break;
                 }
-                if x.body.place == NO_BODY { guard settle() else { break; } }
+                if x.body == BodyReader.None { guard settle() else { break; } }
                 continue;
             }
             // A Content-Length beyond cfg.max_body is refused by parse, and an
             // upgraded connection has no body to limit.
-            if x.taken + coming > cfg.max_body && x.body.place != RAW {
+            if x.taken + coming > cfg.max_body && x.body != BodyReader.Raw {
                 fail(413);
                 break;
             }
             if piece.len > 0 { call(Event { kind: BODY, req: gone, data: piece, whole: false, trailers: "" }); }
-            if x.body.place == NO_BODY && !x.answered { call(Event { kind: END, req: gone, data: "", whole: false, trailers: trailers }); }
+            if x.body == BodyReader.None && !x.answered { call(Event { kind: END, req: gone, data: "", whole: false, trailers: trailers }); }
             guard settle() else { break; }
             continue;
         }
@@ -623,10 +623,10 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
             continue;
         }
         // The exchange goes on past this call, in c's slot.
-        x.body = if x.stream.framing == Framing.Raw { BodyReader { place: RAW, left: 0 } }
-                 else if whole { BodyReader { .. } }
-                 else if req.chunked { BodyReader { place: CHUNK_SIZE, left: 0 } }
-                 else { BodyReader { place: LENGTH, left: req.body } };
+        x.body = if x.stream.framing == Framing.Raw { BodyReader.Raw }
+                 else if whole { BodyReader.None }
+                 else if req.chunked { BodyReader.ChunkSize }
+                 else { BodyReader.Length { left: req.body } };
         x.skip = false;
         x.taken = 0;
         x.answered = !x.stream.open && !x.stream.waiting && wbuf.len > before;
@@ -652,7 +652,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
 // with nothing still to send.
 fn owes_408(c, sending: bool) -> bool {
     return c.state == OPEN && !c.x.stream.open && !c.x.stream.waiting && !sending &&
-        (c.held.len > 0 && c.x.body.place == NO_BODY || c.x.body.place != NO_BODY && !c.x.answered);
+        (c.held.len > 0 && c.x.body == BodyReader.None || c.x.body != BodyReader.None && !c.x.answered);
 }
 
 // How long connection c may wait without progress, in milliseconds, when it
@@ -660,14 +660,14 @@ fn owes_408(c, sending: bool) -> bool {
 // hasn't yet, for a body's next piece, or for the rest of a request head.
 fn busy_ms(c, writing: bool, cfg: const Config&) -> i64 {
     return if writing { cfg.write_ms }
-           else if c.x.body.place == RAW { cfg.idle_ms }
-           else if c.x.body.place != NO_BODY { cfg.body_ms }
+           else if c.x.body == BodyReader.Raw { cfg.idle_ms }
+           else if c.x.body != BodyReader.None { cfg.body_ms }
            else { cfg.request_ms };
 }
 
 // Whether c is between requests, with nothing of one received or to send.
 fn idle(c) -> bool {
-    return c.held.len == 0 && c.x.body.place == NO_BODY && !c.x.stream.open && !c.x.stream.waiting;
+    return c.held.len == 0 && c.x.body == BodyReader.None && !c.x.stream.open && !c.x.stream.waiting;
 }
 
 // The handler of serve(cfg) and serve_epoll(cfg) on an Event, ahead of

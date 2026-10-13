@@ -390,10 +390,10 @@ fn test_chunked() {
 // arriving k bytes at a time, into out. Returns the status, and how many of
 // text's bytes the body took.
 fn read_in_pieces(text: const u8[:], k: i64, out: u8[>..]&) -> i32, i64 {
-    var r = http::BodyReader { place: http::CHUNK_SIZE, left: 0 };
+    var r: http::BodyReader = http::BodyReader.ChunkSize;
     var buf: u8[>..] = [];
     var pos = 0;
-    while r.place != http::NO_BODY {
+    while r != http::BodyReader.None {
         let d0, d1, s = http::read_body(buf[pos..], r);
         if s == http::INCOMPLETE {
             guard buf.len < text.len else { return http::INCOMPLETE, pos; }
@@ -402,7 +402,7 @@ fn read_in_pieces(text: const u8[:], k: i64, out: u8[>..]&) -> i32, i64 {
         }
         guard s == 200 else { return s, pos; }
         // The last run is the trailer section, not data.
-        if r.place != http::NO_BODY { out.append(buf[pos + d0..pos + d1]); }
+        if r != http::BodyReader.None { out.append(buf[pos + d0..pos + d1]); }
         pos += d1;
     }
     return 200, pos;
@@ -440,12 +440,12 @@ fn test_read_body() {
 
     // The trailer section comes whole, after the data, and so do a whole
     // body's trailers from dechunk.
-    var rt = http::BodyReader { place: http::CHUNK_SIZE, left: 0 };
+    var rt: http::BodyReader = http::BodyReader.ChunkSize;
     let tb = "1\r\nx\r\n0\r\nT: v\r\nU: w\r\n\r\nGET";
     let a0, a1, sa = http::read_body(tb, rt);
     assert(sa == 200 && tb[a0..a1] == "x");
     let b0, b1, sb = http::read_body(tb[a1..], rt);
-    assert(sb == 200 && rt.place == http::NO_BODY && tb[a1 + b0..a1 + b1] == "T: v\r\nU: w\r\n\r\n");
+    assert(sb == 200 && rt == http::BodyReader.None && tb[a1 + b0..a1 + b1] == "T: v\r\nU: w\r\n\r\n");
     let tv, found = http::field_in(tb[a1 + b0..a1 + b1 - 2], "u");
     assert(found && tv == "w");
     var whole: u8[>..] = [];
@@ -460,11 +460,12 @@ fn test_read_body() {
     }
 
     // A Content-Length body ends at its length.
-    var r = http::BodyReader { place: http::LENGTH, left: 5 };
+    var r: http::BodyReader = http::BodyReader.Length { left: 5 };
     let d0, d1, s = http::read_body("hel", r);
-    assert(s == 200 && d0 == 0 && d1 == 3 && r.place == http::LENGTH && r.left == 2);
+    let left = match r { Length l => l.left, _ => -1 };
+    assert(s == 200 && d0 == 0 && d1 == 3 && left == 2);
     let e0, e1, t = http::read_body("loGET", r);
-    assert(t == 200 && e1 == 2 && r.place == http::NO_BODY);
+    assert(t == 200 && e1 == 2 && r == http::BodyReader.None);
 }
 
 // Limits set by the caller instead of the defaults.

@@ -221,7 +221,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
         var ev = wake;
         loop {
             var full = false;
-            if c.state == OPEN && c.x.stream.file < 0 && (rlen > 0 || c.x.stream.open && c.x.body.place == NO_BODY || ev.kind != NO_EVENT) {
+            if c.state == OPEN && c.x.stream.file < 0 && (rlen > 0 || c.x.stream.open && c.x.body == BodyReader.None || ev.kind != NO_EVENT) {
                 let rest, done, f = answer(c, rbuf, rlen, wbuf, common, cfg, fresh, stopping, now, ev, H) { false };
                 ev.kind = NO_EVENT;
                 rlen = rest;
@@ -289,7 +289,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     fn wait(c: EpollConn<S>&, progress: bool) -> bool {
         guard c.state != DRAINING else { return true; }
         let writing = woff < wbuf.len || c.x.stream.file >= 0;
-        let idle = rlen == 0 && c.x.body.place == NO_BODY && !c.x.stream.open && !c.x.stream.waiting && !writing;
+        let idle = rlen == 0 && c.x.body == BodyReader.None && !c.x.stream.open && !c.x.stream.waiting && !writing;
         if progress { c.deadline = now + (if idle { cfg.idle_ms } else { busy_ms(c, writing, cfg) }); }
         else if !idle { c.deadline = min(c.deadline, now + busy_ms(c, writing, cfg)); }
         return true;

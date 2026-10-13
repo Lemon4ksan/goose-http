@@ -480,74 +480,77 @@ fn dechunk(buf: u8[:]) -> i64, i64 {
 
 // What of a request body is still to arrive, between reads: nothing, the rest
 // of a Content-Length body, or a chunked body's next size line, data, CRLF
-// after the data, or trailer section.
-let NO_BODY: u8 = 0;
-let LENGTH: u8 = 1;
-let CHUNK_SIZE: u8 = 2;
-let CHUNK_DATA: u8 = 3;
-let CHUNK_END: u8 = 4;
-let CHUNK_TRAILER: u8 = 5;
-// After an upgrade (http::upgrade): every byte, to the end of the connection.
-let RAW: u8 = 6;
-
-// A body that arrives in pieces: where its reader is, and for LENGTH and
-// CHUNK_DATA, the bytes of the body or the chunk still to come.
-struct BodyReader { place: u8 = NO_BODY, left: i64 = 0 }
+// after the data, or trailer section, with the bytes of the body or the chunk
+// still to come where they count.
+enum BodyReader {
+    None,
+    Length { left: i64 },
+    ChunkSize,
+    ChunkData { left: i64 },
+    ChunkEnd,
+    ChunkTrailer,
+    // After an upgrade (http::upgrade): every byte, to the end of the
+    // connection.
+    Raw,
+}
 
 // Reads the next bytes of r's body from the start of buf, up to and including
 // one run of data, buf[d0..d1]. Returns d0, d1, and 200, with buf[..d1] used
 // up; INCOMPLETE, with nothing used, until buf holds a whole size line or
-// trailer section; or 400. r.place is NO_BODY once the body has ended; a
-// chunked body ends with buf[d0..d1] its trailer section, the blank line
-// included, instead of data.
+// trailer section; or 400. r is None once the body has ended; a chunked body
+// ends with buf[d0..d1] its trailer section, the blank line included, instead
+// of data.
 fn read_body(buf: const u8[:], r: BodyReader&) -> i64, i64, i32 {
-    if r.place == RAW { return 0, buf.len, if buf.len > 0 { 200 } else { INCOMPLETE }; }
-    if r.place == LENGTH {
-        let k = min(r.left, buf.len);
-        r.left -= k;
-        if r.left == 0 { r.place = NO_BODY; }
-        return 0, k, if k > 0 { 200 } else { INCOMPLETE };
+    match r {
+        Raw => { return 0, buf.len, if buf.len > 0 { 200 } else { INCOMPLETE }; },
+        Length l => {
+            let k = min(l.left, buf.len);
+            r = if k == l.left { BodyReader.None } else { BodyReader.Length { left: l.left - k } };
+            return 0, k, if k > 0 { 200 } else { INCOMPLETE };
+        },
+        _ => {},
     }
     var pos = 0;
     loop {
-        if r.place == CHUNK_DATA {
-            guard pos < buf.len else { break; }
-            let k = min(r.left, buf.len - pos);
-            r.left -= k;
-            if r.left == 0 { r.place = CHUNK_END; }
-            return pos, pos + k, 200;
-        }
-        if r.place == CHUNK_END {
-            guard buf.len - pos >= 2 else { break; }
-            guard buf[pos] == '\r' && buf[pos + 1] == '\n' else { return 0, 0, 400; }
-            pos += 2;
-            r.place = CHUNK_SIZE;
-        } else if r.place == CHUNK_SIZE {
-            let s0 = pos;
-            var p = pos;
-            while p < buf.len && is_hex(buf[p]) { p++; }
-            guard p - s0 <= 15 else { return 0, 0, 400; }
-            guard p < buf.len else { break; }
-            guard p > s0 && (buf[p] == ';' || buf[p] == '\r' || buf[p] == ' ' || buf[p] == '\t')
-            else { return 0, 0, 400; }
-            let e = line_end(buf, p);
-            guard e >= 0 else { return 0, 0, 400; }
-            guard e > 0 else { break; }
-            guard is_chunk_ext(buf[p..e - 2]) else { return 0, 0, 400; }
-            let size, ok = parse_int(buf[s0..p], 16);
-            pos = e;
-            r.left = size;
-            r.place = if size == 0 { CHUNK_TRAILER } else { CHUNK_DATA };
-        } else if r.place == CHUNK_TRAILER {
-            // The trailer section goes to the handler whole, so it waits
-            // until it has all arrived.
-            let e = trailer_end(buf, pos);
-            guard e >= 0 else { return 0, 0, 400; }
-            guard e > 0 else { break; }
-            r.place = NO_BODY;
-            return pos, e, 200;
-        } else {
-            return 0, 0, 200;
+        match r {
+            ChunkData d => {
+                guard pos < buf.len else { break; }
+                let k = min(d.left, buf.len - pos);
+                r = if k == d.left { BodyReader.ChunkEnd } else { BodyReader.ChunkData { left: d.left - k } };
+                return pos, pos + k, 200;
+            },
+            ChunkEnd => {
+                guard buf.len - pos >= 2 else { break; }
+                guard buf[pos] == '\r' && buf[pos + 1] == '\n' else { return 0, 0, 400; }
+                pos += 2;
+                r = BodyReader.ChunkSize;
+            },
+            ChunkSize => {
+                let s0 = pos;
+                var p = pos;
+                while p < buf.len && is_hex(buf[p]) { p++; }
+                guard p - s0 <= 15 else { return 0, 0, 400; }
+                guard p < buf.len else { break; }
+                guard p > s0 && (buf[p] == ';' || buf[p] == '\r' || buf[p] == ' ' || buf[p] == '\t')
+                else { return 0, 0, 400; }
+                let e = line_end(buf, p);
+                guard e >= 0 else { return 0, 0, 400; }
+                guard e > 0 else { break; }
+                guard is_chunk_ext(buf[p..e - 2]) else { return 0, 0, 400; }
+                let size, ok = parse_int(buf[s0..p], 16);
+                pos = e;
+                r = if size == 0 { BodyReader.ChunkTrailer } else { BodyReader.ChunkData { left: size } };
+            },
+            ChunkTrailer => {
+                // The trailer section goes to the handler whole, so it waits
+                // until it has all arrived.
+                let e = trailer_end(buf, pos);
+                guard e >= 0 else { return 0, 0, 400; }
+                guard e > 0 else { break; }
+                r = BodyReader.None;
+                return pos, e, 200;
+            },
+            None, Length, Raw => { return 0, 0, 200; },
         }
     }
     // Out of bytes before any data: what was used, if anything.
