@@ -59,3 +59,6 @@ point. Task 017 narrows the IOCP loop's gap to io_uring, on the benchmark deskto
 019 adds Tina to the benchmark, and can start at any point. Task 020 sends files on
 io_uring and IOCP without copying them, as the epoll loop does. Task 021 is the REST
 benchmark, in three tiers taken from HttpArena, snowtime, and a clinic booking app.
+Task 023 plans goose-rest, a framework on this package, as a proof of concept for
+later, measured on task 021's tiers; it moves to a repository of its own once it has
+code.
