@@ -1345,8 +1345,10 @@ var bookings: Booking[>..];     // by start
 var shifts: Shift[>..];         // by start
 var past: i64[>..];             // completed visits, by client, newest first
 var version_epoch: i64;
-// JSON=template's: each booking, shift, and client whole; each visit without
-// its closing brace; and each note as caseNotes lists it.
+// JSON=template's: each booking, shift, and client whole; each visit up to
+// its notes; and each note as caseNotes lists it, of which a visit's notes
+// take the id, up to note_mid, and the members from note_body_at on, so that
+// the note's text is held once.
 var booking_json: u8[>..];
 var booking_at: i64[>..];
 var shift_json: u8[>..];
@@ -1357,6 +1359,8 @@ var visit_json: u8[>..];
 var visit_at: i64[>..];
 var note_json: u8[>..];
 var note_at: i64[>..];
+var note_mid: i64[>..];
+var note_body_at: i64[>..];
 
 fn note_kind(k: i64) -> const u8[:] {
     return if k == 0 { "intake" } else if k == 1 { "findings" } else if k == 2 { "plan" } else { "internal" };
@@ -1784,19 +1788,27 @@ fn note_body(out: u8[>..]&, n: Note) {
     out.push('}');
 }
 
-fn case_note_full(out: u8[>..]&, n: Note) {
+fn note_id(out: u8[>..]&, n: Note) {
     out.append("{\"id\":");
     format(out, n.id);
+}
+
+fn note_case(out: u8[>..]&, n: Note) {
     out.append(",\"encounterId\":");
     format(out, n.visit + 1);
     out.append(",\"kind\":\"");
     out.append(note_kind(n.kind));
     out.push('"');
+}
+
+fn case_note_full(out: u8[>..]&, n: Note) {
+    note_id(out, n);
+    note_case(out, n);
     note_body(out, n);
 }
 
-// A visit with its notes by kind, without the closing brace.
-fn visit_open(out: u8[>..]&, i: i64) {
+// A visit up to its notes' members.
+fn visit_head(out: u8[>..]&, i: i64) {
     let v = visits[i];
     out.append("{\"id\":");
     format(out, i + 1);
@@ -1824,6 +1836,11 @@ fn visit_open(out: u8[>..]&, i: i64) {
         json::format_string(out, c);
     }
     out.append("],\"notes\":{");
+}
+
+// A visit's notes by kind, and the brace that closes them.
+fn visit_notes(out: u8[>..]&, i: i64) {
+    let v = visits[i];
     var j = v.first_note;
     for kind in 4 {
         if kind > 0 { out.push(','); }
@@ -1833,9 +1850,13 @@ fn visit_open(out: u8[>..]&, i: i64) {
         var n = 0;
         while j < v.first_note + v.notes && notes[j].kind == kind {
             if n > 0 { out.push(','); }
-            out.append("{\"id\":");
-            format(out, notes[j].id);
-            note_body(out, notes[j]);
+            if template {
+                out.append(note_json[note_at[j]..note_mid[j]]);
+                out.append(note_json[note_body_at[j]..note_at[j + 1]]);
+            } else {
+                note_id(out, notes[j]);
+                note_body(out, notes[j]);
+            }
             n++;
             j++;
         }
@@ -1862,12 +1883,16 @@ fn prebuild_heavy() {
     client_at.push(client_json.len);
     for i in visits.len {
         visit_at.push(visit_json.len);
-        visit_open(visit_json, i);
+        visit_head(visit_json, i);
     }
     visit_at.push(visit_json.len);
     for n in notes {
         note_at.push(note_json.len);
-        case_note_full(note_json, n);
+        note_id(note_json, n);
+        note_mid.push(note_json.len);
+        note_case(note_json, n);
+        note_body_at.push(note_json.len);
+        note_body(note_json, n);
     }
     note_at.push(note_json.len);
 }
@@ -1961,8 +1986,10 @@ fn list_shifts(req: http::Request, buf: u8[>..]&, out: http::Reply) {
     http::respond(out, 200, "application/json", buf);
 }
 
+// A visit with its notes by kind, without the closing brace.
 fn visit_into(buf: u8[>..]&, i: i64) {
-    if template { buf.append(visit_json[visit_at[i]..visit_at[i + 1]]); } else { visit_open(buf, i); }
+    if template { buf.append(visit_json[visit_at[i]..visit_at[i + 1]]); } else { visit_head(buf, i); }
+    visit_notes(buf, i);
 }
 
 // The encounter, and the notes of every visit of its case, oldest first.
@@ -2780,7 +2807,6 @@ thread_fn loader(cfg: http::Config, tier: u8[..1], count: i64, epoll: bool) {
     if template && tier != "b" {
         items.clear();
         users.clear();
-        notes.clear();
         text.clear();
         words.clear();
     }
