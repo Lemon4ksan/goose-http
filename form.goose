@@ -5,10 +5,12 @@
 //   // At REQUEST:
 //   guard http::start_multipart(req, st.parts) else { ... 400 or 415 ... }
 //   // At REQUEST with its whole data, and at each BODY:
-//   let ok = http::each_part(st.parts, ev.data) { kind, data =>
-//       if kind == http::PART_HEAD { ... field_in(data, "content-disposition") ... }
-//       else if kind == http::PART_DATA { ... }
-//       else { ... PART_END ... }
+//   let ok = http::each_part(st.parts, ev.data) { part =>
+//       match part {
+//           Head h => { ... field_in(h.fields, "content-disposition") ... },
+//           Data d => { ... d.bytes ... },
+//           End => { ... },
+//       }
 //   };
 //   // At END, the body is whole if http::multipart_done(st.parts).
 namespace http;
@@ -35,10 +37,14 @@ fn form_value(body: const u8[:], key: const u8[:], out: u8[>..]&) -> bool {
     return found;
 }
 
-// What each_part calls its function for.
-let PART_HEAD: u8 = 0;   // a part's header fields, lines each ending in CRLF, for field_in
-let PART_DATA: u8 = 1;   // the next piece of the part's content
-let PART_END: u8 = 2;    // the end of the part
+// What each_part calls its function with: a part's header fields, lines each
+// ending in CRLF, for field_in; the next piece of the part's content; or the
+// end of the part.
+enum Part {
+    Head { fields: const u8[:] },
+    Data { bytes: const u8[:] },
+    End,
+}
 
 // The most bytes of a part's header fields, past which each_part fails: what
 // a Multipart holds between pieces.
@@ -88,8 +94,8 @@ fn start_multipart(req: const Request&, m: Multipart&) -> bool {
 // Whether m's body has ended with its close delimiter.
 fn multipart_done(m: const Multipart&) -> bool { m.place == MP_DONE }
 
-// Reads the next piece of m's body, calling F(kind, data) for each part's
-// head, the pieces of its content, and its end, in order. data lasts until F
+// Reads the next piece of m's body, calling F(part) for each part's head, the
+// pieces of its content, and its end, in order. A part's bytes last until F
 // returns. Returns false, and fails m for the rest of the body, when the
 // body isn't multipart, as a delimiter not followed by CRLF or "--", or a
 // part's head that isn't field lines or is longer than MAX_PART_HEAD.
@@ -98,12 +104,12 @@ fn each_part<F>(m: Multipart&, piece: const u8[:]) -> bool {
     guard m.place != MP_DONE else { return true; }
     // The piece goes after what the last one left, joined only when
     // something was.
-    guard m.held.len > 0 else { return read_parts(m, piece) { kind, data => F(kind, data); }; }
+    guard m.held.len > 0 else { return read_parts(m, piece) { part => F(part); }; }
     var joined: u8[>..] = [];
     joined.append(m.held);
     joined.append(piece);
     m.held.clear();
-    return read_parts(m, joined) { kind, data => F(kind, data); };
+    return read_parts(m, joined) { part => F(part); };
 }
 
 // The first i where sub starts in xs, -1 if none; sub isn't empty. The
@@ -134,13 +140,20 @@ fn read_parts<F>(m: Multipart&, work: const u8[:]) -> bool {
                 var keep = min(d.len - 1, work.len - at);
                 while keep > 0 && work[work.len - keep..] != d[..keep] { keep--; }
                 let data = work[at..work.len - keep];
-                if m.place == MP_DATA && data.len > 0 { F(PART_DATA, data); }
+                if m.place == MP_DATA && data.len > 0 {
+                    let p: Part = Part.Data { bytes: data };
+                    F(p);
+                }
                 m.held.append(work[work.len - keep..]);
                 return true;
             }
             if m.place == MP_DATA {
-                if k > 0 { F(PART_DATA, work[at..at + k]); }
-                F(PART_END, work[at..at]);
+                if k > 0 {
+                    let p: Part = Part.Data { bytes: work[at..at + k] };
+                    F(p);
+                }
+                let end: Part = Part.End;
+                F(end);
             }
             at += k + d.len;
             m.place = MP_AFTER;
@@ -174,7 +187,8 @@ fn read_parts<F>(m: Multipart&, work: const u8[:]) -> bool {
                 break;
             }
             guard end - at <= MAX_PART_HEAD && field_lines(work[at..end]) else { return failed(m); }
-            F(PART_HEAD, work[at..end]);
+            let head: Part = Part.Head { fields: work[at..end] };
+            F(head);
             at = end + 2;
             m.place = MP_DATA;
         } else {

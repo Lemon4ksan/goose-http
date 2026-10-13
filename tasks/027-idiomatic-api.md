@@ -79,12 +79,27 @@ review's estimates; "unverified" marks what no program has checked yet.
       first. Codegen against `a9783c8`: `answer` drops to 4,447 instructions on epoll
       and 4,568 on uring, below the baseline, and `.text` to 381 KB; in `bench/rest`'s
       server, `cookie_of` inlines away, `has_bearer`, which still takes a copy, goes
-      from one 300-byte copy to four, and the `answer`s grow by 12 KB.
+      from one 300-byte copy to four, and the `answer`s grow by 12 KB. Commit `070e830`.
 - [ ] **`BodyReader.place` as an enum** (`message.goose:484-495`): `Length{left}`,
       `ChunkData{left}`, `ChunkSize`, and so on, so `read_body`'s cases are checked as
       complete and `left` exists only where it means something. Check: tier D's uploads.
+      Done (2026-10-13), not yet benchmarked; `scripts/test.sh` passes in WSL and Git
+      Bash. `BodyReader` is the enum itself, with `None` for no body, since a struct
+      around one field added nothing. `read_body` matches it and writes the next
+      variant whole, as fixed mode requires. The loops test `x.body ==
+      BodyReader.None`, whose generic equality gcc folds to a tag compare: no call to
+      it is left in either binary. A variant with a payload has a type of its own and
+      doesn't compare with `==` against the enum, so tests `match` it. Codegen against
+      `070e830`: `answer` grows by 175 instructions on epoll and shrinks by 81 on
+      uring; `.text` grows by 1 KB. Commit `dfc4a00`.
 - [ ] `PART_HEAD`, `PART_DATA`, and `PART_END` (`form.goose:31`) as an enum
       `Part { Head{fields}, Data{bytes}, End }`. Taste. Check: tier D.
+      Done (2026-10-13), not yet benchmarked; `scripts/test.sh` passes in WSL and Git
+      Bash, and `bench/rest/check.py` every tier on both loops. `each_part` calls its
+      function with one `Part`, typed as the enum before the call, so the function
+      isn't instantiated per variant. Codegen against `dfc4a00`: the benchmark
+      server's code doesn't change; in `bench/rest`'s, gcc inlines one `read_parts`
+      into `attach_piece`, 3 KB more in all.
 - [ ] `Stream`'s `chunked`, `raw`, and `left` as one framing enum. Taste. Check: the
       streaming routes' tests and `bench/files.sh`.
 - [ ] **Typed mail.** `mail_send_value<T>(to, tag, v)` over `to_bytes`, and a

@@ -2355,14 +2355,13 @@ fn part_end(sp: Spool&) {
 
 fn attach_piece(sp: Spool&, data: const u8[:]) {
     guard !sp.failed else { return; }
-    let ok = http::each_part(sp.parts, data) { kind, d =>
-        if sp.failed {
-        } else if kind == http::PART_HEAD {
-            part_head(sp, d);
-        } else if kind == http::PART_DATA {
-            part_data(sp, d);
-        } else {
-            part_end(sp);
+    let ok = http::each_part(sp.parts, data) { part =>
+        if !sp.failed {
+            match part {
+                Head h => part_head(sp, h.fields),
+                Data d => part_data(sp, d.bytes),
+                End => part_end(sp),
+            }
         }
     };
     if !ok { sp.failed = true; }

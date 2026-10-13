@@ -231,7 +231,7 @@ fn test_form() {
 // it, a preamble, and an epilogue.
 let MULTIPART = "preamble\r\n--XyZ\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\none\r\n--XyZ \t\r\nContent-Disposition: form-data; name=\"f\"; filename=\"x \\\"y\\\".txt\"\r\nContent-Type: text/plain\r\n\r\nline\r\n--XyY\r\n-\r\n--Xy\r\n--XyZ\r\n\r\n\r\n--XyZ--\r\nepilogue";
 
-// The parts of body read k bytes at a time, as "head|data|" with an END
+// The parts of body read k bytes at a time, as "head|data|" with an End
 // mark, or "fail".
 fn parts_in_pieces(req: http::Request, body: const u8[:], k: i64) -> u8[>..] {
     var m = http::Multipart { .. };
@@ -241,18 +241,18 @@ fn parts_in_pieces(req: http::Request, body: const u8[:], k: i64) -> u8[>..] {
     while at < body.len {
         let piece = body[at..min(at + k, body.len)];
         at += piece.len;
-        let ok = http::each_part(m, piece) { kind, data =>
-            if kind == http::PART_HEAD {
-                let name, filename, okd = http::disposition(data);
-                log.append("[");
-                log.append(name);
-                log.append(",");
-                log.append(filename);
-                log.append("]");
-            } else if kind == http::PART_DATA {
-                log.append(data);
-            } else {
-                log.append("<end>");
+        let ok = http::each_part(m, piece) { part =>
+            match part {
+                Head h => {
+                    let name, filename, okd = http::disposition(h.fields);
+                    log.append("[");
+                    log.append(name);
+                    log.append(",");
+                    log.append(filename);
+                    log.append("]");
+                },
+                Data d => { log.append(d.bytes); },
+                End => { log.append("<end>"); },
             }
         };
         if !ok { log.append("<fail>"); }

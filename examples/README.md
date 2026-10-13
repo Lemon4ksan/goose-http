@@ -102,8 +102,9 @@ call's result to a reference parameter
   401.
 - Forms: `http::form_value(body, key, out)` and `http::each_form(body) { key, value =>
   }`. Multipart: `http::start_multipart(req, st.parts)` at `REQUEST`, then
-  `http::each_part(st.parts, ev.data) { kind, data => }` for each piece of the body, with
-  `http::disposition` for a part's name and filename.
+  `http::each_part(st.parts, ev.data) { part => }` for each piece of the body, where
+  `part` is an `http::Part`: `Head { fields }`, `Data { bytes }`, or `End`. Use
+  `http::disposition(fields)` for a part's name and filename.
 - `http::respond_json(out, status) { b => json::format_key(b, "id"); ... }`.
 - `Config.max_requests` caps a connection's requests. `http::body_within(st.taken, ev,
   out, limit)` at `REQUEST` and each `BODY` answers 413 past a route's own limit.
