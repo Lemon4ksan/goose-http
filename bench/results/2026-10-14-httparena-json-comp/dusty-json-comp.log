@@ -1,0 +1,242 @@
+[info] available CPUs: 16
+[info] load generators: docker mode
+[info] framework: dusty (dusty, Zig)
+[info] subscribed tests: baseline,latency-1m,latency-10k,latency-500k-8cpu,pipelined,limited-conn,async,json-comp,json-tls,8gbit,async-db,fortunes,echo-ws,echo-ws-pipeline,echo-ws-limited
+[info] building image: httparena-dusty
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.12kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/alpine:3.20
+#2 ...
+
+#3 [auth] library/alpine:pull token for registry-1.docker.io
+#3 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/alpine:3.20
+#2 DONE 3.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 2B done
+#4 DONE 0.0s
+
+#5 [build 1/7] FROM docker.io/library/alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+#5 DONE 0.0s
+
+#6 [internal] load build context
+#6 transferring context: 197B done
+#6 DONE 0.0s
+
+#7 [build 6/7] COPY src ./src
+#7 CACHED
+
+#8 [build 2/7] RUN apk add --no-cache ca-certificates curl git tar xz
+#8 CACHED
+
+#9 [build 4/7] RUN set -eu;     case "amd64" in         amd64) ZIG_ARCH=x86_64 ;;         arm64) ZIG_ARCH=aarch64 ;;         *) echo "unsupported arch: amd64" >&2; exit 1 ;;     esac;     curl -fSL "https://ziglang.org/download/0.16.0/zig-${ZIG_ARCH}-linux-0.16.0.tar.xz"         | tar -xJ -C /opt;     mv "/opt/zig-${ZIG_ARCH}-linux-0.16.0" /opt/zig
+#9 CACHED
+
+#10 [build 5/7] COPY build.zig build.zig.zon ./
+#10 CACHED
+
+#11 [build 3/7] WORKDIR /server
+#11 CACHED
+
+#12 [build 7/7] RUN set -eu;     case "amd64" in         amd64) ZIG_TARGET=x86_64-linux-musl; ZIG_CPU="x86_64_v3+aes+pclmul+adx" ;;         arm64) ZIG_TARGET=aarch64-linux-musl; ZIG_CPU=baseline ;;     esac;     zig build         -Dtarget="${ZIG_TARGET}"         -Dcpu="${ZIG_CPU}"         --release=fast --summary failures
+#12 CACHED
+
+#13 [stage-1 2/2] COPY --from=build /server/zig-out/bin/dusty-arena /dusty-arena
+#13 CACHED
+
+#14 exporting to image
+#14 exporting layers done
+#14 writing image sha256:37f5d3bc595c8df4c0b37af89ec72c94cf657ea02cc6b664d6fde3e6a4715e3c done
+#14 naming to docker.io/library/httparena-dusty done
+#14 DONE 0.0s
+[info] skipping system tuning as requested (SKIP_TUNE=true)
+[info] starting postgres sidecar
+[info] postgres ready (seeded)
+
+==============================================
+=== dusty / json-comp / 4096c (tool=gcannon) ===
+==============================================
+[info] waiting for server...
+[info] server ready
+
+[run 1/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  1
+  Req/conn:  25
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   24.88ms   1.85ms   3.19ms   588.80ms   779.10ms
+
+  217857 requests in 5.00s, 214766 responses
+  Throughput: 42.95K req/s
+  Bandwidth:  55.97MB/s
+  Status codes: 2xx=214766, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 214766 / 214766 responses (100.0%)
+  Reconnects: 8549
+  Errors: connect 0, read 3, timeout 0
+  Per-template: 71699,71529,71538
+  Per-template-ok: 71699,71529,71538
+[info] CPU 270.9% | Mem 28MiB
+
+[run 2/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  1
+  Req/conn:  25
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   26.68ms   1.93ms   7.30ms   587.80ms    1.00s
+
+  217947 requests in 5.00s, 214233 responses
+  Throughput: 42.84K req/s
+  Bandwidth:  55.84MB/s
+  Status codes: 2xx=214233, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 214233 / 214233 responses (100.0%)
+  Reconnects: 8535
+  Errors: connect 0, read 1, timeout 0
+  Per-template: 71250,71663,71320
+  Per-template-ok: 71250,71663,71320
+[info] CPU 281.5% | Mem 104MiB
+
+[run 3/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  1
+  Req/conn:  25
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   28.84ms   2.04ms   17.00ms   666.30ms    1.14s
+
+  216240 requests in 5.00s, 212886 responses
+  Throughput: 42.57K req/s
+  Bandwidth:  55.45MB/s
+  Status codes: 2xx=212886, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 212886 / 212886 responses (100.0%)
+  Reconnects: 8490
+  Errors: connect 0, read 1, timeout 0
+  Per-template: 71240,71023,70623
+  Per-template-ok: 71240,71023,70623
+[info] CPU 333.0% | Mem 200MiB
+
+=== Best: 42953 req/s (CPU: 270.9%, Mem: 28MiB) ===
+[info] input BW: 3.20MB/s (avg template: 78 bytes)
+[info] dry-run — not saving (use --save to persist)
+httparena-bench-dusty
+httparena-bench-dusty
+
+==============================================
+=== dusty / json-comp / 16384c (tool=gcannon) ===
+==============================================
+[info] waiting for server...
+[info] server ready
+
+[run 1/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     16384 (4096/thread)
+  Pipeline:  1
+  Req/conn:  25
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   30.26ms   2.40ms   35.10ms   622.50ms    1.41s
+
+  219363 requests in 5.00s, 210231 responses
+  Throughput: 42.04K req/s
+  Bandwidth:  54.78MB/s
+  Status codes: 2xx=210231, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 210231 / 210231 responses (100.0%)
+  Reconnects: 8375
+  Errors: connect 0, read 20, timeout 0
+  Per-template: 70415,69578,70238
+  Per-template-ok: 70415,69578,70238
+[info] CPU 268.6% | Mem 235MiB
+
+[run 2/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     16384 (4096/thread)
+  Pipeline:  1
+  Req/conn:  25
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   81.14ms   12.10ms   238.90ms   630.60ms    3.15s
+
+  206609 requests in 5.00s, 201683 responses
+  Throughput: 40.33K req/s
+  Bandwidth:  52.58MB/s
+  Status codes: 2xx=201683, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 201683 / 201683 responses (100.0%)
+  Reconnects: 8032
+  Errors: connect 0, read 11, timeout 0
+  Per-template: 67151,67205,67327
+  Per-template-ok: 67151,67205,67327
+[info] CPU 265.6% | Mem 778MiB
+
+[run 3/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     16384 (4096/thread)
+  Pipeline:  1
+  Req/conn:  25
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   125.14ms   15.40ms   367.10ms   824.30ms    4.21s
+
+  208484 requests in 5.00s, 203126 responses
+  Throughput: 40.62K req/s
+  Bandwidth:  52.93MB/s
+  Status codes: 2xx=203126, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 203126 / 203126 responses (100.0%)
+  Reconnects: 8087
+  Errors: connect 0, read 1, timeout 0
+  Per-template: 67803,67872,67451
+  Per-template-ok: 67803,67872,67451
+[info] CPU 263.7% | Mem 1.1GiB
+
+=== Best: 42046 req/s (CPU: 268.6%, Mem: 235MiB) ===
+[info] input BW: 3.13MB/s (avg template: 78 bytes)
+[info] dry-run — not saving (use --save to persist)
+httparena-bench-dusty
+httparena-bench-dusty
+[info] done
+httparena-postgres

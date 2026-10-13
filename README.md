@@ -18,7 +18,7 @@ Early work. No TLS yet.
 | 🟢 | HTTP/1.1 | Keep-alive, pipelining, chunked. HTTP/1.0 too. |
 | 🔴 | HTTP/2 | Later. |
 | 🔴 | TLS | Later, likely as a separate package. |
-| 🟡 | Compression | Precompressed `.br`, `.zst`, and `.gz` files. On the fly next: gzip, deflate, and zstd, with [goose-compress](https://github.com/kaitk/goose-compress), pure-Goose encoders for all three (task 022). |
+| 🟢 | Compression | Precompressed `.br`, `.zst`, and `.gz` files, and gzip, deflate, and zstd on the fly by `Accept-Encoding`, whole or streamed, with [goose-compress](https://github.com/kaitk/goose-compress)'s pure-Goose encoders, in the module `http.compression` (task 022). |
 | 🔴 | WebSocket | Out of scope for now. `Upgrade` hands the connection to the program. |
 | 🔴 | HTTP/3 | Out of scope for now. |
 

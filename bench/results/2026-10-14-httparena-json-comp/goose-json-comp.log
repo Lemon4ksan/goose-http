@@ -1,0 +1,238 @@
+[info] available CPUs: 16
+[info] load generators: docker mode
+[info] framework: goose (goose, Goose)
+[info] subscribed tests: baseline,pipelined,limited-conn,latency-1m,latency-10k,async,json-comp
+[info] building image: httparena-goose
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.69kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/ubuntu:26.04
+#2 DONE 0.0s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [build 1/8] FROM docker.io/library/ubuntu:26.04
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 411.78kB done
+#5 DONE 0.0s
+
+#6 [build 3/8] RUN git init -q /goose && cd /goose &&     git fetch -q --depth 1 https://github.com/aardappel/goose.git "0bdbd189495e8daeadf33d6d034102292db72642" &&     git checkout -q FETCH_HEAD &&     cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release &&     cmake --build build
+#6 CACHED
+
+#7 [build 6/8] COPY server /server/server
+#7 CACHED
+
+#8 [build 5/8] COPY shim /server/shim
+#8 CACHED
+
+#9 [build 2/8] RUN apt-get update -qq &&     apt-get install -y -qq --no-install-recommends ca-certificates git cmake ninja-build gcc g++         liburing-dev &&     rm -rf /var/lib/apt/lists/*
+#9 CACHED
+
+#10 [build 7/8] COPY scripts/build.sh /server/scripts/build.sh
+#10 CACHED
+
+#11 [build 8/8] RUN GOOSE=/goose/build/goose LOOP=epoll /server/scripts/build.sh
+#11 CACHED
+
+#12 [stage-1 2/3] RUN apt-get update -qq &&     apt-get install -y -qq --no-install-recommends liburing2 &&     rm -rf /var/lib/apt/lists/*
+#12 CACHED
+
+#13 [build 4/8] COPY *.goose http.build /server/
+#13 CACHED
+
+#14 [stage-1 3/3] COPY --from=build /server/build/server /server
+#14 CACHED
+
+#15 exporting to image
+#15 exporting layers done
+#15 writing image sha256:60e936bacbb0c5e949a15e8757883e3ada49006c663ea6049967ddfd254b1212 done
+#15 naming to docker.io/library/httparena-goose done
+#15 DONE 0.0s
+[info] skipping system tuning as requested (SKIP_TUNE=true)
+
+==============================================
+=== goose / json-comp / 4096c (tool=gcannon) ===
+==============================================
+[info] waiting for server...
+[info] server ready
+
+[run 1/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  1
+  Req/conn:  25
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   74.14ms   71.30ms   94.00ms   146.30ms   182.30ms
+
+  278051 requests in 5.00s, 273955 responses
+  Throughput: 54.78K req/s
+  Bandwidth:  80.93MB/s
+  Status codes: 2xx=273955, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 273955 / 273955 responses (100.0%)
+  Reconnects: 8312
+  Per-template: 91346,91325,91284
+  Per-template-ok: 91346,91325,91284
+[info] CPU 269.8% | Mem 52MiB
+
+[run 2/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  1
+  Req/conn:  25
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   61.77ms   60.90ms   75.70ms   103.80ms   139.50ms
+
+  334134 requests in 5.00s, 330037 responses
+  Throughput: 66.00K req/s
+  Bandwidth:  97.49MB/s
+  Status codes: 2xx=330037, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 330037 / 330037 responses (100.0%)
+  Reconnects: 12106
+  Errors: connect 0, read 1, timeout 0
+  Per-template: 110019,110083,109935
+  Per-template-ok: 110019,110083,109935
+[info] CPU 284.5% | Mem 52MiB
+
+[run 3/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     4096 (1024/thread)
+  Pipeline:  1
+  Req/conn:  25
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   61.30ms   58.80ms   73.60ms   98.90ms   137.60ms
+
+  334672 requests in 5.00s, 330574 responses
+  Throughput: 66.11K req/s
+  Bandwidth:  97.66MB/s
+  Status codes: 2xx=330574, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 330574 / 330574 responses (100.0%)
+  Reconnects: 12229
+  Errors: connect 0, read 2, timeout 0
+  Per-template: 110125,110333,110116
+  Per-template-ok: 110125,110333,110116
+[info] CPU 283.0% | Mem 51MiB
+
+=== Best: 66114 req/s (CPU: 283.0%, Mem: 51MiB) ===
+[info] input BW: 4.92MB/s (avg template: 78 bytes)
+[info] dry-run — not saving (use --save to persist)
+httparena-bench-goose
+httparena-bench-goose
+
+==============================================
+=== goose / json-comp / 16384c (tool=gcannon) ===
+==============================================
+[info] waiting for server...
+[info] server ready
+
+[run 1/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     16384 (4096/thread)
+  Pipeline:  1
+  Req/conn:  25
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   238.23ms   238.20ms   277.40ms   444.60ms   482.90ms
+
+  322492 requests in 5.00s, 306107 responses
+  Throughput: 61.21K req/s
+  Bandwidth:  90.43MB/s
+  Status codes: 2xx=306107, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 306107 / 306107 responses (100.0%)
+  Reconnects: 1
+  Errors: connect 0, read 1, timeout 0
+  Per-template: 102019,102076,102012
+  Per-template-ok: 102019,102076,102012
+[info] CPU 266.9% | Mem 147MiB
+
+[run 2/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     16384 (4096/thread)
+  Pipeline:  1
+  Req/conn:  25
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   222.83ms   244.20ms   268.30ms   291.90ms   301.40ms
+
+  337246 requests in 5.00s, 321055 responses
+  Throughput: 64.19K req/s
+  Bandwidth:  94.82MB/s
+  Status codes: 2xx=321055, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 321055 / 321055 responses (100.0%)
+  Reconnects: 640
+  Errors: connect 0, read 1, timeout 0
+  Per-template: 107050,106977,107028
+  Per-template-ok: 107050,106977,107028
+[info] CPU 293.2% | Mem 147MiB
+
+[run 3/3]
+gcannon v0.6.1
+  Target:    localhost:8080/
+  Threads:   4
+  Conns:     16384 (4096/thread)
+  Pipeline:  1
+  Req/conn:  25
+  Templates: 3
+  Expected:  200
+  Duration:  5s
+
+
+  Thread Stats   Avg      p50      p90      p99    p99.9
+    Latency   225.20ms   239.90ms   259.30ms   278.70ms   287.10ms
+
+  336009 requests in 5.00s, 319624 responses
+  Throughput: 63.92K req/s
+  Bandwidth:  94.43MB/s
+  Status codes: 2xx=319624, 3xx=0, 4xx=0, 5xx=0
+  Latency samples: 319624 / 319624 responses (100.0%)
+  Reconnects: 1
+  Errors: connect 0, read 1, timeout 0
+  Per-template: 106480,106604,106540
+  Per-template-ok: 106480,106604,106540
+[info] CPU 329.0% | Mem 147MiB
+
+=== Best: 64211 req/s (CPU: 293.2%, Mem: 147MiB) ===
+[info] input BW: 4.78MB/s (avg template: 78 bytes)
+[info] dry-run — not saving (use --save to persist)
+httparena-bench-goose
+httparena-bench-goose
+[info] done
