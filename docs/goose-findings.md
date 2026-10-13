@@ -911,3 +911,45 @@ them. The struct variant, alone:
 Workaround: the sentinel the loops kept: `Event` with a `u8` kind and `NO_EVENT`,
 passed as `const Event&`. An enum `Event` would be free if Goose specialized a function
 once for an optional argument, whatever its call sites pass.
+
+## A worker holds its globals twice, and its spawner keeps a third copy
+
+Found on `0bdbd18`, task 025. Status: open
+
+`thread_spawn` copies the globals a worker uses through three buffers, and only the
+worker's own stacks are needed once it starts:
+
+- The spawning thread builds an image of the arguments and of each global on one of
+  its data stacks (`thread_spawn` in `src/codegen_builtins.h`).
+- `gs_thread_start` copies that image into a `malloc`ed packet, which
+  `gs_thread_main` frees only when the worker returns (`src/runtime/runtime_threads.h`).
+- The worker's entry thunk copies each global out of the packet into a data stack of
+  its own.
+
+No data stack gives its pages back while its thread runs: there is no `madvise` or
+decommit, so a scope's end or a `clear()` lowers the stack's top and nothing else. So
+each worker holds its globals twice, the packet and its stacks, and the spawning thread
+keeps the image's pages committed, beside its own globals, for its life. That matches
+task 025's idle VmRSS table: a tier C worker costs 21 MB serialized and 71 MB templated,
+about twice the 11 and 37 MB its globals take (estimated from the record types). The
+1-worker intercept, 58 and 156 MB, is about main's globals, the image, the 12 MB file
+it parsed, and that worker. Expected: the packet freed once the thunk has unpacked
+it, or the globals unpacked straight from the spawner's image.
+
+    var big: u8[>..];
+
+    thread_fn worker(n: i64) { print(big.len); qget<i64>(); }
+
+    fn main() {
+        for i in 100000000 { big.push(1); }
+        let id = thread_spawn(worker, 0);
+        big.clear();    // lowers no RSS
+        // Read from the source, not measured: about 400 MB resident, big and its
+        // image in main, the packet and big in the worker.
+        qput(0);
+        thread_wait(id);
+    }
+
+Workaround: `rest.goose` loads the records on a loader thread, which spawns the workers
+and returns, so the runtime unmaps its stacks, the image among them. It clears what
+the workers don't read before it spawns them. Nothing here frees the packet.
