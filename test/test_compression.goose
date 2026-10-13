@@ -136,7 +136,8 @@ fn test_whole() {
     assert(value_of(out, "Vary") == "Accept-Encoding");
     out.clear();
     respond("HEAD", gzip, 200, "application/json", t, out);
-    assert(value_of(out, "Content-Length") == "2016" && body_of(out) == "");
+    let head_n, head_ok = parse_int(value_of(out, "Content-Length"));
+    assert(head_ok && head_n == t.len && body_of(out) == "");
     // An image goes as it is, without Vary.
     out.clear();
     respond("GET", gzip, 200, "image/png", t, out);
