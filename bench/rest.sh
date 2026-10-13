@@ -181,18 +181,30 @@ start() {
     goose-epoll) loop=epoll ;;
     *) loop= ;;
     esac
-    # Tina logs its crashes as lines like "[FATAL] Shard 0 caught sig=11",
-    # so nothing is filtered out of the log.
-    REST_DATA=$data TIER=$2 JSON=$3 WORKERS=$workers LOOP=$loop \
-        taskset -c "$server_cpus" "$bin/$(binary "$1")" "$port" >>"$out/$1.log" 2>&1 &
-    pid=$!
-    tries=0
-    # Loading tier C's records takes a few seconds.
-    until nc -z 127.0.0.1 "$port" 2>/dev/null; do
-        tries=$((tries + 1))
-        [ $tries -lt 600 ] || { echo "bench/rest.sh: $1 isn't listening"; exit 1; }
-        sleep 0.1
+    # A server that exits or doesn't listen gets one more try, in case its
+    # port is still held all the same.
+    for attempt in 1 2; do
+        # Tina logs its crashes as lines like "[FATAL] Shard 0 caught sig=11",
+        # so nothing is filtered out of the log.
+        REST_DATA=$data TIER=$2 JSON=$3 WORKERS=$workers LOOP=$loop \
+            taskset -c "$server_cpus" "$bin/$(binary "$1")" "$port" >>"$out/$1.log" 2>&1 &
+        pid=$!
+        tries=0
+        # Loading tier C's records takes a few seconds.
+        until nc -z 127.0.0.1 "$port" 2>/dev/null; do
+            tries=$((tries + 1))
+            kill -0 "$pid" 2>/dev/null && [ $tries -lt 600 ] || break
+            sleep 0.1
+        done
+        ! nc -z 127.0.0.1 "$port" 2>/dev/null || return 0
+        echo "bench/rest.sh: $1 isn't listening, try $attempt of 2" | tee -a "$out/$1.log"
+        kill "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+        pid=
+        sleep 1
     done
+    tail -3 "$out/$1.log"
+    exit 1
 }
 
 ticks() { awk '{print $14 + $15}' "/proc/$pid/stat"; }
@@ -204,15 +216,19 @@ stop() {
     halt
 }
 
-# Stops the server and waits for its port. odin-http's and Tina's listeners
-# outlive their process by up to 50 ms, while the kernel releases their
-# io_uring rings' files.
+# Stops the server and waits until its port can be bound again. odin-http's
+# and Tina's listeners outlive their process by up to 50 ms, while the kernel
+# releases their io_uring rings' files, and hold the port a while after they
+# stop accepting.
 halt() {
     kill $pid
     wait $pid 2>/dev/null || true
     pid=
     tries=0
-    while nc -z 127.0.0.1 "$port" 2>/dev/null; do
+    until python3 -c 'import socket, sys
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("0.0.0.0", int(sys.argv[1])))' "$port" 2>/dev/null; do
         tries=$((tries + 1))
         [ $tries -lt 100 ] || { echo "bench/rest.sh: port $port stays taken"; exit 1; }
         sleep 0.1

@@ -397,8 +397,10 @@ What the benchmark has to work around on this machine:
   directory.
 - A killed io_uring server's listener can outlive its process: odin-http's and Tina's
   accept connections for up to 50 ms after `wait` returns, while the kernel releases
-  their rings' files (2026-10-13). A script that starts the next server on the same port
-  waits for the port to close, as `bench/rest.sh` does.
+  their rings' files, and odin-http's port stays bound a while after that: the next
+  start's `bind` failed with `EADDRINUSE` though nothing accepted (2026-10-13). A script
+  that starts the next server on the same port waits until it can bind the port, as
+  `bench/rest.sh` does.
 - `bench/run.sh` writes the host name into `env.txt` unless `MACHINE` is set, and
   results name no machines, so a run on WSL sets `MACHINE=wsl2-5800x3d`.
 - The load generator needs more CPU than the server. wrk spends about 1.4 times the
@@ -460,6 +462,10 @@ from Windows:
 - A server started in the background survives when its `wsl.exe` call ends early, for
   example when the output is piped into `head`. It keeps its port, and the next run fails
   to bind. Check with `ps aux | grep build/server` before rerunning.
+- A whole `bench/rest.sh run` started with `nohup setsid ... &` from a `wsl.exe` call
+  stopped when the call returned, before writing `env.txt` (2026-10-13). Run a long
+  benchmark in the foreground of a `wsl.exe` call that stays open, such as a background
+  task of the agent's shell.
 - `wsl.exe` starts in the Windows working directory, under `/mnt/c/Users/<user>`, and
   cargo reads the config files of every directory above its own. It then picks up the
   Windows `C:\Users\<user>\.cargo\config`. Run cargo with `wsl.exe --cd /root`, or `cd ~` first.

@@ -15,6 +15,7 @@ package rest_odin_http
 
 import "core:fmt"
 import "core:net"
+import "core:os"
 
 import http "deps:odin-http"
 
@@ -104,13 +105,22 @@ main :: proc() {
 	opts := http.Default_Server_Opts
 	opts.thread_count = config.workers
 	s: http.Server
+	// The build disables assertions, so errors are checked by hand: a failed
+	// listen would otherwise serve a closed socket, silently.
 	err := http.listen(&s, net.Endpoint{address = net.IP4_Any, port = config.port}, opts)
-	fmt.assertf(err == nil, "listen: %v", err)
+	if err != nil {
+		fmt.eprintfln("rest-odin-http: listen: %v", err)
+		os.exit(1)
+	}
 	// core:net's accept sets TCP_NODELAY by default, but the io_uring accept
 	// odin-http uses doesn't. Accepted sockets copy the option from the
 	// listener.
-	opt_err := net.set_option(s.tcp_sock, .TCP_Nodelay, true)
-	fmt.assertf(opt_err == nil, "TCP_NODELAY: %v", opt_err)
-	err = http.serve(&s, http.handler(handle))
-	fmt.assertf(err == nil, "server stopped with error: %v", err)
+	if opt_err := net.set_option(s.tcp_sock, .TCP_Nodelay, true); opt_err != nil {
+		fmt.eprintfln("rest-odin-http: TCP_NODELAY: %v", opt_err)
+		os.exit(1)
+	}
+	if err = http.serve(&s, http.handler(handle)); err != nil {
+		fmt.eprintfln("rest-odin-http: server stopped with error: %v", err)
+		os.exit(1)
+	}
 }

@@ -562,9 +562,17 @@ On the desktop (2026-10-13). Decided while running the list unattended:
 - `bench/rest.sh run` skips tier D for may-minihttp and Tina, with each reason in
   `env.txt`. It also writes `times.txt`, the start of every cell, to time each step.
 - odin-http's and Tina's listeners outlive their process by up to 50 ms, so the next
-  cell found the port taken. `bench/rest.sh` now waits for the port after each stop.
+  cell found the port taken. After that, odin-http's port stays bound for a while longer:
+  the first full run stopped at its tier B check, where the new server's `bind` failed
+  with `EADDRINUSE`. Its `main.odin` checked the error with `fmt.assertf`, which
+  `-disable-assert` removes, so it served a closed socket without a word; it now prints
+  the error and exits. `bench/rest.sh` waits after each stop until it can bind the port,
+  and starts a server that exits or doesn't listen once more.
 - `check.py` passes on the desktop against all eight servers, on every tier each serves,
   both JSON ways. Tina logged no `[FATAL]` line.
+- Before the run, Windows used 0-3% of the CPUs, Task Manager about 7% of one, and WSL
+  nothing. Three Docker containers of another project stay up, idle: mailpit at 2.5% of
+  one CPU and the other two under 0.3%. They were up through the 2026-10-12 run too.
 
 ## Acceptance criteria
 
