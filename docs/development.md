@@ -133,11 +133,8 @@ error when the stdlib is missing names the wrong path
 
 ### Move the pin
 
-Held at `6448f3f` (2026-10-13) until the performance work and the API changes are done;
-fetch upstream and note how far it lags, but don't move the pin before then.
-
 The Goose repository changes daily. Fetch it at the start of a session, and move the pin
-in its own commit with the builds and results that still hold (`README.md`):
+in its own commit once the tests pass:
 
 ```sh
 git -C ../goose fetch upstream
@@ -149,6 +146,10 @@ Then rebuild both compilers (`cmake --build` with the same directories), run
 `scripts/test.sh` ([below](#run-every-test)) in WSL and in Git Bash, and update the pin in
 `README.md`, the table above, and `GOOSE_COMMIT` in `bench/httparena/goose/Dockerfile`,
 which builds the HttpArena entry with Goose fetched at that commit.
+
+A pin move doesn't wait for benchmarks. They're costly to run, so they run in batches,
+overnight, after a stretch of work (2026-10-13). Until then the results
+stand at the commits they name, and the README's Pins table says which ones.
 
 A checkout from before `6fcb753`, where TinyCC was a submodule, can't check out a later
 commit over the submodule's directory. Release it first:

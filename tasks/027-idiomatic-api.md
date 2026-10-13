@@ -11,14 +11,16 @@ The task then rewrites the examples and the API reference for the API that resul
 
 ## How a change is validated
 
-1. Before the first change, record a baseline at the held pin (`docs/development.md`,
-   "Move the pin") on the benchmark desktop: `scripts/test.sh`, `bench/instructions.sh`,
+1. Before the first change, record a baseline on the benchmark desktop, at the Goose
+   pin the comparisons use (a pin move between baseline and comparison means a new
+   baseline): `scripts/test.sh`, `bench/instructions.sh`,
    plaintext and JSON from `bench/run.sh`, and the tiers of `bench/rest.sh` that the
    proposals below name.
 2. Each proposal is its own commit, with its tests, the README, `examples/`, and
    `server/` updated in the same commit.
-3. After each, run `scripts/test.sh` on Linux and macOS and the proposal's check, and
-   compare with the baseline using `bench/count.sh` for instructions. Record the numbers
+3. After each, run `scripts/test.sh` on Linux and macOS. The proposals' checks run in
+   an overnight batch, each at its own commit, compared with the baseline, using
+   `bench/count.sh` for instructions (`docs/development.md`, "Move the pin"). Record the numbers
    here, with how they were measured (`AGENTS.md`, "Benchmarks").
 4. A proposal that costs speed or memory beyond the runs' noise is reverted. Record what
    it cost here and why it was dropped, so it isn't proposed again.

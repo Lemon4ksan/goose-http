@@ -149,7 +149,8 @@ The 1-worker table, latency, CPU per request, and notes:
 ### Large responses and files
 
 One file downloaded over and over, against nginx and Caddy, the usual static file
-servers. Same machine, `bench/files.sh`, 2026-10-12, Goose at `fcfd80d`. Files on tmpfs.
+servers. Same machine, `bench/files.sh`, 2026-10-12, Goose at `fcfd80d`, Goose compiler
+`5c83a5a`. Files on tmpfs.
 1 worker on CPU 0 or 4 on CPUs 0-3, wrk on 4-15 with 12 threads and 96 connections.
 Median of 3 runs of 10 s. Bold is the column's best. Rows go by each server's average
 rank over the columns.
@@ -170,7 +171,7 @@ responses, and Windows:
 Three API workloads and one of uploads, against servers that serve the same routes
 without a framework. Responses are computed per request from records loaded at startup,
 and checked before each run. Same machine, `bench/rest.sh`, 2026-10-13, Goose at
-`23aa531`. 4 workers on CPUs 0-3, the load on 4-15. Median of 3 runs of 15 s.
+`23aa531`, Goose compiler `6448f3f`. 4 workers on CPUs 0-3, the load on 4-15. Median of 3 runs of 15 s.
 
 - **A**: HttpArena's `production-stack` API, items of 0.2 KB.
 - **B**: a time tracker's hot path, 0.3-13 KB of JSON.
@@ -313,5 +314,7 @@ tasks/         task tracking (tasks/README.md)
 | What | Pin | Why |
 |---|---|---|
 | Goose compiler | `aardappel/goose` `6448f3f` (`master`, 2026-10-12) | The language and stdlib change often |
+| Benchmarked | REST at `23aa531`, plaintext and JSON at `73dd28c`, both with Goose `6448f3f`; files at `fcfd80d` with Goose `5c83a5a` | Benchmarks run in overnight batches, so they lag the pin |
 
-Move the pin in its own commit, with the build and benchmark results that still hold.
+Move the pin in its own commit once the tests pass; benchmarks don't wait for it
+([development.md](docs/development.md#move-the-pin)).
