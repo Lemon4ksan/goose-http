@@ -69,7 +69,7 @@ fn open_file(path: const u8[:]) -> File, i32 {
 // it that req's Accept-Encoding weighs highest: path.br, path.zst, or path.gz,
 // of equal weights in that order, as Caddy's precompressed prefers. A copy
 // older than path is passed over, since it may hold what path held before.
-fn open_precompressed(req: Request, path: const u8[:]) -> File, i32 {
+fn open_precompressed(req: const Request&, path: const u8[:]) -> File, i32 {
     let f, status = open_file(path);
     guard status == 200 else { return f, status; }
     let codings = ["br", "zstd", "gzip"];
@@ -113,7 +113,7 @@ fn close_body(b: FileBody&) {
 // send, which the handler sends with send_file at each MORE until it returns
 // false, and then ends the response with end. With none to send, as for
 // HEAD, the response has ended and f is closed.
-fn serve_file(req: Request, out: Reply, f: File, content_type: const u8[:], body: FileBody&) {
+fn serve_file(req: const Request&, out: Reply, f: File, content_type: const u8[:], body: FileBody&) {
     var tag: u8[>..] = [];
     tag.push('"');
     hex_size(tag, f.size);

@@ -85,6 +85,11 @@ else { http::otherwise(r, out); }
 `respond_json` is shown in `routes/`, the client address in `server/`; the rest have no
 example yet.
 
+The helpers that read a request take it as `const http::Request&`, so a call doesn't
+copy it. Pass them a variable, such as the handler's `req`: Goose doesn't yet bind a
+call's result to a reference parameter
+([findings](../docs/goose-findings.md#a-struct-literal-cant-be-passed-to-a-const-t-parameter)).
+
 - Media types: `http::require_type(req, out, "application/json")` answers 415 for
   another `Content-Type`; `http::accept_or_406(req, out, ["application/json",
   "text/csv"])` picks an offer by `Accept`, or answers 406. `http::media_type` and

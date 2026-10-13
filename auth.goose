@@ -13,7 +13,7 @@ import message;
 // The scheme of req's Authorization field, as sent, and its credentials,
 // and whether req has a field of that form: a token, one or more spaces, and
 // the credentials, or the token alone.
-fn authorization(req: Request) -> const u8[:], const u8[:], bool {
+fn authorization(req: const Request&) -> const u8[:], const u8[:], bool {
     let v, found = field_of(req, "authorization");
     guard found else { return v, v, false; }
     var e = 0;
@@ -28,7 +28,7 @@ fn authorization(req: Request) -> const u8[:], const u8[:], bool {
 // of decoded, which they point into, and whether req has them: the scheme,
 // ignoring case, then base64 of the two with ':' between, split at the first
 // ':'. Neither is checked for UTF-8.
-fn basic_auth(req: Request, decoded: u8[>..]&) -> const u8[:], const u8[:], bool {
+fn basic_auth(req: const Request&, decoded: u8[>..]&) -> const u8[:], const u8[:], bool {
     let at = decoded.len;
     let scheme, token, ok = authorization(req);
     // base64::decode shrinks its output back on bad input, which the checker

@@ -222,7 +222,7 @@ inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_
 // whether req has it; the first, if it repeats. The value has no whitespace
 // around it, and points into the read buffer, so it lasts until the handler
 // returns.
-fn field_of(req: Request, name: const u8[:]) -> const u8[:], bool {
+fn field_of(req: const Request&, name: const u8[:]) -> const u8[:], bool {
     return field_in(req.fields, name);
 }
 
@@ -240,7 +240,7 @@ fn field_in(fields: const u8[:], name: const u8[:]) -> const u8[:], bool {
 
 // Calls F(name, value) for each of req's header fields, in order, repeated
 // ones included: the name as sent, and the value as field_of gives it.
-fn each_field<F>(req: Request) {
+fn each_field<F>(req: const Request&) {
     var pos = 0;
     while pos < req.fields.len {
         let n, v, next = field_at(req.fields, pos);
@@ -385,7 +385,7 @@ fn is_hex(c: u8) -> bool { is_digit(c) || (c | 32) >= 'a' && (c | 32) <= 'f' }
 // where a buffer of room bytes after the head must hold it whole. Returns the
 // body's length on the wire and 200 once it has all arrived, INCOMPLETE until
 // then, or the status to refuse the request with.
-fn frame_body(rest: const u8[:], req: Request, room: i64) -> i64, i32 {
+fn frame_body(rest: const u8[:], req: const Request&, room: i64) -> i64, i32 {
     if req.chunked {
         let n, status = chunked_len(rest, room);
         if status == INCOMPLETE && rest.len >= room { return 0, 413; }
@@ -607,7 +607,7 @@ fn path_of(target: const u8[:]) -> const u8[:] {
 
 // The request's authority, host and port: an absolute-form target's, which
 // a server uses instead of Host (RFC 9112 §3.2.2), or else Host's, or "".
-fn authority(req: Request) -> const u8[:] {
+fn authority(req: const Request&) -> const u8[:] {
     let t = req.target;
     if t.len > 0 && t[0] != '/' && t != "*" {
         let s = position(t, ':');
@@ -1114,7 +1114,7 @@ fn two_digits<A>(out: A&, v: i64) {
 // §13.1.2, §13.1.3, §13.2.2): If-None-Match lists etag, by the weak
 // comparison, or is "*"; or, only without If-None-Match, If-Modified-Since
 // is a date at or after modified.
-fn not_modified(req: Request, etag: const u8[:], modified: i64) -> bool {
+fn not_modified(req: const Request&, etag: const u8[:], modified: i64) -> bool {
     let tags, has_tags = field_of(req, "if-none-match");
     if has_tags {
         guard etag.len > 0 else { return false; }
@@ -1145,7 +1145,7 @@ fn weak_eq(a: const u8[:], b: const u8[:]) -> bool {
 // when there's no Range, it isn't one range of bytes, or If-Range names
 // another entity tag than etag (RFC 9110 §14.2, §14.4, §13.1.5). A 206 gets
 // a Content-Range field: content_range writes it.
-fn range_of(req: Request, size: i64, etag: const u8[:]) -> i64, i64, i32 {
+fn range_of(req: const Request&, size: i64, etag: const u8[:]) -> i64, i64, i32 {
     let spec, has = field_of(req, "range");
     guard has && starts_with(spec, "bytes=") else { return 0, size, 200; }
     let cond, has_cond = field_of(req, "if-range");

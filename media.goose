@@ -121,7 +121,7 @@ fn is_media(m: MediaType, want: const u8[:]) -> bool {
 }
 
 // Whether req's Content-Type is want, as is_media compares them.
-fn has_type(req: Request, want: const u8[:]) -> bool {
+fn has_type(req: const Request&, want: const u8[:]) -> bool {
     let v, found = field_of(req, "content-type");
     guard found else { return false; }
     let m, ok = media_type(v);
@@ -130,7 +130,7 @@ fn has_type(req: Request, want: const u8[:]) -> bool {
 
 // Whether req's Content-Type is want, as has_type; if it isn't, answers 415
 // with want in Accept, as RFC 9110 §15.5.16 suggests.
-fn require_type(req: Request, out: Reply, want: const u8[:]) -> bool {
+fn require_type(req: const Request&, out: Reply, want: const u8[:]) -> bool {
     guard !has_type(req, want) else { return true; }
     start(out, 415);
     field(out, "Accept", want);
@@ -143,7 +143,7 @@ fn require_type(req: Request, out: Reply, want: const u8[:]) -> bool {
 // gets the weight of the most specific media range that matches it, and of
 // equal weights the first offer wins. A request without Accept takes the
 // first. A range whose weight or parameters can't be read is skipped.
-fn negotiate(req: Request, offers: const u8[:][:]) -> i64 {
+fn negotiate(req: const Request&, offers: const u8[:][:]) -> i64 {
     var any = false;
     var best = -1;
     var best_q = 0;
@@ -260,7 +260,7 @@ fn element_end(list: const u8[:], i: i64) -> i64 {
 // Accept-Encoding gets 0 for every coding, so it is answered without one,
 // as clients that send none expect. x-gzip counts as gzip (§8.4.1.3). An
 // element whose weight or parameters can't be read is skipped.
-fn coding_q(req: Request, coding: const u8[:]) -> i64 {
+fn coding_q(req: const Request&, coding: const u8[:]) -> i64 {
     var own = -1;
     var any = -1;
     each_field(req) { name, value =>
@@ -319,7 +319,7 @@ fn qvalue(text: const u8[:]) -> i64, bool {
 
 // The index of the offer negotiate picks; if it picks none, answers 406
 // and returns -1.
-fn accept_or_406(req: Request, out: Reply, offers: const u8[:][:]) -> i64 {
+fn accept_or_406(req: const Request&, out: Reply, offers: const u8[:][:]) -> i64 {
     let i = negotiate(req, offers);
     guard i < 0 else { return i; }
     start(out, 406);

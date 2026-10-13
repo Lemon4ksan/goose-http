@@ -41,14 +41,14 @@ fn peer(out: Reply) -> Address, bool {
 // isn't in trusted, or the farthest if all are. A hop that isn't an
 // address, as Forwarded's "unknown" or an obfuscated name, ends the walk at
 // the trusted hop before it.
-fn client(req: Request, out: Reply, trusted: const Network[:]) -> Address, bool {
+fn client(req: const Request&, out: Reply, trusted: const Network[:]) -> Address, bool {
     let p, ok = peer(out);
     guard ok else { return p, false; }
     return forwarded_client(req, p, trusted), true;
 }
 
 // client, for a request from peer p.
-fn forwarded_client(req: Request, p: Address, trusted: const Network[:]) -> Address {
+fn forwarded_client(req: const Request&, p: Address, trusted: const Network[:]) -> Address {
     guard within(p, trusted) else { return p; }
     // The hops come farthest first. The walk from the nearest ends at the
     // first hop that isn't trusted; read in order, the client is the last
@@ -98,7 +98,7 @@ fn forwarded_client(req: Request, p: Address, trusted: const Network[:]) -> Addr
     return best;
 }
 
-fn has_field(req: Request, name: const u8[:]) -> bool {
+fn has_field(req: const Request&, name: const u8[:]) -> bool {
     let v, found = field_of(req, name);
     return found;
 }

@@ -22,7 +22,10 @@ The task then rewrites the examples and the API reference for the API that resul
    plaintext and JSON from `bench/run.sh`, and the tiers of `bench/rest.sh` that the
    proposals below name.
 2. Each proposal is its own commit, with its tests, the README, `examples/`, and
-   `server/` updated in the same commit.
+   `server/` updated in the same commit, on the `task-027` branch until its benchmarks
+   hold (asked for 2026-10-13). Before the commit, `bench/codegen.sh` against the
+   baseline and the commit before, looking for new specializations and growth in the
+   loops' hot functions (asked for 2026-10-13).
 3. After each, run `scripts/test.sh` on Linux and macOS. The proposals' checks run in
    an overnight batch, each at its own commit, compared with the baseline, using
    `bench/count.sh` for instructions (`docs/development.md`, "Move the pin"). Record the numbers
@@ -51,15 +54,32 @@ review's estimates; "unverified" marks what no program has checked yet.
       a `var` reference rebound to `null` counts under spec §5.1 as one that may point
       into the write buffer they shrink. A typed local works around a `null` branch
       that doesn't take the optional's type (`docs/goose-findings.md`). `bench/rest`'s
-      server changes with it.
-      Reverted (2026-10-13): it cost about 40 instructions per request on each loop.
-      The `task-027` branch records the measurements.
+      server changes with it. Commit `a9783c8`, pushed to `main` before its codegen
+      check; `main` keeps it (2026-10-13), and later proposals go to `task-027`.
+      Codegen (`bench/codegen.sh`, against `2afc12f`): the Request path's C builds the
+      event's four fields where it built nine, and the handler's `match` on a tag that's
+      constant there folds away. But `.text` grew from 267 to 424 KB: Goose now
+      specializes `go`, `drive`, `advance`, `pump`, and `answer` once with `wake` the
+      constant `null` and once with an event, and `answer`'s nested `call`, which holds
+      the whole inlined handler (about 17 KB), three times where it did twice. In
+      machine code, `answer` grew from 4,821 to 4,994 instructions on epoll and from
+      4,862 to 5,145 on uring, cold branches included. Whether a request pays for it
+      is for `bench/count.sh` to say.
 - [ ] **Request helpers take `const Request&`**, not `Request` by value: `field_of`
       (`message.goose:225`), `cookie_of` (`cookie.goose:39`), `authorization`
       (`auth.goose:16`), `has_type` (`media.goose:124`), and `range_of`
       (`message.goose:1148`). `Event.req` became a reference to save the same copy,
       about 20 instructions per request. Unverified where gcc inlines them anyway.
       Check: `bench/rest.sh` tiers B and C.
+      Done (2026-10-13), not yet benchmarked; `scripts/test.sh` passes in WSL and Git
+      Bash. Every package function that reads a request takes it so, 21 in all, as
+      `router` and `upgrade_of` already did; the servers' own functions are unchanged,
+      so the check measures the package alone. A call's result can't be passed
+      straight to one (the struct-literal finding), so the tests bind it to a local
+      first. Codegen against `a9783c8`: `answer` drops to 4,447 instructions on epoll
+      and 4,568 on uring, below the baseline, and `.text` to 381 KB; in `bench/rest`'s
+      server, `cookie_of` inlines away, `has_bearer`, which still takes a copy, goes
+      from one 300-byte copy to four, and the `answer`s grow by 12 KB.
 - [ ] **`BodyReader.place` as an enum** (`message.goose:484-495`): `Length{left}`,
       `ChunkData{left}`, `ChunkSize`, and so on, so `read_body`'s cases are checked as
       complete and `left` exists only where it means something. Check: tier D's uploads.

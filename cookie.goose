@@ -12,7 +12,7 @@ import message;
 // Calls F(name, value) for each pair of req's Cookie fields, in order: the
 // value without the quotes it may have (RFC 6265 §4.2.1). A pair without '='
 // is skipped, as a user agent sends none.
-fn each_cookie<F>(req: Request) {
+fn each_cookie<F>(req: const Request&) {
     var pos = 0;
     while pos < req.fields.len {
         let name, value, next = field_at(req.fields, pos);
@@ -36,7 +36,7 @@ fn each_cookie<F>(req: Request) {
 
 // The value of req's cookie name, compared as sent, and whether req has it;
 // the first, if it repeats.
-fn cookie_of(req: Request, name: const u8[:]) -> const u8[:], bool {
+fn cookie_of(req: const Request&, name: const u8[:]) -> const u8[:], bool {
     var v = req.fields[..0];
     var found = false;
     each_cookie(req) { n, value =>

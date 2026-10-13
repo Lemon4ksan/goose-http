@@ -584,6 +584,20 @@ fn get_with(extra: const u8[:], out: u8[>..]&) -> http::Request {
     return r;
 }
 
+// not_modified for a GET with the fields extra.
+fn unchanged(extra: const u8[:], etag: const u8[:], modified: i64) -> bool {
+    var b: u8[>..] = [];
+    let r = get_with(extra, b);
+    return http::not_modified(r, etag, modified);
+}
+
+// range_of for a GET with the fields extra, of 100 bytes.
+fn range_in_100(extra: const u8[:], etag: const u8[:]) -> i64, i64, i32 {
+    var b: u8[>..] = [];
+    let r = get_with(extra, b);
+    return http::range_of(r, 100, etag);
+}
+
 // A Range field, and what range_of makes of it for 100 bytes.
 struct Ranged { spec: const u8[:], start: i64, end: i64, status: i32 }
 
@@ -600,22 +614,15 @@ fn test_conditional() {
 
     let etag = "\"v1\"";
     let modified = 1791633600;   // Sat, 10 Oct 2026 12:00:00 GMT
-    var b1: u8[>..] = [];
-    assert(http::not_modified(get_with("If-None-Match: \"v0\", W/\"v1\"\r\n", b1), etag, modified));
-    var b2: u8[>..] = [];
-    assert(!http::not_modified(get_with("If-None-Match: \"v2\"\r\n", b2), etag, modified));
-    var b3: u8[>..] = [];
-    assert(http::not_modified(get_with("If-None-Match: *\r\n", b3), etag, modified));
-    var b4: u8[>..] = [];
-    assert(http::not_modified(get_with("If-Modified-Since: Sat, 10 Oct 2026 12:00:00 GMT\r\n", b4), etag, modified));
-    var b5: u8[>..] = [];
-    assert(!http::not_modified(get_with("If-Modified-Since: Sat, 10 Oct 2026 11:59:59 GMT\r\n", b5), etag, modified));
+    assert(unchanged("If-None-Match: \"v0\", W/\"v1\"\r\n", etag, modified));
+    assert(!unchanged("If-None-Match: \"v2\"\r\n", etag, modified));
+    assert(unchanged("If-None-Match: *\r\n", etag, modified));
+    assert(unchanged("If-Modified-Since: Sat, 10 Oct 2026 12:00:00 GMT\r\n", etag, modified));
+    assert(!unchanged("If-Modified-Since: Sat, 10 Oct 2026 11:59:59 GMT\r\n", etag, modified));
     // If-None-Match decides alone when it's there.
-    var b6: u8[>..] = [];
-    assert(!http::not_modified(get_with("If-None-Match: \"v2\"\r\nIf-Modified-Since: Sat, 10 Oct 2026 12:00:00 GMT\r\n", b6),
-                               etag, modified));
-    var b7: u8[>..] = [];
-    assert(!http::not_modified(get_with("", b7), etag, modified));
+    assert(!unchanged("If-None-Match: \"v2\"\r\nIf-Modified-Since: Sat, 10 Oct 2026 12:00:00 GMT\r\n",
+                      etag, modified));
+    assert(!unchanged("", etag, modified));
 
     // Ranges of a 100-byte representation.
     let cases = [Ranged { spec: "bytes=0-9", start: 0, end: 10, status: 206 },
@@ -632,18 +639,15 @@ fn test_conditional() {
     for c in cases {
         var line: u8[>..] = [];
         format(line, "Range: ", c.spec, "\r\n");
-        var b: u8[>..] = [];
-        let a, e, s = http::range_of(get_with(line, b), 100, etag);
+        let a, e, s = range_in_100(line, etag);
         if a != c.start || e != c.end || s != c.status {
             print(c.spec, ": ", a, " ", e, " ", s);
             assert(false);
         }
     }
-    var b8: u8[>..] = [];
-    let a8, e8, s8 = http::range_of(get_with("Range: bytes=0-9\r\nIf-Range: \"v1\"\r\n", b8), 100, etag);
+    let a8, e8, s8 = range_in_100("Range: bytes=0-9\r\nIf-Range: \"v1\"\r\n", etag);
     assert(s8 == 206);
-    var b9: u8[>..] = [];
-    let a9, e9, s9 = http::range_of(get_with("Range: bytes=0-9\r\nIf-Range: \"v0\"\r\n", b9), 100, etag);
+    let a9, e9, s9 = range_in_100("Range: bytes=0-9\r\nIf-Range: \"v0\"\r\n", etag);
     assert(s9 == 200 && e9 == 100);
 
     var out: u8[>..] = [];
@@ -918,7 +922,8 @@ fn test_codings() {
     ];
     for c in cases {
         var rb: u8[>..] = [];
-        let q = http::coding_q(get_with(c.fields, rb), c.coding);
+        let r = get_with(c.fields, rb);
+        let q = http::coding_q(r, c.coding);
         if q != c.q { print("coding_q: ", c.fields, c.coding, " got ", q, ", want ", c.q); }
         assert(q == c.q);
     }
@@ -956,7 +961,8 @@ fn test_codings() {
         }
     }
     var rb: u8[>..] = [];
-    let none, missing = http::open_precompressed(get_with("Accept-Encoding: gzip\r\n", rb), "no such file here");
+    let asked = get_with("Accept-Encoding: gzip\r\n", rb);
+    let none, missing = http::open_precompressed(asked, "no such file here");
     assert(missing == 404 && none.fd < 0);
     for suffix in ["", ".gz", ".br"] { assert(delete_file(str(name, suffix))); }
 }

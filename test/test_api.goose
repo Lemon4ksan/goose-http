@@ -46,9 +46,12 @@ fn test_media_type() {
     }
 
     var buf: u8[>..] = [];
-    assert(http::has_type(request("Content-Type: application/json; charset=utf-8\r\n", buf), "application/json"));
-    assert(!http::has_type(request("Content-Type: text/plain\r\n", buf), "application/json"));
-    assert(!http::has_type(request("", buf), "application/json"));
+    let json = request("Content-Type: application/json; charset=utf-8\r\n", buf);
+    assert(http::has_type(json, "application/json"));
+    let text = request("Content-Type: text/plain\r\n", buf);
+    assert(!http::has_type(text, "application/json"));
+    let untyped = request("", buf);
+    assert(!http::has_type(untyped, "application/json"));
 }
 
 // Which of offers req's Accept picks.
@@ -163,7 +166,8 @@ fn test_cookies() {
 fn basic_ok(fields: const u8[:]) -> bool {
     var buf: u8[>..] = [];
     var decoded: u8[>..] = [];
-    let u, p, ok = http::basic_auth(request(fields, buf), decoded);
+    let r = request(fields, buf);
+    let u, p, ok = http::basic_auth(r, decoded);
     return ok;
 }
 
@@ -177,11 +181,14 @@ fn test_auth() {
     assert(okb && user == "Aladdin" && pass == "open sesame");
     // The password may hold ':', and either may be empty.
     var decoded2: u8[>..] = [];
-    let u2, p2, ok2 = http::basic_auth(request("Authorization: Basic OmE6Yg==\r\n", buf), decoded2);
+    let r2 = request("Authorization: Basic OmE6Yg==\r\n", buf);
+    let u2, p2, ok2 = http::basic_auth(r2, decoded2);
     assert(ok2 && u2 == "" && p2 == "a:b");
-    let bearer, token, okt = http::authorization(request("Authorization: Bearer abc.def-_~+/=\r\n", buf));
+    let r3 = request("Authorization: Bearer abc.def-_~+/=\r\n", buf);
+    let bearer, token, okt = http::authorization(r3);
     assert(okt && bearer == "Bearer" && token == "abc.def-_~+/=");
-    let alone, none, oka = http::authorization(request("Authorization: Negotiate\r\n", buf));
+    let r4 = request("Authorization: Negotiate\r\n", buf);
+    let alone, none, oka = http::authorization(r4);
     assert(oka && alone == "Negotiate" && none == "");
     for bad in ["", "Authorization: Basic\r\n", "Authorization: Bearer abc\r\n",
                 "Authorization: Basic QWxhZGRpbg==\r\n", "Authorization: Basic QWxhZGRpbjpvcGVu!\r\n",
@@ -191,7 +198,8 @@ fn test_auth() {
             assert(false);
         }
     }
-    let s1, c1, ok1 = http::authorization(request("Authorization: B@sic x\r\n", buf));
+    let r5 = request("Authorization: B@sic x\r\n", buf);
+    let s1, c1, ok1 = http::authorization(r5);
     assert(!ok1);
 
     var out: u8[>..] = [];

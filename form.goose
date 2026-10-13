@@ -64,7 +64,7 @@ struct Multipart {
 // Readies m for req's multipart/form-data body, with the boundary its
 // Content-Type gives. False if req has no such type, or the boundary isn't
 // 1 to 70 of RFC 2046 §5.1.1's characters.
-fn start_multipart(req: Request, m: Multipart&) -> bool {
+fn start_multipart(req: const Request&, m: Multipart&) -> bool {
     m.place = MP_FAILED;
     m.delimiter.clear();
     let v, found = field_of(req, "content-type");
