@@ -127,9 +127,9 @@ best. Rows go by each server's average rank over the columns, peak RSS by its hi
 
 | Server | plaintext 256 | plaintext 1,024 | plaintext 4,096 | JSON 256 | JSON 1,024 | peak RSS |
 |---|---:|---:|---:|---:|---:|---:|
-| libreactorng (C) | 6.96 M | 7.38 M | 7.03 M | 545 K | 609 K | 6.1-80 MB |
+| libreactorng (C)\* | 6.96 M | 7.38 M | 7.03 M | 545 K | 609 K | 6.1-80 MB |
 | **Goose io_uring** | 6.74 M | 6.52 M | 6.02 M | 498 K | 487 K | 8.9-15 MB |
-| vanilla-io_uring (V) | **8.14 M** | **8.25 M** | **7.60 M** | 456 K | 453 K | 37-154 MB |
+| vanilla-io_uring (V)\* | **8.14 M** | **8.25 M** | **7.60 M** | 456 K | 453 K | 37-154 MB |
 | zix (Zig) | 5.13 M | 5.44 M | 4.97 M | **552 K** | **614 K** | 6.7-39 MB |
 | **Goose epoll** | 5.37 M | 5.31 M | 5.24 M | 416 K | 408 K | **2.7-3.6 MB** |
 | zeemo (Zig) | 2.39 M | 2.69 M | 2.21 M | 540 K | 606 K | 6.6-37 MB |
@@ -140,8 +140,8 @@ best. Rows go by each server's average rank over the columns, peak RSS by its hi
 | Tina (Odin) | 0.73 M | 0.74 M | 0.47 M | 504 K | 446 K | 755 MB |
 | hyper (Rust) | 2.69 M | 2.67 M | 2.54 M | 303 K | 295 K | 8.0-88 MB |
 
-- vanilla-io_uring and libreactorng answer plaintext without parsing the request.
-- vanilla-epoll's JSON, in parentheses, is from 2026-10-11: it leaks 6-15 GB a cell.
+\* Answers plaintext without parsing the request.  
+() vanilla-epoll's JSON is from 2026-10-11: it leaks 6-15 GB a cell.
 
 The 1-worker table, latency, CPU per request, and notes:
 [docs/results.md](docs/results.md#the-full-field).
@@ -180,21 +180,40 @@ and checked before each run. Same machine, `bench/rest.sh`, 2026-10-13, Goose at
 "Reads p99" is tier C's reads at a fixed 16K a second while uploads stream in. Bold is
 the column's best; rows go by average rank.
 
-| Server | A | B | C | C, templates\* | Uploads | Reads p99 | Peak RSS |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| **Goose io_uring** | **585 K/s** | **268 K/s** | 51.8 K/s | **144 K/s** | **1,152/s** | 7.8-11 ms | 33-387 MB |
-| **Goose epoll** | 456 K/s | 222 K/s | **51.9 K/s** | 140 K/s | 1,147/s | **1.4-2.5 ms** | 26-376 MB |
-| xitca-web (Rust) | 404 K/s | 233 K/s | 37.9 K/s | 110 K/s | 1,029/s | 1.7-13 ms | 32-505 MB |
-| hyper (Rust) | 274 K/s | 150 K/s | 32.0 K/s | 119 K/s | 1,110/s | 18-19 ms | **13-75 MB** |
-| tokio (Rust) | 394 K/s | 183 K/s | 31.7 K/s | 101 K/s | 1,047/s | 5.0-7.4 s† | 16-368 MB |
-| may-minihttp (Rust) | 383 K/s | 186 K/s | 32.3 K/s | 100 K/s | ✗ | ✗ | 45-490 MB |
-| odin-http (Odin) | 210 K/s | 47.4 K/s‡ | 3.4 K/s‡ | 38.3 K/s | 706/s | 12-13 s† | 11-476 MB |
-| Tina (Odin) | 312 K/s | 52.2 K/s‡ | 3.4 K/s‡ | 99.8 K/s | ✗ | ✗ | 482-672 MB |
+| Server | A | B | C | C, templates\* | Uploads | Reads p99 |
+|---|---:|---:|---:|---:|---:|---:|
+| **Goose io_uring** | **585 K/s** | **268 K/s** | 51.8 K/s | **144 K/s** | **1,152/s** | 7.8-11 ms |
+| **Goose epoll** | 456 K/s | 222 K/s | **51.9 K/s** | 140 K/s | 1,147/s | **1.4-2.5 ms** |
+| xitca-web (Rust) | 404 K/s | 233 K/s | 37.9 K/s | 110 K/s | 1,029/s | 1.7-13 ms |
+| hyper (Rust) | 274 K/s | 150 K/s | 32.0 K/s | 119 K/s | 1,110/s | 18-19 ms |
+| tokio (Rust) | 394 K/s | 183 K/s | 31.7 K/s | 101 K/s | 1,047/s | 5.0-7.4 s† |
+| may-minihttp (Rust) | 383 K/s | 186 K/s | 32.3 K/s | 100 K/s | ✗ | ✗ |
+| Tina (Odin) | 312 K/s | 52.2 K/s‡ | 3.4 K/s‡ | 99.8 K/s | ✗ | ✗ |
+| odin-http (Odin) | 210 K/s | 47.4 K/s‡ | 3.4 K/s‡ | 38.3 K/s | 706/s | 12-13 s† |
 
 \* Each record's JSON is prebuilt at startup, with the per-request values spliced in.  
 † The server fell behind the fixed rate, so the reads queued.  
 ‡ Odin's JSON library is the limit here.  
 ✗ may-minihttp can't read a chunked body, and Tina crashes on some streamed ones.
+
+Memory, in two parts: what the server holds at rest once its records are loaded (idle,
+measured apart with the same binaries), plus what serving the benchmark added at its
+peak. Every server keeps its records in memory. Bold is the column's lowest total.
+
+| Server | A | B | C | C, templates | Uploads |
+|---|---:|---:|---:|---:|---:|
+| **Goose io_uring**\* | 28 + 4.4 MB | 88 + 6.8 MB | 125 + 15 MB | 372 + 15 MB | 125 + 80 MB |
+| **Goose epoll**\* | 26 + 0.2 MB | 87 + 0.3 MB | 123 + 5.7 MB | 370 + 5.6 MB | 123 + 91 MB |
+| xitca-web (Rust) | 24 + 8.1 MB | 48 + 22 MB | 48 + 428 MB | 78 + 427 MB | **48 + 137 MB** |
+| hyper (Rust) | 7.5 + 5.5 MB | **17 + 11 MB** | **24 + 13 MB** | **62 + 13 MB** | 24 + 172 MB |
+| tokio (Rust) | 6.8 + 9.2 MB | 17 + 13 MB | 23 + 277 MB | 61 + 307 MB | 23 + 454 MB |
+| may-minihttp (Rust) | 25 + 20 MB | 57 + 15 MB | 47 + 391 MB | 95 + 395 MB | ✗ |
+| Tina (Odin) | 482 + 0.1 MB | 517 + 0.2 MB | 517 + 132 MB | 554 + 119 MB | ✗ |
+| odin-http (Odin) | **8.7 + 2.8 MB** | 44 + 39 MB | 44 + 369 MB | 80 + 396 MB | 44 + 1,211 MB |
+
+\* Goose threads share no memory, so each of the 4 workers holds its own copy of the
+records, where the others share one. This unusually large size is being fixed. Serving
+adds only 0.2-15 MB on A to C.
 
 Fixed-rate CPU, every route's latency, and how each server reads bodies:
 [docs/results.md](docs/results.md#rest-apis).

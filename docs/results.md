@@ -335,6 +335,31 @@ clinic's schedule of up to 728 KB:
   templates add a copy of their JSON. hyper's threads share one copy. Tina holds 482 MB
   even on tier A, whose records take 1.6 MB as JSON; what it allocates isn't measured.
 
+Memory in two parts: each server idle at rest with its records loaded, 4 workers on
+CPUs 0-3 and no load, read 2 s after its port listened, with this run's binaries in a
+later session the same day ([idle-rss.txt](../bench/results/2026-10-13-rest/idle-rss.txt));
+plus what serving added, the run's peak RSS (highest of 3 runs, tier D's over both roles)
+less the idle figure:
+
+| Server | A | B | C | C, templates | Uploads |
+|---|---:|---:|---:|---:|---:|
+| Goose io_uring | 28 + 4.4 MB | 88 + 6.8 MB | 125 + 15 MB | 372 + 15 MB | 125 + 80 MB |
+| Goose epoll | 26 + 0.2 MB | 87 + 0.3 MB | 123 + 5.7 MB | 370 + 5.6 MB | 123 + 91 MB |
+| xitca-web | 24 + 8.1 MB | 48 + 22 MB | 48 + 428 MB | 78 + 427 MB | **48 + 137 MB** |
+| hyper | 7.5 + 5.5 MB | **17 + 11 MB** | **24 + 13 MB** | **62 + 13 MB** | 24 + 172 MB |
+| tokio | 6.8 + 9.2 MB | 17 + 13 MB | 23 + 277 MB | 61 + 307 MB | 23 + 454 MB |
+| may-minihttp | 25 + 20 MB | 57 + 15 MB | 47 + 391 MB | 95 + 395 MB | not run |
+| Tina | 482 + 0.1 MB | 517 + 0.2 MB | 517 + 132 MB | 554 + 119 MB | not run |
+| odin-http | **8.7 + 2.8 MB** | 44 + 39 MB | 44 + 369 MB | 80 + 396 MB | 44 + 1,211 MB |
+
+- Goose's memory is its records at rest: every worker, and main, holds a copy, since
+  Goose threads share only static data. Idle on tier C with the epoll loop it holds 58,
+  79, and 122 MB with 1, 2, and 4 workers, where hyper holds 23 MB at any count. Task 025
+  shrinks it.
+- Serving adds 0.2-15 MB to Goose on tiers A to C, about what it adds to hyper (5.5-13
+  MB). tokio, may-minihttp, xitca-web, and odin-http add 277-428 MB on tier C, whose
+  responses run to 728 KB.
+
 Tier D, request bodies of 2 KB to 8 MB (`tier-d.lua`): the uploads role, chunked CSV
 imports and multipart attachments, on 1 thread and 32 connections, alone and beside
 the forms role, JSON batches and forms, on 7 threads and 224. Requests per second, the
