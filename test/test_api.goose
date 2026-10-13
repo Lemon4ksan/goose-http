@@ -337,13 +337,12 @@ fn limited(fields: const u8[:], whole: bool, first: const u8[:], pieces: const u
     var taken = 0;
     var log: u8[>..] = [];
     let reply = http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: st };
-    let ok = http::body_within(taken, http::Event { kind: http::REQUEST, req: req, data: first, whole: whole, trailers: "" },
+    let ok = http::body_within(taken, http::Event.Request { req: req, data: first, whole: whole, trailers: "" },
                                reply, 10);
     log.push(if ok { 'y' } else { 'n' });
     if ok {
         for p in pieces {
-            let more = http::body_within(taken, http::Event { kind: http::BODY, req: req, data: p, whole: false, trailers: "" },
-                                         reply, 10);
+            let more = http::body_within(taken, http::Event.Body { data: p }, reply, 10);
             log.push(if more { 'y' } else { 'n' });
             if !more { break; }
         }

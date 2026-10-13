@@ -1,18 +1,19 @@
 // Files as response bodies. A body with a Content-Length goes to the loop,
 // which sends it without copying (send_file): serve_epoll with sendfile, and
 // serve's ring with splice, TransmitFile, or sendfile. Others are read in
-// pieces with pread, as h2o reads them by default. A handler opens a file at REQUEST, answers with
-// serve_file, and sends the body with send_file at each MORE, with the
+// pieces with pread, as h2o reads them by default. A handler opens a file at Request, answers with
+// serve_file, and sends the body with send_file at each More, with the
 // FileBody in its state:
 //
-//   if ev.kind == http::REQUEST {
-//       let f, status = http::open_file(path);
-//       if status != 200 { http::respond(out, status, "text/plain", ""); }
-//       else { http::serve_file(ev.req, out, f, http::content_type_of(path), st.file); }
-//   } else if ev.kind == http::MORE {
-//       if !http::send_file(out, st.file) { http::end(out); }
-//   } else if ev.kind == http::CLOSED {
-//       http::close_body(st.file);
+//   match ev {
+//       Request r => {
+//           let f, status = http::open_file(path);
+//           if status != 200 { http::respond(out, status, "text/plain", ""); }
+//           else { http::serve_file(r.req, out, f, http::content_type_of(path), st.file); }
+//       },
+//       More => { if !http::send_file(out, st.file) { http::end(out); } },
+//       Closed => { http::close_body(st.file); },
+//       _ => {},
 //   }
 //
 // open_precompressed in place of open_file serves a .br, .zst, or .gz copy
@@ -32,7 +33,7 @@ import sys;
 struct File { fd: i64 = -1, size: i64 = 0, modified: i64 = 0, coding: const u8[:] = "", vary: bool = false }
 
 // The part of a file a response still has to send, kept in the handler's
-// state between MORE events. fd is -1 once closed.
+// state between More events. fd is -1 once closed.
 struct FileBody { fd: i64 = -1, off: i64 = 0, left: i64 = 0 }
 
 // The most send_file reads at once.

@@ -19,7 +19,7 @@ var backend_box: http::MailAddress;
 
 // The most bytes /bytes and /stream send.
 let MAX_BYTES = 1000000000;
-// The most bytes /bytes and /stream send for one MORE.
+// The most bytes /bytes and /stream send for one More.
 let PIECE = 16384;
 // What /bytes and /stream send: the digits over and over, from any offset.
 let DIGITS = digits();
@@ -52,49 +52,53 @@ let DELAY: u8 = 7;
 // send their bodies in pieces. Inline, so that http::start and http::finish
 // fold into each route.
 inline fn handle(ev: http::Event, st: Transfer&, out: http::Reply) {
-    if ev.kind == http::REQUEST {
-        route(ev.req, ev.data, ev.whole, ev.trailers, st, out);
-    } else if ev.kind == http::DONE {
-        logged(ev, out);
-    } else if st.route == UPLOAD {
-        if ev.kind == http::BODY { take(st, ev.data); }
-        else if ev.kind == http::END { uploaded(st, out); }
-    } else if st.route == ECHO {
-        if ev.kind == http::BODY { http::send(out, ev.data); }
-        else if ev.kind == http::END { http::end(out, ev.trailers); }
-    } else if st.route == FILE {
-        if ev.kind == http::MORE {
-            if !http::send_file(out, st.file) { http::end(out); }
-        } else if ev.kind == http::CLOSED {
-            http::close_body(st.file);
-        }
-    } else if st.route == LATER {
-        if ev.kind == http::WAKE { http::respond(out, 200, "text/plain", ev.data); }
-        else if ev.kind == http::TIMEOUT { http::respond(out, 504, "text/plain", "timeout"); }
-    } else if st.route == DELAY {
-        if ev.kind == http::TIMEOUT {
-            var text: u8[..24] = [];
-            format(text, st.count);
-            http::start(out, 200);
-            http::finish(out, "Content-Type: text/plain\r\nContent-Length: ", text);
-        }
-    } else if st.route == EVENTS {
-        if ev.kind == http::WAKE {
-            http::send(out, "data: ");
-            http::send(out, ev.data);
-            http::send(out, "\n\n");
-            if ev.tag == REPLY_LAST { http::end(out); } else { http::later(out, st.left); }
-        } else if ev.kind == http::TIMEOUT {
-            http::send(out, ": timeout\n\n");
-            http::end(out);
-        }
-    } else if st.route == SEND && ev.kind == http::MORE {
-        let k = min(st.left, PIECE);
-        let at = st.count % 10;
-        http::send(out, DIGITS[at..at + k]);
-        st.count += k;
-        st.left -= k;
-        if st.left == 0 { http::end(out); }
+    match ev {
+        Request r => route(r.req, r.data, r.whole, r.trailers, st, out),
+        Done d => logged(d, out),
+        Body b => {
+            if st.route == UPLOAD { take(st, b.data); }
+            else if st.route == ECHO { http::send(out, b.data); }
+        },
+        End e => {
+            if st.route == UPLOAD { uploaded(st, out); }
+            else if st.route == ECHO { http::end(out, e.trailers); }
+        },
+        More => {
+            if st.route == FILE {
+                if !http::send_file(out, st.file) { http::end(out); }
+            } else if st.route == SEND {
+                let k = min(st.left, PIECE);
+                let at = st.count % 10;
+                http::send(out, DIGITS[at..at + k]);
+                st.count += k;
+                st.left -= k;
+                if st.left == 0 { http::end(out); }
+            }
+        },
+        Closed => { if st.route == FILE { http::close_body(st.file); } },
+        Wake w => {
+            if st.route == LATER {
+                http::respond(out, 200, "text/plain", w.data);
+            } else if st.route == EVENTS {
+                http::send(out, "data: ");
+                http::send(out, w.data);
+                http::send(out, "\n\n");
+                if w.tag == REPLY_LAST { http::end(out); } else { http::later(out, st.left); }
+            }
+        },
+        Timeout => {
+            if st.route == LATER {
+                http::respond(out, 504, "text/plain", "timeout");
+            } else if st.route == DELAY {
+                var text: u8[..24] = [];
+                format(text, st.count);
+                http::start(out, 200);
+                http::finish(out, "Content-Type: text/plain\r\nContent-Length: ", text);
+            } else if st.route == EVENTS {
+                http::send(out, ": timeout\n\n");
+                http::end(out);
+            }
+        },
     }
 }
 
@@ -299,13 +303,14 @@ fn client(req: http::Request, out: http::Reply) {
 
 // A response's line of the access log: the peer, the status, the bytes
 // sent, the milliseconds taken, and the target, or "-" for a response that
-// ended after REQUEST.
-fn logged(ev: http::Event, out: http::Reply) {
+// ended after Request.
+fn logged(ev: http::Event.Done, out: http::Reply) {
     var line: u8[>..] = [];
     let p, known = http::peer(out);
     if known { http::format_address(line, p); } else { line.push('-'); }
     format(line, " ", ev.status, " ", ev.sent, " ", ev.ms, " ");
-    line.append(if ev.req.target.len > 0 { ev.req.target } else { "-" });
+    let req = ev.req;
+    if req { line.append(req.target); } else { line.push('-'); }
     print(line);
 }
 

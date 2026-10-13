@@ -48,7 +48,7 @@ responses only.
 | 🟢 | Answers that wait: another thread, a timer, long polling, SSE |
 | 🟢 | Client address. `Forwarded` from trusted proxies. |
 | 🟢 | IPv6 and dual-stack. Unix sockets on Linux and macOS. |
-| 🟢 | Access log, as a `DONE` event |
+| 🟢 | Access log, as a `Done` event |
 
 CORS, sessions, middleware, and an HTTP client are out of scope. They belong to a
 framework.
@@ -101,7 +101,8 @@ liburing (`liburing-dev`), Windows the Visual Studio Build Tools. Setup:
 - **A handler with state**, `{ ev, st, out => }`, for everything else: the loop calls it
   for each event of an exchange (the head, each piece of a body, room to send more, a
   message from another thread, a time limit), with state of the program's own type kept
-  per connection. Bodies and responses of any size, files, upgrades, and answers that
+  per connection. The event is an enum, `http::Event`, that the handler `match`es, and
+  each variant carries only its own data. Bodies and responses of any size, files, upgrades, and answers that
   wait all go through it.
 - **The request is borrowed.** The head, its fields, and route parameters are slices
   into the read buffer, valid until the handler returns; the router allocates nothing.

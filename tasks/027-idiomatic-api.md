@@ -1,7 +1,12 @@
 # 027: A more idiomatic API
 
-Status: todo (asked for 2026-10-13; not started). Next: breaking changes cost least
-before programs use the API, and goose-rest will be the first.
+Status: in progress (asked for 2026-10-13). Next: the breaking proposals, then their
+overnight batch. Breaking changes cost least before programs use the API, and
+goose-rest will be the first.
+
+Baseline: `2afc12f`, the Goose pin moved to `a6249a4` (2026-10-13), with
+`scripts/test.sh` passing in WSL and Git Bash. The proposals' benchmarks compare
+against it.
 
 goose-http was written for correctness and speed, partly before Goose had features
 that fit it better. A review against the Goose docs and code at `a6249a4` (2026-10-13,
@@ -39,6 +44,14 @@ review's estimates; "unverified" marks what no program has checked yet.
       Unverified: that tag dispatch costs what the `u8` compare does now. Check:
       `bench/instructions.sh` against the recorded ~1,460 per request, and plaintext and
       JSON in `bench/run.sh`.
+      Done (2026-10-13), not yet benchmarked; `scripts/test.sh` passes in WSL and Git
+      Bash. `Done` keeps `req`, as `const Request?`, null where the response wasn't
+      whole at `Request`: the access log prints its target (asked for 2026-10-13). The
+      loops pass the wake as `const Event?` and keep a flag for whether it's still owed:
+      a `var` reference rebound to `null` counts under spec §5.1 as one that may point
+      into the write buffer they shrink. A typed local works around a `null` branch
+      that doesn't take the optional's type (`docs/goose-findings.md`). `bench/rest`'s
+      server changes with it.
 - [ ] **Request helpers take `const Request&`**, not `Request` by value: `field_of`
       (`message.goose:225`), `cookie_of` (`cookie.goose:39`), `authorization`
       (`auth.goose:16`), `has_type` (`media.goose:124`), and `range_of`

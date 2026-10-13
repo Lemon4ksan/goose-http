@@ -18,8 +18,8 @@ fn response(text: const u8[:], out: u8[>..]&) -> bool {
     var st = Transfer { .. };
     let reply = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: r.minor, head: r.method == "HEAD",
                               stream: stream };
-    handle(http::Event { kind: http::REQUEST, req: r, data: text[r.len..], whole: true, trailers: "" }, st, reply);
-    while stream.open { handle(http::Event { kind: http::MORE, req: r, data: "", whole: false, trailers: "" }, st, reply); }
+    handle(http::Event.Request { req: r, data: text[r.len..], whole: true, trailers: "" }, st, reply);
+    while stream.open { handle(http::Event.More, st, reply); }
     return keep;
 }
 
@@ -87,7 +87,7 @@ fn main() {
     out.clear();
     assert(response("GET /bytes?n=12 HTTP/1.1\r\nHost: x\r\n\r\n", out));
     same(out, "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Length: 12\r\nContent-Type: application/octet-stream\r\n\r\n012345678901");
-    // Longer than a MORE's piece.
+    // Longer than a More's piece.
     out.clear();
     assert(response("GET /bytes?n=50000 HTTP/1.1\r\nHost: x\r\n\r\n", out));
     assert(find(out, "\r\nContent-Length: 50000\r\n") > 0);

@@ -675,8 +675,11 @@ shorter-lived of the two, as two separate bindings would be.
         f(a);
     }
 
-Workaround: copy the value into a local and change its field (`var ev = wake; ...
-ev.kind = NO_EVENT;`, in `uring.goose`'s `pump` and `epoll.goose`'s `advance`).
+Workaround: an optional reference rebound to `null`, which `.=` accepts. Since task 027
+the loops pass the wake as a `const Event?`, and keep a flag for whether it's still owed
+(`uring.goose`'s `pump`, `epoll.goose`'s `advance`): a `var` reference, even one only
+ever rebound to `null`, counts as one that may point into the write buffer they shrink
+(spec §5.1).
 
 ## A struct literal can't be passed to a `const T&` parameter
 
@@ -693,8 +696,8 @@ already places it.
 
     fn main() { print(g(E { k: 1 })); }   // error: cannot pass E as const E&
 
-Workaround: bind the literal to a local first (`let ev = Event { ... }; resume(c, ev);`
-in the loops' `delivered` and `timed_out`).
+Workaround: bind the literal to a local first (`let ev: Event = Event.Wake { ... };
+resume(c, ev);` in the loops' `delivered` and `timed_out`).
 
 ## A package's JIT library links the externs of every file under its root
 
@@ -826,3 +829,28 @@ multer. Expected: a search that skips to where `sub`'s first byte is, as `memmem
     }
 
 Workaround: `http::find_bytes` (`form.goose`) compares only where `sub`'s first byte is.
+
+## A `null` branch doesn't take an optional type from its sibling branch
+
+Found on `a6249a4`, task 027. Status: open
+
+An `if` whose one branch is an optional reference and whose other is `null` is
+rejected where it has no typed destination, such as a call's argument. Expected: the
+optional's type, since a literal branch adapts to the others' type (spec §6.4), and
+`null` is the empty value of any optional type (§3.8). With a typed destination, as in
+`let p: const E? = if c { o } else { null };`, it compiles.
+
+    struct E { k: i32 }
+
+    fn f(e: const E?) -> i32 { if e { e.k } else { -1 } }
+
+    fn main() {
+        let a = E { k: 1 };
+        let o: const E? = a;
+        let c = true;
+        // error: branches have mismatched types: const E? vs void?
+        print(f(if c { o } else { null }));
+    }
+
+Workaround: bind it to a typed local first (`let first: const Event? = if woke { wake }
+else { null };`, in `uring.goose`'s `pump` and `epoll.goose`'s `advance`).

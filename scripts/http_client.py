@@ -1118,7 +1118,7 @@ def raw_exchange(port, data, pause=0.0):
 def access_log(port, path):
     """Against a server started with ACCESS_LOG: a line for each response,
     with its status, its bytes as the client got them, and its time from the
-    head's first byte, whole at REQUEST or after it."""
+    head's first byte, whole at Request or after it."""
     close = b"Connection: close\r\n"
     upload = b"x" * 100000
     cases = [

@@ -147,14 +147,18 @@ until the task named beside it confirms or replaces it.
   connection's slot (`http::Exchange`). Task 013's file records how the servers
   read for it shape the same thing.
   - `http::serve(cfg, fresh)` and `http::serve_epoll(cfg, fresh)` call the handler
-    with an `http::Event`: `REQUEST`, `BODY`, `END`, and `MORE`, and `DONE` with
+    with an `http::Event`: `Request`, `Body`, `End`, and `More`, and `Done` with
     `Config.log`. `serve(cfg)` is a
-    wrapper that answers `REQUEST` alone. A body that fits in the read buffer with
-    its head comes whole at `REQUEST`, which keeps the benchmarks' path one call per
+    wrapper that answers `Request` alone. A body that fits in the read buffer with
+    its head comes whole at `Request`, which keeps the benchmarks' path one call per
     request.
+  - `http::Event` is a fixed-mode enum whose variants carry only what applies to them,
+    so a handler `match`es it, and can't read a request where there is none
+    (2026-10-13, task 027). Until then it was a struct with a `kind` and every
+    variant's fields, with placeholder requests for the events that had none.
   - A longer body comes in pieces as each read brings it, decoded in the read buffer
     by `http::read_body`, whose place and remaining length are the slot's. A response
-    begun with `http::begin` is asked for more (`MORE`) only while the connection's
+    begun with `http::begin` is asked for more (`More`) only while the connection's
     queued output is under the write buffer's size, or under `max_queued` in the
     io_uring loop: the loops' own backpressure on pipelined requests is the
     streams' too, and no response sits whole in memory.
@@ -162,7 +166,7 @@ until the task named beside it confirms or replaces it.
     `Config.max_drain`, and closes past it. Under `Expect: 100-continue`, a body that
     fits in the read buffer gets `100 Continue` at once, and a longer one only once
     the handler has seen the head and not answered, as hyper sends it.
-    `http::upgrade` uses the same machinery: after 101, every byte is a `BODY`, and
+    `http::upgrade` uses the same machinery: after 101, every byte is a `Body`, and
     `send` writes bytes as they are.
   - The cost, measured with `bench/instructions.sh`: 60-80 more user instructions per
     request than before it, of about 1,460, and 1-2% more cycles; in
@@ -170,10 +174,10 @@ until the task named beside it confirms or replaces it.
     on plaintext. Task 013 records the measurements.
 - **Files read in pieces, and a call for an exchange cut short** (task 013, 2026-10-12).
   `http::send_file` reads a file with `pread`, 64 KB at a time, into the response at
-  each `MORE`, as h2o's file handler reads by default: one path for every loop, where
+  each `More`, as h2o's file handler reads by default: one path for every loop, where
   the io_uring and IOCP loops have no `sendfile` and h2o reaches it on io_uring only
   through a pipe. The handler keeps the file in its state, so the loops call it with
-  `CLOSED` when a connection closes, or a stop ends the loop, while the handler is owed a
+  `Closed` when a connection closes, or a stop ends the loop, while the handler is owed a
   call, as h2o disposes of a generator; without it, a client that left mid-file would
   leave the file open.
   - On the epoll loop on Linux and macOS, `send_file` gives the loop the file and the rest of a
@@ -192,7 +196,7 @@ until the task named beside it confirms or replaces it.
   `getpeername` only when a handler asks, since the io_uring loop's multishot accept
   passes no address; a client behind a proxy comes from `Forwarded` or
   `X-Forwarded-For` only when the peer is in the program's trusted networks. With
-  `Config.log`, the loops call the handler with `DONE` once a response is whole in the
+  `Config.log`, the loops call the handler with `Done` once a response is whole in the
   write buffer, with its status, its bytes, and the milliseconds of the loop's clock
   since the read that brought the head's first byte, rather than take a second
   function: the handler's state still holds what it kept of the request. It ends at
