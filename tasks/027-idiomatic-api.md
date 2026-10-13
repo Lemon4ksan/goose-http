@@ -1,11 +1,41 @@
 # 027: A more idiomatic API
 
 Status: in progress (asked for 2026-10-13). All seven proposals are on the `task-027`
-branch, each tested, the breaking four benchmarked. Next: the maintainer decides
-whether p1 must hold on its own (about 40 instructions per request, which p2 wins
-back) and whether p2's 3-6% on uploads, cycles at equal instructions, is layout or
-cost; then `task-027` merges, and the examples and docs below follow. Breaking changes cost least before programs use the API, and
-goose-rest will be the first.
+branch, each tested, the breaking four benchmarked. The maintainer decided what stays
+(2026-10-13, "Decisions" below); next is carrying that out, then `task-027` merges,
+and the examples and docs below follow. Breaking changes cost least before programs
+use the API, and goose-rest will be the first.
+
+## Decisions
+
+The maintainer's answers to the open questions (2026-10-13). An idiom that costs
+speed doesn't land, however idiomatic: record it in `docs/goose-findings.md` as one
+this package would use if Goose made it free.
+
+1. Revert p1 on `main` with an inverse commit (`git revert a9783c8`), not by rewriting
+   history. Keep its `docs/goose-findings.md` entry on the `null` branch, which the
+   revert would otherwise remove. After it, `git diff 2afc12f HEAD -- '*.goose'` shows
+   only dusty's changes. p2 doesn't win p1's cost back: the two are independent, so p1
+   costs its 39.5 instructions per request on epoll and 45.0 on uring with or without
+   p2.
+2. Add a finding for p1, from a minimal program at `a6249a4` that tells which costs
+   the instructions: matching the enum's tag, or the loops passing `const Event?` as
+   both the constant `null` and an event, which makes Goose specialize `go`, `drive`,
+   `advance`, `pump`, and `answer` twice (`.text` 267 to 424 KB). The growth points at
+   the second. The finding names the idiom and what it would replace.
+3. Rebase `task-027` onto the new `main`, keeping p2, p4, p5, and p6. Cherry-picking
+   onto a fresh branch is simpler than a rebase, since the branch holds a merge
+   (`0bedc15`) and a copy of `main`'s `04791ac` (`e886805`).
+4. Drop p7 (`927a268`): its reason was 15 lines fewer, and it came out 16 longer.
+5. Drop p3 (`dfc4a00`) unless a quick tier D run without p1 shows its upload loss
+   gone: uploads beside tier C took 670-737 a second against the baseline's 781-786.
+   p5 (`a3b8744`) builds on p3's `BodyReader.Raw`, so its conflicts are resolved by
+   hand. Record each dropped proposal under its bullet with its cost (step 4 below).
+6. Check p2's 3-6% on uploads again without p1. If it holds, `perf stat` the
+   instruction-cache and iTLB misses, p2 against the baseline, before calling it
+   layout.
+7. Benchmark the rebased series against `2afc12f`: the numbers below for p2 on were
+   measured on top of p1.
 
 Baseline: `2afc12f`, the Goose pin moved to `a6249a4` (2026-10-13), with
 `scripts/test.sh` passing in WSL and Git Bash. The proposals' benchmarks compare
