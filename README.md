@@ -198,8 +198,8 @@ the column's best; rows go by average rank.
 ‡ Odin's JSON library is the limit here.  
 ✗ may-minihttp can't read a chunked body, and Tina crashes on some streamed ones.  
 § A framework, not a direct competitor: its peer is goose-rest, the framework planned on
-this package. Its row comes from a later run the same day, in which hyper ran 2-6%
-faster than in the others'; there, hyper took 1,131 uploads a second to dusty's 1,158.
+this package. Measured in a later run the same day
+([docs/results.md](docs/results.md#rest-apis)).
 
 Memory, in two parts: what the server holds at rest once its records are loaded (idle,
 measured apart with the same binaries), plus what serving the benchmark added at its
@@ -214,6 +214,7 @@ peak. Every server keeps its records in memory. Bold is the column's lowest tota
 | tokio (Rust) | 6.8 + 9.2 MB | 17 + 13 MB | 23 + 277 MB | 61 + 307 MB | 23 + 454 MB |
 | may-minihttp (Rust) | 25 + 20 MB | 57 + 15 MB | 47 + 391 MB | 95 + 395 MB | ✗ |
 | Tina (Odin) | 482 + 0.1 MB | 517 + 0.2 MB | 517 + 132 MB | 554 + 119 MB | ✗ |
+| dusty (Zig)§ | 7.7 + 8.3 MB | 29 + 13 MB | 29 + 187 MB | 55 + 186 MB | 29 + 785 MB |
 | odin-http (Odin) | **8.7 + 2.8 MB** | 44 + 39 MB | 44 + 369 MB | 80 + 396 MB | 44 + 1,211 MB |
 
 \* Goose threads share no memory, so each of the 4 workers holds its own copy of the

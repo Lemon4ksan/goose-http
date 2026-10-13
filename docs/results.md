@@ -366,6 +366,7 @@ less the idle figure:
 | tokio | 6.8 + 9.2 MB | 17 + 13 MB | 23 + 277 MB | 61 + 307 MB | 23 + 454 MB |
 | may-minihttp | 25 + 20 MB | 57 + 15 MB | 47 + 391 MB | 95 + 395 MB | not run |
 | Tina | 482 + 0.1 MB | 517 + 0.2 MB | 517 + 132 MB | 554 + 119 MB | not run |
+| dusty\* | 7.7 + 8.3 MB | 29 + 13 MB | 29 + 187 MB | 55 + 186 MB | 29 + 785 MB |
 | odin-http | **8.7 + 2.8 MB** | 44 + 39 MB | 44 + 369 MB | 80 + 396 MB | 44 + 1,211 MB |
 
 - Goose's memory is its records at rest: every worker, and main, holds a copy, since
@@ -375,6 +376,10 @@ less the idle figure:
 - Serving adds 0.2-15 MB to Goose on tiers A to C, about what it adds to hyper (5.5-13
   MB). tokio, may-minihttp, xitca-web, and odin-http add 277-428 MB on tier C, whose
   responses run to 728 KB.
+- dusty's row comes from its own run ([idle](../bench/results/2026-10-13-rest-027/idle-rss.txt),
+  [peaks](../bench/results/2026-10-13-rest-027/summary.md)). At rest it holds about what
+  hyper does; serving tier C adds 186-187 MB, less than the 277-428 MB tokio,
+  may-minihttp, and xitca-web add, and uploads beside forms add 785 MB.
 
 Tier D, request bodies of 2 KB to 8 MB (`tier-d.lua`): the uploads role, chunked CSV
 imports and multipart attachments, on 1 thread and 32 connections, alone and beside
