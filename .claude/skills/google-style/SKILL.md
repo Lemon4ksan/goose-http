@@ -13,6 +13,8 @@ developers who need to understand a decision and act on it. It adapts the
 
 - Identify what the reader needs to learn or do. Put that point first; include the
   evidence, constraints, and trade-offs needed to assess it.
+- Where the reader expects a recommendation, give one and the condition that would
+  change it. State an unknown as unknown, with what would settle it, instead of hedging.
 - Edit structure before sentences. Remove duplicated facts and sections that don't
   help the reader. Stay within the requested scope.
 - Address the reader in instructions; describe the responsible component in design
@@ -26,6 +28,6 @@ developers who need to understand a decision and act on it. It adapts the
 ## Check the result
 
 Reread once for clarity and meaning: can the reader find the action or decision, its
-reason, and its limits? Remove repetition without losing qualifications. Compare the
-revision with the source for changed facts, conditions, obligations, or decision
-status. Check changed links and Markdown structure. Flag unresolved contradictions.
+reason, and its limits? Remove repetition without losing qualifications. When revising,
+compare with the source for changed facts, conditions, obligations, or decision status.
+Check changed links and Markdown structure. Flag unresolved contradictions.

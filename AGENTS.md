@@ -8,6 +8,8 @@
 - What `extern fn` looks like from C, for the shim: `docs/c-interop.md`
 - Goose compiler and stdlib gaps found here: `docs/goose-findings.md`
 - Task tracking: `tasks/` (see `tasks/README.md`)
+- Substantial doc drafts and requested prose reviews:
+  `.claude/skills/google-style/SKILL.md`; other writing follows "Writing" below
 - The language: the pinned Goose checkout's `docs/tutorial.md`, `docs/goose_spec.md`,
   and `docs/stdlib.md`. Read the tutorial before writing Goose; check the spec before
   assuming a feature exists.
