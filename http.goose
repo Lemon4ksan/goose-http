@@ -132,7 +132,7 @@ struct Error { call: const u8[:], code: i64 }
 
 // The number of workers cfg asks for. A program spawns them itself, each a
 // thread_fn that calls a loop: thread_spawn can't take a thread_fn passed to
-// a generic function (docs/goose-findings.md).
+// a generic function in another module (docs/goose-findings.md).
 //
 //   for i in http::worker_count(cfg) { ids.push(thread_spawn(worker, cfg)); }
 fn worker_count(cfg: Config) -> i64 {

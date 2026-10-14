@@ -207,17 +207,15 @@ var id_count: i64 = 0;
 // bits, then a counter, with the variant nibble 9.
 fn uuid(out: u8[..36]&, ms: i64) {
     id_count++;
-    var s: u8[>..] = [];
-    format_uint(s, ms as u64, 16, 12, '0');
-    s.insert_at(8, '-');
-    s.append("-7");
-    format_uint(s, ((id_count >> 12) & 0xFFF) as u64, 16, 3, '0');
-    s.append("-9");
-    format_uint(s, (id_count & 0xFFF) as u64, 16, 3, '0');
-    s.push('-');
-    format_uint(s, next() & 0xFFFFFFFFFFFF, 16, 12, '0');
     out.clear();
-    out.append(s);
+    format_uint(out, ms as u64, 16, 12, '0');
+    out.insert_at(8, '-');
+    out.append("-7");
+    format_uint(out, ((id_count >> 12) & 0xFFF) as u64, 16, 3, '0');
+    out.append("-9");
+    format_uint(out, (id_count & 0xFFF) as u64, 16, 3, '0');
+    out.push('-');
+    format_uint(out, next() & 0xFFFFFFFFFFFF, 16, 12, '0');
 }
 
 fn digits(out: u8[>..]&, v: i64, n: i64) {
@@ -333,9 +331,7 @@ fn snow_people() {
         uuid(p.id, T0 - 360 * DAY + u * 3 * MINUTE);
         format(p.name, pick(GIVEN), " ", pick(FAMILY));
         format(p.email, "c", o + 1, "p", j + 1, "@bench.example.com");
-        var hex: u8[>..] = [];
-        for k in 4 { format_uint(hex, next(), 16, 16, '0'); }
-        p.token.append(hex);
+        for k in 4 { format_uint(p.token, next(), 16, 16, '0'); }
         let r = between(0, 19);
         p.zone = if r < 14 { 0 } else { r - 13 };
         p.locale.append(if p.zone == 0 && between(0, 9) < 6 { "et" } else { "en" });

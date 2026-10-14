@@ -67,8 +67,8 @@ stack (12 KB of its 8 MB).
   reservations, committed on first touch and never given back (`goose --stacks`). With
   4 KB pages they hold 76-84 KB idle. One stack, the connection slots, grows by about
   130 bytes a connection, to 544-584 KB at 4,096 connections. With huge pages, any
-  stack can take 2 MB for its first byte
-  ([finding](../docs/goose-findings.md#a-data-stack-takes-a-2-mb-huge-page-for-its-first-byte)).
+  stack could take 2 MB for its first byte, until Goose `0bdbd18` kept huge pages off
+  each stack's first 2 MB.
 - **Thread arena.** glibc's arena for the worker. On io_uring it holds the 1 MB of
   provided buffers (`ring_buffers` × `ring_buffer_size`), which the kernel writes in
   full, and the send records: one for each send in flight, kept on free lists.
@@ -108,9 +108,10 @@ working set was 8,468 KB; its rate isn't measured yet.
 
 - Confirm on WSL2 that the size classes cost no instructions (`bench/count.sh`), and
   record which THP mode the WSL2 kernel uses.
-- A fix for the data stacks' huge pages. The package doesn't set `PR_SET_THP_DISABLE`
-  (decided 2026-10-12): it would apply to the whole program, the program's own memory
-  included.
+- Measure a worker again where transparent huge pages are `always`, now that Goose
+  `0bdbd18` keeps them off each data stack's first 2 MB. The package doesn't set
+  `PR_SET_THP_DISABLE` (decided 2026-10-12): it would apply to the whole program, the
+  program's own memory included.
 - The provided buffers: 1 MB a worker. Fewer would cost a re-armed receive when they
   run out; measure before changing the default.
 - The table after the streaming tests.

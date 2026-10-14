@@ -11,8 +11,7 @@ import http from "../../";
 
 struct Note { text: u8[..200], live: bool = true }
 
-// A function, as a worker's globals must be flat and a literal is a slice.
-fn token() -> const u8[:] { "let-me-in" }
+let TOKEN = "let-me-in";
 
 thread_fn worker(cfg: http::Config) {
     // Each worker has its own notes: a note written through one connection
@@ -60,7 +59,16 @@ fn answer(req: http::Request, body: const u8[:], out: http::Reply, notes: Note[>
         http::start(out, 204);
         http::finish(out, "", "");
     } else if http::on(r, "GET", "/visits") {
-        count_visit(req, out);
+        // The visits so far, counted in a cookie.
+        let v, has = http::cookie_of(req, "visits");
+        let n, ok = parse_int(v);
+        let visits = if has && ok && n >= 0 { n + 1 } else { 1 };
+        var text: u8[..24] = [];
+        format(text, visits);
+        http::start(out, 200);
+        http::set_cookie(out, http::Cookie { name: "visits", value: text, max_age: 86400, http_only: true,
+                                             same_site: "Lax", .. });
+        http::finish(out, "Content-Type: text/plain\r\nContent-Length: ", text);
     } else {
         http::otherwise(r, out);
     }
@@ -69,25 +77,11 @@ fn answer(req: http::Request, body: const u8[:], out: http::Reply, notes: Note[>
 // Whether req carries the bearer token; if not, answers 401.
 fn authorized(req: http::Request, out: http::Reply) -> bool {
     let scheme, credentials, ok = http::authorization(req);
-    guard ok && http::eq_fold(scheme, "bearer") && credentials == token() else {
+    guard ok && http::eq_fold(scheme, "bearer") && credentials == TOKEN else {
         http::challenge(out, "Bearer realm=\"notes\"");
         return false;
     }
     return true;
-}
-
-// The visits so far, counted in a cookie. A function of its own: in the
-// handler's block, cookie_of's result is refused as outliving req.
-fn count_visit(req: http::Request, out: http::Reply) {
-    let v, has = http::cookie_of(req, "visits");
-    let n, ok = parse_int(v);
-    let visits = if has && ok && n >= 0 { n + 1 } else { 1 };
-    var text: u8[..24] = [];
-    format(text, visits);
-    http::start(out, 200);
-    http::set_cookie(out, http::Cookie { name: "visits", value: text, max_age: 86400, http_only: true,
-                                         same_site: "Lax", .. });
-    http::finish(out, "Content-Type: text/plain\r\nContent-Length: ", text);
 }
 
 // The index of the live note id names, or -1.

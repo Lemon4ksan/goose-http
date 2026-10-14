@@ -160,17 +160,6 @@ fn test_cookies() {
     assert(out.len == 0);
 }
 
-// Whether basic_auth takes the request with fields. A function of its own: a
-// call that shrinks an array declared in a for loop over a literal is refused
-// (docs/goose-findings.md).
-fn basic_ok(fields: const u8[:]) -> bool {
-    var buf: u8[>..] = [];
-    var decoded: u8[>..] = [];
-    let r = request(fields, buf);
-    let u, p, ok = http::basic_auth(r, decoded);
-    return ok;
-}
-
 fn test_auth() {
     var buf: u8[>..] = [];
     var decoded: u8[>..] = [];
@@ -193,7 +182,11 @@ fn test_auth() {
     for bad in ["", "Authorization: Basic\r\n", "Authorization: Bearer abc\r\n",
                 "Authorization: Basic QWxhZGRpbg==\r\n", "Authorization: Basic QWxhZGRpbjpvcGVu!\r\n",
                 "Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ\r\n", "Authorization: B@sic x\r\n"] {
-        if basic_ok(bad) {
+        var held: u8[>..] = [];
+        var decoded_bad: u8[>..] = [];
+        let rb = request(bad, held);
+        let ub, pb, took = http::basic_auth(rb, decoded_bad);
+        if took {
             print("basic_auth took '", bad, "'");
             assert(false);
         }

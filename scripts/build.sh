@@ -46,12 +46,4 @@ if [ "$loop" = epoll ] && [ "$os" = Windows ]; then
 fi
 
 mkdir -p "$root/build"
-# goose build on Linux never sees a change to the shim's C (docs/goose-findings.md), so
-# the stamp that says the shim is built goes first: the stamps of the local packages
-# whose link list has the shim's objects.
-for rsp in "${GOOSE_HOME:-$HOME/.goose}"/build/pkg/local/*/*/link-*.rsp; do
-    if [ -f "$rsp" ] && grep -q -e '/net\.o' -e '/net_win\.obj' -e '/kqueue\.o' "$rsp"; then
-        rm -f "$(dirname "$rsp")/stamp"
-    fi
-done
 "$goose" build --cc "$cc" --standalone -o "$root/build/server" "$root/server/$main.goose"

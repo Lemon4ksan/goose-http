@@ -127,9 +127,7 @@ platforms: WSL builds into `build-linux/` and Windows into `build/`, and the che
 
 The compiler finds the stdlib by walking up to four directories from its own binary, so
 both builds find `../goose/stdlib` with no setting. A compiler copied anywhere else needs
-`GOOSE_STDLIB` pointing at the checkout's `stdlib/`; the compiler reads it itself. The
-error when the stdlib is missing names the wrong path
-([findings](goose-findings.md#a-missing-stdlib-is-reported-as-a-missing-file-next-to-the-program)).
+`GOOSE_STDLIB` pointing at the checkout's `stdlib/`; the compiler reads it itself.
 
 ### Move the pin
 
@@ -181,9 +179,7 @@ server imports the package from `../`, whose sidecar, `http.build`, names the C 
 Linux 6.1 ([architecture](architecture/README.md#the-io_uring-loop-task-005)). `goose
 build` keeps the generated C under `~/.goose/build/prog/`, and the package's compiled C
 under `~/.goose/build/pkg/local/`; `goose build -v` prints the commands with their
-paths. Before each build, `build.sh` deletes the stamp that marks the package's C as
-built: on Linux, `goose build` doesn't see a change to it
-([findings](goose-findings.md#goose-build-on-linux-never-sees-a-sidecars-c-change)).
+paths.
 
 TinyCC can't place thread-local storage, so it refuses to run any program that can reach
 `thread_spawn`, even when the spawn isn't taken. The server's root files are such
@@ -712,9 +708,10 @@ MACHINE=m1pro-docker SERVERS="goose goose-uring tokio vanilla-epoll vanilla-io_u
   record it by hand.
 - The VM runs transparent huge pages set to `always`. An idle Goose server with 4 workers
   holds 22 MB, 20 MB of it in `AnonHugePages`, so peak RSS there doesn't compare with
-  WSL2's. The huge pages back the workers' data stacks and malloc arenas, 2 MB
-  each ([findings](goose-findings.md#a-data-stack-takes-a-2-mb-huge-page-for-its-first-byte)).
-  Run a server under `prctl(PR_SET_THP_DISABLE)` to measure it with 4 KB pages.
+  WSL2's. The huge pages backed the workers' data stacks and malloc arenas, 2 MB each,
+  at Goose `5c83a5a`; since `0bdbd18` the runtime keeps them off the first 2 MB of each
+  data stack. Run a server under `prctl(PR_SET_THP_DISABLE)` to measure it with 4 KB
+  pages.
 - `docker run --security-opt seccomp=unconfined` lets the server use io_uring in the VM,
   and `scripts/test.sh` then passes there for all three Linux loops (2026-10-12). Its
   image needs `wrk`, `nghttp2-client` for `h2load`, `netcat-openbsd`, `python3`, and `oha`
@@ -726,9 +723,6 @@ MACHINE=m1pro-docker SERVERS="goose goose-uring tokio vanilla-epoll vanilla-io_u
   `-Dcpu=native` builds for generic arm64; `bench/build.sh` names `apple_m1` instead.
 - vanilla-epoll's JSON cells grow its memory by 6-15 GB each, past the VM's 8 GB: run
   JSON without it, in its own result directory.
-- `goose build` on Linux reuses a program's compiled shim after the first build
-  (`docs/goose-findings.md`). `scripts/build.sh` works around it; a hand-run `goose
-  build` needs the shim's `stamp` under `~/.goose/build/pkg/local/` deleted first.
 - The image `goose-http-dev3` has the compiler at `/goose/build/goose`, at `5c83a5a`
   (2026-10-12), and sets no `GOOSE`: pass `-e GOOSE=/goose/build/goose`.
 - `bench/rest/hyper` builds in `goose-http-bench2` (`RUSTFLAGS="-C target-cpu=native"
