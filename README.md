@@ -29,9 +29,10 @@ Early work.
 | 🟢 | macOS | kqueue. |
 | 🟢 | Windows | IOCP. 2 to 2.7 times slower than io_uring on WSL2 on the same machine, with oha on plaintext; not benchmarked further. |
 
-The tag `v0.3.0` has everything in the table below, with the current API, on both
-loops on Linux, kqueue on macOS, and IOCP on Windows. `v0.2.0` introduced the
-HTTP/1.1 essentials; `v0.1.0` had fixed-size requests and responses only.
+The tag `v0.3.1` has everything in the table below, with the current API, on both
+loops on Linux, kqueue on macOS, and IOCP on Windows. It adds `STALE` sends and
+`http::mail_live` for exchanges that no longer wait to `v0.3.0`. `v0.2.0` introduced
+the HTTP/1.1 essentials; `v0.1.0` had fixed-size requests and responses only.
 
 | | Feature |
 |---|---|
@@ -57,7 +58,7 @@ framework.
 ## Quick start
 
 ```goose
-import http from "github.com/kaitk/goose-http@v0.3.0";
+import http from "github.com/kaitk/goose-http@v0.3.1";
 
 thread_fn worker(cfg: http::Config) {
     let e = http::serve(cfg) { req, body, out =>
