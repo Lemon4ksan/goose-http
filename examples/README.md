@@ -296,8 +296,10 @@ else { http::respond(out, 503, "text/plain", "busy"); return; }
   a waiting exchange gets `Config.grace_ms`, then `CLOSED`.
 - `http::mail_live(address)` tells any thread whether the box accepts that key now,
   so a service can skip work for a client that has gone. It is a snapshot: a later
-  send can still return `STALE`. The key is cleared before `WAKE`, `TIMEOUT`, or
-  `CLOSED`; `later` on the same exchange makes it live again.
+  send can still return `STALE`. The key stays live through `WAKE` while the
+  handler calls `later` again, so a reply can go in pieces back to back; it is
+  cleared once the handler returns without waiting, and before `TIMEOUT` or
+  `CLOSED`.
 - A worker thread owns a box: `http::mail_open(slots, size)`, which returns the box
   and an `http::Error`, `http::mail_wait(box, ms)`, `http::mail_take(box) { key, tag, bytes => }`. `http::mail_send(address, tag,
   bytes)` returns `SENT`, `FULL` (no slot free), `TOO_LONG` (longer than a slot), or

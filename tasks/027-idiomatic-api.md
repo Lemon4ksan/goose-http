@@ -830,7 +830,7 @@ Item 12, found later the same day, is open.
     The HTTP suite checks `STALE` and `mail_live == false` in the backend after a
     client disconnects mid-wait and after a timeout, then checks connection reuse
     and repeated SSE waits. Both kqueue paths use the same updated Goose loops and
-    tests; a native macOS run remains pending because no macOS runner is available.
+    tests. On macOS (kqueue), `scripts/test.sh` passes at the fix below.
     Request-path benchmark: Ryzen 7 5800X3D, WSL2 Ubuntu 26.04.1, kernel
     `6.18.54.1-microsoft-standard-WSL2`, Goose `46356c2`, gcc 15.2.0 release
     builds. The baseline's HTTP source is `1e963ba`; the candidate adds this item.
@@ -858,6 +858,19 @@ Item 12, found later the same day, is open.
     goose-rest can add `rest::wanted(a) = http::mail_live(a.reply)` so a service
     skips a job or stops sending pieces for a client that has gone. Its
     `rest::answer` already stops on `STALE`; that repository is outside this change.
+
+    Fixed (2026-10-14): the loops first cleared the key before `WAKE`, so a piece sent
+    while the handler had yet to call `later` again returned `STALE`, and
+    `rest::answer` cut a reply in pieces short. The key now stays live through `WAKE`
+    and is cleared after any handler call that leaves the exchange not waiting, which
+    also catches a handler that resets `Stream.waiting` itself, as goose-rest's
+    `rest::ask` does when its job can't be sent. `Stream.live` records the mark, so
+    `later` on a live key and requests that never wait make no atomic write. The HTTP
+    suite sends 5 bursts of 500 `/events` pieces back to back, retrying `FULL`, and
+    the backend asserts every send is `SENT`; the old code failed it on macOS. Passes
+    `scripts/test.sh` on macOS (kqueue). Pending: the Linux and Windows suites, and a
+    paired request-path benchmark against `0c7b0e4`, since every handler call now
+    checks `Stream.live`.
 
 ## Kept as they are
 

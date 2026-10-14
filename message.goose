@@ -769,11 +769,13 @@ struct Stream {
     status: i32 = 0,        // what start was last given
     // later's: the exchange waits for a WAKE or its TIMEOUT, and rearm says
     // the loop has yet to start wait_ms's timer. later is the exchange's
-    // address, which the loop sets when it has a box (Config.mail_slots).
+    // address, which the loop sets when it has a box (Config.mail_slots),
+    // and live says the box accepts sends to it.
     waiting: bool = false,
     rearm: bool = false,
     wait_ms: i64 = 0,
     later: MailAddress = MailAddress { .. },
+    live: bool = false,
     // direct: the loop sends files itself (serve_epoll on Linux, with
     // sendfile). send_file then gives it file, open, and file_left bytes of
     // it from file_off, which follow buf; the loop answers nothing more

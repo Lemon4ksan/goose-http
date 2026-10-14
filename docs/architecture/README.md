@@ -155,9 +155,13 @@ only keys: its owner chooses the table size and the shift that selects an entry,
 then marks and clears whole keys. Untracked boxes accept any key.
 
 `later` marks the key before returning, so a reply from another thread can arrive
-before the handler returns. Both Goose loops clear it before `WAKE`, `TIMEOUT`, or
-`CLOSED`, when a timer cannot be armed, or when a handler answers instead of waiting.
-This covers io_uring, epoll, kqueue, and IOCP through their shared Goose paths.
+before the handler returns. The key stays live through a `WAKE` and is cleared after
+the handler returns without waiting again, so a reply sent in pieces never finds it
+stale between one piece and the handler's next `later` (2026-10-14). It is cleared
+before `TIMEOUT` and `CLOSED`, when a timer cannot be armed, and when a handler answers
+or stops waiting instead of waiting. `Stream.live` records whether the key is marked,
+so only an exchange that waited pays for an atomic write. This covers io_uring,
+epoll, kqueue, and IOCP through their shared Goose paths.
 Send checks the key atomically before claiming a queue slot and returns `STALE` for
 an exchange that no longer waits. `mail_live` gives any thread the same snapshot
 without sending. A send that read a live key before it was cleared can still be

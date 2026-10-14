@@ -50,10 +50,17 @@ thread_fn backend(box: http::Box, capacity: i64) {
         // A FULL box loses this reply, as STALE does for an exchange that's
         // gone: the exchange waits out its time limit. REPLY_SIZE holds any
         // reply, so none is TOO_LONG.
-        let result = http::mail_send(j.reply, if last { REPLY_LAST } else { REPLY_MORE }, reply);
+        var result = http::mail_send(j.reply, if last { REPLY_LAST } else { REPLY_MORE }, reply);
         if check_stale && (j.id == "gone" || j.id == "expired") {
             assert(result == http::STALE && !http::mail_live(j.reply));
             print("mail stale: ", j.id);
+        }
+        // A burst's pieces go back to back, retrying a full box as
+        // goose-rest's rest::answer does: none may find the exchange stale
+        // while it waits again for the next.
+        if check_stale && j.id == "burst" {
+            while result == http::FULL { result = http::mail_send(j.reply, if last { REPLY_LAST } else { REPLY_MORE }, reply); }
+            assert(result == http::SENT);
         }
         if last { free.push(i); }
         else { http::arm(timers, i as u64, now + j.delay); }

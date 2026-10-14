@@ -249,8 +249,21 @@ fn later(out: Reply, ms: i64) -> MailAddress {
     s.waiting = true;
     s.rearm = true;
     s.wait_ms = max(ms, 0);
-    mail_mark(Box { handle: s.later.box }, s.later.key, true);
+    if !s.live && s.later.box.slot >= 0 {
+        s.live = true;
+        mail_mark(Box { handle: s.later.box }, s.later.key, true);
+    }
     return s.later;
+}
+
+// Makes s's address stale once its exchange no longer waits. The key stays
+// live through WAKE until the handler returns, so a sender of a reply in
+// pieces doesn't find it stale between one piece and the handler's next
+// later.
+fn retire(s: Stream&) {
+    guard s.live && !s.waiting else { return; }
+    s.live = false;
+    mail_mark(Box { handle: s.later.box }, s.later.key, false);
 }
 
 // A Later's key: the connection's slot, 24 bits of its generation, and 20 of
@@ -303,8 +316,8 @@ fn start_wait(c, timers: Timers&, now: i64) -> bool {
     cancel(timers, c.x.timer);
     c.x.timer = arm(timers, s.later.key, now + s.wait_ms);
     guard c.x.timer.slot < 0 else { return false; }
-    mail_mark(Box { handle: s.later.box }, s.later.key, false);
     s.waiting = false;
+    retire(s);
     return true;
 }
 
@@ -341,11 +354,10 @@ struct Exchange<S> {
 // Calls H with CLOSED for c's exchange, if it was owed another call.
 fn abandon<H, C>(c: C&) {
     let x .= c.x;
-    if x.stream.later.box.slot >= 0 {
-        mail_mark(Box { handle: x.stream.later.box }, x.stream.later.key, false);
-    }
-    guard x.stream.open || x.stream.waiting || (!x.skip && x.body != BodyReader.None) else { return; }
+    let owed = x.stream.open || x.stream.waiting || (!x.skip && x.body != BodyReader.None);
     x.stream.waiting = false;
+    retire(x.stream);
+    guard owed else { return; }
     var sink: u8[>..] = [];
     let none = Request { .. };
     H(Event { kind: CLOSED, req: none, data: "", whole: false, trailers: "" }, &x.state,
@@ -421,7 +433,6 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
 
     // A call that both waited and wrote a whole response doesn't wait.
     fn unwait() {
-        mail_mark(Box { handle: x.stream.later.box }, x.stream.later.key, false);
         x.stream.waiting = false;
         x.stream.rearm = false;
     }
@@ -437,6 +448,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
         done++;
         let wrote = wbuf.len > before;
         if wrote && x.stream.waiting && !x.stream.open { unwait(); }
+        retire(x.stream);
         x.sent += wbuf.len - before;
         if x.stream.file >= 0 { x.sent += x.stream.file_left; }
         if !x.answered && !x.stream.open && (wrote || was_open) {
@@ -616,6 +628,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
                   head: req.method == "HEAD", stream: x.stream, fd: c.fd });
         done++;
         if x.stream.waiting && !x.stream.open && wbuf.len > before { unwait(); }
+        retire(x.stream);
         if whole && !x.stream.open && !x.stream.waiting {
             if wbuf.len == before {
                 // The handler didn't answer.

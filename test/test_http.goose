@@ -1094,6 +1094,25 @@ fn test_wait_liveness() {
     let fresh = false;
     let rest, done, full = http::answer(c, input, input.len, out, COMMON, cfg, fresh, false, 0, ev, answer_now) { false };
     assert(done == 1 && !c.x.stream.waiting && !http::mail_live(c.x.stream.later));
+    // A reply in pieces: the key stays live through WAKE while the handler
+    // waits again, and goes stale once it answers.
+    c.x = http::Exchange<bool> { .. };
+    c.x.stream.later = to;
+    out.clear();
+    fn piece_by_piece(ev: http::Event, st: bool&, out: http::Reply) {
+        if ev.kind == http::WAKE { assert(http::mail_live(out.stream.later)); }
+        if ev.kind == http::REQUEST || ev.data == "more" { http::later(out, 1000); }
+        else { http::respond(out, 200, "text/plain", "done"); }
+    }
+    http::answer(c, input, input.len, out, COMMON, cfg, fresh, false, 0, ev, piece_by_piece) { false };
+    let pieces = c.x.stream.later;
+    assert(c.x.stream.waiting && http::mail_live(pieces));
+    let more = http::Event { kind: http::WAKE, req: nothing, data: "more", .. };
+    http::answer(c, input, 0, out, COMMON, cfg, fresh, false, 0, more, piece_by_piece) { false };
+    assert(c.x.stream.waiting && http::mail_live(pieces));
+    let last = http::Event { kind: http::WAKE, req: nothing, data: "last", .. };
+    http::answer(c, input, 0, out, COMMON, cfg, fresh, false, 0, last, piece_by_piece) { false };
+    assert(!c.x.stream.waiting && !http::mail_live(pieces));
     http::mail_close(box);
 }
 

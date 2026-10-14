@@ -1080,6 +1080,14 @@ def later(port):
     if r.status != 200 or r.body != b": timeout\n\n" or took > 0.45:
         fail(f"/events past its limit: {r.status} {r.body!r} after {took:.2f} s")
 
+    # Pieces sent back to back, which the backend retries while the box is
+    # full: every one arrives, none finding the exchange stale between WAKEs.
+    for _ in range(5):
+        r, _ = timed(c, b"/events?id=burst&delay=0&n=500&ms=2000")
+        want = b"".join(b"data: burst %d\n\n" % i for i in range(1, 501))
+        if r.status != 200 or r.body != want:
+            fail(f"/events in a burst: {r.status}, {r.body.count(b'data:')} of 500 events")
+
     # Compressed, each event arrives whole: its chunk decompresses to it alone.
     c.send(request(b"/events?id=z&delay=50&n=3", extra=b"Accept-Encoding: gzip\r\n"))
     r = c.head()
