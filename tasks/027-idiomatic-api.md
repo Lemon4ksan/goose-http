@@ -48,12 +48,7 @@ Done: step 1 (`c16cca6`), step 3 for what is kept, and step 4. p3 waits on
 What `main` holds unchecked, or what waits on a branch. Remove an item once its check
 passes.
 
-- `findings-46356c2` (2026-10-14): the findings fixed at Goose `46356c2` and their
-  workarounds off the request path, `http::bearer`, task 028, and the README's tables.
-  Waits on `scripts/test.sh` in WSL and Git Bash, which waited on another session's
-  benchmarks, and on `bench/rest/gen.goose`'s output checked byte for byte against
-  `main`'s; then it merges into `main`.
-- `findings-46356c2-hot` (2026-10-14), on top of it: the workarounds on a request's
+- `findings-46356c2-hot` (2026-10-14), on top of `main` at `c55ad10`: the workarounds on a request's
   path (`http::whole` taking the handler, `INTERIM`, `pos += k` in `parse`, std's
   `find` in multipart, `each_cookie` over `each_field`, `bench/rest`'s string
   constants) and `respond` with no `Content-Type` for an empty one. `bench/codegen.sh
