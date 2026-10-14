@@ -176,6 +176,18 @@ fn test_auth() {
     let r3 = request("Authorization: Bearer abc.def-_~+/=\r\n", buf);
     let bearer, token, okt = http::authorization(r3);
     assert(okt && bearer == "Bearer" && token == "abc.def-_~+/=");
+    let t3, okt3 = http::bearer(r3);
+    assert(okt3 && t3 == "abc.def-_~+/=");
+    let r6 = request("Authorization: bEaReR  x==\r\n", buf);
+    let t6, okt6 = http::bearer(r6);
+    assert(okt6 && t6 == "x==");
+    for no in ["", "Authorization: Bearer\r\n", "Authorization: Basic QWxh\r\n",
+               "Authorization: Bearer a=b\r\n", "Authorization: Bearer =\r\n", "Authorization: Bearer a b\r\n"] {
+        var held: u8[>..] = [];
+        let rn = request(no, held);
+        let tn, okn = http::bearer(rn);
+        assert(!okn && tn.len == 0);
+    }
     let r4 = request("Authorization: Negotiate\r\n", buf);
     let alone, none, oka = http::authorization(r4);
     assert(oka && alone == "Negotiate" && none == "");

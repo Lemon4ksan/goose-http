@@ -112,8 +112,8 @@ call's result to a reference parameter
   and `http::set_cookie(out, http::Cookie { name: "sid", value: id, max_age: 3600,
   http_only: true, same_site: "Lax", .. })`.
 - `http::authorization(req)`: the scheme and credentials. `http::basic_auth(req,
-  decoded)`: the user and password. `http::challenge(out, "Basic realm=\"api\"")`:
-  401.
+  decoded)`: the user and password. `http::bearer(req)`: a Bearer token.
+  `http::challenge(out, "Basic realm=\"api\"")`: 401.
 - Forms: `http::form_value(body, key, out)` and `http::each_form(body) { key, value =>
   }`. Multipart: `http::start_multipart(req, st.parts)` at `REQUEST`, then
   `http::each_part(st.parts, ev.data) { part => }` for each piece of the body, where

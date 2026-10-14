@@ -76,8 +76,8 @@ fn answer(req: http::Request, body: const u8[:], out: http::Reply, notes: Note[>
 
 // Whether req carries the bearer token; if not, answers 401.
 fn authorized(req: http::Request, out: http::Reply) -> bool {
-    let scheme, credentials, ok = http::authorization(req);
-    guard ok && http::eq_fold(scheme, "bearer") && credentials == TOKEN else {
+    let token, ok = http::bearer(req);
+    guard ok && token == TOKEN else {
         http::challenge(out, "Bearer realm=\"notes\"");
         return false;
     }
