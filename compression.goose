@@ -4,7 +4,7 @@
 // which its root file declares at the commit this file names:
 //
 //   import http from "github.com/kaitk/goose-http@<commit>";
-//   import compress from "github.com/kaitk/goose-compress@4bed2d2e6c99d42bd36e79b4dde4f6fd786d5148";
+//   import compress from "github.com/kaitk/goose-compress@3969fd1d173955fe0bfb438fa8b02d40d0fa123f";
 //   import http.compression;
 //
 // A whole response:
@@ -20,7 +20,7 @@
 namespace http;
 
 import std;
-import compress from "github.com/kaitk/goose-compress@4bed2d2e6c99d42bd36e79b4dde4f6fd786d5148";
+import compress from "github.com/kaitk/goose-compress@3969fd1d173955fe0bfb438fa8b02d40d0fa123f";
 import message;
 import media;
 
