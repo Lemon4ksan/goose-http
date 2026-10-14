@@ -136,8 +136,7 @@ in `server/`. The rest have no example yet.
 
 The helpers that read a request take it as `const http::Request&`, so a call doesn't
 copy it. Pass them a variable, such as the handler's `req`: Goose doesn't yet bind a
-call's result to a reference parameter
-([findings](../docs/goose-findings.md#a-struct-literal-cant-be-passed-to-a-const-t-parameter)).
+call's result to a reference parameter.
 
 - Media types: `http::require_type(req, out, "application/json")` answers 415 for
   another `Content-Type`; `http::accept_or_406(req, out, ["application/json",
