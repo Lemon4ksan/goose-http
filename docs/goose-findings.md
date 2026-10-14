@@ -167,7 +167,8 @@ instructions per request; nothing here needs a word load now.
 
 ## A simd fn parser ran slower than its baseline
 
-Found on `bab8b6f`, task 008. Status: open (unchanged at `fe6c543`)
+Found on `bab8b6f`, task 008. Status: open (last timed at `f084e52`; not timed again at
+`46356c2`)
 
 `simd` (spec §7.12) on `http::parse` made it slower under clang 21 on a Ryzen 7 5800X3D,
 which runs the AVX2 version. The spec allows this: a `simd fn` suits a function that

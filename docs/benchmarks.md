@@ -1,0 +1,178 @@
+# Benchmarks
+
+Where Goose stands now, one section per workload. Each section holds the latest
+accepted run and is replaced, not appended to, when a newer one supersedes it. Every
+run, earlier ones included, is recorded in [results.md](results.md), which each section
+links to.
+
+## How these are measured
+
+On the benchmark desktop: AMD Ryzen 7 5800X3D, 8 cores, 16 logical CPUs, Windows 11,
+WSL2 Ubuntu 26.04.1, gcc 15.2.0 at `-O2`. Every server runs on CPUs 0-3 with the same
+worker count as Goose, 4, and the load generators run on CPUs 4-15. Each competitor runs
+in its fastest documented configuration, built in release mode. WSL2 carries loopback
+through a VM, so the kernel's share of each request is larger than on bare metal.
+
+The method, each load generator, and the servers' pins and builds:
+[bench/README.md](../bench/README.md#method).
+
+## Pins
+
+| Workload | Goose server | Goose compiler | Kernel | Date | Command |
+|---|---|---|---|---|---|
+| Plaintext and JSON | `e4f7b55` | `0bdbd18` | 6.18.54.1 | 2026-10-14 | `bench/run.sh` |
+| REST APIs | `e4f7b55` | `0bdbd18` | 6.18.54.1 | 2026-10-14 | `bench/rest.sh run` |
+| Static files | `fcfd80d` | `5c83a5a` | 6.18.40.1 | 2026-10-12 | `bench/files.sh` |
+| Compression | `6f584e2`, goose-compress `4bed2d2` | `0bdbd18` | 6.18.54.1 | 2026-10-14 | `bench/httparena.sh run` |
+
+Benchmarks run in overnight batches, so they lag the pin in the
+[README](../README.md#pins).
+
+## Plaintext and JSON
+
+TechEmpower's tiny fixed responses. They measure the loop and the parser, nothing else.
+wrk 4.1.0 with 8 threads, plaintext pipelined 16 deep, by connection count, 3 runs of
+15 s after 5 s of warm-up, medians. Bold is the column's best. Rows go by average rank
+over the columns; peak RSS is the highest of a server's cells.
+
+| Server | plaintext 256 | plaintext 1,024 | plaintext 4,096 | JSON 256 | JSON 1,024 | peak RSS |
+|---|---:|---:|---:|---:|---:|---:|
+| libreactorng (C)\* | 7.02 M | 7.46 M | 7.01 M | 540 K | 610 K | 72 MB |
+| vanilla-io_uring (V)\* | **8.12 M** | **8.26 M** | **7.58 M** | 453 K | 462 K | 155 MB |
+| Goose io_uring | 6.90 M | 6.81 M | 6.38 M | 497 K | 489 K | 13 MB |
+| zix (Zig) | 5.19 M | 5.37 M | 4.83 M | **561 K** | **614 K** | 39 MB |
+| Goose epoll | 5.29 M | 5.36 M | 5.26 M | 404 K | 401 K | **4.8 MB** |
+| xitca-web (Rust) | 3.37 M | 3.60 M | 3.22 M | 419 K | 445 K | 69 MB |
+| tokio (Rust) | 3.83 M | 3.79 M | 3.63 M | 381 K | 373 K | 163 MB |
+| hyper (Rust) | 2.66 M | 2.64 M | 2.53 M | 294 K | 287 K | 81 MB |
+
+\* Answers plaintext without parsing the request.
+
+`bench/count.sh` on the same build: 1,833.1 user instructions per plaintext request on
+epoll and 1,888.5 on io_uring, one worker, 10 million requests, 3 runs.
+
+The run behind this table
+([results](results.md#2026-10-14-main-after-tasks-02203-025-and-027)). zeemo,
+vanilla-epoll, may-minihttp, and Tina, the 1-worker table, latency, and CPU per request
+are from 2026-10-12, on kernel 6.18.40.1 ([the full field](results.md#the-full-field)).
+
+## REST APIs
+
+Three API workloads and one of uploads, against servers that serve the same routes
+without a framework. Responses are computed per request from records loaded at startup,
+and checked before each run. 3 runs of 15 s, medians.
+
+- **A**: HttpArena's `production-stack` API, items of 0.2 KB.
+- **B**: a time tracker's hot path, 0.3-13 KB of JSON.
+- **C**: a clinic's schedule and records, up to 728 KB.
+- **Uploads**: chunked CSVs of 2-8 MB and multipart files up to 1 MB.
+
+"Uploads" is uploads alone. "Reads p99" is tier C's reads at a fixed 16,000 a second
+while uploads stream in, the range over the routes and runs. Bold is the column's best;
+rows go by average rank.
+
+| Server | A | B | C | C, templates\* | Uploads | Reads p99 |
+|---|---:|---:|---:|---:|---:|---:|
+| Goose io_uring | **588 K/s** | **278 K/s** | **52.3 K/s** | **142 K/s** | 1,154/s | 7.8-10.6 ms |
+| Goose epoll | 448 K/s | 222 K/s | 51.3 K/s | 136 K/s | **1,166/s** | **1.0-2.0 ms** |
+| xitca-web (Rust) | 407 K/s | 235 K/s | 38.2 K/s | 113 K/s | 1,016/s | 2.4-4.6 ms |
+| dusty (Zig)§ | 343 K/s | 162 K/s | 24.6 K/s | 125 K/s | 1,125/s | 6.7-42 ms |
+| hyper (Rust) | 271 K/s | 151 K/s | 32.1 K/s | 120 K/s | 1,107/s | 11-29 ms |
+| tokio (Rust) | 393 K/s | 183 K/s | 31.6 K/s | 100 K/s | 1,034/s | 1.1-5.8 s† |
+
+\* Each record's JSON is prebuilt at startup, with the per-request values spliced in.  
+† The server fell behind the fixed rate, so the reads queued.  
+§ A framework, not a direct competitor: its peer is goose-rest, the framework planned
+on this package.
+
+Peak RSS of the same runs, at saturation for A to C and for uploads alone. Every server
+keeps its records in memory. Bold is the column's lowest.
+
+| Server | A | B | C | C, templates | Uploads |
+|---|---:|---:|---:|---:|---:|
+| Goose io_uring | 15 MB | 47 MB | 104 MB | 177 MB | 103 MB |
+| Goose epoll | **9 MB** | 46 MB | 102 MB | 176 MB | 103 MB |
+| xitca-web (Rust) | 32 MB | 68 MB | 490 MB | 512 MB | 56 MB |
+| dusty (Zig)§ | 16 MB | 42 MB | 216 MB | 241 MB | **31 MB** |
+| hyper (Rust) | 13 MB | **29 MB** | **37 MB** | **74 MB** | 72 MB |
+| tokio (Rust) | 16 MB | 30 MB | 307 MB | 365 MB | 412 MB |
+
+Goose threads share no memory, so each of the 4 workers holds its own copy of the
+records, where the others share one. Task 025 cut tier C templated from 387 MB to 177.
+
+The run behind these tables, with tier D beside forms and every route's latency
+([results](results.md#rest-apis) and
+[summary](../bench/results/2026-10-14-rest-field/summary.md)). may-minihttp, Tina, and
+odin-http are from 2026-10-13, on kernel 6.18.40.1 ([REST APIs](results.md#rest-apis-1)).
+
+## Static files
+
+One file downloaded over and over, against nginx and Caddy, the usual static file
+servers. Files on tmpfs. 1 worker on CPU 0 or 4 on CPUs 0-3, wrk on 4-15 with 12 threads
+and 96 connections, 3 runs of 10 s, medians. Bold is the column's best.
+
+| Server | 4 KB, 1 worker | 4 KB, 4 | 64 KB, 1 | 64 KB, 4 | 1 MB, 1 | 1 MB, 4 |
+|---|---:|---:|---:|---:|---:|---:|
+| Goose epoll | 56.0 K/s | 179 K/s | 2.23 GB/s | 7.41 GB/s | **11.6 GB/s** | **31.3 GB/s** |
+| Goose io_uring | **81.6 K/s** | **219 K/s** | 2.08 GB/s | 6.42 GB/s | 11.0 GB/s | 30.4 GB/s |
+| nginx 1.28.3 | 50.2 K/s | 173 K/s | **2.31 GB/s** | **8.15 GB/s** | 9.9 GB/s | 28.5 GB/s |
+| Caddy 2.10.2 (Go) | 13.0 K/s | 47 K/s | 0.83 GB/s | 2.99 GB/s | 6.8 GB/s | 20.1 GB/s |
+
+1 MB with 4 workers is wrk's limit, not the servers'. CPU per request, in-memory
+responses, and Windows: [results](results.md#static-files).
+
+## Compression
+
+HttpArena's json-comp profile: JSON responses gzipped per request when the client asks.
+HttpArena `0720ee5`, gcannon `11c802b` with 4 threads on CPUs 4-15, each server in its
+HttpArena entry's Docker image on CPUs 0-3, 3 runs of 5 s at each connection count. The
+harness keeps each cell's best run. Goose compresses at gzip level 1, nginx's default.
+
+| Server | 4,096 connections | Bytes per response | Memory | 16,384 connections | Memory |
+|---|---:|---:|---:|---:|---:|
+| goose | 66.1 K/s | 1,477 | 51-52 MiB | 64.2 K/s | 147 MiB |
+| actix | 62.6 K/s | 1,733 | 129-141 MiB | 61.0 K/s | 368-441 MiB |
+| dusty | 43.0 K/s | 1,303 | 28-200 MiB | 42.0 K/s | 235 MiB-1.1 GiB |
+| vanilla-epoll\* | 404.8 K/s | 1,635 | 111-115 MiB | 204.4 K/s | 250-293 MiB |
+
+\* Caches each response's gzipped bytes, so its cell measures a cache, not compression.
+
+Goose is the fastest of the servers that compress each response. HttpArena scores
+json-comp by rate times the square of the smallest bytes per response over a server's
+own; dusty's gzip writes 12% fewer bytes, which scores Goose at 51.5 K, still above
+actix's 35.4 K and dusty's 43.0 K. Compressing costs Goose about 24 µs of CPU per
+response. The measurements, the gzip levels compared, and the logs:
+[task 022.03](../tasks/022-compression/03-http-compress.md).
+
+## Other platforms
+
+- **Linux in Docker, M1 Pro** (2026-10-11, Goose `9623c6a`): Goose leads every cell
+  against tokio, may-minihttp, hyper, and xitca-web; plaintext 6.96 M/s at 256
+  connections against tokio's 6.10 M ([results](results.md#m1-pro-linux-in-docker)).
+- **macOS native, M1 Pro** (2026-10-11): every server within 5% of Goose, because macOS's
+  loopback limits the round trips; Goose holds 1.9 MB against 7-194 MB
+  ([results](results.md#m1-pro-macos-native)).
+- **Windows, IOCP** (2026-10-12): 2 to 2.7 times slower than io_uring on WSL2 on the
+  same machine, with oha on plaintext (task 017); not benchmarked further.
+
+## Where Goose loses
+
+From the runs in this file:
+
+- **Plaintext**, to vanilla-io_uring by 15-18% and to libreactorng by 2-9%. Both answer
+  without parsing the request.
+- **JSON**, to zix by 11-20% and to libreactorng by 8-20%, on the io_uring loop. The
+  epoll loop also trails xitca-web, by 4-10%.
+- **REST memory**: 2.4-2.8 times hyper's peak RSS on tier C, from one copy of the records
+  per worker (task 025).
+- **REST reads beside uploads on the io_uring loop**: p99 7.8-10.6 ms against the epoll
+  loop's 1.0-2.0 ms and xitca-web's 2.4-4.6 ms.
+- **Uploads beside the forms role** (tier D), to tokio: 252-279 uploads a second against
+  the io_uring loop's 159-163, though Goose served the forms at 7.1-7.5 K/s against
+  tokio's 3.7-3.9 K/s
+  ([summary](../bench/results/2026-10-14-rest-field/summary.md#tier-d)).
+- **Static files of 64 KB**, to nginx: by 3-9% on the epoll loop and 10-21% on io_uring.
+- **Windows**, where IOCP serves well under io_uring's rate (above).
+
+The earlier list, with profiles and HttpArena's other profiles:
+[results](results.md#where-goose-loses).

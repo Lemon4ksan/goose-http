@@ -1,8 +1,8 @@
 # Results
 
-The Goose server's latest numbers against the competing servers. Each section's
-numbers come from one machine, which the section names; numbers from different
-machines aren't compared. How each number is taken is in [bench/README.md](../bench/README.md#method), and
+Every benchmark run. Where Goose stands now, one table per workload, is in
+[benchmarks.md](benchmarks.md). Each section's numbers come from one machine, which the
+section names; numbers from different machines aren't compared. How each number is taken is in [bench/README.md](../bench/README.md#method), and
 the servers' pins and builds are in its [Servers](../bench/README.md#servers) table. The
 runs behind each section, and the earlier ones, are recorded in task 009
 ([tasks/000-archive/009-more-competitors.md](../tasks/000-archive/009-more-competitors.md)), but for the WSL2
@@ -471,8 +471,7 @@ any other error.
   2.9K with a p99 of 0.6 s, and it peaks at 814 MB; 5 uploads failed over the 3 runs.
 - On 2026-10-12, hyper took uploads alone 6-11% faster than either Goose loop. perf put
   19% of Goose's time in the multipart reader's delimiter search, the stdlib's `find`,
-  which compares the delimiter at every byte
-  ([finding](goose-findings.md#the-stdlibs-find-compares-the-whole-subsequence-at-every-offset)).
+  which compared the delimiter at every byte until Goose `d687028`.
   With `http::find_bytes`, which compares only where the delimiter's first byte is, run
   on 2026-10-13 with `STEPS=2`, 3 rounds, before and after in one session
   ([before](../bench/results/2026-10-13-uploads-before/summary.md),
