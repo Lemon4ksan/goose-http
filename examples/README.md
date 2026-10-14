@@ -151,7 +151,9 @@ call's result to a reference parameter
   }`. Multipart: `http::start_multipart(req, st.parts)` at `REQUEST`, then
   `http::each_part(st.parts, ev.data) { part => }` for each piece of the body, where
   `part` is an `http::Part`: `Head { fields }`, `Data { bytes }`, or `End`. Use
-  `http::disposition(fields)` for a part's name and filename.
+  `http::disposition(fields)` for a part's name and filename. A check of your own,
+  such as of a part's head, fails the body with `http::fail_multipart(st.parts)`.
+  At `END`, the body is whole if `http::multipart_done(st.parts)`.
 - `http::respond_json(out, status) { b => json::format_key(b, "id"); ... }`.
 - `Config.max_requests` caps a connection's requests. `http::body_within(st.taken, ev,
   out, limit)` at `REQUEST` and each `BODY` answers 413 past a route's own limit.

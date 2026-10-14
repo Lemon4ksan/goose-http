@@ -266,6 +266,28 @@ fn parts_in_pieces(req: http::Request, body: const u8[:], k: i64) -> u8[>..] {
     return log;
 }
 
+// The parts of MULTIPART read k bytes at a time, as 'h', 'd', and 'e' for
+// Head, Data, and End, with the function failing m at its nth call.
+fn failed_at(req: const http::Request&, k: i64, n: i64) -> u8[>..] {
+    var m = http::Multipart { .. };
+    var log: u8[>..] = [];
+    assert(http::start_multipart(req, m));
+    var calls = 0;
+    var at = 0;
+    while at < MULTIPART.len {
+        let piece = MULTIPART[at..min(at + k, MULTIPART.len)];
+        at += piece.len;
+        let ok = http::each_part(m, piece) { part =>
+            calls++;
+            log.push(match part { Head h => 'h', Data d => 'd', End => 'e' });
+            if calls == n { http::fail_multipart(m); }
+        };
+        if !ok { log.append("<fail>"); }
+    }
+    if http::multipart_done(m) { log.append("<done>"); }
+    return log;
+}
+
 // Whether start_multipart takes a request with fields.
 fn takes(fields: const u8[:]) -> bool {
     var buf: u8[>..] = [];
@@ -320,6 +342,26 @@ fn test_multipart() {
     }
     // A body cut short isn't done.
     assert(parts_in_pieces(req, "--XyZ\r\n\r\nab", 100) == "[,]ab");
+
+    // fail_multipart from each_part's function, at each of its calls: none
+    // follows, that each_part and every later one return false, and the body
+    // isn't done. In smaller pieces, a part's content comes in more calls.
+    same(failed_at(req, MULTIPART.len, 0), "hdehdehe<done>");
+    for k in [1, 7, MULTIPART.len] {
+        let all = failed_at(req, k, 0);
+        assert(all.ends_with("<done>"));
+        for n in 1..all.len - 5 {
+            let got = failed_at(req, k, n);
+            let f = find(got, "<fail>");
+            assert(f == n);
+            same(got[..f], all[..n]);
+            var at = f;
+            while at < got.len {
+                same(got[at..at + 6], "<fail>");
+                at += 6;
+            }
+        }
+    }
 }
 
 fn test_json() {

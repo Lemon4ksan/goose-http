@@ -20,7 +20,6 @@ struct Upload {
     taken: i64 = 0,     // for body_within
     bytes: i64 = 0,     // /upload: the body's bytes so far
     parts: http::Multipart = http::Multipart { .. },
-    failed: bool = false,
     size: i64 = 0,      // /form: the part's bytes so far
     report: u8[..1024] = [],
     body: http::Gather = http::Gather { .. },   // /words
@@ -79,15 +78,15 @@ fn piece(st: Upload&, data: const u8[:]) {
         st.bytes += data.len;
         return;
     }
-    guard !st.failed else { return; }
-    let ok = http::each_part(st.parts, data) { part =>
+    // A body that isn't multipart, or a part_head refuses, fails st.parts,
+    // and answer then sees the body unfinished.
+    http::each_part(st.parts, data) { part =>
         match part {
             Head h => part_head(st, h.fields),
             Data d => { st.size += d.bytes.len; },
             End => part_end(st),
         }
     };
-    if !ok { st.failed = true; }
 }
 
 // A part's line of the report starts with its name and filename, which last
@@ -95,7 +94,7 @@ fn piece(st: Upload&, data: const u8[:]) {
 fn part_head(st: Upload&, fields: const u8[:]) {
     let name, filename, ok = http::disposition(fields);
     guard ok && st.report.len + name.len + filename.len + 32 <= 1024 else {
-        st.failed = true;
+        http::fail_multipart(st.parts);
         return;
     }
     st.report.append(name);
@@ -110,7 +109,7 @@ fn answer(st: Upload&, out: http::Reply) {
         var text: u8[..32] = [];
         format(text, st.bytes, " bytes\n");
         http::respond(out, 200, "text/plain", text);
-    } else if st.failed || !http::multipart_done(st.parts) {
+    } else if !http::multipart_done(st.parts) {
         http::respond(out, 400, "text/plain", "not a multipart form\n");
     } else {
         http::respond(out, 200, "text/plain", st.report);

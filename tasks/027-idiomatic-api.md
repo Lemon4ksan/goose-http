@@ -575,6 +575,11 @@ every request's path, which `bench/count.sh` checks before it lands.
    `test/test_http.goose` tests a real 0 against both failures.
 9. A program's own check can't fail a `Multipart`, so `upload/` keeps a flag beside
    the one `each_part` keeps. Add `http::fail_multipart`. Additive; cold.
+   Done on `api-cold` (2026-10-14): `http::fail_multipart(m)` fails `m` as a body that
+   isn't multipart does. Called from `each_part`'s function, it ends that `each_part`,
+   which calls the function no more and returns false. `upload/` drops its flag.
+   `test/test_api.goose` fails the body at each call, in pieces of 1, 7, and the whole
+   body.
 10. `field` and `set_cookie` drop invalid input without a word. Return a `bool`.
     Additive.
 11. A file from an encoded path takes `decode`, `is_safe_path`, and a join. Add an
