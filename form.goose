@@ -113,13 +113,28 @@ fn each_part<F>(m: Multipart&, piece: const u8[:]) -> bool {
     return read_parts(m, joined) { part => F(part); };
 }
 
+// The first i where sub starts in xs, -1 if none; sub isn't empty. This
+// compares only where sub's first byte is. With the stdlib's find in its
+// place, tier D's forms ran 2-3% slower at Goose 46356c2, at the same
+// instructions a request.
+fn find_bytes(xs: const u8[:], sub: const u8[:]) -> i64 {
+    let first = sub[0];
+    let last = xs.len - sub.len;
+    var i = 0;
+    while i <= last {
+        if xs[i] == first && xs[i..i + sub.len] == sub { return i; }
+        i++;
+    }
+    return -1;
+}
+
 // each_part on work, the bytes held and the piece.
 fn read_parts<F>(m: Multipart&, work: const u8[:]) -> bool {
     let d = m.delimiter;
     var at = 0;
     loop {
         if m.place == MP_PREAMBLE || m.place == MP_DATA {
-            let k = find(work[at..], d);
+            let k = find_bytes(work[at..], d);
             if k < 0 {
                 // Hold back the longest end of work that could start a
                 // delimiter.
@@ -168,7 +183,7 @@ fn read_parts<F>(m: Multipart&, work: const u8[:]) -> bool {
             if work.len - at >= 2 && work[at] == '\r' && work[at + 1] == '\n' {
                 end = at;
             } else {
-                let k = find(work[at..], "\r\n\r\n");
+                let k = find_bytes(work[at..], "\r\n\r\n");
                 if k >= 0 { end = at + k + 2; }
             }
             if end < 0 {
@@ -209,7 +224,7 @@ fn field_lines(lines: const u8[:]) -> bool {
     var pos = 0;
     while pos < lines.len {
         let rest = lines[pos..];
-        let e = find(rest, "\r\n");
+        let e = find_bytes(rest, "\r\n");
         guard e >= 0 else { return false; }
         let colon = position(rest[..e], ':');
         guard colon > 0 && is_field(rest[..colon], trim_ows(rest[colon + 1..e])) else { return false; }
