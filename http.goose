@@ -710,3 +710,96 @@ fn body_within(taken: i64&, ev: Event, out: Reply, limit: i64) -> bool {
     return false;
 }
 
+// A body that didn't come with its head, gathered whole for gather: a run of
+// gathered from at, of cap bytes, whose first len hold the head, rebuilt,
+// and then the body so far. len is 0 while nothing is gathered.
+struct Gather { at: i64 = 0, cap: i64 = 0, len: i64 = 0, head: i64 = 0 }
+
+// Each worker's gathered bodies, a run for each Gather. A worker's globals
+// are its own (spec §11.2), and a program that never calls gather has none.
+reusable[] var gathered: u8[>..] = [];
+
+// The handler of serve(cfg, fresh) or serve_epoll(cfg, fresh) on an Event,
+// ahead of H, for bodies of any size up to limit: calls H(req, body, out)
+// once per request, with the whole body. A body that came with its head
+// goes to H at REQUEST. A longer one is gathered as it arrives, and goes to
+// H at END, with the head parsed again from a copy, as the read buffer is
+// reused. g, in the request's state, holds the gathered bytes, which END and
+// CLOSED give back. Past limit, at most Config.max_body, answers 413 and
+// closes, as body_within does. H can't keep req or body past its call.
+//
+//   http::serve(cfg, St { .. }) { ev, st, out =>
+//       http::gather(ev, st.body, out, 1 << 24) { req, body, o => ... };
+//   }
+inline fn gather<H>(ev: Event, g: Gather&, out: Reply, limit: i64) {
+    if ev.kind == REQUEST {
+        let over = if ev.whole { ev.data.len > limit } else { !ev.req.chunked && ev.req.body > limit };
+        if over {
+            too_large(out);
+        } else if ev.whole {
+            H(ev.req, ev.data, out);
+        } else {
+            gather_head(g, ev.req);
+        }
+    } else if g.len == 0 {
+        // Nothing gathered: answered at REQUEST, or past the limit.
+    } else if ev.kind == BODY {
+        if g.len - g.head + ev.data.len > limit {
+            release_gather(g);
+            too_large(out);
+        } else {
+            gather_piece(g, ev.data);
+        }
+    } else if ev.kind == END {
+        // Limits of the head's own size take back what parse took at REQUEST.
+        let req, status = parse(gathered[g.at..g.at + g.head], g.head, limit, g.head, g.head);
+        if status == 200 {
+            H(req, gathered[g.at + g.head..g.at + g.len], out);
+        } else {
+            start(out, 500);
+            finish(out, "Content-Length: ", "");
+        }
+        release_gather(g);
+    } else if ev.kind == CLOSED {
+        release_gather(g);
+    }
+}
+
+fn too_large(out: Reply) {
+    out.keep_alive = false;
+    start(out, 413);
+    finish(out, "Content-Length: ", "");
+}
+
+// Starts g's run with req's head, whose bytes the read buffer holds only
+// until the handler returns.
+fn gather_head(g: Gather&, req: const Request&) {
+    var version: u8[..16] = [];
+    format(version, " HTTP/1.", req.minor, "\r\n");
+    gather_piece(g, req.method);
+    gather_piece(g, " ");
+    gather_piece(g, req.target);
+    gather_piece(g, version);
+    gather_piece(g, req.fields);
+    gather_piece(g, "\r\n");
+    g.head = g.len;
+}
+
+// Appends data to g's run, growing it.
+fn gather_piece(g: Gather&, data: const u8[:]) {
+    let n = g.len + data.len;
+    if n > g.cap {
+        let cap = max(max(n, g.cap * 2), 16384);
+        let run = gathered.realloc_slice(gathered[g.at..g.at + g.cap], cap);
+        g.at = gathered.index_of(run[0]);
+        g.cap = cap;
+    }
+    copy_into(gathered[g.at + g.len..g.at + n], data);
+    g.len = n;
+}
+
+fn release_gather(g: Gather&) {
+    if g.cap > 0 { gathered.free_slice(gathered[g.at..g.at + g.cap]); }
+    g = Gather { .. };
+}
+

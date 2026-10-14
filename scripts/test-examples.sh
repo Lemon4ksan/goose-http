@@ -130,6 +130,15 @@ expect 200 -F note=hi -F "file=@$tmp/part.txt" "$url/form"
 holds "note: 2 bytes"
 holds "file (part.txt): 5 bytes"
 expect 415 -d plain "$url/form"
+# Larger than the read buffer, so gathered: 17,786 bytes, sized and chunked,
+# and then a megabyte and a byte, past /words's limit.
+{ seq 1 3000; seq 1 1000; } >"$tmp/words"
+expect 200 --data-binary "@$tmp/words" "$url/words"
+holds "4000 words, 3000 different"
+expect 200 -H 'Transfer-Encoding: chunked' --data-binary "@$tmp/words" "$url/words"
+holds "4000 words, 3000 different"
+head -c 1048577 /dev/zero >"$tmp/big"
+expect 413 -H 'Expect: 100-continue' --data-binary "@$tmp/big" "$url/words"
 end_example
 
 start later
