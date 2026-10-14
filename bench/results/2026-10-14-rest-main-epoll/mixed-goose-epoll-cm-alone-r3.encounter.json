@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v2/encounters/1207", "method": "GET" },
+  "config": { "connections": 30, "launched": 30, "duration_s": 15.000, "closed": false, "target_rate": 1920, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 28797,
+  "bytes": 744373653,
+  "achieved_rate": 1919.70,
+  "target_rate": 1920,
+  "target_rate_end": 1920,
+  "rate_ratio": 0.9998,
+  "bytes_per_sec": 49622403.46,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 0,
+  "latency_us": {
+    "min": 81, "mean": 229.3, "stdev": 185.2, "max": 1789,
+    "p50": 139, "p75": 222, "p90": 554, "p99": 837, "p99_9": 1074, "p99_99": 1402
+  },
+  "status_codes": { "1xx": 0, "2xx": 28797, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAzJ4nC1TMYhdRRR9c9/8+fNnJ+MwjsNkuAzD8Hg8Hp/lu2yha4wpRCSEYLVISBFSWIpVsAoSlhjFQswiwSJgIxYiQWLKDUhAsLIQiyBLihQiW6ReguS+v/nDe/feM+ecd+98Bvduv9o0fLM5+bUvI1sXtz9v3nl2AnzPoAFoRCMEcG+ir7n3b5x57+LVjy9f+2Sf7bND9i18A8fwU3vc7vE9/nz2RPwzfyxvLO6qm+pI3dq4t3G48Ys6UL8tjhZ3Fvflo/nB/HD+XPwvfp49me3Pjvlj/oD/yJ+2B+3d9gg+a/+Dp/Ad/MG+hD/Zv+wv9ojdZ3+ze+z6D+wOu8G+Yp9+zT66xa5dv8ku7V65+sHu+x+ev7B19ty58ztnNne3zr676sv25tDl7dzlshz71FWNBj3uIGaHdfCJVrAGY9JqcEMxqSuYU29NVraYgNmk6FNIKYfso82eKC5GHx3GPGBwNVpbQu5LrWTaYxlj77LusaY+xOpzKcMWltjXXDscx1zyVrcMAyZfakwxd8P02YpLvwy5Q3SlX8U0dLVQV10ZSpXbY484LmvEZZ+7tBprTiEm33tqasjWhRJdh97kWFxYIrWG1KQOCUMoXpngQzSOWgnUeaghxuyctcYpSpUrwQQazQWnpcWuekeWNKeNRhvvlHMySG2Vld5Lr02IzuaSanTjZs1xp9Sg0WvrydJPtBSRvphp6oQRqxu9iyYEr6WyKF0Q5CmdkoFm1NbmgIYIyWnnSFBNDdRkSHm13dVau+VQ0irHOASaq2qXO6+To//D+5Bs0Zr0mGhkjuhj3xsbvUtlcqNTSn2xCRWNpYp1VgRj6ahoOmO9cXQEFLV2XhojjQAprVOCGyu50aAVNS0lNJowrkGAEJQBF1xaKrgAUJwIIPlU0IsrbuieCCNlw0ESmbh0f6TktICoAEJyQji05CTFhBAkpis2WZEKeHMC82a6etBQ5KSGVlDKRUuCZtpcW633144N0NZskhBxaooSqgloOW+ngs9e2k4YLcL4FF+BjRNhQ+E0vecEEP4apafoOQ2LtWJGTFLN4XWg/G34ndHWm/AWfMHgYQu/MngBYMWANA=="
+}

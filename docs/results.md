@@ -17,11 +17,238 @@ WSL2 loopback runs through a VM; its kernel cost differs from bare metal. Runs t
 2026-10-12 use kernel 6.18.40.1-microsoft-standard-WSL2. The 2026-10-14 runs use
 6.18.54.1-microsoft-standard-WSL2. Each run's `env.txt` records the environment.
 
+## 2026-10-14: main against the README benchmark build
+
+Main at `bc75f2a` has overlapping plaintext and JSON throughput ranges with the
+baseline, but costs more user cycles on epoll and loses serialized REST throughput.
+REST memory is substantially lower. Both `bc75f2a` (`m`) and the README's previous
+benchmark build, `e4f7b55` (`x`), were rebuilt with Goose `46356c2`; this compares the
+server revisions at one compiler pin, rather than comparing two compiler versions.
+The later documentation commit `02f28c9` changes no measured code.
+
+AMD Ryzen 7 5800X3D, Windows 11, WSL2 Ubuntu 26.04.1, kernel
+6.18.54.1-microsoft-standard-WSL2, gcc 15.2.0 at `-O2`. The machine was kept quiet:
+only README/documentation editing continued, with no other benchmarks or taxing
+work. The initial process check found no `wrk`, `zrk`, `h2load`, or `rest-goose`.
+
+Each build came from `git archive <rev> | tar -x -C /root/bconf/<tag>`, not the
+working tree. `LOOP=epoll scripts/build.sh` and `LOOP=uring scripts/build.sh` built
+the small-response servers; `$GOOSE build --cc gcc --standalone -o
+build/rest/rest-goose-c<tag> <dir>/bench/rest/goose/rest.goose` built REST. The
+existing REST datasets and competitors were retained; `bench/rest.sh build` was
+not rerun. The batch removed `/root/bconf` when it ended. Commands and full revision
+IDs are in the [batch](../bench/results/2026-10-14-rest-main/batch.sh) and
+[revision record](../bench/results/2026-10-14-rest-main/revs.txt).
+
+### Instructions and cycles
+
+```sh
+RUNS=3 bench/count.sh goose-c{x,m} goose-c{x,m}-uring
+```
+
+One worker on CPU 0; h2load 1.68.0 on CPUs 4-15, 8 threads, 256 connections,
+16 requests in flight per connection, exactly 10 million plaintext requests per
+sample. `perf stat` counts the server process's user instructions and user cycles.
+Medians of three runs, with minimum and maximum in parentheses, from
+[counts](../bench/results/2026-10-14-desktop-main-count/runs.tsv) and
+[environment](../bench/results/2026-10-14-desktop-main-count/env.txt):
+
+| Loop | x instructions/req | m instructions/req | x cycles/req | m cycles/req |
+|---|---:|---:|---:|---:|
+| epoll | 1,833.1 (1,833.1-1,833.1) | 1,836.0 (1,836.0-1,836.0) | 492.6 (489.4-498.1) | 510.1 (503.3-515.7) |
+| io_uring | 1,888.6 (1,888.5-1,888.6) | 1,885.4 (1,885.4-1,885.4) | 454.8 (434.8-461.8) | 445.0 (436.5-453.0) |
+
+Epoll loses 2.9 instructions per request and 3.55% median user cycles, beyond
+both ranges. io_uring saves 3.2 instructions; its cycle ranges overlap.
+
+### Plaintext and JSON
+
+```sh
+OUT=bench/results/2026-10-14-desktop-main-run \
+    SERVERS="goose-cx goose-cm goose-cx-uring goose-cm-uring" \
+    TESTS="plaintext:256 json:256" LATENCY=0 bench/run.sh
+```
+
+One worker on CPU 0 or four on CPUs 0-3; wrk 4.1.0 with 8 threads on CPUs 4-15,
+256 connections, TechEmpower headers, plaintext pipelined 16 deep and JSON without
+pipelining. Three interleaved runs of 15 s per cell after 5 s of warm-up; a fresh
+server per cell. Latency was not measured. Medians and ranges, requests per second,
+from the [summary](../bench/results/2026-10-14-desktop-main-run/summary.md):
+
+| Loop | Workers | Test | x req/s | m req/s | Median change |
+|---|---:|---|---:|---:|---:|
+| epoll | 1 | plaintext | 1.521 M (1.513-1.527 M) | 1.500 M (1.489-1.550 M) | -1.37% |
+| epoll | 1 | JSON | 120.9 K (119.5-123.9 K) | 118.8 K (116.6-121.2 K) | -1.74% |
+| io_uring | 1 | plaintext | 1.803 M (1.800-1.809 M) | 1.821 M (1.761-1.841 M) | +1.04% |
+| io_uring | 1 | JSON | 145.2 K (144.1-145.9 K) | 144.2 K (143.0-149.3 K) | -0.64% |
+| epoll | 4 | plaintext | 4.862 M (4.343-4.992 M) | 4.873 M (4.788-4.894 M) | +0.21% |
+| epoll | 4 | JSON | 383.0 K (382.1-387.6 K) | 374.8 K (368.1-385.4 K) | -2.14% |
+| io_uring | 4 | plaintext | 6.427 M (6.346-6.451 M) | 6.370 M (6.327-6.402 M) | -0.89% |
+| io_uring | 4 | JSON | 472.2 K (471.2-476.5 K) | 481.0 K (480.8-481.6 K) | +1.87% |
+
+Every throughput loss has overlapping ranges. Four-worker io_uring JSON improves
+beyond the ranges. All 48 samples have zero socket errors and non-2xx responses.
+The harness logged wall-clock steps in 25 samples; wrk uses the monotonic-clock
+preload, and [clock logs](../bench/results/2026-10-14-desktop-main-run/) are retained.
+One-worker io_uring plaintext peak RSS rises from 5.74 MB (5.66-5.75) to 5.84 MB
+(5.77-5.85), a 1.77% median increase with separate ranges. Other small-response RSS
+ranges overlap. MB follows the harness's convention, KiB divided by 1,024.
+
+### REST APIs
+
+```sh
+OUT=bench/results/2026-10-14-rest-main \
+    SERVERS="goose-uring-cx goose-uring-cm" \
+    STEPS="1 2 4" RATE_C=16000 bench/rest.sh run
+OUT=bench/results/2026-10-14-rest-main-epoll \
+    SERVERS="goose-epoll-cx goose-epoll-cm" \
+    STEPS="1 2 4" RATE_C=16000 bench/rest.sh run
+```
+
+Four workers on CPUs 0-3; the load on CPUs 4-15. Saturation uses wrk 4.1.0,
+8 threads and 256 connections. Uploads alone use 1 thread and 32 connections;
+beside forms, forms use 7 threads and 224 connections. Three interleaved runs of
+15 s after 5 s of warm-up, with a fresh server per cell. Both revisions passed
+the checker on A to D and both JSON modes, on both loops. The io_uring batch ran
+first, then the [epoll extension](../bench/results/2026-10-14-rest-main-epoll/batch.sh)
+used the same archived REST binaries. Each directory's `revs.txt` names the builds;
+the working tree's concurrent documentation edits do not enter those binaries.
+
+Requests per second at saturation, medians with run ranges in parentheses, from
+the [io_uring summary](../bench/results/2026-10-14-rest-main/summary.md) and
+[epoll summary](../bench/results/2026-10-14-rest-main-epoll/summary.md). Serialized
+responses are built per request; templates prebuild each record's JSON at startup
+and splice in request-specific values.
+
+| Loop | Tier | JSON | x req/s | m req/s | Median change |
+|---|---|---|---:|---:|---:|
+| io_uring | A | serialize | 564.0 K (556.2-568.8 K) | 562.4 K (556.6-562.4 K) | -0.30% |
+| io_uring | A | template | 576.8 K (561.9-579.9 K) | 577.6 K (573.3-579.7 K) | +0.13% |
+| io_uring | B | serialize | 271.2 K (271.1-273.1 K) | 264.0 K (262.9-264.5 K) | -2.68% |
+| io_uring | B | template | 356.4 K (355.1-357.5 K) | 365.6 K (359.7-366.4 K) | +2.58% |
+| io_uring | C | serialize | 49.8 K (49.2-49.9 K) | 48.1 K (47.5-48.3 K) | -3.29% |
+| io_uring | C | template | 140.3 K (139.9-140.4 K) | 140.1 K (138.9-140.6 K) | -0.13% |
+| epoll | A | serialize | 412.1 K (407.0-421.0 K) | 415.9 K (413.8-416.5 K) | +0.91% |
+| epoll | A | template | 430.5 K (425.0-436.5 K) | 432.8 K (428.0-432.9 K) | +0.53% |
+| epoll | B | serialize | 212.5 K (212.1-214.3 K) | 200.1 K (196.5-208.8 K) | -5.84% |
+| epoll | B | template | 270.8 K (268.9-275.5 K) | 274.6 K (273.1-277.0 K) | +1.42% |
+| epoll | C | serialize | 47.7 K (47.3-49.1 K) | 45.6 K (44.7-47.1 K) | -4.40% |
+| epoll | C | template | 128.2 K (128.0-131.4 K) | 129.0 K (124.5-131.2 K) | +0.66% |
+
+Serialized B and C lose beyond the run ranges on both loops. B templated gains
+beyond the ranges on io_uring; every other saturation rate has overlapping ranges.
+There are no saturation errors. These are server-revision comparisons: the
+earlier competitor measurements are retained, not rerun. Even the baseline runs
+slower than its earlier field-run medians, so gaps to those competitors include
+session drift.
+
+Peak RSS per run at saturation, MB, medians with ranges. The current benchmark
+table uses each cell's highest peak instead of its median.
+
+| Loop | Tier | JSON | x peak RSS MB | m peak RSS MB |
+|---|---|---|---:|---:|
+| io_uring | A | serialize | 14.99 (14.98-15.04) | 12.38 (12.37-12.39) |
+| io_uring | A | template | 22.57 (22.57-22.66) | 11.50 (11.45-11.52) |
+| io_uring | B | serialize | 46.74 (46.63-51.90) | 30.12 (30.04-30.18) |
+| io_uring | B | template | 152.76 (152.61-153.53) | 50.05 (50.03-50.21) |
+| io_uring | C | serialize | 103.53 (102.40-104.79) | 70.41 (70.31-70.50) |
+| io_uring | C | template | 175.95 (175.18-176.12) | 57.59 (57.53-57.62) |
+| epoll | A | serialize | 9.25 (8.90-9.88) | 7.41 (7.29-7.46) |
+| epoll | A | template | 18.15 (16.38-18.28) | 8.29 (8.11-8.29) |
+| epoll | B | serialize | 45.93 (45.42-46.34) | 28.55 (28.53-28.57) |
+| epoll | B | template | 151.75 (151.68-151.91) | 50.02 (50.02-50.11) |
+| epoll | C | serialize | 102.53 (101.29-102.90) | 68.97 (68.67-68.98) |
+| epoll | C | template | 175.80 (174.70-175.93) | 57.69 (57.53-57.73) |
+
+Every REST saturation cell has lower peak RSS beyond the ranges. Workers receive
+their loaded records over queues, and prebuilt JSON is held once per process in
+the shared store. This aggregate comparison does not isolate which change causes
+the rate losses; [task 033](../tasks/033-rest-regressions.md) will reproduce and
+attribute them before judging the responsible API changes' benefits.
+
+The serialized B/C losses also appear in CPU time and latency at saturation.
+CPU is the server's total user and kernel time per request; latency is wrk's,
+measured at saturation, not the fixed-rate read test. Medians and run ranges:
+
+| Loop | Tier | x CPU us/req | m CPU us/req | x p50 ms | m p50 ms | x p99 ms | m p99 ms |
+|---|---|---:|---:|---:|---:|---:|---:|
+| io_uring | B | 14.74 (14.64-14.75) | 15.15 (15.12-15.21) | 0.92 (0.91-0.92) | 0.94 (0.94-0.94) | 1.43 (1.43-1.44) | 1.52 (1.48-1.56) |
+| io_uring | C | 80.39 (80.09-81.27) | 83.11 (82.83-84.15) | 4.99 (4.97-5.03) | 5.18 (5.16-5.21) | 10.89 (10.85-11.19) | 11.42 (11.33-11.44) |
+| epoll | B | 18.86 (18.70-18.90) | 20.04 (19.21-20.41) | 1.21 (1.20-1.21) | 1.26 (1.21-1.27) | 1.71 (1.69-1.73) | 1.96 (1.79-2.16) |
+| epoll | C | 84.17 (81.67-84.72) | 88.07 (85.11-89.80) | 5.18 (4.97-5.22) | 5.32 (5.23-5.51) | 10.29 (10.06-10.64) | 11.25 (10.65-11.85) |
+
+CPU per request rises beyond the ranges by 2.82%/3.38% on io_uring B/C and
+6.24%/4.63% on epoll B/C. Their p99 rises beyond the ranges by 6.29%/4.87% and
+14.62%/9.33%, respectively. p50 also rises beyond the ranges except on epoll B.
+No other saturation CPU or latency metric loses beyond the ranges.
+
+### Uploads and reads beside uploads
+
+The REST commands above include step 2's uploads alone and beside forms. Medians
+with ranges; RSS is the peak per run, in MB:
+
+| Loop | Load | x uploads/s | m uploads/s | x forms req/s | m forms req/s | x peak RSS MB | m peak RSS MB |
+|---|---|---:|---:|---:|---:|---:|---:|
+| io_uring | uploads alone | 1,095 (1,086-1,114) | 1,080 (1,065-1,089) | | | 103.77 (103.59-103.94) | 70.34 (70.24-70.46) |
+| io_uring | beside forms | 154 (150-157) | 154 (149-159) | 6,851 (6,808-6,903) | 6,957 (6,808-7,008) | 162.93 (162.31-163.56) | 124.52 (124.44-125.84) |
+| epoll | uploads alone | 1,088 (1,064-1,089) | 1,076 (1,059-1,085) | | | 102.18 (102.01-102.71) | 68.92 (68.80-68.99) |
+| epoll | beside forms | 111 (109-114) | 112 (110-114) | 6,987 (6,912-7,124) | 7,147 (7,035-7,166) | 172.14 (171.08-173.09) | 131.73 (130.69-132.44) |
+
+Uploads alone lose 1.40% on io_uring and 1.06% on epoll, within overlapping
+ranges. Upload and forms rates beside each other overlap, as do their latency
+ranges except epoll forms p99, which improves. Peak RSS is lower beyond the ranges
+for both upload roles on both loops.
+
+Step 4 offers tier C's reads at 16,000/s through zrk 2.3.0, split over six routes,
+alone and beside uploads. Each route has one zrk process, pinned to CPUs 4-15;
+the tier-C allocation uses 254 connections and 11 threads across those processes
+(integer shares of the harness's 256-connection and 12-thread budgets, with a
+minimum of 8 connections and 1 thread per route). Beside reads, wrk uses 1 thread
+and 32 upload connections. Both builds reach the offered rate with zero errors.
+Medians with ranges, from three 15 s runs after 5 s of warm-up:
+
+| Loop | Reads | x CPU us/req | m CPU us/req | x uploads/s | m uploads/s | x peak RSS MB | m peak RSS MB |
+|---|---|---:|---:|---:|---:|---:|---:|
+| io_uring | alone | 93.47 (92.78-94.40) | 95.94 (95.50-96.19) | | | 103.95 (103.73-103.98) | 70.26 (70.10-70.51) |
+| io_uring | beside uploads | 250.39 (250.31-251.07) | 251.13 (251.12-251.52) | 681 (670-704) | 642 (625-663) | 103.89 (103.32-104.12) | 70.42 (70.38-70.53) |
+| epoll | alone | 92.15 (91.94-92.84) | 95.09 (94.88-95.29) | | | 102.55 (101.94-102.61) | 68.80 (68.79-69.09) |
+| epoll | beside uploads | 252.47 (251.39-252.82) | 252.85 (252.62-253.24) | 668 (626-676) | 654 (649-680) | 102.63 (102.41-102.72) | 68.80 (68.66-68.88) |
+
+Read-only CPU cost rises beyond the ranges by 2.65% on io_uring and 3.19% on
+epoll. io_uring uploads beside reads lose 5.80% beyond the ranges; epoll loses
+2.02%, within overlapping ranges. Mixed CPU cost includes both reads and uploads,
+divided by read requests, so it is not the CPU cost of a read alone. Its increase
+is 0.30% on io_uring, beyond narrowly separate ranges, and 0.15% on epoll, within
+the ranges.
+
+Read p99 beside uploads ranges over all routes and runs from 9.22-16.44 ms at x
+to 8.47-17.96 ms at m on io_uring, and from 1.60-4.11 ms to 1.80-2.62 ms on
+epoll. Every route's individual ranges overlap. Reads alone also overlap except
+epoll's history route: median p99 rises from 0.790 ms (0.786-0.811) to 0.816 ms
+(0.815-0.914), 3.29%, with narrowly separate ranges. Its 0.026 ms median loss is
+recorded rather than treated as a broad latency regression. Epoll's shifts route
+improves beyond the ranges. All route-level results remain in the two summaries.
+
+The results do not meet the original expectation that every REST rate remain
+within run spread. The measured losses are accepted for the current summary with
+a follow-up investigation (2026-10-14); no code was fixed or reverted in this
+benchmark change. Task 033 covers attribution and whether an implicated API
+change's caller benefit justifies its cost.
+
+Release validation after measurement (2026-10-14): `GOOSE=<Linux compiler>
+scripts/test.sh` passes in WSL Ubuntu, including io_uring, its epoll fallback,
+epoll, echo, and the examples. `GOOSE=<Windows compiler> nice -n 19
+scripts/test.sh` passes in Git Bash, including IOCP, echo, and the examples.
+Both compilers are built from Goose `46356c2`; no measured code changed between
+the archived main build and validation. The full logs are retained as
+[Linux validation](../bench/results/2026-10-14-rest-main/validation-linux.log) and
+[Windows validation](../bench/results/2026-10-14-rest-main/validation-windows.log).
+
 ## 2026-10-14: main after tasks 022.03, 025, and 027
 
 The field run uses server `e4f7b55` and Goose `0bdbd18`, before the final worker-load
-and shared-store merges. Current throughput tables are in
-[benchmarks](benchmarks.md); later memory measurements have separate build labels.
+and shared-store merges. Its raw throughput tables remain in the linked summaries;
+the current [benchmarks](benchmarks.md) name the later Goose builds separately.
 
 ### Plaintext and JSON
 

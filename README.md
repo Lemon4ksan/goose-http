@@ -29,9 +29,9 @@ Early work.
 | 🟢 | macOS | kqueue. |
 | 🟢 | Windows | IOCP. 2 to 2.7 times slower than io_uring on WSL2 on the same machine, with oha on plaintext; not benchmarked further. |
 
-The tag `v0.2.0` has everything in the table below, on both loops on
-Linux, kqueue on macOS, and IOCP on Windows. `v0.1.0` had fixed-size requests and
-responses only.
+The tag `v0.3.0` has everything in the table below, with the current API, on both
+loops on Linux, kqueue on macOS, and IOCP on Windows. `v0.2.0` introduced the
+HTTP/1.1 essentials; `v0.1.0` had fixed-size requests and responses only.
 
 | | Feature |
 |---|---|
@@ -57,7 +57,7 @@ framework.
 ## Quick start
 
 ```goose
-import http from "github.com/kaitk/goose-http@v0.2.0";
+import http from "github.com/kaitk/goose-http@v0.3.0";
 
 thread_fn worker(cfg: http::Config) {
     let e = http::serve(cfg) { req, body, out =>
@@ -230,7 +230,7 @@ tasks/         task tracking (tasks/README.md)
 | What | Pin | Why |
 |---|---|---|
 | Goose compiler | `aardappel/goose` `46356c2` (`master`) | The language and stdlib change often |
-| Benchmarked | Per workload in [docs/benchmarks.md](docs/benchmarks.md#pins): plaintext, JSON, and REST at `e4f7b55` with Goose `0bdbd18` | Benchmarks run in overnight batches, so they lag the pin |
+| Benchmarked | Per workload in [docs/benchmarks.md](docs/benchmarks.md#pins): plaintext and JSON at 256 connections, and REST, at `bc75f2a` with Goose `46356c2`; other connection counts at `e4f7b55` with Goose `0bdbd18` | Each workload names its measured build |
 
 Move the pin in its own commit once the tests pass; benchmarks don't wait for it
 ([development.md](docs/development.md#move-the-pin)).

@@ -1,0 +1,13 @@
+server	run	user instructions/req	user cycles/req	req/s
+goose-cx	1	1833.1	498.1	1401947
+goose-cm	1	1836.0	503.3	1444194
+goose-cx-uring	1	1888.6	461.8	1684090
+goose-cm-uring	1	1885.4	436.5	1667144
+goose-cx	2	1833.1	489.4	1418776
+goose-cm	2	1836.0	510.1	1416885
+goose-cx-uring	2	1888.5	434.8	1676594
+goose-cm-uring	2	1885.4	453.0	1628585
+goose-cx	3	1833.1	492.6	1395872
+goose-cm	3	1836.0	515.7	1419310
+goose-cx-uring	3	1888.6	454.8	1654990
+goose-cm-uring	3	1885.4	445.0	1644954

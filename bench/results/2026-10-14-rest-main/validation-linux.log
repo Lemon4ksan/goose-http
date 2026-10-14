@@ -1,0 +1,414 @@
+
+== check server/server.goose
+parsed ok: 883 top-level declarations, 35 file(s)
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:428: warning: redundant &: x.state is passed by reference without it (§4.1)
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:400: warning: redundant &: x.state is passed by reference without it (§4.1)
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:607: warning: redundant &: x.state is passed by reference without it (§4.1)
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:345: warning: redundant &: x.state is passed by reference without it (§4.1)
+typechecked ok: 915 specialization(s), 48 struct/5 enum instance(s); optimized -O1: 809 inlined, 0 base case(s), 748 folded, 1374 propagated, 0 tail loop(s)
+bce: elided 1166/1700 index and 101/1020 slice checks
+
+== check server/server_epoll.goose
+parsed ok: 883 top-level declarations, 35 file(s)
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:428: warning: redundant &: x.state is passed by reference without it (§4.1)
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:400: warning: redundant &: x.state is passed by reference without it (§4.1)
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:607: warning: redundant &: x.state is passed by reference without it (§4.1)
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:345: warning: redundant &: x.state is passed by reference without it (§4.1)
+typechecked ok: 915 specialization(s), 48 struct/5 enum instance(s); optimized -O1: 809 inlined, 0 base case(s), 748 folded, 1374 propagated, 0 tail loop(s)
+bce: elided 1166/1700 index and 101/1020 slice checks
+
+== check test/test_api.goose
+parsed ok: 589 top-level declarations, 21 file(s)
+typechecked ok: 574 specialization(s), 29 struct/4 enum instance(s); optimized -O1: 257 inlined, 0 base case(s), 177 folded, 294 propagated, 0 tail loop(s)
+bce: elided 353/528 index and 99/325 slice checks
+
+== check test/test_compression.goose
+parsed ok: 779 top-level declarations, 29 file(s)
+typechecked ok: 665 specialization(s), 38 struct/4 enum instance(s); optimized -O1: 282 inlined, 0 base case(s), 154 folded, 347 propagated, 0 tail loop(s)
+bce: elided 674/978 index and 48/235 slice checks
+
+== check test/test_http.goose
+parsed ok: 539 top-level declarations, 20 file(s)
+typechecked ok: 483 specialization(s), 27 struct/3 enum instance(s); optimized -O1: 253 inlined, 0 base case(s), 223 folded, 374 propagated, 0 tail loop(s)
+bce: elided 286/369 index and 72/262 slice checks
+
+== check test/test_mail.goose
+parsed ok: 196 top-level declarations, 5 file(s)
+typechecked ok: 121 specialization(s), 5 struct/0 enum instance(s); optimized -O1: 46 inlined, 0 base case(s), 6 folded, 30 propagated, 0 tail loop(s)
+bce: elided 10/15 index and 0/4 slice checks
+
+== check test/test_store.goose
+parsed ok: 512 top-level declarations, 21 file(s)
+typechecked ok: 394 specialization(s), 26 struct/3 enum instance(s); optimized -O1: 15 inlined, 0 base case(s), 8 folded, 19 propagated, 0 tail loop(s)
+bce: elided 13/13 index and 5/5 slice checks
+
+== check test/test_timers.goose
+parsed ok: 148 top-level declarations, 4 file(s)
+typechecked ok: 81 specialization(s), 5 struct/0 enum instance(s); optimized -O1: 22 inlined, 0 base case(s), 29 folded, 18 propagated, 0 tail loop(s)
+bce: elided 26/64 index and 0/0 slice checks
+
+== check server/test_routes.goose
+parsed ok: 872 top-level declarations, 33 file(s)
+typechecked ok: 761 specialization(s), 44 struct/5 enum instance(s); optimized -O1: 455 inlined, 0 base case(s), 294 folded, 564 propagated, 0 tail loop(s)
+bce: elided 884/1264 index and 74/376 slice checks
+
+== check examples/hello/hello.goose
+parsed ok: 505 top-level declarations, 20 file(s)
+typechecked ok: 470 specialization(s), 27 struct/3 enum instance(s); optimized -O1: 185 inlined, 0 base case(s), 127 folded, 227 propagated, 0 tail loop(s)
+bce: elided 210/275 index and 29/207 slice checks
+
+== check examples/routes/routes.goose
+parsed ok: 564 top-level declarations, 21 file(s)
+typechecked ok: 551 specialization(s), 31 struct/4 enum instance(s); optimized -O1: 206 inlined, 0 base case(s), 165 folded, 277 propagated, 0 tail loop(s)
+bce: elided 179/255 index and 34/147 slice checks
+
+== check examples/api/api.goose
+parsed ok: 570 top-level declarations, 21 file(s)
+typechecked ok: 577 specialization(s), 32 struct/4 enum instance(s); optimized -O1: 293 inlined, 0 base case(s), 284 folded, 429 propagated, 0 tail loop(s)
+bce: elided 272/383 index and 54/272 slice checks
+
+== check examples/upload/upload.goose
+parsed ok: 534 top-level declarations, 21 file(s)
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:428: warning: redundant &: x.state is passed by reference without it (§4.1)
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:400: warning: redundant &: x.state is passed by reference without it (§4.1)
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:607: warning: redundant &: x.state is passed by reference without it (§4.1)
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:345: warning: redundant &: x.state is passed by reference without it (§4.1)
+typechecked ok: 528 specialization(s), 30 struct/3 enum instance(s); optimized -O1: 330 inlined, 0 base case(s), 251 folded, 593 propagated, 0 tail loop(s)
+bce: elided 372/503 index and 63/361 slice checks
+
+== check examples/later/later.goose
+parsed ok: 512 top-level declarations, 20 file(s)
+typechecked ok: 483 specialization(s), 28 struct/3 enum instance(s); optimized -O1: 217 inlined, 0 base case(s), 191 folded, 344 propagated, 0 tail loop(s)
+bce: elided 191/264 index and 32/144 slice checks
+
+== check examples/files/files.goose
+parsed ok: 507 top-level declarations, 20 file(s)
+typechecked ok: 470 specialization(s), 28 struct/3 enum instance(s); optimized -O1: 246 inlined, 0 base case(s), 158 folded, 304 propagated, 0 tail loop(s)
+bce: elided 258/357 index and 48/213 slice checks
+
+== check examples/compress/compress.goose
+parsed ok: 771 top-level declarations, 29 file(s)
+typechecked ok: 708 specialization(s), 39 struct/4 enum instance(s); optimized -O1: 388 inlined, 0 base case(s), 242 folded, 504 propagated, 0 tail loop(s)
+bce: elided 707/1068 index and 57/304 slice checks
+
+== check examples/c/app.goose
+parsed ok: 508 top-level declarations, 20 file(s)
+typechecked ok: 473 specialization(s), 28 struct/3 enum instance(s); optimized -O1: 199 inlined, 0 base case(s), 105 folded, 192 propagated, 0 tail loop(s)
+bce: elided 177/245 index and 29/236 slice checks
+
+== test-unit.sh
+parsed ok: 589 top-level declarations, 21 file(s)
+typechecked ok: 574 specialization(s), 29 struct/4 enum instance(s); optimized -O1: 257 inlined, 0 base case(s), 177 folded, 294 propagated, 0 tail loop(s)
+bce: elided 353/528 index and 99/325 slice checks
+test_api: ok
+parsed ok: 779 top-level declarations, 29 file(s)
+typechecked ok: 665 specialization(s), 38 struct/4 enum instance(s); optimized -O1: 282 inlined, 0 base case(s), 154 folded, 347 propagated, 0 tail loop(s)
+bce: elided 674/978 index and 48/235 slice checks
+test_compression: ok
+parsed ok: 539 top-level declarations, 20 file(s)
+typechecked ok: 483 specialization(s), 27 struct/3 enum instance(s); optimized -O1: 253 inlined, 0 base case(s), 223 folded, 374 propagated, 0 tail loop(s)
+bce: elided 286/369 index and 72/262 slice checks
+building the package http's C
+test_http: ok
+parsed ok: 196 top-level declarations, 5 file(s)
+typechecked ok: 121 specialization(s), 5 struct/0 enum instance(s); optimized -O2: 40 inlined, 0 base case(s), 6 folded, 31 propagated, 0 tail loop(s)
+bce: elided 10/15 index and 0/4 slice checks
+wrote /root/.goose/build/prog/test_mail-f9f9e754/test_mail.c (105681 bytes)
+built /mnt/c/Users/kait/projects/goose/goose-http/build/test_mail
+test_mail: ok
+parsed ok: 512 top-level declarations, 21 file(s)
+typechecked ok: 394 specialization(s), 26 struct/3 enum instance(s); optimized -O1: 15 inlined, 0 base case(s), 8 folded, 19 propagated, 0 tail loop(s)
+bce: elided 13/13 index and 5/5 slice checks
+test_store: ok
+parsed ok: 148 top-level declarations, 4 file(s)
+typechecked ok: 81 specialization(s), 5 struct/0 enum instance(s); optimized -O1: 22 inlined, 0 base case(s), 29 folded, 18 propagated, 0 tail loop(s)
+bce: elided 26/64 index and 0/0 slice checks
+test_timers: ok
+parsed ok: 872 top-level declarations, 33 file(s)
+typechecked ok: 761 specialization(s), 44 struct/5 enum instance(s); optimized -O1: 455 inlined, 0 base case(s), 294 folded, 564 propagated, 0 tail loop(s)
+bce: elided 884/1264 index and 74/376 slice checks
+test_routes: ok
+
+== LOOP=uring build.sh
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:428: warning: redundant &: x.state is passed by reference without it (§4.1)
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:400: warning: redundant &: x.state is passed by reference without it (§4.1)
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:607: warning: redundant &: x.state is passed by reference without it (§4.1)
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:345: warning: redundant &: x.state is passed by reference without it (§4.1)
+parsed ok: 883 top-level declarations, 35 file(s)
+typechecked ok: 915 specialization(s), 48 struct/5 enum instance(s); optimized -O2: 1118 inlined, 0 base case(s), 760 folded, 1535 propagated, 0 tail loop(s)
+bce: elided 1317/1989 index and 195/1431 slice checks
+wrote /root/.goose/build/prog/server-59b03ad4/server.c (10686167 bytes)
+building the package http's C
+built /mnt/c/Users/kait/projects/goose/goose-http/build/server
+
+== test-http.sh, uring loop
+curl: ok
+tfb: ok
+forms: ok
+pipeline: ok
+large: ok
+stream: ok
+stream: peak RSS 12348 kB
+files: ok
+files: none left open
+chunked: ok
+compress: ok
+keepalive: ok
+client: ok
+later-off: ok
+hostile: bare LF: 400
+hostile: bare LF after the headers: 400
+hostile: missing version: 400
+hostile: missing target: 400
+hostile: no Host: 400
+hostile: NUL in a value: 400
+hostile: space before a colon: 400
+hostile: folded line: 400
+hostile: bad Content-Length: 400
+hostile: two Content-Lengths: 400
+hostile: binary: 400
+hostile: TLS hello: 400
+hostile: HTTP/2 preface: 505
+hostile: gzip coding: 501
+hostile: chunked not last: 400
+hostile: chunked and Content-Length: 400
+hostile: bad chunk size: 400
+hostile: chunk size line past the buffer: 400
+hostile: unknown expectation: 417
+hostile: huge body: 413
+hostile: huge chunk: 413
+hostile: long target: 414
+hostile: huge header: 431
+hostile: huge header count: 431
+hostile: endless empty lines: 431
+hostile: ok
+many: 10000 connections ok
+slow: ok
+requests: ok
+max-conns: ok
+access log: ok
+later: ok
+dual-stack: ok
+v6only: ok
+unix: ok
+  6715136 requests in 3.10s, 832.53MB read
+  589999 requests in 3.04s, 84.40MB read
+requests: 200000 total, 200000 started, 200000 done, 200000 succeeded, 0 failed, 0 errored, 0 timeout
+  [200] 500000 responses
+load: ok
+The server's output:
+    http: 4 workers on port 29080, uring loop
+stop: ok
+keepalive: ok
+restart: ok
+emfile: 33 served at the fd limit, then the other 27
+test-http passed. The server's output at the fd limit:
+    http: 1 worker on port 29080, uring loop
+    accept: Too many open files
+    accept: Too many open files
+    accept: Too many open files
+    accept: Too many open files
+    accept: Too many open files
+
+== test-http.sh, uring loop over epoll
+curl: ok
+tfb: ok
+forms: ok
+pipeline: ok
+large: ok
+stream: ok
+stream: peak RSS 12160 kB
+files: ok
+files: none left open
+chunked: ok
+compress: ok
+keepalive: ok
+client: ok
+later-off: ok
+hostile: bare LF: 400
+hostile: bare LF after the headers: 400
+hostile: missing version: 400
+hostile: missing target: 400
+hostile: no Host: 400
+hostile: NUL in a value: 400
+hostile: space before a colon: 400
+hostile: folded line: 400
+hostile: bad Content-Length: 400
+hostile: two Content-Lengths: 400
+hostile: binary: 400
+hostile: TLS hello: 400
+hostile: HTTP/2 preface: 505
+hostile: gzip coding: 501
+hostile: chunked not last: 400
+hostile: chunked and Content-Length: 400
+hostile: bad chunk size: 400
+hostile: chunk size line past the buffer: 400
+hostile: unknown expectation: 417
+hostile: huge body: 413
+hostile: huge chunk: 413
+hostile: long target: 414
+hostile: huge header: 431
+hostile: huge header count: 431
+hostile: endless empty lines: 431
+hostile: ok
+many: 10000 connections ok
+slow: ok
+requests: ok
+max-conns: ok
+access log: ok
+later: ok
+dual-stack: ok
+v6only: ok
+unix: ok
+  6403296 requests in 3.10s, 793.87MB read
+  567487 requests in 3.03s, 81.18MB read
+requests: 200000 total, 200000 started, 200000 done, 200000 succeeded, 0 failed, 0 errored, 0 timeout
+  [200] 500000 responses
+load: ok
+The server's output:
+    http: 4 workers on port 29080, uring-epoll loop
+stop: ok
+keepalive: ok
+restart: ok
+emfile: 33 served at the fd limit, then the other 27
+test-http passed. The server's output at the fd limit:
+    http: 1 worker on port 29080, uring-epoll loop
+    accept: Too many open files
+    accept: Too many open files
+    accept: Too many open files
+
+== LOOP=epoll build.sh
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:428: warning: redundant &: x.state is passed by reference without it (§4.1)
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:400: warning: redundant &: x.state is passed by reference without it (§4.1)
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:607: warning: redundant &: x.state is passed by reference without it (§4.1)
+/mnt/c/Users/kait/projects/goose/goose-http/http.goose:345: warning: redundant &: x.state is passed by reference without it (§4.1)
+parsed ok: 883 top-level declarations, 35 file(s)
+typechecked ok: 915 specialization(s), 48 struct/5 enum instance(s); optimized -O2: 1118 inlined, 0 base case(s), 760 folded, 1535 propagated, 0 tail loop(s)
+bce: elided 1317/1989 index and 195/1431 slice checks
+wrote /root/.goose/build/prog/server_epoll-56742472/server_epoll.c (10686173 bytes)
+built /mnt/c/Users/kait/projects/goose/goose-http/build/server
+
+== test-http.sh, epoll loop
+curl: ok
+tfb: ok
+forms: ok
+pipeline: ok
+large: ok
+stream: ok
+stream: peak RSS 4212 kB
+files: ok
+files: none left open
+chunked: ok
+compress: ok
+keepalive: ok
+client: ok
+later-off: ok
+hostile: bare LF: 400
+hostile: bare LF after the headers: 400
+hostile: missing version: 400
+hostile: missing target: 400
+hostile: no Host: 400
+hostile: NUL in a value: 400
+hostile: space before a colon: 400
+hostile: folded line: 400
+hostile: bad Content-Length: 400
+hostile: two Content-Lengths: 400
+hostile: binary: 400
+hostile: TLS hello: 400
+hostile: HTTP/2 preface: 505
+hostile: gzip coding: 501
+hostile: chunked not last: 400
+hostile: chunked and Content-Length: 400
+hostile: bad chunk size: 400
+hostile: chunk size line past the buffer: 400
+hostile: unknown expectation: 417
+hostile: huge body: 413
+hostile: huge chunk: 413
+hostile: long target: 414
+hostile: huge header: 431
+hostile: huge header count: 431
+hostile: endless empty lines: 431
+hostile: ok
+many: 10000 connections ok
+slow: ok
+requests: ok
+max-conns: ok
+access log: ok
+later: ok
+dual-stack: ok
+v6only: ok
+unix: ok
+  6563088 requests in 3.01s, 813.68MB read
+  557305 requests in 3.04s, 79.72MB read
+requests: 200000 total, 200000 started, 200000 done, 200000 succeeded, 0 failed, 0 errored, 0 timeout
+  [200] 500000 responses
+load: ok
+The server's output:
+    http: 4 workers on port 29080, epoll loop
+stop: ok
+keepalive: ok
+restart: ok
+emfile: 33 served at the fd limit, then the other 27
+test-http passed. The server's output at the fd limit:
+    http: 1 worker on port 29080, epoll loop
+    accept: Too many open files
+
+== test-echo.sh
+nc: ok
+cut 0: closed after sending 5398528 bytes
+cut 1: closed after sending 24576 bytes
+cut 2: closed after sending 5481984 bytes
+cut 3: closed after sending 24576 bytes
+cut 4: closed after sending 5356948 bytes
+cut 5: closed after sending 24576 bytes
+cut 6: closed after sending 5447061 bytes
+cut 7: closed after sending 24576 bytes
+cut 8: closed after sending 5402994 bytes
+cut 9: closed after sending 24576 bytes
+ping: ok
+many: 20 clients x 65536 bytes echoed in 0.01 s
+ping: ok
+echo-blocking passed. Its output:
+    echo-blocking: listening on 29080
+    send: Connection reset by peer
+    send: Broken pipe
+    send: Connection reset by peer
+    send: Broken pipe
+    send: Connection reset by peer
+    send: Broken pipe
+    send: Connection reset by peer
+    send: Broken pipe
+    send: Connection reset by peer
+    send: Broken pipe
+nc: ok
+cut 0: closed after sending 5582528 bytes
+cut 1: closed after sending 24576 bytes
+cut 2: closed after sending 5668209 bytes
+cut 3: closed after sending 24576 bytes
+cut 4: closed after sending 5357056 bytes
+cut 5: closed after sending 24576 bytes
+cut 6: closed after sending 5386752 bytes
+cut 7: closed after sending 24576 bytes
+cut 8: closed after sending 5533500 bytes
+cut 9: closed after sending 24576 bytes
+ping: ok
+many: 2000 clients x 65536 bytes echoed in 0.75 s
+many: 10000 clients x 100 bytes echoed in 1.54 s
+ping: ok
+echo-epoll passed. Its output:
+    echo-epoll: listening on 29080
+    send: Connection reset by peer
+    send: Broken pipe
+    send: Connection reset by peer
+    send: Broken pipe
+    send: Connection reset by peer
+    send: Broken pipe
+    send: Connection reset by peer
+    send: Broken pipe
+    send: Connection reset by peer
+    send: Broken pipe
+
+== test-examples.sh
+test-examples.sh: all passed
+
+test.sh: all passed

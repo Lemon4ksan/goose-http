@@ -1,0 +1,8 @@
+date: 2026-10-14T13:52:43Z
+machine: wsl2-5800x3d, AMD Ryzen 7 5800X3D 8-Core Processor
+kernel: 6.18.54.1-microsoft-standard-WSL2
+gcc: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+goose: 46356c2
+x: e4f7b5575178610424e8c13958d8a04b1bea4825
+m: bc75f2a6e761cb35096b740329d9f8044d027b3c
+quiet: machine kept quiet; only concurrent README edits, no other benchmarks or taxing work

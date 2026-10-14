@@ -51,6 +51,13 @@ The implementation and examples are on `main`. The tier C templated rate, 3.3% b
 the baseline in the recorded comparison, still needs the next REST run's recheck.
 Keep this task open until that result is recorded; completed merges do not settle it.
 
+The main-against-README comparison (2026-10-14) is recorded in
+[results](../docs/results.md#2026-10-14-main-against-the-readme-benchmark-build).
+Its C templated ranges overlap on both loops, but its baseline is `e4f7b55`, not
+`2afc12f`, so it does not settle the original series' recheck. Task 033 will
+attribute the newer serialized B/C and mixed-upload regressions before judging
+the responsible API changes.
+
 The last branches merged into `main` as `1818526`, in this order, each once its
 benchmarks held, and were deleted here and on GitHub:
 
