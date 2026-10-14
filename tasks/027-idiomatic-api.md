@@ -529,16 +529,30 @@ every request's path, which `bench/count.sh` checks before it lands.
    goose-rest all write the raw string. Constants such as `http::JSON` and
    `http::TEXT` would remove the raw string, at no cost. Additive; hot, but a constant
    is the same append.
+   Done on `api-246` (2026-10-14): `http::NO_TYPE`, `http::TEXT`, and `http::JSON`, in
+   the package, `server/`, the examples, and `examples/README.md`; `test/` keeps its
+   exact bytes. They're `const` fixed arrays: a global `let` slice is read at run time,
+   so its append has a length gcc doesn't know, where a fixed array's sits in static
+   data with a constant length, as a literal's does in the generated C. It waits for
+   `bench/count.sh` before it lands.
 3. `respond` checks its content type through `field` and `is_field` on each call, a
    `find_any` over the constant name included. Check only the value instead. Measure
    it first: gcc may already fold it. Hot.
 4. No supported way to add fields to every response: goose-rest swaps `out.common` for
    CORS and moves bytes in the written head for `Server-Timing`. Either document
    `Reply.common` as a handler's to set, or add `http::insert_field`. Additive.
+   Done on `api-246` (2026-10-14), both: `Reply`'s declaration and
+   `examples/README.md` state `common`'s contract, and
+   `http::insert_field(out, mark, name, value)` adds a field at the end of the head of
+   the response begun at `mark`, checked as `field` checks one, tested in
+   `test/test_http.goose`. A value known only once the response is written, as
+   `Server-Timing`'s, can't go in `common`.
 5. `respond_json` builds a new array on each call (`media.goose`). A form that reuses
    a caller's buffer would avoid it. Additive; hot for JSON APIs.
 6. The examples' own functions take `http::Request` by value, a copy of about 300
    bytes per call. They should take `const http::Request&`. Docs and examples only.
+   Done on `api-246` (2026-10-14): `api/` and `files/`; no README snippet takes one.
+   `server/`'s functions still take it by value, on the benchmark's path.
 7. `stop_on_signals` returns an `i32` and `mail_open` a code, so each `main` builds its
    `http::Error` by hand. Return an `Error` instead, and add an `exit_on_error`.
    Breaking; cold.
