@@ -1,9 +1,11 @@
 // Mailboxes: a box has a fixed number of slots of a fixed size, allocated
 // when it opens, and one owner, the thread that takes from it. Any thread
 // sends to it by address, and the send says at once whether the message
-// went in: SENT, FULL (no slot free, or the message longer than a slot), or
-// STALE (the box is closed, or opened again since the address was taken). A
-// send never blocks or grows the box. An address is the box's handle and a
+// went in: SENT, FULL (no slot free, which may pass), TOO_LONG (the message
+// longer than a slot, which never will), or STALE (the box is closed, or
+// opened again since the address was taken). mail_slot_size gives a sender
+// the slot size from the address alone. A send never blocks or grows the
+// box. An address is the box's handle and a
 // 64-bit key the box doesn't read, which comes back with each message sent
 // to it: the owner gives it its meaning.
 //
@@ -32,6 +34,7 @@ struct MailAddress { box: Handle = Handle { .. }, key: u64 = 0 }
 let SENT: i32 = 0;
 let FULL: i32 = 1;
 let STALE: i32 = 2;
+let TOO_LONG: i32 = 3;
 
 // The shim's calls, on a box's key (key_of its handle). shim/mail.c says
 // what each does. mail_take_one writes up to out.len bytes into out and 2
@@ -41,6 +44,7 @@ extern "mail_close" fn mail_close_c(box: u64);
 extern "mail_send" fn mail_send_c(to: u64, key: u64, tag: i32, data: const u8[:]) -> i32;
 extern "mail_pending" fn mail_pending_c(box: u64) -> i64;
 extern "mail_size" fn mail_size_c(box: u64) -> i32;
+extern "mail_slot_size" fn mail_slot_size_c(to: u64) -> i32;
 extern "mail_take_one" fn mail_take_one_c(box: u64, out: u8[:], head: i64[:]) -> i64;
 extern "mail_settle" fn mail_settle_c(box: u64, n: i64) -> i32;
 extern "mail_wait" fn mail_wait_c(box: u64, ms: i32) -> i32;
@@ -69,6 +73,10 @@ fn address(b: Box, key: u64) -> MailAddress { MailAddress { box: b.handle, key: 
 fn mail_send(to: MailAddress, tag: i32, data: const u8[:]) -> i32 {
     return mail_send_c(key_of(to.box), to.key, tag, data);
 }
+
+// The most bytes a message to to's box may have, or -1 for an address that's
+// STALE. Any thread may call it.
+fn mail_slot_size(to: MailAddress) -> i32 { mail_slot_size_c(key_of(to.box)) }
 
 // Sends v, a flat value, with tag to to's box, as mail_send does: the image
 // to_bytes writes of a one-element array, which mail_value reads back. A

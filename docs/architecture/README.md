@@ -221,7 +221,8 @@ until the task named beside it confirms or replaces it.
 - **Answers that wait: mailboxes, a timer table, and handles** (task 015, 2026-10-12).
   Three pieces that import nothing of HTTP, so that they can move to a package of their
   own: a mailbox (`mail.goose` over `shim/mail.c`), bounded at open, whose lock-free send
-  returns `SENT`, `FULL`, or `STALE` at once; a fixed-capacity timer table
+  returns `SENT`, `FULL`, `TOO_LONG`, or `STALE` at once (task 028 split `TOO_LONG`
+  from `FULL`, 2026-10-14); a fixed-capacity timer table
   (`timers.goose`); and generation-checked handles (`handle.goose`). The queue is C
   because Goose has no atomics and no wait another thread can end; one ring per box, any
   thread adding to it, and a wakeup only on the pending count's 0 to 1. Goose's typed
