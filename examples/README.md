@@ -64,8 +64,9 @@ Shown in `hello/` and `routes/`.
     `Content-Type`, `http::NO_TYPE` none, and a response with fields of its own writes
     them in one string, as `"Allow: GET\r\nContent-Length: "`.
   - `http::field` drops a field with CR, LF, or an invalid name, so request data can't
-    split the response; `http::is_field(name, value)` checks one first. `finish`'s
-    `fields` are written as they are, for constant text.
+    split the response, and returns false; `http::is_field(name, value)` checks one
+    before the response starts. `finish`'s `fields` are written as they are, for
+    constant text.
   - Clear `out.keep_alive` before `start` to close after the response.
   - `out.common` is the fields `start` writes after each status line: `Server` and
     `Date`, which the loop renders once a second. To add fields to every response, as
@@ -88,7 +89,8 @@ Shown in `hello/` and `routes/`.
   - `http::insert_field(out, mark, name, value)` adds a field to a response already
     written, for a value known only then, such as `Server-Timing`'s: `mark` is
     `out.buf.len` from before the response began. The field goes at the end of the
-    head, and the body moves up. It's dropped as `http::field` drops one.
+    head, and the body moves up. It's dropped as `http::field` drops one, and returns
+    whether it was added.
 
 A handler passed by name, `http::serve(cfg, route)`, should be an `inline fn`, as in
 `server/routes.goose`. As a call, it keeps `http::start` from folding a constant status:
@@ -143,7 +145,8 @@ call's result to a reference parameter
   `http::param_of` parse a type and its parameters.
 - Cookies: `http::cookie_of(req, name)`, `http::each_cookie(req) { name, value => }`,
   and `http::set_cookie(out, http::Cookie { name: "sid", value: id, max_age: 3600,
-  http_only: true, same_site: "Lax", .. })`.
+  http_only: true, same_site: "Lax", .. })`, which returns false and writes nothing
+  for a cookie `http::is_cookie` refuses.
 - `http::authorization(req)`: the scheme and credentials. `http::basic_auth(req,
   decoded)`: the user and password. `http::bearer(req)`: a Bearer token.
   `http::challenge(out, "Basic realm=\"api\"")`: 401.

@@ -138,12 +138,12 @@ fn test_cookies() {
     var keep = true;
     var st = http::Stream { .. };
     let reply = http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: st };
-    http::set_cookie(reply, http::Cookie { name: "sid", value: "abc", max_age: 3600, expires: 1791633600,
-                                           path: "/", domain: "example.com", secure: true, http_only: true,
-                                           same_site: "Lax" });
-    http::set_cookie(reply, http::Cookie { name: "q", value: "\"x y\"", .. });
-    http::set_cookie(reply, http::Cookie { name: "gone", value: "", max_age: -5, .. });
-    http::set_cookie(reply, http::Cookie { name: "q", value: "\"x\"", .. });
+    assert(http::set_cookie(reply, http::Cookie { name: "sid", value: "abc", max_age: 3600, expires: 1791633600,
+                                                  path: "/", domain: "example.com", secure: true, http_only: true,
+                                                  same_site: "Lax" }));
+    assert(!http::set_cookie(reply, http::Cookie { name: "q", value: "\"x y\"", .. }));
+    assert(http::set_cookie(reply, http::Cookie { name: "gone", value: "", max_age: -5, .. }));
+    assert(http::set_cookie(reply, http::Cookie { name: "q", value: "\"x\"", .. }));
     same(out, "Set-Cookie: sid=abc; Max-Age=3600; Expires=Sat, 10 Oct 2026 12:00:00 GMT; Path=/; Domain=example.com; Secure; HttpOnly; SameSite=Lax\r\nSet-Cookie: gone=; Max-Age=0\r\nSet-Cookie: q=\"x\"\r\n");
     // A cookie set_cookie can't write is dropped.
     out.clear();
@@ -155,7 +155,7 @@ fn test_cookies() {
                http::Cookie { name: "a", value: "x", same_site: "lax", .. }];
     for c in bad {
         assert(!http::is_cookie(c));
-        http::set_cookie(http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: st }, c);
+        assert(!http::set_cookie(http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: st }, c));
     }
     assert(out.len == 0);
 }

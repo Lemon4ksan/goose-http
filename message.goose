@@ -798,31 +798,31 @@ inline fn start(out: Reply, status: i32) {
 }
 
 // A field of the handler's own, between start and finish, or begin and the
-// first send. A field that is_field refuses is dropped, so that a value from
-// the request can't split the response: check with is_field first to answer
-// otherwise. The fields given to finish, and what a handler appends to
-// out.buf itself, are written as they are, for constant text.
-inline fn field(out: Reply, name: const u8[:], value: const u8[:]) {
-    guard is_field(name, value) else { return; }
+// first send, and whether it was written. A field that is_field refuses is
+// dropped, so that a value from the request can't split the response: check
+// with is_field first to answer otherwise. The fields given to finish, and
+// what a handler appends to out.buf itself, are written as they are, for
+// constant text.
+inline fn field(out: Reply, name: const u8[:], value: const u8[:]) -> bool {
+    guard is_field(name, value) else { return false; }
     out.buf.append(name);
     out.buf.append(": ");
     out.buf.append(value);
     out.buf.append("\r\n");
+    return true;
 }
 
 // A field added to the response begun at mark, out.buf's length before its
 // start, once the response is written: for a value known only then, such as
 // Server-Timing's, by code around a handler. The field goes at the end of the
 // head, before its blank line, and the bytes after it move up; while begin's
-// head is open, it's a field as any other. Nothing when nothing was written
-// after mark, or for a field is_field refuses.
-fn insert_field(out: Reply, mark: i64, name: const u8[:], value: const u8[:]) {
-    guard mark >= 0 && out.buf.len > mark && is_field(name, value) else { return; }
+// head is open, it's a field as any other. Returns whether it was added:
+// nothing is when nothing was written after mark, or for a field is_field
+// refuses.
+fn insert_field(out: Reply, mark: i64, name: const u8[:], value: const u8[:]) -> bool {
+    guard mark >= 0 && out.buf.len > mark && is_field(name, value) else { return false; }
     let end = find(out.buf[mark..], "\r\n\r\n");
-    if end < 0 {
-        if out.stream.in_head { field(out, name, value); }
-        return;
-    }
+    guard end >= 0 else { return out.stream.in_head && field(out, name, value); }
     let at = mark + end + 2;
     let old = out.buf.len;
     field(out, name, value);
@@ -830,6 +830,7 @@ fn insert_field(out: Reply, mark: i64, name: const u8[:], value: const u8[:]) {
     reverse(out.buf[at..old]);
     reverse(out.buf[old..]);
     reverse(out.buf[at..]);
+    return true;
 }
 
 // finish's fields for the common bodies. A program with fields of its own

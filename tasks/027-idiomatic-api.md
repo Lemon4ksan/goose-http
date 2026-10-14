@@ -582,6 +582,10 @@ every request's path, which `bench/count.sh` checks before it lands.
    body.
 10. `field` and `set_cookie` drop invalid input without a word. Return a `bool`.
     Additive.
+    Done on `api-cold` (2026-10-14): `http::field`, `http::set_cookie`, and
+    `http::insert_field`, which drops a field as `field` does, return whether they
+    wrote it. A call that ignores the result is unchanged, so no caller changes.
+    `test/test_http.goose` and `test/test_api.goose` assert each result.
 11. A file from an encoded path takes `decode`, `is_safe_path`, and a join. Add an
     `http::file_path(dir, encoded, out)`. Additive; cold.
 

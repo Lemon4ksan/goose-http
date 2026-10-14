@@ -788,7 +788,7 @@ fn test_reply() {
     keep = false;
     let r = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: nobody };
     http::start(r, 299);
-    http::field(r, "X-Thing", "a b");
+    assert(http::field(r, "X-Thing", "a b"));
     http::finish(r, "Content-Length: ", "hi");
     same(out, "HTTP/1.1 299 \r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nConnection: close\r\nX-Thing: a b\r\nContent-Length: 2\r\n\r\nhi");
 
@@ -846,7 +846,7 @@ fn test_reply() {
         out.clear();
         let bn = http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: nobody };
         http::start(bn, 200);
-        http::field(bn, n, "v");
+        assert(!http::field(bn, n, "v"));
         http::finish(bn, "Content-Length: ", "");
         same(out, "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
     }
@@ -854,7 +854,7 @@ fn test_reply() {
         out.clear();
         let bv = http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: nobody };
         http::start(bv, 302);
-        http::field(bv, "Location", v);
+        assert(!http::field(bv, "Location", v));
         http::finish(bv, "Content-Length: ", "");
         same(out, "HTTP/1.1 302 Found\r\nContent-Length: 0\r\n\r\n");
         out.clear();
@@ -879,7 +879,7 @@ fn test_insert_field() {
     http::respond(r, 200, "text/plain", "one");
     let mark = out.len;
     http::respond(r, 200, "text/plain", "a\r\n\r\nb");
-    http::insert_field(r, mark, "Server-Timing", "app;dur=1.5");
+    assert(http::insert_field(r, mark, "Server-Timing", "app;dur=1.5"));
     same(out[mark..], "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Type: text/plain\r\nContent-Length: 6\r\nServer-Timing: app;dur=1.5\r\n\r\na\r\n\r\nb");
     assert(out[mark - 3..mark] == "one");
 
@@ -889,21 +889,21 @@ fn test_insert_field() {
     let r204 = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: st };
     http::start(r204, 204);
     http::finish(r204, "", "");
-    http::insert_field(r204, 0, "X-A", "1");
+    assert(http::insert_field(r204, 0, "X-A", "1"));
     same(out, "HTTP/1.1 204 No Content\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nX-A: 1\r\n\r\n");
     out.clear();
     let open = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: st };
     http::begin(open, 200, 2);
-    http::insert_field(open, 0, "X-A", "1");
+    assert(http::insert_field(open, 0, "X-A", "1"));
     http::send(open, "hi");
     http::end(open);
     same(out, "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Length: 2\r\nX-A: 1\r\n\r\nhi");
 
     // Nothing without a response after mark, or for a field is_field refuses.
     let all = out.len;
-    http::insert_field(open, all, "X-A", "1");
-    http::insert_field(open, 0, "X-A", "1\r\nX-B: 2");
-    http::insert_field(open, 0, "X A", "1");
+    assert(!http::insert_field(open, all, "X-A", "1"));
+    assert(!http::insert_field(open, 0, "X-A", "1\r\nX-B: 2"));
+    assert(!http::insert_field(open, 0, "X A", "1"));
     assert(out.len == all);
 
     // Fields a handler adds to common go after the loop's in each start.
