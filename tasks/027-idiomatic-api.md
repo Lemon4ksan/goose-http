@@ -7,9 +7,9 @@ Status: in progress (asked for 2026-10-13). The maintainer decided what stays
 `scripts/test.sh` (2026-10-14), and the README matches them. Of the follow-up review's
 eleven items ("Examples and docs" below), 1, 2, 4, and 6 to 11 are on `main`, and 5 was
 kept as it is, with tests (2026-10-14). Items 7 to 11 hold on a recheck (2026-10-14).
-Item 3 waits on `api-hot`: it costs the epoll loop 13.8 instructions a request and
-shows no gain of its own ("Pending"). Breaking changes cost least before programs use
-the API, and goose-rest will be the first.
+Item 3 is dropped: it cost the epoll loop 13.8 instructions a request and showed no
+gain of its own. Breaking changes cost least before programs use the API, and
+goose-rest will be the first.
 
 ## Decisions
 
@@ -51,15 +51,6 @@ Done: step 1 (`c16cca6`), step 3 for what is kept, and step 4. p3 waits on
 What `main` holds unchecked, or what waits on a branch. Remove an item once its check
 passes.
 
-- `api-hot` (2026-10-14), on top of `main`: review item 3, `respond` checking only its
-  content type. It costs 13.8 user instructions a plaintext request on epoll, which
-  never calls `respond` ("The review items at Goose `46356c2`"), so it doesn't land
-  as it is. Its gain is in `bench/rest`'s server: 7 KB less `.text` and 99 fewer
-  scans. REST tiers A-C against `main` show no gain beyond the rounds' spread but tier
-  C templated's, which `findings-46356c2-hot` shares without it ("The pending branches
-  at Goose `46356c2`" below). Waits on the maintainer's call to drop it (asked
-  2026-10-14). `findings-46356c2-hot` writes no `Content-Type` for an empty one too, so
-  whichever merges second drops that part.
 - `findings-46356c2-hot` (2026-10-14), on top of `main`, which is merged into it: the
   workarounds on a request's path (`http::whole` taking the handler, `INTERIM`, `pos +=
   k` in `parse`, std's `find` in multipart, `each_cookie` over `each_field`,
@@ -697,9 +688,8 @@ Writing them turned up rough edges in the API, each a candidate for this task's 
 
 A review of the API against the examples and goose-rest at goose-http `e27ab21`
 (2026-10-14) found more, most valuable first. "Hot" marks one on every request's
-path, which `bench/count.sh` checks before it lands. All but 3 are settled
-(2026-10-14): 1, 2, 4, and 6 to 11 are on `main`, 5 stays as it is, and 3 waits on
-`api-hot` ("Pending").
+path, which `bench/count.sh` checks before it lands. All are settled (2026-10-14): 1,
+2, 4, and 6 to 11 are on `main`, 5 stays as it is, and 3 is dropped.
 
 1. A body larger than the read buffer: goose-rest copies the head out of `Request`,
    keeps it and the body in a buffer of its own, and parses again at the end
@@ -735,8 +725,12 @@ path, which `bench/count.sh` checks before it lands. All but 3 are settled
    server gcc now inlines the cold `client` and `wait_for_backend` routes into
    `answer`, which grows from 4,906 to 6,023 instructions on epoll, and a plaintext
    request, which never calls `respond`, costs 13.8 user instructions more there: 1,846.9
-   against 1,833.1, with uring 2.3 under ("The review items at Goose `46356c2`"). It
-   waits on `api-hot` ("Pending").
+   against 1,833.1, with uring 2.3 under ("The review items at Goose `46356c2`").
+   Dropped (2026-10-14): it changes no API, only what `respond` checks, and REST tiers
+   A-C show no gain of its own: its one gain beyond the rounds' spread, tier C
+   templated, `findings-46356c2-hot` has without it ("The pending branches at Goose
+   `46356c2`"). The part a program sees, no `Content-Type` for an empty one, is on
+   that branch. `api-hot` (`4292f87`) is deleted.
 4. No supported way to add fields to every response: goose-rest swaps `out.common` for
    CORS and moves bytes in the written head for `Server-Timing`. Either document
    `Reply.common` as a handler's to set, or add `http::insert_field`. Additive.
