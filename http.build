@@ -9,3 +9,7 @@ c_libs_windows = ["ws2_32", "mswsock"];
 // MSVC compiles C as C89 with extensions unless asked; the shim uses C11's
 // _Static_assert.
 c_flags_msvc = ["/std:c11"];
+// The benchmarks' programs aren't the package: the package's library would
+// otherwise link their extern fns, such as the REST server's mallopt, which
+// Windows lacks.
+exclude = ["bench"];
