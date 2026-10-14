@@ -44,6 +44,29 @@ fn basic_auth(req: const Request&, decoded: u8[>..]&) -> const u8[:], const u8[:
     return decoded[at..at + colon], decoded[at + colon + 1..], true;
 }
 
+// The token of req's Bearer credentials (RFC 6750 §2.1), and whether req has
+// them: the scheme, ignoring case, then a token68 (RFC 9110 §11.2).
+fn bearer(req: const Request&) -> const u8[:], bool {
+    let scheme, token, ok = authorization(req);
+    guard ok && eq_fold(scheme, "bearer") && is_token68(token) else { return token[..0], false; }
+    return token, true;
+}
+
+// Whether s is a token68: letters, digits, and "-._~+/", then any '='s.
+fn is_token68(s: const u8[:]) -> bool {
+    var i = 0;
+    while i < s.len {
+        let c = s[i];
+        let letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+        guard letter || is_digit(c) || c == '-' || c == '.' || c == '_' || c == '~' || c == '+' ||
+              c == '/' else { break; }
+        i++;
+    }
+    guard i > 0 else { return false; }
+    while i < s.len && s[i] == '=' { i++; }
+    return i == s.len;
+}
+
 // Answers 401 with value as WWW-Authenticate, as "Basic realm=\"api\"".
 // A challenge field would drop goes out as a 401 without one.
 fn challenge(out: Reply, value: const u8[:]) {

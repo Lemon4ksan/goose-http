@@ -65,9 +65,11 @@ about 190 instructions per request in the benchmark server.
 
 Don't `return` from a handler written as a block. A block's `return` returns from the
 function the block is written in, the worker's `thread_fn`, which ends its loop with
-the request unanswered and the client waiting. A handler that returns early is a
-function: passed by name, as `upload/` does, or called from the block, as `api/` and
-`later/` do.
+the request unanswered and the client waiting. Neither the loop nor the compiler can
+catch it
+([findings](../docs/goose-findings.md#a-function-cant-keep-its-block-from-returning-past-it)).
+A handler that returns early is a function: passed by name, as `upload/` does, or
+called from the block, as `api/` and `later/` do.
 
 ### Routes
 
@@ -112,8 +114,8 @@ call's result to a reference parameter
   and `http::set_cookie(out, http::Cookie { name: "sid", value: id, max_age: 3600,
   http_only: true, same_site: "Lax", .. })`.
 - `http::authorization(req)`: the scheme and credentials. `http::basic_auth(req,
-  decoded)`: the user and password. `http::challenge(out, "Basic realm=\"api\"")`:
-  401.
+  decoded)`: the user and password. `http::bearer(req)`: a Bearer token.
+  `http::challenge(out, "Basic realm=\"api\"")`: 401.
 - Forms: `http::form_value(body, key, out)` and `http::each_form(body) { key, value =>
   }`. Multipart: `http::start_multipart(req, st.parts)` at `REQUEST`, then
   `http::each_part(st.parts, ev.data) { part => }` for each piece of the body, where
@@ -147,7 +149,8 @@ Shown in `upload/`, and in `server/`: `/upload`, `/echo`, `/bytes`, `/stream`, a
 
 Each loop also takes a handler it calls again for each part of an exchange. `st` is
 state of the program's own type, reset to `fresh` per request, kept in the connection's
-slot.
+slot. A handler that keeps none, but needs `WAKE` or `TIMEOUT`, passes `false`, as
+`later/` does.
 
 ```goose
 struct Upload { bytes: i64 = 0 }

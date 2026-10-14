@@ -103,6 +103,11 @@ liburing (`liburing-dev`), Windows the Visual Studio Build Tools. Setup:
   message from another thread, a time limit), with state of the program's own type kept
   per connection. Bodies and responses of any size, files, upgrades, and answers that
   wait all go through it.
+- **A handler that returns early is a function.** A `return` in a block returns from
+  the function the block is written in, past the loop, which then can't answer the
+  request or close its connections, and Goose can't refuse it
+  ([findings](docs/goose-findings.md#a-function-cant-keep-its-block-from-returning-past-it)).
+  Pass such a handler by name, or call it from the block.
 - **The request is borrowed.** The head, its fields, and route parameters are slices
   into the read buffer, valid until the handler returns; the router allocates nothing.
 - **`http::Config`** holds the address, limits, timeouts, and buffer sizes, all with

@@ -428,9 +428,11 @@ without p1 ("Decisions", step 6).
 
 Once the proposals are settled:
 
-- [ ] `examples/README.md` describes the API as it now is, and its snippets compile.
+- [x] `examples/README.md` describes the API as it now is, and its snippets compile.
       Its table lists the new examples, and it says not to `return` from a handler
-      block (below); its snippets aren't checked yet.
+      block (below). Each name it uses is the package's, and its code blocks, with a
+      call of each helper as its text gives the arguments, typecheck in one program at
+      Goose `46356c2` (2026-10-14).
 - [x] New examples beside `hello` and `routes`, each a short program a reader can copy:
       a JSON API with path parameters, a body, cookies, and bearer auth; an upload read
       as a stream and as multipart; an answer that waits on a backend thread over mail;
@@ -439,7 +441,9 @@ Once the proposals are settled:
 - [x] `scripts/test.sh` builds every example and requests each route once, so an API
       change can't leave an example broken: `scripts/test-examples.sh`, its last step,
       passing in WSL and Git Bash (2026-10-14).
-- [ ] The README's quick start and concepts match the examples.
+- [x] The README's quick start and concepts match the examples: the quick start is
+      `hello/` with the package imported from GitHub, and the concepts gain the rule
+      against `return` in a handler block (2026-10-14).
 
 Writing them turned up rough edges in the API, each a candidate for this task's list:
 
@@ -447,17 +451,29 @@ Writing them turned up rough edges in the API, each a candidate for this task's 
   (the tutorial, "a block may also `return` from the lexically enclosing function"),
   so a handler written as a block that returns early ends its worker's loop, and the
   request waits unanswered. `api/`, `upload/`, and `later/` did, and hung on the
-  first such request in `scripts/test-examples.sh`; they now call a function. The
-  loop can't see it happen. A handler passed by name avoids it.
-- `http::cookie_of` called in a handler block was refused ("binding v to a slice
-  rooted at req, which does not outlive it"), where `field_of` in the same place
-  wasn't; in a function it compiles. Not reduced yet.
+  first such request in `scripts/test-examples.sh`; they now call a function. A
+  handler passed by name avoids it.
+  Neither the loop nor the compiler can catch it (2026-10-14): the block returns
+  through the loop's frames with none of the loop's code run (spec §7.6), Goose has no
+  `finally` or `defer`, and a function can't refuse a block that returns past it. A
+  finding records it
+  ([A function can't keep its block from returning past it](../docs/goose-findings.md#a-function-cant-keep-its-block-from-returning-past-it)),
+  and the README's concepts and `examples/README.md` state the rule.
 - No bearer helper: `http::authorization`, then `http::eq_fold(scheme, "bearer")`,
   whose second argument must be lowercase.
+  Done (2026-10-14): `http::bearer(req)` gives the token of `Bearer` credentials, the
+  scheme in any case and the token a token68, tested in `test/test_api.goose` and used
+  by `api/`.
 - A 204 takes `start` and `finish(out, "", "")`, since `respond` always writes
   `Content-Type`.
+  Done on `findings-46356c2-hot` (2026-10-14): `respond` writes no `Content-Type` for an
+  empty one, so a 204 is `respond(out, 204, "", "")`. `respond` is on every request's
+  path, so it waits for `bench/count.sh` with that branch's other changes.
 - A handler takes state only to get `WAKE` and `TIMEOUT` (`serve(cfg, false)` in
   `later/`).
+  Kept (2026-10-14): a loop entry without state would add two to the package, for
+  `serve` and `serve_epoll`, to save one argument, and a `bool` costs a byte a slot.
+  `examples/README.md` names the idiom.
 - A box's slot size is guessed from `to_bytes` image sizes (task 028).
 
 ## Kept as they are

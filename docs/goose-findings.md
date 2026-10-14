@@ -590,3 +590,40 @@ image, the packet, and the worker's copy: four of 95 MB), and 192 MB after it re
 Workaround: `rest.goose` loads the records on a loader thread, which spawns the workers
 and returns, so the runtime unmaps its stacks, the image among them. It clears what
 the workers don't read before it spawns them. Nothing here frees the packet.
+
+## A function can't keep its block from returning past it
+
+Found on `46356c2`, task 027. Status: open
+
+A `return` in a block returns from the function the block is written in, through the
+function that calls the block, whose frames unwind with nothing of theirs run (spec
+§7.6). Goose has no `finally` or `defer`, and nothing a function can declare to refuse
+such a block, as Kotlin's `crossinline` does. So a loop that calls a handler block
+can't close its sockets or answer the request when the block returns early, and can't
+tell that it did. In `examples/`, three handlers written as blocks returned early; each
+ended its worker's loop with the request unanswered and the client waiting, and the
+compiler said nothing. Expected: a way for a function to refuse a block that returns
+past it, or to run its cleanup when one does.
+
+    fn serve<H>(n: i64) {
+        print("open");
+        for i in n { H(i); }
+        print("closed");
+    }
+
+    fn worker() {
+        serve(3) { i =>
+            if i == 1 { return; }
+            print("answered ", i);
+        };
+        print("serve returned");
+    }
+
+    fn main() { worker(); }
+
+    $ goose blockret.goose
+    open
+    answered 0
+
+Workaround: a handler that returns early is a function, passed by name or called from
+the block (`examples/README.md`, "Handler").
