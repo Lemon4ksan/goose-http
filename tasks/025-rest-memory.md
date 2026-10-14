@@ -177,8 +177,32 @@ parse buffers, tier C templated peaked at 127.6 MB.
 
 No request runs changed code: the handlers and loops are as before, and
 `bench/codegen.sh findings-46356c2-hot task-025-worker-load` (at `9d4d36c`) found the
-request path's functions within 32 bytes. Rates aren't measured yet: tiers A to C of
-`bench/rest.sh run` against `findings-46356c2-hot`.
+request path's functions within 32 bytes.
+
+Rates, against `findings-46356c2-hot` with `main` merged (`e047040`, f) at `b10cf60`
+(w): `bench/rest.sh run` with `STEPS="1 2 4" RATE_C=16000`, uring, 4 workers on CPUs 0-3
+and the load on 4-15, 3 rounds of 15 s, on 2026-10-14 in the daytime with the machine
+not kept quiet, each server built from `git archive` of its commit
+([summary](../bench/results/2026-10-14-rest-027-025/summary.md); the batch is task
+027's "The pending branches at Goose `46356c2`"). Medians and the rounds' range:
+
+| Cell | f, req/s | peak RSS | w, req/s | peak RSS |
+|---|---:|---:|---:|---:|
+| A serialize | 580.5K (576.6-584.7K) | 15 MB | 579.2K (551.0-580.6K) | 12 MB |
+| A template | 593.0K (591.7-597.4K) | 23 MB | 576.8K (567.8-590.2K) | 16 MB |
+| B serialize | 274.2K (268.9-274.9K) | 51 MB | 269.3K (266.0-270.5K) | 30 MB |
+| B template | 380.4K (369.9-385.4K) | 165 MB | 374.8K (357.4-377.0K) | 111 MB |
+| C serialize | 49.9K (49.8-50.5K) | 104 MB | 49.5K (49.3-50.1K) | 70 MB |
+| C template | 143.5K (142.6-144.7K) | 177 MB | 143.0K (142.3-146.3K) | 112 MB |
+| Uploads alone, p50 | 16.4-16.9 ms | 103 MB | 16.2-16.7 ms | 70 MB |
+| Uploads beside forms | 145-151/s | 164 MB | 156-162/s | 125 MB |
+| Uploads beside tier C | 705-715/s | | 718-732/s | |
+
+Every range overlaps f's but A templated's, 2.7% under, where w's highest round,
+590.2K, is just below f's lowest, 591.7K. `main` read 585.9K (575.5-589.5K) there in
+the same batch, and w's range overlaps it; no request runs code w changes, so this
+reads as the rounds' spread. Peak RSS falls by 20-41% in every cell: on tier C
+templated from 177 to 112 MB.
 
 Not done: dropping the record arrays a templated worker never reads. Tier C's templated
 routes still select by the records (bookings, shifts, visits, clients, and
