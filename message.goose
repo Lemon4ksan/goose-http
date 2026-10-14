@@ -155,7 +155,7 @@ inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_
         // Values are most of a request's bytes, so find_any skips to the
         // first byte of VALUE_END. The guard on k is what lets the
         // bounds-check analysis keep pos proven; without it, the write
-        // would lose every check on pos in parse (docs/goose-findings.md).
+        // would lose every check on pos in parse.
         let k = find_any(buf[pos..], VALUE_END);
         if k > 0 && k <= buf.len - pos { pos += k; }
         while pos < buf.len && ((buf[pos] >= ' ' && buf[pos] != 0x7f) || buf[pos] == '\t') { pos++; }

@@ -32,8 +32,7 @@ fn basic_auth(req: const Request&, decoded: u8[>..]&) -> const u8[:], const u8[:
     let at = decoded.len;
     let scheme, token, ok = authorization(req);
     // base64::decode shrinks its output back on bad input, which the checker
-    // takes req to maybe point into (docs/goose-findings.md), so it decodes
-    // apart.
+    // takes req to maybe point into, so it decodes apart.
     var text: u8[>..] = [];
     guard ok && eq_fold(scheme, "basic") && base64::decode(text, token) else {
         return decoded[at..at], decoded[at..at], false;

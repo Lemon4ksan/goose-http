@@ -44,8 +44,9 @@ directory. What only one machine needs, such as where its Goose checkout is, goe
   (`../goose` unless `CLAUDE.local.md` says otherwise) at the start of a session and
   move the pin when it lags (`docs/development.md`, "Move the pin").
 - Don't edit the Goose checkout. When the compiler rejects something it should accept,
-  miscompiles, or the stdlib lacks something, reduce it to a minimal program, record it
-  in `docs/goose-findings.md`, and work around it here. Report blockers to the maintainer.
+  miscompiles, or the stdlib lacks something, work around it here, and reduce it to a
+  minimal program for `docs/goose-findings.md` only if it meets the bar that file's
+  introduction sets. Report blockers to the maintainer.
 - Every finding names the Goose commit it was found on, the pin at the time. When one
   lacks it, recover it from this repository's history: the pin in the commit that added
   the entry.

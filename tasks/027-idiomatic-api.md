@@ -157,7 +157,7 @@ review's estimates; "unverified" marks what no program has checked yet.
       loops pass the wake as `const Event?` and keep a flag for whether it's still owed:
       a `var` reference rebound to `null` counts under spec §5.1 as one that may point
       into the write buffer they shrink. A typed local works around a `null` branch
-      that doesn't take the optional's type (`docs/goose-findings.md`). `bench/rest`'s
+      that doesn't take the optional's type. `bench/rest`'s
       server changes with it. Commit `a9783c8`, pushed to `main` before its codegen
       check; `main` keeps it (2026-10-13), and later proposals go to `task-027`.
       Codegen (`bench/codegen.sh`, against `2afc12f`): the Request path's C builds the
@@ -644,8 +644,7 @@ path, which `bench/count.sh` checks before it lands. All but 3 are settled
    Kept (2026-10-14): the array costs a header and a stack top restored, and the one
    cost worth saving is the `memcpy` into `out.buf`. Writing the body straight into
    `out.buf` and moving it up past its length replaces that `memcpy` with a byte loop
-   of about 7 instructions a byte, since Goose has no `memmove` within an array
-   ([finding](../docs/goose-findings.md#moving-bytes-up-within-an-array-takes-a-byte-loop)).
+   of about 7 instructions a byte, since Goose has no `memmove` within an array.
    `out.buf` can't shrink under the loop's `Reply` either (spec §5.1), so HEAD and a
    204 would need the array anyway, and W would be built twice: `examples/api`'s
    `.text` grew by 2,560 bytes. A caller's scratch buffer saves only the header.
@@ -690,8 +689,8 @@ path, which `bench/count.sh` checks before it lands. All but 3 are settled
     returns false, with `out` as it was, for a bad escape or a path `is_safe_path`
     refuses. `files/` and `server/`'s `/files/` use it, and `examples/README.md`
     lists it. `test/test_http.goose` tests escaped `..`, `/`, NUL, `\`, and `:`. A
-    `for` over a literal array of strings there met a new finding
-    ([A `for` over a literal array of strings refers into any array its body shrinks](../docs/goose-findings.md#a-for-over-a-literal-array-of-strings-refers-into-any-array-its-body-shrinks)).
+    `for` over a literal array of strings there is refused when its body shrinks an
+    array, so the test binds the literal to a `let` first.
 
 ## Kept as they are
 

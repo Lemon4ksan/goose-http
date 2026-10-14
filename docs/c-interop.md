@@ -32,8 +32,9 @@ A shim file is its own translation unit, so:
 
 `goose --include header.h` still splices a header into the generated C, after the type
 declarations and before the `extern fn` prototypes, where it can use the generated types.
-The server used it before task 010. Such a header can't set feature-test macros
-([findings](goose-findings.md#an---include-header-cant-set-feature-test-macros)).
+The server used it before task 010. Such a header can't set feature-test macros: the
+runtime's system headers come first, so `-D_GNU_SOURCE` or a shim C file that defines
+it does.
 
 ## Names and layouts
 
