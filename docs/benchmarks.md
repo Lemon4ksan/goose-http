@@ -22,7 +22,8 @@ The method, each load generator, and the servers' pins and builds:
 |---|---|---|---|---|---|
 | Plaintext and JSON, 256 connections | `bc75f2a` | `46356c2` | 6.18.54.1 | 2026-10-14 | `bench/run.sh` |
 | Plaintext and JSON, other connection counts | `e4f7b55` | `0bdbd18` | 6.18.54.1 | 2026-10-14 | `bench/run.sh` |
-| REST rates, latency, and peak memory, both loops | `bc75f2a` | `46356c2` | 6.18.54.1 | 2026-10-14 | `bench/rest.sh run`, steps 1, 2, and 4 |
+| REST saturation rates, both loops | `b03a446` | `46356c2` | 6.18.54.1 | 2026-10-14 | `bench/rest.sh run`, step 1 |
+| REST uploads, reads beside them, and peak memory, both loops | `bc75f2a` | `46356c2` | 6.18.54.1 | 2026-10-14 | `bench/rest.sh run`, steps 1, 2, and 4 |
 | REST memory, idle | `1818526` | `46356c2` | 6.18.54.1 | 2026-10-14 | VmRSS 3 s after listening; task 025 |
 | Static files | `fcfd80d` | `5c83a5a` | 6.18.40.1 | 2026-10-12 | `bench/files.sh` |
 | Compression | `6f584e2`, goose-compress `4bed2d2` | `0bdbd18` | 6.18.54.1 | 2026-10-14 | `bench/httparena.sh run` |
@@ -88,16 +89,16 @@ rows go by average rank.
 
 | Server | A | B | C | C, templates\* | Uploads | Reads p99 |
 |---|---:|---:|---:|---:|---:|---:|
-| Goose io_uring | **562 K/s** | **264 K/s** | **48.1 K/s** | **140 K/s** | 1,080/s | 8.5-18.0 ms |
-| Goose epoll | 416 K/s | 200 K/s | 45.6 K/s | 129 K/s | 1,076/s | **1.8-2.6 ms** |
+| Goose io_uring | **577 K/s** | **308 K/s** | **60.3 K/s** | **144 K/s** | 1,080/s | 8.5-18.0 ms |
+| Goose epoll | 427 K/s | 238 K/s | 58.9 K/s | 135 K/s | 1,076/s | **1.8-2.6 ms** |
 | xitca-web (Rust) | 407 K/s | 235 K/s | 38.2 K/s | 113 K/s | 1,016/s | 2.4-4.6 ms |
 | dusty (Zig)§ | 343 K/s | 162 K/s | 24.6 K/s | 125 K/s | **1,125/s** | 6.7-42 ms |
 | hyper (Rust) | 271 K/s | 151 K/s | 32.1 K/s | 120 K/s | 1,107/s | 11-29 ms |
 | tokio (Rust) | 393 K/s | 183 K/s | 31.6 K/s | 100 K/s | 1,034/s | 1.1-5.8 s† |
 
-Goose rows use `bc75f2a` with compiler `46356c2`; competitors retain the earlier
-field run on the same machine and kernel. The new baseline run also served less
-than in that field run, so competitor gaps include session drift.
+Goose's A to C rates are `b03a446` and its uploads and reads p99 `bc75f2a`, both with
+compiler `46356c2`; competitors retain the earlier field run on the same machine and
+kernel, so their gaps include session drift.
 
 \* Each record's JSON is prebuilt at startup, with the per-request values spliced in.  
 † The server fell behind the fixed rate, so the reads queued.  
@@ -121,12 +122,13 @@ machine and kernel. Bold is the column's lowest among these recorded runs.
 
 Workers receive their records over queues, and prebuilt JSON is held once per
 process in the shared store. Every saturation cell's peak is lower beyond the
-baseline's ranges. Serialized B and C throughput loses 2.68% and 3.29% on io_uring,
-and 5.84% and 4.40% on epoll, beyond the ranges. The
+baseline's ranges. The
 [measurement record](results.md#2026-10-14-main-against-the-readme-benchmark-build)
-contains both loops' rates, memory, uploads, and latency. The serialized loss is the
-[placement of std's JSON string scan](results.md#2026-10-14-the-serialized-rest-loss-is-a-loops-placement),
-which later package code moved across a cache line; no change is reverted for it.
+contains both loops' rates, memory, uploads, and latency. `bc75f2a` lost 2.7-5.8% of
+its serialized B and C rates to the
+[placement of std's JSON string scan](results.md#2026-10-14-the-serialized-rest-loss-is-a-loops-placement);
+`b03a446` [scans with `find_any`](results.md#2026-10-14-rest-strings-scanned-16-bytes-at-a-time)
+instead, 11-23% faster than `bc75f2a`.
 
 Idle with the records loaded, by worker count: Goose on the epoll loop at `1818526`
 (2026-10-14, VmRSS 3 s after it listened,
@@ -221,15 +223,13 @@ From the runs in this file:
   the io_uring loop's current 149-159, though Goose served the forms at 6.8-7.0 K/s against
   tokio's 3.7-3.9 K/s
   ([summary](../bench/results/2026-10-14-rest-field/summary.md#tier-d)).
-- **Since `e4f7b55`**, serialized B/C rates lose 2.68%/3.29% on io_uring and
-  5.84%/4.40% on epoll. Their CPU cost and saturation p99 also rise beyond the
-  ranges. io_uring uploads beside fixed-rate reads lose 5.80%; read-only CPU cost
-  rises on both loops. Epoll adds 2.9 user instructions and 3.55% user cycles per
-  plaintext request; one-worker io_uring plaintext RSS rises by 0.10 MB. Epoll's
-  history reads alone add 0.026 ms median p99. The
-  [record](results.md#2026-10-14-main-against-the-readme-benchmark-build) includes
-  every loss and range; task 033 traced the serialized REST loss to a hot loop's
-  placement.
+- **Since `e4f7b55`**, at `bc75f2a`: io_uring uploads beside fixed-rate reads lose
+  5.80%, and read-only CPU cost rises on both loops; neither was rerun at `b03a446`,
+  whose faster serialization should cut the reads' cost. Epoll adds 2.9 user
+  instructions and 3.55% user cycles per plaintext request; one-worker io_uring
+  plaintext RSS rises by 0.10 MB. Epoll's history reads alone add 0.026 ms median p99.
+  The [record](results.md#2026-10-14-main-against-the-readme-benchmark-build) includes
+  every loss and range. The serialized B/C loss it records is gone at `b03a446`.
 - **Static files of 64 KB**, to nginx: by 3-9% on the epoll loop and 10-21% on io_uring.
 - **Windows**, where IOCP serves well under io_uring's rate (above).
 

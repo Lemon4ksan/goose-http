@@ -17,6 +17,45 @@ WSL2 loopback runs through a VM; its kernel cost differs from bare metal. Runs t
 2026-10-12 use kernel 6.18.40.1-microsoft-standard-WSL2. The 2026-10-14 runs use
 6.18.54.1-microsoft-standard-WSL2. Each run's `env.txt` records the environment.
 
+## 2026-10-14: REST strings scanned 16 bytes at a time
+
+`b03a446` has the REST server look for a string's JSON escapes with std's `find_any`,
+which the runtime runs over 16 bytes at a time, and call `json::format_string` only
+for a string that has one. Serialized B and C gain 11-23%, beyond the ranges, on both
+loops; A, the templated tiers, and peak RSS don't change. It replaces the byte loop
+whose placement cost `bc75f2a` its serialized rates
+([below](#2026-10-14-the-serialized-rest-loss-is-a-loops-placement)).
+
+Same machine and kernel as below; both builds `goose build --cc gcc --standalone` at
+Goose `46356c2`, `cm` from `git archive bc75f2a` and `cs` from the working tree that
+became `b03a446` (env.txt's "8f0308e (modified)"); the checker passed on every tier,
+both JSON modes, and both loops.
+
+```sh
+OUT=... SERVERS="goose-uring-cm goose-uring-cs" STEPS=1 bench/rest.sh run
+OUT=... SERVERS="goose-epoll-cm goose-epoll-cs" STEPS=1 bench/rest.sh run
+```
+
+4 workers on CPUs 0-3, wrk 4.1.0 with 8 threads and 256 connections on CPUs 4-15,
+three interleaved runs of 15 s after 5 s of warm-up, medians and ranges, req/s, from
+the [io_uring](../bench/results/2026-10-14-rest-scan/uring/summary.md) and
+[epoll](../bench/results/2026-10-14-rest-scan/epoll/summary.md) summaries:
+
+| Loop | Tier | `bc75f2a` | `b03a446` | Change | CPU µs/req |
+|---|---|---:|---:|---:|---:|
+| io_uring | B serialize | 268.9 K (258.8-271.3) | 308.3 K (306.2-310.2) | +14.7% | 14.9 → 13.0 |
+| io_uring | C serialize | 48.9 K (45.7-49.2) | 60.3 K (60.1-60.5) | +23.3% | 81.7 → 66.3 |
+| epoll | B serialize | 214.1 K (199.3-215.0) | 237.8 K (231.8-237.9) | +11.1% | 18.7 → 16.9 |
+| epoll | C serialize | 48.3 K (44.6-48.6) | 58.9 K (58.7-59.3) | +21.9% | 83.0 → 68.1 |
+
+p99 at saturation falls from 1.47 to 1.22 ms on io_uring B, 11.7 to 9.03 ms on C,
+1.80 to 1.52 ms on epoll B, and 10.5 to 8.57 ms on C. Every other cell's range
+overlaps. Counted as in the section below, user instructions per request fall from
+57.1-57.2 K to 40.2-40.8 K on B and from 751-763 K to 522-525 K on C, against
+`e4f7b55`'s 56.8-57.0 K and 752-754 K
+([counts](../bench/results/2026-10-14-rest-033/counts.tsv), build `cs`). Uploads and
+reads beside them were not rerun; they keep `bc75f2a`'s numbers.
+
 ## 2026-10-14: the serialized REST loss is a loop's placement
 
 The serialized B/C loss of `bc75f2a` against `e4f7b55`

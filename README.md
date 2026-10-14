@@ -129,7 +129,7 @@ compiler `46356c2` unless a row says otherwise. Every table, the method, and eve
 |---|---:|---:|---|
 | [Plaintext](docs/benchmarks.md#plaintext-and-json)†, pipelined, 256 connections | 6.37 M/s | vanilla-io_uring 8.12 M/s\* | Fastest of the servers that parse the request |
 | [JSON](docs/benchmarks.md#plaintext-and-json)†, 256 connections | 481 K/s | zix 561 K/s | Third of 8 |
-| [REST tiers](#rest-apis) A / B / C | 562 K / 264 K / 48.1 K/s | xitca-web 407 K / 235 K / 38.2 K/s | Fastest on every tier |
+| [REST tiers](#rest-apis) A / B / C (`b03a446`) | 577 K / 308 K / 60.3 K/s | xitca-web 407 K / 235 K / 38.2 K/s | Fastest on every tier |
 | [Static files](docs/benchmarks.md#static-files), 1 MB (`fcfd80d`) | 31.3 GB/s | nginx 28.5 GB/s | On a par with nginx: ahead at 4 KB and 1 MB, behind at 64 KB |
 | [Compressed JSON](docs/benchmarks.md#compression), json-comp (`6f584e2`) | 66.1 K/s | actix 62.6 K/s | Fastest of the servers that compress each response |
 | [Peak RSS](docs/benchmarks.md#plaintext-and-json), plaintext and JSON | 3.9-13 MB | zix 39 MB | Lowest |
@@ -151,13 +151,14 @@ computes every response per request, and passes a checker before each run.
 
 "Templates" prebuilds each record's JSON at startup and splices in the per-request
 values. "Reads p99" is tier C's reads at a fixed 16,000 a second while uploads stream
-in. 4 workers, 3 runs of 15 s, medians; bold is the column's best. Competitors are from
-the earlier field run on the same machine and kernel.
+in. 4 workers, 3 runs of 15 s, medians; bold is the column's best. Goose's A to C are
+`b03a446`, its uploads and reads `bc75f2a`; competitors are from the earlier field run
+on the same machine and kernel.
 
 | Server | A | B | C | C, templates | Uploads | Reads p99 |
 |---|---:|---:|---:|---:|---:|---:|
-| **Goose io_uring** | **562 K/s** | **264 K/s** | **48.1 K/s** | **140 K/s** | 1,080/s | 8.5-18.0 ms |
-| **Goose epoll** | 416 K/s | 200 K/s | 45.6 K/s | 129 K/s | 1,076/s | **1.8-2.6 ms** |
+| **Goose io_uring** | **577 K/s** | **308 K/s** | **60.3 K/s** | **144 K/s** | 1,080/s | 8.5-18.0 ms |
+| **Goose epoll** | 427 K/s | 238 K/s | 58.9 K/s | 135 K/s | 1,076/s | **1.8-2.6 ms** |
 | xitca-web (Rust) | 407 K/s | 235 K/s | 38.2 K/s | 113 K/s | 1,016/s | 2.4-4.6 ms |
 | dusty (Zig)\* | 343 K/s | 162 K/s | 24.6 K/s | 125 K/s | **1,125/s** | 6.7-42 ms |
 | hyper (Rust) | 271 K/s | 151 K/s | 32.1 K/s | 120 K/s | 1,107/s | 11-29 ms |
@@ -167,9 +168,9 @@ the earlier field run on the same machine and kernel.
 framework built on this package.  
 † Fell behind the fixed rate, so the reads queued.
 
-Serialized B and C run 2.7-5.8% slower than at `e4f7b55`, beyond the run ranges: later
-package code moved std's JSON string scan across a cache line
-([why](docs/results.md#2026-10-14-the-serialized-rest-loss-is-a-loops-placement)).
+The serialized tiers find a string's JSON escapes with std's `find_any`, 16 bytes at a
+time, which serves B and C 11-23% faster than std's byte loop
+([measurement](docs/results.md#2026-10-14-rest-strings-scanned-16-bytes-at-a-time)).
 
 **Memory.** Each Goose worker holds its own copy of the records, because Goose threads
 share no memory; hyper's threads share one copy. The prebuilt JSON of the templated
@@ -291,7 +292,7 @@ tasks/         task tracking (tasks/README.md)
 | What | Pin | Why |
 |---|---|---|
 | Goose compiler | `aardappel/goose` `46356c2` (`master`) | The language and stdlib change often |
-| Benchmarked | Per workload in [docs/benchmarks.md](docs/benchmarks.md#pins): plaintext and JSON at 256 connections, and REST, at `bc75f2a` with Goose `46356c2`; other connection counts at `e4f7b55` with Goose `0bdbd18` | Each workload names its measured build |
+| Benchmarked | Per workload in [docs/benchmarks.md](docs/benchmarks.md#pins): plaintext and JSON at 256 connections, and REST, at `bc75f2a` (REST rates `b03a446`) with Goose `46356c2`; other connection counts at `e4f7b55` with Goose `0bdbd18` | Each workload names its measured build |
 
 Move the pin in its own commit once the tests pass; benchmarks don't wait for it
 ([development.md](docs/development.md#move-the-pin)).

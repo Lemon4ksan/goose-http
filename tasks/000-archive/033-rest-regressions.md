@@ -23,9 +23,16 @@ has the runs.
 Decision (2026-10-14): keep every change, and build with Goose's default flags. Which
 side of a line the loop lands on can change with any edit to the program; a wrapper
 compiler that adds flags would measure a build no user makes, and pin nothing a later
-edit can't undo. A scan that doesn't depend on its placement, such as one that tests
-8 bytes at a time, would belong in Goose's stdlib. The trade-off: the published
-serialized B/C rates are 2-6% under what this placement lottery allowed at `e4f7b55`.
+edit can't undo. Goose has no other control: `goose build` takes only `-O0` to `-O2`,
+`--cc`, and `-D`, and the spec leaves alignment annotations out of scope.
+
+Instead, `b03a446` stops running the byte loop on most strings: the REST server's
+`json_string` checks a string with std's `find_any`, which the runtime runs over 16
+bytes at a time, and calls `json::format_string` only for a string with an escape.
+Serialized B and C gain 11-23% over `bc75f2a` on both loops, well past `e4f7b55`
+([measurement](../../docs/results.md#2026-10-14-rest-strings-scanned-16-bytes-at-a-time)).
+The same change in std's `json::plain` would give it to every caller
+([finding](../../docs/goose-findings.md#jsonformat_string-scans-a-byte-at-a-time)).
 
 ## Acceptance criteria
 
