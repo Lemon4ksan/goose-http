@@ -472,6 +472,9 @@ The repository lives on the Windows drive, so WSL sees it under `/mnt/c`, for ex
 at `/mnt/c/<path>/goose-http`. These things break commands passed to WSL
 from Windows:
 
+- Docker Desktop can make its own `docker-desktop` distribution WSL's default, and a
+  bare `wsl.exe -e bash` then fails with `execvpe(bash) failed` (2026-10-14). Name the
+  distribution: `wsl.exe -d Ubuntu`.
 - `wsl.exe` hands its arguments to a shell that expands `$VARS` before `bash -c` sees
   them, so a variable set inside the command is empty. Put any command that uses
   variables in a script file and run `wsl.exe -d Ubuntu -- bash /mnt/c/.../script.sh`.
