@@ -31,8 +31,8 @@ Instead, `b03a446` stops running the byte loop on most strings: the REST server'
 bytes at a time, and calls `json::format_string` only for a string with an escape.
 Serialized B and C gain 11-23% over `bc75f2a` on both loops, well past `e4f7b55`
 ([measurement](../../docs/results.md#2026-10-14-rest-strings-scanned-16-bytes-at-a-time)).
-The same change in std's `json::plain` would give it to every caller
-([finding](../../docs/goose-findings.md#jsonformat_string-scans-a-byte-at-a-time)).
+The same change in std's `json::plain` was not proposed (2026-10-14): the workaround
+here is a few lines.
 
 ## Acceptance criteria
 
