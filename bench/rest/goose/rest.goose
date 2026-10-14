@@ -45,7 +45,7 @@ import std;
 import os;
 import json;
 import http from "../../../";
-import http.store;
+import store;
 
 // A record's string, text[at..at + len]. A string many records share, such
 // as a status, is a word instead: a u8 naming one of words, of which 0, a
@@ -95,17 +95,17 @@ var template: bool;
 
 // The prebuilt JSON of each record type, in the shared store.
 struct Templates {
-    item: http::Blob = http::Blob { .. },
-    user: http::Blob = http::Blob { .. },
-    session: http::Blob = http::Blob { .. },
-    project: http::Blob = http::Blob { .. },
-    entry: http::Blob = http::Blob { .. },
-    timer: http::Blob = http::Blob { .. },
-    booking: http::Blob = http::Blob { .. },
-    shift: http::Blob = http::Blob { .. },
-    client: http::Blob = http::Blob { .. },
-    visit: http::Blob = http::Blob { .. },
-    note: http::Blob = http::Blob { .. },
+    item: store::Blob = store::Blob { .. },
+    user: store::Blob = store::Blob { .. },
+    session: store::Blob = store::Blob { .. },
+    project: store::Blob = store::Blob { .. },
+    entry: store::Blob = store::Blob { .. },
+    timer: store::Blob = store::Blob { .. },
+    booking: store::Blob = store::Blob { .. },
+    shift: store::Blob = store::Blob { .. },
+    client: store::Blob = store::Blob { .. },
+    visit: store::Blob = store::Blob { .. },
+    note: store::Blob = store::Blob { .. },
 }
 var tpl: Templates;
 // JSON=template's prebuilt records, without their closing brace: item i's
@@ -957,16 +957,16 @@ fn prebuild_snow() {
 }
 
 fn snow_entry(out: u8[>..]&, i: i64) {
-    if template { http::store_append(tpl.entry, entry_at[i], entry_at[i + 1], out); }
+    if template { store::append(tpl.entry, entry_at[i], entry_at[i + 1], out); }
     else { let e = entries[i]; entry_full(out, e, view(e.description), e.stopped); }
 }
 
 // Entry i with another description.
 fn snow_entry_as(out: u8[>..]&, i: i64, description: const u8[:]) {
     if template {
-        http::store_append(tpl.entry, entry_at[i], entry_desc[i], out);
+        store::append(tpl.entry, entry_at[i], entry_desc[i], out);
         json::format_string(out, description);
-        http::store_append(tpl.entry, entry_tail[i], entry_at[i + 1], out);
+        store::append(tpl.entry, entry_tail[i], entry_at[i + 1], out);
     } else {
         let e = entries[i];
         entry_full(out, e, description, e.stopped);
@@ -980,7 +980,7 @@ fn snow_stopped(out: u8[>..]&, i: i64, now: i64) {
     let at = min(max(now, e.started + 1), e.started + DAY);
     if template {
         // A running entry's JSON ends in "null}".
-        http::store_append(tpl.entry, entry_at[i], entry_at[i + 1] - 5, out);
+        store::append(tpl.entry, entry_at[i], entry_at[i + 1] - 5, out);
         iso_or_null(out, at);
         out.push('}');
     } else {
@@ -1083,7 +1083,7 @@ fn list_projects(req: http::Request, p: Person, m: Member, buf: u8[>..]&, out: h
         let j = projects[i];
         if (archived || j.archived < 0) && sees(p, m, j) {
             if n > 0 { buf.push(','); }
-            if template { http::store_append(tpl.project, project_at[i], project_at[i + 1], buf); } else { project_full(buf, j); }
+            if template { store::append(tpl.project, project_at[i], project_at[i + 1], buf); } else { project_full(buf, j); }
             n++;
         }
     }
@@ -1254,7 +1254,7 @@ fn snow(req: http::Request, body: const u8[:], buf: u8[>..]&, out: http::Reply) 
     let u = person_of(req);
     if route == 1 {
         if u < 0 { buf.append("null"); }
-        else if template { http::store_append(tpl.session, session_at[u], session_at[u + 1], buf); }
+        else if template { store::append(tpl.session, session_at[u], session_at[u + 1], buf); }
         else { session_open(buf, people[u]); }
         http::respond(out, 200, "application/json", buf);
         return;
@@ -1262,7 +1262,7 @@ fn snow(req: http::Request, body: const u8[:], buf: u8[>..]&, out: http::Reply) 
     guard u >= 0 else { coded(out, 401, "UNAUTHENTICATED", "sign_in_required"); return; }
     let p = people[u];
     if route == 2 {
-        if template { http::store_append(tpl.timer, timer_at[u], timer_at[u + 1], buf); }
+        if template { store::append(tpl.timer, timer_at[u], timer_at[u + 1], buf); }
         else if p.running >= 0 { timer_full(buf, entries[p.running]); }
         else { buf.append("null"); }
         http::respond(out, 200, "application/json", buf);
@@ -1870,8 +1870,8 @@ fn visit_notes(out: u8[>..]&, i: i64) {
         while j < v.first_note + v.notes && notes[j].kind == kind {
             if n > 0 { out.push(','); }
             if template {
-                http::store_append(tpl.note, note_at[j], note_mid[j], out);
-                http::store_append(tpl.note, note_body_at[j], note_at[j + 1], out);
+                store::append(tpl.note, note_at[j], note_mid[j], out);
+                store::append(tpl.note, note_body_at[j], note_at[j + 1], out);
             } else {
                 note_id(out, notes[j]);
                 note_body(out, notes[j]);
@@ -1974,7 +1974,7 @@ fn list_bookings(req: http::Request, buf: u8[>..]&, out: http::Reply) {
     while i < bookings.len && bookings[i].start < end {
         if (mask >> bookings[i].staff) & 1 != 0 {
             if n > 0 { buf.push(','); }
-            if template { http::store_append(tpl.booking, booking_at[i], booking_at[i + 1], buf); } else { booking_full(buf, i); }
+            if template { store::append(tpl.booking, booking_at[i], booking_at[i + 1], buf); } else { booking_full(buf, i); }
             n++;
         }
         i++;
@@ -1994,7 +1994,7 @@ fn list_shifts(req: http::Request, buf: u8[>..]&, out: http::Reply) {
     while i < shifts.len && shifts[i].start < end {
         if (mask >> shifts[i].staff) & 1 != 0 {
             if n > 0 { buf.push(','); }
-            if template { http::store_append(tpl.shift, shift_at[i], shift_at[i + 1], buf); } else { shift_full(buf, i); }
+            if template { store::append(tpl.shift, shift_at[i], shift_at[i + 1], buf); } else { shift_full(buf, i); }
             n++;
         }
         i++;
@@ -2007,7 +2007,7 @@ fn list_shifts(req: http::Request, buf: u8[>..]&, out: http::Reply) {
 
 // A visit with its notes by kind, without the closing brace.
 fn visit_into(buf: u8[>..]&, i: i64) {
-    if template { http::store_append(tpl.visit, visit_at[i], visit_at[i + 1], buf); } else { visit_head(buf, i); }
+    if template { store::append(tpl.visit, visit_at[i], visit_at[i + 1], buf); } else { visit_head(buf, i); }
     visit_notes(buf, i);
 }
 
@@ -2021,7 +2021,7 @@ fn show_encounter(i: i64, buf: u8[>..]&, out: http::Reply) {
         let w = visits[c];
         for j in w.first_note..w.first_note + w.notes {
             if n > 0 { buf.push(','); }
-            if template { http::store_append(tpl.note, note_at[j], note_at[j + 1], buf); } else { case_note_full(buf, notes[j]); }
+            if template { store::append(tpl.note, note_at[j], note_at[j + 1], buf); } else { case_note_full(buf, notes[j]); }
             n++;
         }
     }
@@ -2090,7 +2090,7 @@ fn heavy(req: http::Request, buf: u8[>..]&, out: http::Reply) {
         guard c >= 0 else { heavy_error(out, 404); return; }
         if route == 5 { client_history(req, c, buf, out); }
         else {
-            if template { http::store_append(tpl.client, client_at[c], client_at[c + 1], buf); } else { client_full(buf, c); }
+            if template { store::append(tpl.client, client_at[c], client_at[c + 1], buf); } else { client_full(buf, c); }
             http::respond(out, 200, "application/json", buf);
         }
     }
@@ -2758,14 +2758,14 @@ inline fn handle(req: http::Request, body: const u8[:], out: http::Reply) {
     if http::on(r, "GET", "/api/items/:id") {
         let i = index_of(http::param(r, "id"), item_count());
         guard i >= 0 else { http::respond(out, 404, "text/plain", ""); return; }
-        if template { http::store_append(tpl.item, item_at[i], item_at[i + 1], buf); } else { item_open(buf, items[i]); }
+        if template { store::append(tpl.item, item_at[i], item_at[i + 1], buf); } else { item_open(buf, items[i]); }
         served(buf);
         http::respond(out, 200, "application/json", buf);
     } else if http::on(r, "GET", "/api/me") {
         let id, has = http::field_of(req, "x-user-id");
         let i = if has { index_of(id, user_count()) } else { -1 };
         guard i >= 0 else { http::respond(out, 401, "text/plain", ""); return; }
-        if template { http::store_append(tpl.user, user_at[i], user_at[i + 1], buf); } else { user_open(buf, users[i]); }
+        if template { store::append(tpl.user, user_at[i], user_at[i + 1], buf); } else { user_open(buf, users[i]); }
         served(buf);
         http::respond(out, 200, "application/json", buf);
     } else if http::on(r, "POST", "/api/items/:id") {
@@ -2859,17 +2859,17 @@ fn print_lens() {
     line("templates", "note_body_at", "i64", note_body_at.len);
     // The process's one copy, which no worker holds: bench/rest-memory.sh
     // counts only records and templates.
-    line("shared", "item", "u8", max(http::store_len(tpl.item), 0));
-    line("shared", "user", "u8", max(http::store_len(tpl.user), 0));
-    line("shared", "session", "u8", max(http::store_len(tpl.session), 0));
-    line("shared", "project", "u8", max(http::store_len(tpl.project), 0));
-    line("shared", "entry", "u8", max(http::store_len(tpl.entry), 0));
-    line("shared", "timer", "u8", max(http::store_len(tpl.timer), 0));
-    line("shared", "booking", "u8", max(http::store_len(tpl.booking), 0));
-    line("shared", "shift", "u8", max(http::store_len(tpl.shift), 0));
-    line("shared", "client", "u8", max(http::store_len(tpl.client), 0));
-    line("shared", "visit", "u8", max(http::store_len(tpl.visit), 0));
-    line("shared", "note", "u8", max(http::store_len(tpl.note), 0));
+    line("shared", "item", "u8", max(store::len(tpl.item), 0));
+    line("shared", "user", "u8", max(store::len(tpl.user), 0));
+    line("shared", "session", "u8", max(store::len(tpl.session), 0));
+    line("shared", "project", "u8", max(store::len(tpl.project), 0));
+    line("shared", "entry", "u8", max(store::len(tpl.entry), 0));
+    line("shared", "timer", "u8", max(store::len(tpl.timer), 0));
+    line("shared", "booking", "u8", max(store::len(tpl.booking), 0));
+    line("shared", "shift", "u8", max(store::len(tpl.shift), 0));
+    line("shared", "client", "u8", max(store::len(tpl.client), 0));
+    line("shared", "visit", "u8", max(store::len(tpl.visit), 0));
+    line("shared", "note", "u8", max(store::len(tpl.note), 0));
 }
 
 // A worker takes its records over the typed queues, not through
@@ -3004,8 +3004,8 @@ thread_fn distributor(count: i64) {
 // the blobs in Flags, through the queues, which order the store's writes
 // before their reads (store.goose).
 fn share_templates() {
-    fn share(json: u8[>..]&) -> http::Blob {
-        let b, err = http::store_put(json);
+    fn share(json: u8[>..]&) -> store::Blob {
+        let b, err = store::put(json);
         guard err == 0 else { abort("rest: the shared store refused the templates"); }
         json.clear();
         return b;
@@ -3021,7 +3021,7 @@ fn share_templates() {
     tpl.client = share(client_json);
     tpl.visit = share(visit_json);
     tpl.note = share(note_json);
-    http::store_freeze();
+    store::freeze();
 }
 
 // Loads the records into this thread's globals and puts one set of them on
