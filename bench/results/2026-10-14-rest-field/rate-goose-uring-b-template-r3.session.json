@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v1/session", "method": "GET" },
+  "config": { "connections": 64, "launched": 64, "duration_s": 15.000, "closed": false, "target_rate": 18750, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 281052,
+  "bytes": 462330540,
+  "achieved_rate": 18736.10,
+  "target_rate": 18750,
+  "target_rate_end": 18750,
+  "rate_ratio": 0.9993,
+  "bytes_per_sec": 30820889.30,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 10700,
+  "latency_us": {
+    "min": 18, "mean": 105.7, "stdev": 143.8, "max": 14119,
+    "p50": 103, "p75": 116, "p90": 131, "p99": 165, "p99_9": 282, "p99_99": 9468
+  },
+  "status_codes": { "1xx": 0, "2xx": 281052, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAArN4nC1ObUiTURh977n3vbt73ZdzU5uzUsvKSlIysfAzsswsDPpQ608UQT8KiaCgoIbZkBphIjbERDSkHyIUERFLomAJjYqwNfZDJERSSiIiQkbPtt7Lee95nueccx9v170sTeMuLf3x/zdLFfduabXL6UYRNCUNi8dVUtNwrpvdZeMsxqbYCLoxiGHEEMEnDPI/uM0f8Vf8F5/lL8S8GNAX9C7TE9N1NWAOmePmv0afZSpjwhqxxqzdtoDd50g4ep0LWd9cS9m+3LDnu3dlTXitv/jpxqeb+0v7to2WD+4Yr7q+a3lnb224Yb7hWePXxtkmf8vvAzOH/a3TR+NHo+0DHfH2qbaVjuCJeMfg8Yljc0dmW/2HEs2j+5b2TjdG6yPVk1XBynCFr/xPWf+WyZLYppHij4XLhe/XRlfHvD15kVXDudGc1+6PriFXyPkwc8aesI3aeqyTloWM0YwhI2AMq4j6JZfkX31Fn9NDIix+8hD/yYM8wHv5LKJ4jh4kmA9xFmIRdjXILgdYPwuw0+dPte8/WNdeXlNX3rC9pLS41JPtXVfs8jhybV6Hx2nLFk6LUxkWKaSyWRxKSWXYnEoJh6KOAhSkYVgsQhpKaUIIQGrC0ISUSSohFEk0KaUBkQwhpknQiCuDiCZ0SQ5IoQkIMlBfqJQCNCSdgJYuUjAThAYudOign4YMwIQUqA17ek4CknI6yKLSBCuozkyq0ho7ckBWN1E3Cigrh1gB6un8YKjFZ4abOnbjGj4wvGRYZKgA2rDIcRI3GB4zjDFKseMMGXdT+H1GeU1oJlqJMY4NuEiWBwwX8DZpPoMOXMKb5AKVKCKLFYfofsdogWrkYw/K0Ik7yfIK7fOFkTCfYMZ6yrLjLBnchLzUui1kzadlaTvqmbGJHt9KrJOwipBPqn+lpau3"
+}

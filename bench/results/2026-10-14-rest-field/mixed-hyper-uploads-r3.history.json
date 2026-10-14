@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v2/clients/42/encounters?limit=20", "method": "GET" },
+  "config": { "connections": 30, "launched": 30, "duration_s": 15.000, "closed": false, "target_rate": 1440, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 21591,
+  "bytes": 1538898525,
+  "achieved_rate": 1439.35,
+  "target_rate": 1440,
+  "target_rate_end": 1440,
+  "rate_ratio": 0.9995,
+  "bytes_per_sec": 102589770.65,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 0,
+  "latency_us": {
+    "min": 130, "mean": 4805.0, "stdev": 2545.8, "max": 16911,
+    "p50": 4810, "p75": 6534, "p90": 8010, "p99": 11212, "p99_9": 14108, "p99_99": 15780
+  },
+  "status_codes": { "1xx": 0, "2xx": 21591, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "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"
+}

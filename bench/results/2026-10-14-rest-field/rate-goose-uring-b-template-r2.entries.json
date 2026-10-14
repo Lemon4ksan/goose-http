@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v1/organizations/01992367-5a80-7000-9001-f5b5f48cbe9e/entries?from=2026-09-28T21%3A00%3A00.000Z&to=2026-10-12T21%3A00%3A00.000Z&userId=0199f165-ba80-7000-91e1-2f279935e9e8", "method": "GET" },
+  "config": { "connections": 64, "launched": 64, "duration_s": 15.000, "closed": false, "target_rate": 18750, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.000,
+  "requests": 281095,
+  "bytes": 3187055110,
+  "achieved_rate": 18739.09,
+  "target_rate": 18750,
+  "target_rate_end": 18750,
+  "rate_ratio": 0.9994,
+  "bytes_per_sec": 212463816.63,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 6806,
+  "latency_us": {
+    "min": 22, "mean": 109.6, "stdev": 85.6, "max": 10223,
+    "p50": 107, "p75": 121, "p90": 136, "p99": 171, "p99_9": 315, "p99_99": 4063
+  },
+  "status_codes": { "1xx": 0, "2xx": 281095, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAsx4nC1RW0gUURie883ZM+Ps1dl13XK9RVamaZmW0g3NygvmJdPMCqKiy0uEb71kYriE9JCLWUmYyLaILBIhIiImFrWI+CASIiIisfSwyNJD+RD9s3rOmfP///d/33fOzHg7e5ySJNdK20PeiSxe9HRJZza3gRxI4FxzuF3e3LziuoYbjx8EmY+NsACbYf/YL7bBhhBEH37gJ6JySO7m43yGfzUtiKASVDbUDXVeG9X6zO3WKeuKtdfWYR9O7NAXnRsuv3vM40tZSfWnR/ZsZvmzowd78yYPdxdGihZKXpyOnfpYGjkbK1+p8FXGqqaqAzXR2pG6pcalxu6msebZltGWzSuB1kDLZPObprnLgYblhsHa4epw5cT51bJQWfvJaMmfYy8LV/Pn8sM5swcG933KGsh8nrGe9s3bmbLs6Uv2eWaTAkl+55Ye0sOOsCNqW7MGrQOWkDmixRJmE36r6+qE0q8MiSmxaAqZpk3tPERzSZ6Wh+U1zGMSI3iHGNtiHZhh46yf+elpZ/cuXrt9taqivLigsCDX48pI2+t1ZezW3S6Xx+1wZbhtHl3XNYtN17lFtTksNk2zWIRL1zShWhyCQBU2ldOHp1xwlauqEJxzSQiLCkgaJRS5kDi4EW1GACgYQwjSEcyhqQLcYCO+6EdCQAa1JZhIQIAMyahoGSXt1KaeKW5oEgrtigEqBqrA0MULyWgplMsGk1ziQkLINyFeydt+TqPkxOQ7BMLMtKUDVpjp3Exy5jI3sF2ww4CTkAiFpxOiEJaIbMKzcZxmFrkdAoEyJW3x6xjkerK8gxrcJKITycBRHEEJ8RVcQhFlXxiFdNwiuIfhCT4wPANKiWwmTiJwgvzeAvvxFPjOSGnHQ5wjiR3vGd3xFSNpJl4zOq8Nd/EIF9DF8NmEZO7EfbredbKz06xHKh3QSrbU/2u8cVL81bKRT93/oA+lAA=="
+}

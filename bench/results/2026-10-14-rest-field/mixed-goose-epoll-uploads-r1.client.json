@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v2/clients/7", "method": "GET" },
+  "config": { "connections": 8, "launched": 8, "duration_s": 15.000, "closed": false, "target_rate": 360, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.000,
+  "requests": 5400,
+  "bytes": 3186000,
+  "achieved_rate": 359.99,
+  "target_rate": 360,
+  "target_rate_end": 360,
+  "rate_ratio": 1.0000,
+  "bytes_per_sec": 212396.46,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 0,
+  "latency_us": {
+    "min": 75, "mean": 482.6, "stdev": 503.5, "max": 11927,
+    "p50": 343, "p75": 614, "p90": 956, "p99": 1660, "p99_9": 7946, "p99_99": 9756
+  },
+  "status_codes": { "1xx": 0, "2xx": 5400, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAA0d4nDVTMc8cNRD1jWd9vjnHOI5jHLMsp+P49JECQUWFECUFRQp+AMpfiZQyRZSKgoIGCfFT8kPokCiokHgz+7Gn3fWO37x588a3vnr7xLnlN7df/uF9sI+3r923f+2BdwciR8yBKAQRphQ5hEiSuQYpUZJEyTJT6rWOVGZONXHOUlOTFEpqLeRLb1Nqvcx6yW32nHJNXUauvUgtta6tjx7qmLH3ddxf2jraHHcT1/3WSp1tK73VW15bLnfrF+W2lnqr177dOjKBbXOb9VouXw7UGpetrf2ulOdtrne3WxmjytzGNuro1znqhuKQ20e7Ph+Xax9QJkVu6yWV1rcec829YFkvtbXc78sso6cxU0a9ijhIWq5rSmnTvuNE062Ngo9c1Ap0eAUiRVlbiWBJLK3NXPBrXCTkIhK4UMqrhDKaGwEeBhkxwpxcayrwOcHe0iWVJKUU5hpTCCnD8RQDucCJkwRshsCcm2A4iOu8xOHBmBpHB21sl5OIPWCiw0SxIiQASE6xkXTK+sHEeHDE6BHwmkmeFSSoSskgCtUXygWnpYg0ISLPk4X3TQOjCnaxVoQCj6gflVci4kHTLN/kB7xkUaUqhU0ujp8q1loqE4eSYnASIucEhKarWlQMKoH3h4DC2dnFbR2jSmQcX3bwLSMfngQ907IrgDlqIsPorBqRGHHoVYP6Cj+DyQqEcw7/NV/DAt7MmhvVugjBTv8p6B4DUDnaOGkIQ4ye1aD/G7fhaFfoXBS09+KwrXywxaGuYsVs9YIQqV6vMNAELYpUDA1MTvvEt/FAnoo39/VekB+WaBFcOiz9izudlHsA7ZsYvVf6xew2LlrCvvJW1nKdDZzx8NoFIn7nXR6Kej5jsWB53OufLF0DxEdlcch2dGJj8JqhEaVZFGo/JVO0B4tKjR49GOjItq98Hqx0VjfxPpoYeqp9Hm17F7eYh7SzevrAWBC2Yo/oMQi9Ac9IU8lnQvhDk/0Yz5NlnrTQI8M9NVP1QZ8j8IToUyR8BvCZntHHCHwC+GJMfxz4hG36AYQ/4v4KvXxH9P6A4JsDAN/Qn6ri1wO9oO/pJ/p9oX8PIPib6B+iXw70Xiu9pI8g/Gt65+lnpv8AA/lAEA=="
+}

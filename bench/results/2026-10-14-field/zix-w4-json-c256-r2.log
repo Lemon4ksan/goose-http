@@ -1,0 +1,2 @@
+zix: 4 workers on port 29280
+info(zix_http1): listening on 0.0.0.0:29280 (io_uring, 4 workers, shared-nothing)

@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v1/timer", "method": "GET" },
+  "config": { "connections": 64, "launched": 64, "duration_s": 15.000, "closed": false, "target_rate": 18750, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.000,
+  "requests": 281030,
+  "bytes": 35409780,
+  "achieved_rate": 18734.78,
+  "target_rate": 18750,
+  "target_rate_end": 18750,
+  "rate_ratio": 0.9992,
+  "bytes_per_sec": 2360582.65,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 16766,
+  "latency_us": {
+    "min": 19, "mean": 112.9, "stdev": 299.2, "max": 20191,
+    "p50": 104, "p75": 120, "p90": 139, "p99": 184, "p99_9": 544, "p99_99": 16792
+  },
+  "status_codes": { "1xx": 0, "2xx": 281030, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAA454nDVSXWhURxSe+e7cn713/7K7WbOum6zGZJuo1bakjanVqBtrY2MsfWhBtLQQ6M9DW/rWvoiEmkpc0ighiNggsVgJIdjShyBFWgmyhCAhpLKEIlKCyDbkwcKyFOk3d+Mdzsw535zznZ+5WwYvxoVQ34vaZ2yc0jcunhMH1mtACxANZ7fHTnz0/hl5Q87IBbko5zCKeZTxBM/wozFvTBpl47yqUJbUsDlpTptL1mXrqX3LGQw8dQveTe9K8EqoGLofXuKqRh5GH9atxxZi9xPjydlNYw0rmycyQ9lb26ZapnOrbX/v+uvFqy9XO+51LneN7pvYv7Z/5mDhUPlQtaeYrxypHCkcvdY71jd3bKVv5Phqb6Xvt/7zx77tHzt+4+0zvdWjZ3uKhycODnUvdj/YN9s1t3e94/Ge8d13d462z+dGcsXmxa3lbLXxaubaluX0L+mlhlLDSkMpWU7+l1hITMVH4oOxSvRs3ULkUXgxNBu6E3zsjXq/u7+6a4HLgQdO1R5zJu271qI1aa2Zy+YTs8BVUkNqQl1SJaNkTBnjxqxx0xg2HuEOZnAbz2QBw7gnV2VR3pbT8pL8+otPPz59Op/Pn+ja09ndmc+3vrDt1WxrZ3v7ztbs9sZk4+ZYLBaNBcPBWCKqoq4bDEeDVtJNuEHLUsoJBp2gi6jjwIGlIcvROg3LVVCusiAojnItBYJQOkoJ5QAuBJTiJqBPFzxIA23DFZaARU/G07YAkzz6M7StfFiQk4cBocPg1JDnX41aaA9laFahTNTS0bT1JixeEjQJ2ghpplqsDU+7eghQNTdq9AOF76qJ1PO7AHcTdRQb6ZqtbB2huQ00YRcZm3Rtaeb4jOLhMC92a5p6BgpCOmMbvmLwJqSopfz0KbTgDV+zcUHiFHL4TuIbvIdmFcI7GMAr9FUt+IQuf0gi/wDvIo4PaO+g2wDzePhZIqLYURua8RbeRISU/0o/bz1+4iX+lLhgsBQD/bruNDL+OJoUuYRf4gBOqi8J99Hbo6SBA+ihz4d+9aeA6xI/SMa/xtI6/DFpxhBbEvicpWVY7Ou0Qr6k2H09sQBH45GkH1tRz0jdrH5TPVGbdzmf/iQzxumbUk1IK/0MOxTztZEg7j8CuXRUin4ZMglG7mU2hPgUAZKkCNtcEernJF6iEuGbehvvpwesu0z5Fdn6hwn5sLdxCjZu+gPSc9Ht/w/M+MEN"
+}

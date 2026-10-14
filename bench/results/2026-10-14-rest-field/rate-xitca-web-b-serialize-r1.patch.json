@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v1/organizations/01992367-5a80-7000-9001-f5b5f48cbe9e/entries/01a12ebb-eb5e-7000-935a-671cea7eb8f9", "method": "PATCH" },
+  "config": { "connections": 25, "launched": 25, "duration_s": 15.000, "closed": false, "target_rate": 7500, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.000,
+  "requests": 112491,
+  "bytes": 51408387,
+  "achieved_rate": 7499.17,
+  "target_rate": 7500,
+  "target_rate_end": 7500,
+  "rate_ratio": 0.9999,
+  "bytes_per_sec": 3427119.95,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 0,
+  "latency_us": {
+    "min": 39, "mean": 140.6, "stdev": 59.4, "max": 3091,
+    "p50": 131, "p75": 158, "p90": 184, "p99": 289, "p99_9": 754, "p99_99": 2055
+  },
+  "status_codes": { "1xx": 0, "2xx": 112491, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAwB4nEVSS0hUURg+/3/P3Lkzcx8zjvO4atl7U4vQihJRWyX2oOxB1CIX0iIiokVEEJhIiUiEbgYZZBgiRERkEJlEbBATEQkRCQmJkCkiBhGJiGjRd+4E3X/O//jO9z/OnFPTMxgVQvskyp/2z5IXDD4Xzdtl4DwLFlJIlqwLUwaNoFGZrDpwqKmh/XbH45fUkaYUrVIXP+NJTvM07/Cw9o2/aZNyXW7KjC+l7+hZf1FPGVPGTGA6uBkcC42aQ9ZXK2fl7TV7y+mJlMLDFaWKgehYbKVyJpaK/4ltJz4kR9ylZMGdcb9XfXC33X53yF1PZt2hRClRiOdjn2O98Uxsp3IhthgtRscrNyq2In3hNTsbSgczoRWr25m1X9ppdOmxB8K/nBGn1/5oLVuj1rz1w+p1cs5q+EWkGM45y3beLpmZ0FTwI2bcVPPqKd9PWZQF+VvOyQW5IQfkT60g57RxLas904q8wcuc40XYSZ7iUZ7gLL/gJVqnbVqiFRrHv7JOU9SHtUIj9JoWqQRZo/c0TznK0zTsFvQSduZplkbhT2O3QMPA8vQKOd2URjRB/ZBhykAmgPXTwz560OehDzpaH3XR/bs37nV23rnbVnfsXEtbZ3vr9QtXLra3XmtpOtF4tOHkyYYTTY11+44ciO/eE99TZdfE48mwqa7SNg1TN03DqDB1PWgjCOospW7gtvEJ+ByW6vKFwdDMQmcDFJY+PAwNIZ6GKO+AJyQgEA2fgvzSCyR4ioMMLB0MRVfQ/8XlasyWFOrFeZa9n6ZeHyP0Q4T0g+uDKLr0CsMLsNIerrNiCnjSa6+Vq6jWMAEvm9lR88LTymACyykT/UqFkCdVT28snISrJcCQtDgKXQvQQux429WqakLxDsMPcYwjvAspAdXJB8cbVx0KrATXItoLWoTPwnNQDi2vgq16n0Zdl/kUePU43X61z6q+X7X35BaICVTwCrqYJwAt+DJfgoQwg8bH+Skh8wy/IX6nvJvcjF7HQa7ngyB9IX7L/IT/AqvLupc="
+}

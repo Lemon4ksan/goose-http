@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v2/schedule/version?since=62030", "method": "GET" },
+  "config": { "connections": 140, "launched": 140, "duration_s": 15.000, "closed": false, "target_rate": 6600, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 98754,
+  "bytes": 17676966,
+  "achieved_rate": 6583.22,
+  "target_rate": 6600,
+  "target_rate_end": 6600,
+  "rate_ratio": 0.9975,
+  "bytes_per_sec": 1178396.64,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 43130,
+  "latency_us": {
+    "min": 26, "mean": 158.0, "stdev": 1159.1, "max": 64351,
+    "p50": 103, "p75": 112, "p90": 127, "p99": 241, "p99_9": 22856, "p99_99": 38064
+  },
+  "status_codes": { "1xx": 0, "2xx": 98754, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAA0J4nC1SXWhURxS+55u5e+/u3f/NbtbE/GwSt7tLssQ1DdtVdLu1NgVbxULaQvtQqH0KmKdCi9oo1p9oi1VqpYiFEKSECoX6YAst4kMeFulDCCjWgrQSSuiDiAUrEvrNpHdgzjnfnO+cb+bcjcfOZxxH55z1T/1vxQbnTzg7Hq4DW7SGH0/Ge6Pprt5S/9BotdIoVsZa21tj+16fmJp+/5wcnpW2XJdleSwXcJfrGZbUY9XW8+5995E7593wrvkr4ePB/ehKbDV6PbGQ+DW5mH6WWez4Nrucb2+43NXuOVpYGWxvWiz9Uv5u5N7Ipc0/jS5UH1Vnq0/KTytrxcXik8EbhbW+Bxtnui/mV7N302eT1xInY39Hvw7uRR76d/zj3i3vZmghtOTOu2v6qfpL/aHuqCU1pz5X82oZ3+My1uQSLuCBLMmqXJGbcou652RGZuWM3Q/OyMGTck4uytT0FSJn6Z+Ro/Lx4Q+nPpie3P3W3ubk7m3D9Z07x2vNiUZtYu++bc16o/nOeL0xuateq9WHa6Xh+nB9+2httFUcawxUd42Pt4qVZmtsqFjpLw2VqqVcPl8ZyBV78/n+gY5ksqM/nevoSib9tB/1k/Fozg9FoqFIXPta+/wi8UhI2xXSDsBAaePA4a5AL6ShGSt42tNaQTsaYYYKrkVtloMELKa0CdbPWQQ6A1PHBDAEh0UCkOUgZUt42IwMTgnwo+CI4AA+wds8+T2EqwoB/f34RvAmbgv+EVwVfCHoJnE/TgteMlsfXkAZm/AKi54Gq30l9H+zmc/hDbY4IZT0qRHwmeA1vIuXuRT+FIzgPTI/Iv8H6AMMeliuEy9iKwapcIQFevCvIVGbws/CQ9fcgqwNKCBLia9iBy+xhYmd7HuIKrJcLqkxtg1oy8z1eJ6xF3eJ2bsnSMja9zEPRpCIZ2zAxSzt2jRFIQbjMGJ0w4RcFktRY8AKKUPLkmjnEVBzykgkYJmKXVM6bLUwMWynYJoUbE6Mj0k4RribwPO0ZXL6iAW0W22NMJNd7NGdbOvZ7AJRIz1mb32Ij+VwChmr1vwpVmlg/44YbZZIFvZVlG2b0jF7GLATzD/yJThRzsnFKR//ATvUpRU="
+}

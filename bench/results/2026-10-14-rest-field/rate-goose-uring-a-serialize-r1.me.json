@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/me", "method": "GET" },
+  "config": { "connections": 40, "launched": 40, "duration_s": 15.000, "closed": false, "target_rate": 22400, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 335964,
+  "bytes": 73240152,
+  "achieved_rate": 22396.57,
+  "target_rate": 22400,
+  "target_rate_end": 22400,
+  "rate_ratio": 0.9998,
+  "bytes_per_sec": 4882453.06,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 981,
+  "latency_us": {
+    "min": 17, "mean": 93.0, "stdev": 39.0, "max": 2767,
+    "p50": 88, "p75": 107, "p90": 124, "p99": 170, "p99_9": 500, "p99_99": 1442
+  },
+  "status_codes": { "1xx": 0, "2xx": 335964, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAz54nC1SXUhUWxTeZ5119uzZc+bM8Tgex+5UKmqiYVr24617rW4EQZd+Tfr/sxB6iR4joiQsIiJqkEGGiJCQiJKLRA8iISEhBjFEzYNERMggEhLRQ0jctfY0+5y91/rW+r717cOkr90rFwLrReln/z4tk9y7LjoXSkANOCiX1f15qLffemq9tIYgD79gyu7Hx5hxhuWwvBMZUtnoy+hdndefY9nYbGzR/eRN+pNl78qHK3KV+apc1Wx6rrpQW2gYbepblWl7tK7QMfj3l86xrWM75naO7nm1b6Ar39V35Pvh6aMLJz+dyPXM9tzueX5y/HTxxNvjX4/Ndz/pvtv1be/grpF/szsmtk9vK2xd7Hy6ZeivwqbZjfc3Fjf0bZhcP9Xxce1/6++vLa5+sGambaCtvzXXUmwebl5ovNGQqeurzVSPLHuXHkznUuOpiTCTLJSPBvOJn4lv3m3va3wxNhf7oot6PHorOheZj1yL/JAf5Yjsd7LODL7Hh/gCB3DavmP/gHH7Cq0JeAQ3IQuvrRnrl5W33tP3mbIeWGPWxQHr0sWz509d7r2wv3f35t0tmw+0tq9eua6pvXFTe1NduralNWyorq5tSKdSYWMyDMMgGfipMFR+OkwvCdxU0gsCzws87bu+0iF6ga89jSqppfSU67uuUsqVCrTWLvpaIUhXuwEVJUqp/aSUoFAq5IwgDUg1atPKA4qVogZNigjKRQES6KEYUYFEIBopUqKVRkoFEslF6gJwFQjkKYhoU0AoSZAwKUqBGjRLCZInljSwYD0bfZaxQYAgMscsbOYATxbAfGR3JY7gVraGZgH9FekQ4FAo2TTJOFwVwM3skTVtfmzT7tA1bLSlY7TAzARWJV5ECb5qgowZzNSifMUITRBkhTWYwv0RYH8Ec2pjqWhzL0VRMD4jyES+oWQDxKHdgRiPNq0xWo5xSEfC3M75vQMzovQuNwUbyqhflOA4JXHm1xu+zSjNLTPfkqCokRcQxzhUQQcspX0NQA38AZUUJqDcKJ+mOEZC9bCK3hqooL0CVpBUGeH/EFJJtGbj95lFcKWZLiiqwQ6owoNwBj4AnIM3FokuhW7YR8JXLfgfM0aoyA=="
+}

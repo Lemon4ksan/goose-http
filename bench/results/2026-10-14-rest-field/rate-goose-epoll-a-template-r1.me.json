@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/me", "method": "GET" },
+  "config": { "connections": 40, "launched": 40, "duration_s": 15.000, "closed": false, "target_rate": 22400, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 335965,
+  "bytes": 73240370,
+  "achieved_rate": 22396.79,
+  "target_rate": 22400,
+  "target_rate_end": 22400,
+  "rate_ratio": 0.9999,
+  "bytes_per_sec": 4882501.13,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 180,
+  "latency_us": {
+    "min": 16, "mean": 92.7, "stdev": 38.3, "max": 1965,
+    "p50": 88, "p75": 110, "p90": 127, "p99": 170, "p99_9": 503, "p99_99": 1318
+  },
+  "status_codes": { "1xx": 0, "2xx": 335965, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAyl4nDVS3UscVxSfOffOnbt3x+msW1eD2201Nkk3FmutrrFaY9qUIEnTELp+0D8kj1LEhhBEklD6VIJIkGBBwrJdpA9LEJEQghQpiyxL8EFCHhYJIiJB+jt37b0z9+P8Ps45s5uefZh0HDnkNIY43V17efirM7rfCHxMGCqV+fLc9Iy74B65s1Slp+IXuSCXvROv4C/7//oF/U7vxI7NZrwefxOvB0/C9XArXIsOE8XkTNs/Z7bT1Uz57GrXvey7i5Weet9sbm5ka+zwavHa22vPbhzf+PtWOV/KVybe54sTO1Plqd2p1Ym9yd2J2k/V2xs3V25tXD8a3/l+/bvlb+evHIw8G6kMLX5durQzuHXp7eBRbiX3YGCpvzpw8FVt4H3/49zK4FF/JVceXBpY6lvovde72rP5eam7fnEm++J86fzcpy875jofZTbSd9srrcctJ8liYi3xKCqEtaZKUIuvmcfmt9jvsX29p9/4Bb/qH6t9tehX1RP1Cu8fXtlb90rec68mi3JR1kRdPBeHdELbVKantO/epdduwd1yV9159747497J538ev/Pj5OWh6S+Gx4ev/9A9dOHCN8NXstlMV7azrSvTmU5/EqZSQVtzW5DSURSYVKo5iKIPjTKBjKg5UCYMtdFBZKIgbFY61KSNIZKGpFQy0FoFpLWkUEqN30tKScpRivAwRyuplANEkpbSYRgxMjiCAJ0mQ2BLIoBGk6WQUOTg0cR2xB4BoogQ6DiAz3mQ0+G/CTvzBTu45ISKiyCj2BV5BCYroAcR1p4VkSeVRhfMsT4GJ4QE26FqjjqEC/RKQEo+LJT0JCcEYH3YDzehQJUe320S6yg0OzjcEpEP1LECwXhjnOJcFfM5iQBOMGpqeMBVsIYoRipmO+UMp11geP87eVwfVpDIFsK6FmltlS8xqQEoOMKv4cQKLD4nRAv+qY73GFZh/QVJvvj2ezRigpKW0oKZsF1jNlllEoFWrALwR1jbKU6f4U1gCuoA5ttoC6Kj8OJ8rfg6Z3D6gEaAtqMJD+y4xYRkPScbszo6i9lBf7lcMyeaAvE23lH6k+g/KvypPw=="
+}

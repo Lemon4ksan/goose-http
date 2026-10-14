@@ -24,6 +24,62 @@ comparison.
 WSL2 runs the loopback network in a VM, so the kernel's share of each request is larger
 than it would be on bare metal.
 
+## 2026-10-14: main after tasks 022.03, 025, and 027
+
+The field run again overnight on 2026-10-14, after WSL moved to kernel
+6.18.54.1-microsoft-standard-WSL2, with Goose at `e4f7b55` (task 027's p2 to p6, 022.03's
+compression, and task 025's smaller REST records) and the Goose compiler at `0bdbd18`.
+The sections below this one are from kernel 6.18.40.1 and earlier commits.
+
+### Plaintext and JSON
+
+`bench/run.sh` with `SERVERS="goose goose-uring libreactorng vanilla-io_uring zix
+xitca-web tokio hyper" WORKER_COUNTS=4 LATENCY=0`: 4 workers on CPUs 0-3, wrk 4.1.0 on
+4-15 with 8 threads, 3 runs of 15 s after 5 s of warm-up, medians
+([summary](../bench/results/2026-10-14-field/summary.md)). Requests per second, and the
+highest peak RSS of a server's cells:
+
+| Server | plaintext 256 | plaintext 1,024 | plaintext 4,096 | JSON 256 | JSON 1,024 | peak RSS |
+|---|---:|---:|---:|---:|---:|---:|
+| vanilla-io_uring (V)\* | 8.12 M | 8.26 M | 7.58 M | 453 K | 462 K | 155 MB |
+| libreactorng (C)\* | 7.02 M | 7.46 M | 7.01 M | 540 K | 610 K | 72 MB |
+| Goose io_uring | 6.90 M | 6.81 M | 6.38 M | 497 K | 489 K | 13 MB |
+| zix (Zig) | 5.19 M | 5.37 M | 4.83 M | 561 K | 614 K | 39 MB |
+| Goose epoll | 5.29 M | 5.36 M | 5.26 M | 404 K | 401 K | 4.8 MB |
+| tokio (Rust) | 3.83 M | 3.79 M | 3.63 M | 381 K | 373 K | 163 MB |
+| xitca-web (Rust) | 3.37 M | 3.60 M | 3.22 M | 419 K | 445 K | 69 MB |
+| hyper (Rust) | 2.66 M | 2.64 M | 2.53 M | 294 K | 287 K | 81 MB |
+
+\* Answers plaintext without parsing the request.
+
+Every cell is within 3% of the 2026-10-12 table below, but Goose io_uring's plaintext
+at 1,024 and 4,096 connections, 4.4% and 6.0% over it; Goose epoll's JSON at 256 is
+2.9% under. `bench/count.sh`
+(`RUNS=3`, one worker, 10 million requests): 1,833.1 user instructions per plaintext
+request on epoll and 1,888.5 on io_uring, against 1,838.9 and 1,887.2 for task 027's
+baseline `2afc12f` built at the same Goose pin.
+
+### REST APIs
+
+`bench/rest.sh build`, then `bench/rest.sh run` with `SERVERS="goose-uring goose-epoll
+xitca-web hyper tokio dusty"`, every step, 4 workers on CPUs 0-3 and the load on 4-15,
+3 rounds of 15 s, after each server passed its checks
+([summary](../bench/results/2026-10-14-rest-field/summary.md)). Medians at saturation,
+peak RSS in MB after the rate, uploads alone, and tier C's reads at a fixed 16,000 a
+second beside uploads: their p99 and the uploads a second they ran beside.
+
+| Server | A | B | C | C, templates | Uploads alone | Reads p99 beside uploads | Uploads beside reads |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Goose io_uring | 588 K/s, 15 | 278 K/s, 47 | 52.3 K/s, 104 | 142 K/s, 177 | 1.2 K/s | 7.8-10.6 ms | 852-877/s |
+| Goose epoll | 448 K/s, 9 | 222 K/s, 46 | 51.3 K/s, 102 | 136 K/s, 176 | 1.1-1.2 K/s | 1.0-2.0 ms | 878-886/s |
+| xitca-web (Rust) | 407 K/s, 32 | 235 K/s, 68 | 38.2 K/s, 490 | 113 K/s, 512 | 1.0 K/s | 2.4-4.6 ms | 618-635/s |
+| hyper (Rust) | 271 K/s, 13 | 151 K/s, 29 | 32.1 K/s, 37 | 120 K/s, 74 | 1.1 K/s | 10.9-29.1 ms | 760-776/s |
+| tokio (Rust) | 393 K/s, 16 | 183 K/s, 30 | 31.6 K/s, 307 | 100 K/s, 365 | 1.0-1.1 K/s | 1,055-5,769 ms | 677-730/s |
+| dusty (Zig) | 343 K/s, 16 | 162 K/s, 42 | 24.6 K/s, 216 | 125 K/s, 241 | 1.1 K/s | 6.7-41.8 ms | 514-526/s |
+
+A to C are serialized but for the templates column. Goose's peak RSS on tier C
+templated is 177 MB, from 387 at `main`'s `dd68f22` before task 025, against hyper's 74.
+
 ## TechEmpower's tests
 
 ### The full field

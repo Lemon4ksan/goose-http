@@ -48,8 +48,12 @@ Done: step 1 (`c16cca6`), step 3 for what is kept, and step 4. p3 waits on
 What `main` holds unchecked, or what waits on a branch. Remove an item once its check
 passes.
 
-- [ ] Where `main`'s 8 user instructions per request over the baseline go
-      (`bench/count.sh`, "The series at Goose `0bdbd18`"): no rate shows them.
+Nothing is pending. `main` at `48f8e37` spent 8 user instructions per request more
+than the baseline ("The series at Goose `0bdbd18`"); at `e4f7b55`, with 022.03's routes
+in the benchmark server, it spends 1,833.1 on epoll and 1,888.5 on uring against the
+baseline's 1,838.9 and 1,887.2 (`RUNS=3 bench/count.sh`, 2026-10-14,
+[results](../docs/results.md#2026-10-14-main-after-tasks-02203-025-and-027)), so where
+the 8 went wasn't pinned down: a sampled profile's addresses didn't resolve to symbols.
 
 Done on 2026-10-14, at Goose `0bdbd18` on kernel 6.18.54.1: `scripts/test.sh` on
 `main` in WSL and Git Bash; step 2, the finding

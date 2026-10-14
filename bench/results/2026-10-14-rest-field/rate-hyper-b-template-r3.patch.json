@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v1/organizations/01992367-5a80-7000-9001-f5b5f48cbe9e/entries/01a12ebb-eb5e-7000-935a-671cea7eb8f9", "method": "PATCH" },
+  "config": { "connections": 25, "launched": 25, "duration_s": 15.000, "closed": false, "target_rate": 7500, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.000,
+  "requests": 112491,
+  "bytes": 50958423,
+  "achieved_rate": 7499.23,
+  "target_rate": 7500,
+  "target_rate_end": 7500,
+  "rate_ratio": 0.9999,
+  "bytes_per_sec": 3397152.98,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 817,
+  "latency_us": {
+    "min": 38, "mean": 128.3, "stdev": 71.6, "max": 4151,
+    "p50": 122, "p75": 148, "p90": 166, "p99": 205, "p99_9": 1127, "p99_99": 3243
+  },
+  "status_codes": { "1xx": 0, "2xx": 112491, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAuV4nD1STUhUURR+77zz7vt/b97vaPlXKi3KMoiQKMpFbcJVuxa2tVUtWkVEiJDEIDKKiEhIhLgwETEZJEJmIS7CxFxIRIi4GAYJVyEySOeekWbevefd833n+849M01DY7GiYKDUP9pZVPkw9la5e1RPPAQBAAqii6aI7CTKurtvXHk+rBbUV4tqVZ2AWdiAPzCqHWhFXMIKFvVDvagviRWxLwrmtLllblvT9qm94/x0jrxZfz346pfDd+FhVIsqcSkppifxSbKaltKpdDX9kB1n1fQ0P54fyUr5mfxuvpwfbFim92K2l+1kf7NqMpfVkrWkmswnxfhLNBWXo8XoW1gO98O5cCiqhpu5vWDS23aW7GF3wlv1j7xjb85bdhf8Tf/An8oNBb/98WDcH/RHg19BKTj014L3wXpuxC942+5HZ8EaNbeMDbGrD+oVXMGatku3O4WiVoMZmIQ3UICKuqeW1EV1Xh1WX78cePGgv3/g8a2ee223uzvOtfS0XL14s6PpYlvWkDW05ShEds63/SxyhZm4pmm7rq8IU5gugC1sFChsxRSAiskDB1MDFHLwYKL8ASigQglEYSqAFAE1VKiQODJBFBC0JCIheRJcoROk0ZI80CSftOWmywJ2AQkpEhQ6Sq7DdWwsmTLQVxcQC2YC51gYpL4lUabLs2wBJAelp1KngRRGi8ncDzO5zuC/GHkadQXaDKKEoHOX9Diy6H9f+pmmBQHSxlV190bCQ0I8aRGQpEHJC8AeeUpppKAxm3ws5Cb5CjrBBkpRjS9DRikddeTxBZxX6j4WxJCSXsqenA64HZ2XpARnRAO6WJmc6t46XUrOxYFmAg1sBkpijLJzjXSpLmYVbrCVhAxAj2+h8dAD7CW9xvosDCK3k+IT4tGhnUIM1+COrI2hFbuIep5Uuogb4jNitsNTWt/lgBxiWtBLotehD36o8EmlykvwCDoJ6eQ9pb2Pevms0ct9uAz/AHP7i9w="
+}
