@@ -167,8 +167,9 @@ the earlier field run on the same machine and kernel.
 framework built on this package.  
 † Fell behind the fixed rate, so the reads queued.
 
-Serialized B and C run 2.7-5.8% slower than at `e4f7b55`, beyond the run ranges, in
-exchange for a third less memory; [task 033](tasks/033-rest-regressions.md) traces it.
+Serialized B and C run 2.7-5.8% slower than at `e4f7b55`, beyond the run ranges: later
+package code moved std's JSON string scan across a cache line
+([why](docs/results.md#2026-10-14-the-serialized-rest-loss-is-a-loops-placement)).
 
 **Memory.** Each Goose worker holds its own copy of the records, because Goose threads
 share no memory; hyper's threads share one copy. The prebuilt JSON of the templated

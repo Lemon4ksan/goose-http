@@ -66,7 +66,6 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 | 030: 32-bit ARM | Unblock execution after the two recorded Goose bugs are fixed. |
 | 031: shared REST application | Split reusable application code from HTTP routes without changing behavior or memory. |
 | 032: shared benchmark harness | Reuse one harness across scripts and document external server integration. |
-| 033: REST regressions | Attribute serialized B/C and mixed-upload losses, then assess the responsible API changes' benefits against their measured cost. |
 
 Tasks 013 and 018 have completed acceptance criteria and are archived with the other
 completed work. Compression subtasks stay with their open parent. Completed platform

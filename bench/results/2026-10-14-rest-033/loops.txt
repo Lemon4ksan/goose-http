@@ -1,0 +1,135 @@
+== cx
+   169bf:	nop
+   169c0:	cmp    $0x5c,%al
+   169c2:	je     169e0 <json_format_string_g4_169+0x50>
+   169c4:	add    $0x1,%rdx
+   169c8:	cmp    %rdx,%r8
+   169cb:	je     16a20 <json_format_string_g4_169+0x90>
+   169cd:	movzbl (%rdx),%eax
+   169d0:	cmp    $0x22,%al
+   169d2:	sete   %cl
+   169d5:	cmp    $0x1f,%al
+   169d7:	setbe  %sil
+   169db:	or     %sil,%cl
+   169de:	je     169c0 <json_format_string_g4_169+0x30>
+   16c7e:	xchg   %ax,%ax
+   16c80:	cmp    $0x5c,%al
+   16c82:	je     16ca4 <json_format_string_g4_162+0x64>
+   16c84:	add    $0x1,%rcx
+   16c88:	cmp    %rcx,%r10
+   16c8b:	je     16ea0 <json_format_string_g4_162+0x260>
+   16c91:	movzbl (%rcx),%eax
+   16c94:	cmp    $0x1f,%al
+   16c96:	setbe  %dl
+   16c99:	cmp    $0x22,%al
+   16c9b:	sete   %sil
+   16c9f:	or     %sil,%dl
+   16ca2:	je     16c80 <json_format_string_g4_162+0x40>
+== bp
+   16adf:	nop
+   16ae0:	cmp    $0x5c,%al
+   16ae2:	je     16b00 <json_format_string_g4_175+0x50>
+   16ae4:	add    $0x1,%rdx
+   16ae8:	cmp    %rdx,%r8
+   16aeb:	je     16b40 <json_format_string_g4_175+0x90>
+   16aed:	movzbl (%rdx),%eax
+   16af0:	cmp    $0x22,%al
+   16af2:	sete   %cl
+   16af5:	cmp    $0x1f,%al
+   16af7:	setbe  %sil
+   16afb:	or     %sil,%cl
+   16afe:	je     16ae0 <json_format_string_g4_175+0x30>
+   16d9e:	xchg   %ax,%ax
+   16da0:	cmp    $0x5c,%al
+   16da2:	je     16dc4 <json_format_string_g4_168+0x64>
+   16da4:	add    $0x1,%rcx
+   16da8:	cmp    %rcx,%r10
+   16dab:	je     16fc0 <json_format_string_g4_168+0x260>
+   16db1:	movzbl (%rcx),%eax
+   16db4:	cmp    $0x1f,%al
+   16db6:	setbe  %dl
+   16db9:	cmp    $0x22,%al
+   16dbb:	sete   %sil
+   16dbf:	or     %sil,%dl
+   16dc2:	je     16da0 <json_format_string_g4_168+0x40>
+== bw
+   1615f:	nop
+   16160:	cmp    $0x5c,%al
+   16162:	je     16180 <json_format_string_g4_176+0x50>
+   16164:	add    $0x1,%rdx
+   16168:	cmp    %rdx,%r8
+   1616b:	je     161c0 <json_format_string_g4_176+0x90>
+   1616d:	movzbl (%rdx),%eax
+   16170:	cmp    $0x22,%al
+   16172:	sete   %cl
+   16175:	cmp    $0x1f,%al
+   16177:	setbe  %sil
+   1617b:	or     %sil,%cl
+   1617e:	je     16160 <json_format_string_g4_176+0x30>
+   1641e:	xchg   %ax,%ax
+   16420:	cmp    $0x5c,%al
+   16422:	je     16444 <json_format_string_g4_169+0x64>
+   16424:	add    $0x1,%rcx
+   16428:	cmp    %rcx,%r10
+   1642b:	je     16640 <json_format_string_g4_169+0x260>
+   16431:	movzbl (%rcx),%eax
+   16434:	cmp    $0x1f,%al
+   16436:	setbe  %dl
+   16439:	cmp    $0x22,%al
+   1643b:	sete   %sil
+   1643f:	or     %sil,%dl
+   16442:	je     16420 <json_format_string_g4_169+0x40>
+== cm
+   15e9f:	nop
+   15ea0:	cmp    $0x5c,%al
+   15ea2:	je     15ec0 <json_format_string_g4_176+0x50>
+   15ea4:	add    $0x1,%rdx
+   15ea8:	cmp    %rdx,%r8
+   15eab:	je     15f00 <json_format_string_g4_176+0x90>
+   15ead:	movzbl (%rdx),%eax
+   15eb0:	cmp    $0x22,%al
+   15eb2:	sete   %cl
+   15eb5:	cmp    $0x1f,%al
+   15eb7:	setbe  %sil
+   15ebb:	or     %sil,%cl
+   15ebe:	je     15ea0 <json_format_string_g4_176+0x30>
+   1615e:	xchg   %ax,%ax
+   16160:	cmp    $0x5c,%al
+   16162:	je     16184 <json_format_string_g4_169+0x64>
+   16164:	add    $0x1,%rcx
+   16168:	cmp    %rcx,%r10
+   1616b:	je     16380 <json_format_string_g4_169+0x260>
+   16171:	movzbl (%rcx),%eax
+   16174:	cmp    $0x1f,%al
+   16176:	setbe  %dl
+   16179:	cmp    $0x22,%al
+   1617b:	sete   %sil
+   1617f:	or     %sil,%dl
+   16182:	je     16160 <json_format_string_g4_169+0x40>
+== ca
+   16c0f:	nop
+   16c10:	cmp    $0x5c,%al
+   16c12:	je     16c30 <json_format_string_g4_176+0x50>
+   16c14:	add    $0x1,%rdx
+   16c18:	cmp    %rdx,%r8
+   16c1b:	je     16c70 <json_format_string_g4_176+0x90>
+   16c1d:	movzbl (%rdx),%eax
+   16c20:	cmp    $0x22,%al
+   16c22:	sete   %cl
+   16c25:	cmp    $0x1f,%al
+   16c27:	setbe  %sil
+   16c2b:	or     %sil,%cl
+   16c2e:	je     16c10 <json_format_string_g4_176+0x30>
+   16ece:	xchg   %ax,%ax
+   16ed0:	cmp    $0x5c,%al
+   16ed2:	je     16ef4 <json_format_string_g4_169+0x64>
+   16ed4:	add    $0x1,%rcx
+   16ed8:	cmp    %rcx,%r10
+   16edb:	je     17150 <json_format_string_g4_169+0x2c0>
+   16ee1:	movzbl (%rcx),%eax
+   16ee4:	cmp    $0x1f,%al
+   16ee6:	setbe  %dl
+   16ee9:	cmp    $0x22,%al
+   16eeb:	sete   %sil
+   16eef:	or     %sil,%dl
+   16ef2:	je     16ed0 <json_format_string_g4_169+0x40>

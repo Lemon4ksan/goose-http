@@ -1,0 +1,9 @@
+events.sh, tier C serialized, per request
+== run 1 tier c cx 50655.91 req/s
+  instructions:u 746077.2  cycles:u 243419.0  branch-misses:u 761.3  L1-icache-load-misses 25.4  L1-dcache-load-misses 4540.6  iTLB-load-misses 1.7  dTLB-load-misses 45.1
+== run 1 tier c bp 47953.00 req/s
+  instructions:u 746445.0  cycles:u 261730.7  branch-misses:u 735.3  L1-icache-load-misses 11.4  L1-dcache-load-misses 4554.2  iTLB-load-misses 2.1  dTLB-load-misses 39.8
+== run 2 tier c cx 50395.86 req/s
+  instructions:u 747878.2  cycles:u 244043.1  branch-misses:u 719.5  L1-icache-load-misses 13.0  L1-dcache-load-misses 4537.3  iTLB-load-misses 2.1  dTLB-load-misses 43.1
+== run 2 tier c bp 47793.00 req/s
+  instructions:u 755172.6  cycles:u 262489.1  branch-misses:u 744.2  L1-icache-load-misses 22.6  L1-dcache-load-misses 4594.9  iTLB-load-misses 1.8  dTLB-load-misses 40.6

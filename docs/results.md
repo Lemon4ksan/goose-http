@@ -17,6 +17,59 @@ WSL2 loopback runs through a VM; its kernel cost differs from bare metal. Runs t
 2026-10-12 use kernel 6.18.40.1-microsoft-standard-WSL2. The 2026-10-14 runs use
 6.18.54.1-microsoft-standard-WSL2. Each run's `env.txt` records the environment.
 
+## 2026-10-14: the serialized REST loss is a loop's placement
+
+The serialized B/C loss of `bc75f2a` against `e4f7b55`
+([below](#2026-10-14-main-against-the-readme-benchmark-build)) is the placement of
+std's `json_format_string` byte scan, about a third of tier C's user cycles. In
+`e4f7b55` the loop's 36 bytes lie within one 64-byte line; the package's later code
+moves it 32 bytes, across a line, in every later build measured. The same
+instructions then take 4-7% more cycles. No API change, data-loading change, or
+`mallopt` setting costs a measurable rate. [Task 033](../tasks/000-archive/033-rest-regressions.md)
+records the decision; scripts and raw output are in
+[2026-10-14-rest-033](../bench/results/2026-10-14-rest-033/).
+
+Same machine and kernel as below; every REST build is `goose build --cc gcc
+--standalone` at Goose `46356c2` from `git archive` of its revision, 4 workers on
+CPUs 0-3, io_uring, wrk 4.1.0 with 8 threads and 256 connections on CPUs 4-15.
+The REST binary is the same on both loops, so epoll was not rerun.
+
+**Bisect.** `STEPS=1 bench/rest.sh run`, three interleaved runs of 15 s after 5 s of
+warm-up, along main's first parents ([summary](../bench/results/2026-10-14-rest-033/bisect-summary.md)).
+Medians and ranges, req/s, and peak RSS:
+
+| Build | B serialize | C serialize | Peak RSS B / C, MB |
+|---|---:|---:|---:|
+| `e4f7b55` | 275.6 K (275.4-275.9) | 51.1 K (50.7-51.4) | 47 / 105 |
+| `a1c6e8d`, API work merged | 271.9 K (270.7-276.6) | 49.7 K (48.9-49.8) | 50 / 104 |
+| `afb4a40`, workarounds dropped | 270.7 K (268.6-271.0) | 49.6 K (49.5-49.8) | 51 / 104 |
+| `71ef2c0`, queue hand-off | 270.4 K (270.0-272.1) | 49.7 K (48.7-49.8) | 30 / 70 |
+| `bc75f2a`, shared store | 271.3 K (268.7-272.7) | 49.2 K (48.9-49.5) | 30 / 70 |
+
+The whole loss falls on the first step, and the memory reductions on the later ones.
+Templated cells and tier A overlap across all five builds. A separate run of
+`bc75f2a` without its `mallopt(M_MMAP_THRESHOLD, 131072)`, or with the threshold
+raised to 32 MB after loading, served B at 265.9 K and 265.7 K against 265.9 K and C
+at 48.0 K and 48.4 K against 48.5 K ([summary](../bench/results/2026-10-14-rest-033/mallopt-summary.md)).
+
+**Counts.** `count.sh` runs each server, warms it for 5 s, and counts its user
+instructions and cycles with `perf stat` over 10 s of a 14 s wrk run, three
+interleaved runs ([counts](../bench/results/2026-10-14-rest-033/counts.tsv)).
+Against `e4f7b55`, `a1c6e8d` runs 56.7-56.9 K against 56.7-56.9 K instructions per
+B request and 749-754 K against 749-753 K per C request, but 25.2-25.4 K against
+24.3-24.5 K cycles on B and 259-266 K against 248-249 K on C. Branch, L1, and TLB
+misses per request match ([events](../bench/results/2026-10-14-rest-033/events.txt)).
+`perf record` puts about 32% of tier C's user cycles in the scan loop; the
+[disassembly](../bench/results/2026-10-14-rest-033/loops.txt) shows it at offset 0 of
+a 64-byte line in `e4f7b55` and offset 32 in `a1c6e8d`, `71ef2c0`, and `bc75f2a`.
+
+**Check.** `bc75f2a` built through a `gcc` wrapper that adds `-falign-loops=64`
+places the loop at offset 16, within one line. Counted as above, later in the
+session, when every rate ran lower: B 264.8-268.8 K req/s against `e4f7b55`'s
+261.6-273.0 K and `bc75f2a`'s 254.5-264.4 K; C 48.0-48.5 K against 48.0-48.5 K and
+46.2-46.6 K, at 257-259 K cycles against 258-260 K and 273-276 K. It is not adopted:
+task 033 says why.
+
 ## 2026-10-14: main against the README benchmark build
 
 Main at `bc75f2a` has overlapping plaintext and JSON throughput ranges with the
@@ -162,9 +215,9 @@ table uses each cell's highest peak instead of its median.
 
 Every REST saturation cell has lower peak RSS beyond the ranges. Workers receive
 their loaded records over queues, and prebuilt JSON is held once per process in
-the shared store. This aggregate comparison does not isolate which change causes
-the rate losses; [task 033](../tasks/033-rest-regressions.md) will reproduce and
-attribute them before judging the responsible API changes' benefits.
+the shared store. The rate losses come from neither: the
+[follow-up](#2026-10-14-the-serialized-rest-loss-is-a-loops-placement) traces them to
+the placement of one hot loop.
 
 The serialized B/C losses also appear in CPU time and latency at saturation.
 CPU is the server's total user and kernel time per request; latency is wrk's,
@@ -230,10 +283,9 @@ recorded rather than treated as a broad latency regression. Epoll's shifts route
 improves beyond the ranges. All route-level results remain in the two summaries.
 
 The results do not meet the original expectation that every REST rate remain
-within run spread. The measured losses are accepted for the current summary with
-a follow-up investigation (2026-10-14); no code was fixed or reverted in this
-benchmark change. Task 033 covers attribution and whether an implicated API
-change's caller benefit justifies its cost.
+within run spread. The measured losses are accepted for the current summary
+(2026-10-14); no code was fixed or reverted. Task 033 attributed them to a hot
+loop's placement, not to an API change.
 
 Release validation after measurement (2026-10-14): `GOOSE=<Linux compiler>
 scripts/test.sh` passes in WSL Ubuntu, including io_uring, its epoll fallback,

@@ -124,9 +124,9 @@ process in the shared store. Every saturation cell's peak is lower beyond the
 baseline's ranges. Serialized B and C throughput loses 2.68% and 3.29% on io_uring,
 and 5.84% and 4.40% on epoll, beyond the ranges. The
 [measurement record](results.md#2026-10-14-main-against-the-readme-benchmark-build)
-contains both loops' rates, memory, uploads, and latency. The
-[regression follow-up](../tasks/033-rest-regressions.md) will identify the responsible
-changes and assess their API benefits before deciding what to keep or revise.
+contains both loops' rates, memory, uploads, and latency. The serialized loss is the
+[placement of std's JSON string scan](results.md#2026-10-14-the-serialized-rest-loss-is-a-loops-placement),
+which later package code moved across a cache line; no change is reverted for it.
 
 Idle with the records loaded, by worker count: Goose on the epoll loop at `1818526`
 (2026-10-14, VmRSS 3 s after it listened,
@@ -228,7 +228,8 @@ From the runs in this file:
   plaintext request; one-worker io_uring plaintext RSS rises by 0.10 MB. Epoll's
   history reads alone add 0.026 ms median p99. The
   [record](results.md#2026-10-14-main-against-the-readme-benchmark-build) includes
-  every loss and range; task 033 will investigate the REST regressions.
+  every loss and range; task 033 traced the serialized REST loss to a hot loop's
+  placement.
 - **Static files of 64 KB**, to nginx: by 3-9% on the epoll loop and 10-21% on io_uring.
 - **Windows**, where IOCP serves well under io_uring's rate (above).
 
