@@ -33,7 +33,7 @@ struct EpollConn<S> {
 // or stop ends it, and returns its error, with every socket it opened
 // closed. On Windows it fails at once with ENOSYS.
 fn serve_epoll<H>(cfg: Config) -> Error {
-    return serve_epoll(cfg, false) { ev, st, out => if whole_only(ev, out) { H(ev.req, ev.data, out); } };
+    return serve_epoll(cfg, false) { ev, st, out => whole(ev, out, H); };
 }
 
 // serve_epoll(cfg), with a handler H that's called for each Event of a

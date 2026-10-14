@@ -13,25 +13,19 @@ import message;
 // value without the quotes it may have (RFC 6265 §4.2.1). A pair without '='
 // is skipped, as a user agent sends none.
 fn each_cookie<F>(req: const Request&) {
-    var pos = 0;
-    while pos < req.fields.len {
-        let name, value, next = field_at(req.fields, pos);
-        pos = next;
-        guard same_name(name, "cookie") else { continue; }
-        var at = 0;
-        while at <= value.len {
-            var end = at;
-            while end < value.len && value[end] != ';' { end++; }
-            let pair = trim_ows(value[at..end]);
-            at = end + 1;
-            let eq = position(pair, '=');
-            if eq > 0 {
-                var v = trim_ows(pair[eq + 1..]);
-                if v.len >= 2 && v[0] == '"' && v[v.len - 1] == '"' { v = v[1..v.len - 1]; }
-                F(trim_ows(pair[..eq]), v);
-            }
+    each_field(req) { name, value =>
+        if same_name(name, "cookie") {
+            each_split(value, ';') { piece =>
+                let pair = trim_ows(piece);
+                let eq = position(pair, '=');
+                if eq > 0 {
+                    var v = trim_ows(pair[eq + 1..]);
+                    if v.len >= 2 && v[0] == '"' && v[v.len - 1] == '"' { v = v[1..v.len - 1]; }
+                    F(trim_ows(pair[..eq]), v);
+                }
+            };
         }
-    }
+    };
 }
 
 // The value of req's cookie name, compared as sent, and whether req has it;
