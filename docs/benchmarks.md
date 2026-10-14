@@ -100,6 +100,22 @@ keeps its records in memory. Bold is the column's lowest.
 Goose threads share no memory, so each of the 4 workers holds its own copy of the
 records, where the others share one. Task 025 cut tier C templated from 387 MB to 177.
 
+Idle with the records loaded, by worker count: Goose on the epoll loop at `9408035`
+(2026-10-14, VmRSS 3 s after it listened,
+[idle.tsv](../bench/results/2026-10-14-rest-025-idle/idle.tsv)), and hyper with 4
+workers on 2026-10-13 ([idle-rss.txt](../bench/results/2026-10-13-rest/idle-rss.txt)),
+whose memory stays flat with workers: 23 MB on tier C at 1, 2, and 4.
+
+| Tier | Goose, 1 worker | Goose, 4 workers | Each added worker | hyper, 4 workers |
+|---|---:|---:|---:|---:|
+| A | 4.5 MB | 8.9 MB | +1.5 MB | 7.5 MB |
+| B | 11 MB | 36 MB | +8.2 MB | 17 MB |
+| C | 23 MB | 84 MB | +20 MB | 24 MB |
+| C, templates | 38 MB | 143 MB | +35 MB | 62 MB |
+
+With one worker Goose holds less than hyper on every tier; each added worker adds a
+copy of the records.
+
 The run behind these tables, with tier D beside forms and every route's latency
 ([results](results.md#rest-apis) and
 [summary](../bench/results/2026-10-14-rest-field/summary.md)). may-minihttp, Tina, and
