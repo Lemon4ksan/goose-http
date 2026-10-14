@@ -113,46 +113,77 @@ Every rate holds within the rounds' spread or gains, by up to 3.1% on B serializ
 Step 2 alone (`goose-uring-25b` in the summary) ran tier C templated at 142.9K, 1.9%
 under; step 3 wins it back.
 
-## Workers take their records over queues (2026-10-14, not yet measured)
+## Workers take their records over queues (2026-10-14)
 
-On `task-025-worker-load`, cut from `findings-46356c2-hot`. Built and typechecked only;
-nothing was run, since another session was benchmarking.
-
-A worker holds what `thread_spawn` copies twice for its life: in the `malloc`ed packet
-the runtime copies the globals through, which it frees only when the worker returns, and
-on the worker's own data stacks
+On `task-025-worker-load`, cut from `findings-46356c2-hot`. A worker held what
+`thread_spawn` copies twice for its life: in the `malloc`ed packet the runtime copies
+the globals through, freed only when the worker returns, and on the worker's own data
+stacks
 ([findings](../docs/goose-findings.md#a-worker-holds-its-globals-twice-and-its-spawner-keeps-a-third-copy)).
-So `rest.goose`'s loader now hands each worker its arrays over the typed queues instead:
+`rest.goose` now hands the records over the typed queues instead:
 
-- `hand_over` `qput`s each of the 45 global arrays once per worker and clears the
-  loader's own, so each spawn copies empty arrays and its packet is a few hundred
-  bytes.
-- Each worker's `take_all` `qget`s them into its globals. The generated C copies each
-  queued image straight onto the global's data stack and frees the queue's node.
-  `qput` `malloc`s each node; a node over glibc's mmap threshold (128 KB until the
-  first such free) is `mmap`ed, so its free gives the pages back. Every node is
-  allocated before any is freed, so the threshold doesn't move between them.
-- Arrays of one element type share a queue, so workers take theirs one at a time: the
-  loader spawns a worker, waits for its `Taken`, and only then spawns the next.
-- An array left out of `hand_over` and `take_all` still reaches the workers, copied
-  through `thread_spawn` as before, so a miss costs memory, not correctness.
+- The loader loads the records, puts one set of the 45 global arrays on the queues
+  (`hand_over`), and returns, which unmaps the files it read and parsed.
+- A distributor thread takes that set and puts one copy of it per worker, the next only
+  after the worker's `Taken`: arrays of one element type share a queue, so one thread
+  takes at a time, a whole set. `Flags` carries the two scalar globals with each set.
+- `main` spawns the distributor and each worker on its `Ready`. `main`'s record globals
+  are empty, so each spawn's packet is a few hundred bytes. Each worker takes its set
+  into its globals (`take_set`); the generated C copies each queued image onto the
+  global's data stack and frees the queue's node.
+- `main` sets glibc's `M_MMAP_THRESHOLD` to 128 KB. Left to adjust itself, glibc raises
+  the threshold to the first `mmap`ed block freed, so later sets came from an arena
+  that kept their pages: on tier C templated, 1, 2, and 4 workers held 20.8, 54.5, and
+  88.6 MB, against 20.7, 37.9, and 72.1 with the threshold fixed.
 
-Expected: each worker holds one copy of its arrays where it held two, about half of
-each added worker's memory (tier C templated +35 MB a worker to about +18 MB,
-serialized +20 MB to about +10 MB, tier B templated +34 MB to about +17 MB). The
-loader's peak rises during the hand-off, by one copy of the arrays per worker, and it
-all goes when the loader returns. Startup adds one copy of the arrays per worker, in
-turn, a few milliseconds on tier C. No request runs any changed code: the handlers and
-the loops are as they were.
+The first version (`ce68db1`) put each array `count` times in a row, so a worker taking
+`text` and then `item_json`, both `u8[>..]`, got `text`'s second copy: the checker
+failed every cell. `2c2cb67` hands over one whole set per worker.
+
+Measured on the desktop: Ryzen 7 5800X3D, WSL2 kernel 6.18.54.1, gcc 15.2.0, Goose
+`46356c2`, the data of `bench/rest.sh build`, epoll loop, CPUs 0-3, no request sent,
+one run each. `bench/rest/check.py` passes every cell at `c6058cb`: tiers A to D,
+serialized and templated, on the epoll and io_uring loops, with 4 workers.
+
+Each added worker's VmRSS, from `bench/rest-memory.sh` (2 workers less 1, 3 s after
+listening; [before](../bench/results/2026-10-14-rest-memory-hot/memory.tsv),
+[after](../bench/results/2026-10-14-rest-memory-queues/memory.tsv)), beside what a
+worker's globals hold (the loader's `REST_LENS` lengths times the record sizes in the
+generated C):
+
+| Tier | `findings-46356c2-hot` | Queues | A worker's globals |
+|---|---:|---:|---:|
+| A, serialize | 1.5 MB | 0.7 MB | 0.7 MB |
+| A, template | 3.3 MB | 1.8 MB | 1.6 MB |
+| B, serialize | 8.1 MB | 4.2 MB | 4.0 MB |
+| B, template | 34.3 MB | 17.1 MB | 16.5 MB |
+| C, serialize | 20.1 MB | 10.2 MB | 9.8 MB |
+| C, template | 35.0 MB | 17.6 MB | 17.0 MB |
+
+A worker now costs one copy of its globals, where it cost two.
+
+With 4 workers, VmRSS and VmHWM 3 s after listening, each build from `git archive`:
+
+| Tier | VmRSS before | after | VmHWM before | after |
+|---|---:|---:|---:|---:|
+| B, serialize | 35.1 MB | 19.5 MB | 50.2 MB | 28.6 MB |
+| B, template | 136.0 MB | 70.0 MB | 163.6 MB | 109.0 MB |
+| C, serialize | 81.9 MB | 42.9 MB | 102.5 MB | 68.9 MB |
+| C, template | 139.6 MB | 71.8 MB | 176.2 MB | 107.5 MB |
+
+The peak sits above idle by the distributor's set and one queued copy, during startup.
+Before the distributor, with the loader handing out the sets while it still held its
+parse buffers, tier C templated peaked at 127.6 MB.
+
+No request runs changed code: the handlers and loops are as before, and
+`bench/codegen.sh findings-46356c2-hot task-025-worker-load` (at `9d4d36c`) found the
+request path's functions within 32 bytes. Rates aren't measured yet: tiers A to C of
+`bench/rest.sh run` against `findings-46356c2-hot`.
 
 Not done: dropping the record arrays a templated worker never reads. Tier C's templated
 routes still select by the records (bookings, shifts, visits, clients, and
 `staffers.len`); only `notes` would go, read for its `kind` alone, and the dataset has
 at most about 5,100 notes, about 0.2 MB a worker.
-
-To check, at `findings-46356c2-hot` and at this branch: `bench/rest-memory.sh`, which
-should move each worker's share out of the "large malloc" column; then tiers A to C of
-`bench/rest.sh run` for the rates.
 
 ## Acceptance criteria
 
