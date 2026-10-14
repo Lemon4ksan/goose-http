@@ -81,7 +81,7 @@ inline fn handle(ev: http::Event, st: Transfer&, out: http::Reply) {
             var text: u8[..24] = [];
             format(text, st.count);
             http::start(out, 200);
-            http::finish(out, "Content-Type: text/plain\r\nContent-Length: ", text);
+            http::finish(out, http::TEXT,text);
         }
     } else if st.route == EVENTS {
         if ev.kind == http::WAKE {
@@ -117,12 +117,12 @@ inline fn route(req: http::Request, body: const u8[:], whole: bool, trailers: co
     let get = out.head || req.method == "GET";
     if get && path == "/plaintext" {
         http::start(out, 200);
-        http::finish(out, "Content-Type: text/plain\r\nContent-Length: ", "Hello, World!");
+        http::finish(out, http::TEXT,"Hello, World!");
     } else if get && path == "/json" {
         var text: u8[..64] = [];
         json_object(text, Message { message: "Hello, World!" });
         http::start(out, 200);
-        http::finish(out, "Content-Type: application/json\r\nContent-Length: ", text);
+        http::finish(out, http::JSON, text);
     } else {
         route_rest(req, path, get, body, whole, trailers, st, out);
     }
@@ -151,14 +151,14 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
     let post = req.method == "POST";
     if !get && !post && !http::known_method(req.method) {
         http::start(out, 501);
-        http::finish(out, "Content-Length: ", "");
+        http::finish(out, http::NO_TYPE, "");
     } else if !get && (plaintext || json || pipeline || bytes || stream || zstream || raw || files || baseline && !post) ||
               !post && (upload || echo) {
         http::start(out, 405);
         out.buf.append(if baseline { "Allow: GET, HEAD, POST\r\n" }
                        else if upload || echo { "Allow: POST\r\n" }
                        else { "Allow: GET, HEAD\r\n" });
-        http::finish(out, "Content-Length: ", "");
+        http::finish(out, http::NO_TYPE, "");
     } else if baseline {
         // A body too long for the read buffer counts as empty.
         var sum = http::query_int(req.target, "a") + http::query_int(req.target, "b");
@@ -169,10 +169,10 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
         var text: u8[..24] = [];
         format(text, sum);
         http::start(out, 200);
-        http::finish(out, "Content-Type: text/plain\r\nContent-Length: ", text);
+        http::finish(out, http::TEXT,text);
     } else if pipeline {
         http::start(out, 200);
-        http::finish(out, "Content-Type: text/plain\r\nContent-Length: ", "ok");
+        http::finish(out, http::TEXT,"ok");
     } else if bytes || stream || zstream {
         let n = min(max(http::query_int(req.target, "n"), 0), MAX_BYTES);
         if zstream {
@@ -203,7 +203,7 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
         } else {
             http::start(out, 426);
             http::field(out, "Upgrade", "echo");
-            http::finish(out, "Content-Length: ", "");
+            http::finish(out, http::NO_TYPE, "");
         }
     } else if get && path == "/client" {
         client(req, out);
@@ -220,7 +220,7 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
         http::finish(out, "Allow: GET, HEAD, POST, OPTIONS\r\nContent-Length: ", "");
     } else {
         http::start(out, 404);
-        http::finish(out, "Content-Length: ", "");
+        http::finish(out, http::NO_TYPE, "");
     }
 }
 
@@ -244,7 +244,7 @@ fn serve_static(req: http::Request, name: const u8[:], st: Transfer&, out: http:
         status = s;
     }
     http::start(out, status);
-    http::finish(out, "Content-Length: ", "");
+    http::finish(out, http::NO_TYPE, "");
 }
 
 // /later?id=ID&delay=D&ms=M: "ID 1" from the backend after D milliseconds,
@@ -280,7 +280,7 @@ fn delay(ms: const u8[:], st: Transfer&, out: http::Reply) {
     let n, ok = parse_int(ms);
     guard ok && n >= 0 && n <= 3600000 else {
         http::start(out, 404);
-        http::finish(out, "Content-Length: ", "");
+        http::finish(out, http::NO_TYPE, "");
         return;
     }
     st.route = DELAY;
@@ -332,7 +332,7 @@ fn uploaded(st: Transfer&, out: http::Reply) {
     var text: u8[..48] = [];
     format(text, st.count, " ", st.sum);
     http::start(out, 200);
-    http::finish(out, "Content-Type: text/plain\r\nContent-Length: ", text);
+    http::finish(out, http::TEXT,text);
 }
 
 // The object /json serializes for each request, as TechEmpower's JSON test

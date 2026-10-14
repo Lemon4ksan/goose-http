@@ -35,7 +35,7 @@ thread_fn worker(cfg: http::Config) {
             if res.content_type_len > 0 {
                 http::field(out, "Content-Type", res.content_type[..res.content_type_len]);
             }
-            http::finish(out, "Content-Length: ", scratch[..n]);
+            http::finish(out, http::NO_TYPE, scratch[..n]);
         }
     };
     guard e.code != 0 else { return; }

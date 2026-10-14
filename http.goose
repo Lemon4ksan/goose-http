@@ -683,7 +683,7 @@ inline fn whole_only(ev: Event, out: Reply) -> bool {
     if ev.req.chunked && !ev.whole {
         out.keep_alive = false;
         start(out, 413);
-        finish(out, "Content-Length: ", "");
+        finish(out, NO_TYPE, "");
         return false;
     }
     return true;
@@ -706,7 +706,7 @@ fn body_within(taken: i64&, ev: Event, out: Reply, limit: i64) -> bool {
     guard over || taken > limit else { return true; }
     out.keep_alive = false;
     start(out, 413);
-    finish(out, "Content-Length: ", "");
+    finish(out, NO_TYPE, "");
     return false;
 }
 

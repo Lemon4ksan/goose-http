@@ -68,7 +68,7 @@ fn answer(req: http::Request, body: const u8[:], out: http::Reply, notes: Note[>
         http::start(out, 200);
         http::set_cookie(out, http::Cookie { name: "visits", value: text, max_age: 86400, http_only: true,
                                              same_site: "Lax", .. });
-        http::finish(out, "Content-Type: text/plain\r\nContent-Length: ", text);
+        http::finish(out, http::TEXT, text);
     } else {
         http::otherwise(r, out);
     }

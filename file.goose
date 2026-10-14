@@ -138,7 +138,7 @@ fn serve_file(req: const Request&, out: Reply, f: File, content_type: const u8[:
     if status == 416 {
         start(out, 416);
         content_range(out, 0, 0, f.size);
-        finish(out, "Content-Length: ", "");
+        finish(out, NO_TYPE, "");
         close_body(body);
         return;
     }

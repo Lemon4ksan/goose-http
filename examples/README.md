@@ -55,7 +55,10 @@ Shown in `hello/` and `routes/`.
 - **`out`**: an `http::Reply`. One whole response, any size.
   - `http::respond(out, status, content_type, body)`, or
   - `http::start(out, status)`, `http::field(out, name, value)`,
-    `http::finish(out, fields, body)`.
+    `http::finish(out, fields, body)`. `fields` ends in `"Content-Length: "`, which
+    `finish` follows with the body's length: `http::TEXT` and `http::JSON` add their
+    `Content-Type`, `http::NO_TYPE` none, and a response with fields of its own writes
+    them in one string, as `"Allow: GET\r\nContent-Length: "`.
   - `http::field` drops a field with CR, LF, or an invalid name, so request data can't
     split the response; `http::is_field(name, value)` checks one first. `finish`'s
     `fields` are written as they are, for constant text.

@@ -123,16 +123,16 @@ fn param(r: const Router&, name: const u8[:]) -> const u8[:] {
 fn otherwise(r: const Router&, out: Reply) {
     if !known_method(r.method) {
         start(out, 501);
-        finish(out, "Content-Length: ", "");
+        finish(out, NO_TYPE, "");
     } else if r.bad {
         start(out, 400);
-        finish(out, "Content-Length: ", "");
+        finish(out, NO_TYPE, "");
     } else if r.method == "OPTIONS" && r.path == "*" {
         start(out, 204);
         finish(out, "", "");
     } else if r.allow.len == 0 {
         start(out, 404);
-        finish(out, "Content-Length: ", "");
+        finish(out, NO_TYPE, "");
     } else if r.method == "OPTIONS" {
         start(out, 204);
         field(out, "Allow", r.allow);
@@ -140,7 +140,7 @@ fn otherwise(r: const Router&, out: Reply) {
     } else {
         start(out, 405);
         field(out, "Allow", r.allow);
-        finish(out, "Content-Length: ", "");
+        finish(out, NO_TYPE, "");
     }
 }
 

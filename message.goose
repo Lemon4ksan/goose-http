@@ -799,9 +799,12 @@ inline fn field(out: Reply, name: const u8[:], value: const u8[:]) {
 // finish's fields for the common bodies. A program with fields of its own
 // writes them in one string that ends the same way:
 // "Allow: GET\r\nContent-Length: ".
-let NO_TYPE = "Content-Length: ";
-let TEXT = "Content-Type: text/plain\r\nContent-Length: ";
-let JSON = "Content-Type: application/json\r\nContent-Length: ";
+// Fixed arrays, in static data, so that an append of one has a length the C
+// compiler knows, as a literal's; a global slice is read at run time
+// (spec §11.1).
+const NO_TYPE: u8[16] = "Content-Length: ";
+const TEXT: u8[42] = "Content-Type: text/plain\r\nContent-Length: ";
+const JSON: u8[48] = "Content-Type: application/json\r\nContent-Length: ";
 
 // The body's fields, the blank line, and the body, unless the request was
 // HEAD. fields holds every field before the length's value, ending in
@@ -821,7 +824,7 @@ inline fn finish(out: Reply, fields: const u8[:], body: const u8[:]) {
 inline fn respond(out: Reply, status: i32, content_type: const u8[:], body: const u8[:]) {
     start(out, status);
     field(out, "Content-Type", content_type);
-    finish(out, "Content-Length: ", body);
+    finish(out, NO_TYPE, body);
 }
 
 // Starts a response whose body the handler sends in pieces, with send, up to
