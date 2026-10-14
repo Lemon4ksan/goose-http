@@ -2759,13 +2759,25 @@ inline fn handle(req: http::Request, body: const u8[:], out: http::Reply) {
     }
 }
 
-thread_fn worker(cfg: http::Config) { stopped(http::serve(cfg, handle)); }
+thread_fn worker(cfg: http::Config) {
+    take_all();
+    stopped(http::serve(cfg, handle));
+}
 
-thread_fn worker_epoll(cfg: http::Config) { stopped(http::serve_epoll(cfg, handle)); }
+thread_fn worker_epoll(cfg: http::Config) {
+    take_all();
+    stopped(http::serve_epoll(cfg, handle));
+}
 
-thread_fn worker_writes(cfg: http::Config) { stopped(http::serve(cfg, Upload { .. }, handle_writes)); }
+thread_fn worker_writes(cfg: http::Config) {
+    take_all();
+    stopped(http::serve(cfg, Upload { .. }, handle_writes));
+}
 
-thread_fn worker_writes_epoll(cfg: http::Config) { stopped(http::serve_epoll(cfg, Upload { .. }, handle_writes)); }
+thread_fn worker_writes_epoll(cfg: http::Config) {
+    take_all();
+    stopped(http::serve_epoll(cfg, Upload { .. }, handle_writes));
+}
 
 fn stopped(e: http::Error) {
     guard e.code != 0 else { return; }
@@ -2773,11 +2785,6 @@ fn stopped(e: http::Error) {
     exit(1);
 }
 
-// Loads the records into this thread's globals, spawns the workers, which
-// copy them, and sends main each worker's id. The runtime never gives a data
-// stack's pages back while its thread runs, so main would hold the records,
-// the image each spawn copies them through, and the files they were read
-// from for the program's life; a thread's return unmaps all three.
 // The length of each global array a worker copies, one "lens: kind name
 // type length" line each, for bench/rest-memory.sh: kind is records or
 // templates, and type the element's.
@@ -2832,6 +2839,128 @@ fn print_lens() {
     line("templates", "note_body_at", "i64", note_body_at.len);
 }
 
+// A worker takes its records over the typed queues, not through
+// thread_spawn, which would hold them twice for the worker's life: in the
+// packet it copies the globals through, and on the worker's stacks
+// (docs/goose-findings.md). The loader puts each array once per worker and
+// clears its own, so a spawn copies empty arrays; each worker takes one of
+// each into its globals, which the runtime copies straight onto their
+// stacks, freeing the queue's copy. Arrays of one element type share a
+// queue, so the workers take theirs one at a time: the loader waits for a
+// Taken from each before it spawns the next. hand_over and take_all name
+// the same arrays in the same order; an array left out of both still
+// reaches the workers, through thread_spawn.
+struct Taken { worker: i64 }
+
+fn give<T>(a: T[>..]&, count: i64) {
+    for k in count { qput(a); }
+    a.clear();
+}
+
+fn take<T>(a: T[>..]&) { a = qget<T[>..]>(); }
+
+fn hand_over(count: i64) {
+    give(text, count);
+    give(words, count);
+    give(items, count);
+    give(users, count);
+    give(orgs, count);
+    give(projects, count);
+    give(people, count);
+    give(entries, count);
+    give(by_token, count);
+    give(by_person_id, count);
+    give(by_entry_id, count);
+    give(staffers, count);
+    give(services, count);
+    give(clients, count);
+    give(visits, count);
+    give(notes, count);
+    give(bookings, count);
+    give(shifts, count);
+    give(past, count);
+    give(item_json, count);
+    give(item_at, count);
+    give(user_json, count);
+    give(user_at, count);
+    give(session_json, count);
+    give(session_at, count);
+    give(project_json, count);
+    give(project_at, count);
+    give(entry_json, count);
+    give(entry_at, count);
+    give(entry_desc, count);
+    give(entry_tail, count);
+    give(timer_json, count);
+    give(timer_at, count);
+    give(booking_json, count);
+    give(booking_at, count);
+    give(shift_json, count);
+    give(shift_at, count);
+    give(client_json, count);
+    give(client_at, count);
+    give(visit_json, count);
+    give(visit_at, count);
+    give(note_json, count);
+    give(note_at, count);
+    give(note_mid, count);
+    give(note_body_at, count);
+}
+
+fn take_all() {
+    take(text);
+    take(words);
+    take(items);
+    take(users);
+    take(orgs);
+    take(projects);
+    take(people);
+    take(entries);
+    take(by_token);
+    take(by_person_id);
+    take(by_entry_id);
+    take(staffers);
+    take(services);
+    take(clients);
+    take(visits);
+    take(notes);
+    take(bookings);
+    take(shifts);
+    take(past);
+    take(item_json);
+    take(item_at);
+    take(user_json);
+    take(user_at);
+    take(session_json);
+    take(session_at);
+    take(project_json);
+    take(project_at);
+    take(entry_json);
+    take(entry_at);
+    take(entry_desc);
+    take(entry_tail);
+    take(timer_json);
+    take(timer_at);
+    take(booking_json);
+    take(booking_at);
+    take(shift_json);
+    take(shift_at);
+    take(client_json);
+    take(client_at);
+    take(visit_json);
+    take(visit_at);
+    take(note_json);
+    take(note_at);
+    take(note_mid);
+    take(note_body_at);
+    qput(Taken { worker: 0 });
+}
+
+// Loads the records into this thread's globals, hands them to the workers
+// (hand_over), spawns them, and sends main each worker's id. The runtime
+// never gives a data stack's pages back while its thread runs, so main would
+// hold the records and the files they were read from for the program's life;
+// a thread's return unmaps both.
 thread_fn loader(cfg: http::Config, tier: u8[..1], count: i64, epoll: bool) {
     var dir: u8[>..] = [];
     if !env("REST_DATA", dir) { dir.append("build/rest"); }
@@ -2865,11 +2994,14 @@ thread_fn loader(cfg: http::Config, tier: u8[..1], count: i64, epoll: bool) {
     }
     var lens: u8[>..] = [];
     if env("REST_LENS", lens) { print_lens(); }
+    hand_over(count);
     for i in count {
-        qput(if writes && epoll { thread_spawn(worker_writes_epoll, cfg) }
-             else if writes { thread_spawn(worker_writes, cfg) }
-             else if epoll { thread_spawn(worker_epoll, cfg) }
-             else { thread_spawn(worker, cfg) });
+        let id = if writes && epoll { thread_spawn(worker_writes_epoll, cfg) }
+                 else if writes { thread_spawn(worker_writes, cfg) }
+                 else if epoll { thread_spawn(worker_epoll, cfg) }
+                 else { thread_spawn(worker, cfg) };
+        qget<Taken>();
+        qput(id);
     }
 }
 
