@@ -71,11 +71,9 @@ the API. Task 028 tells a full mailbox from a message longer than a slot, and gi
 sender the slot size, for goose-rest's replies in pieces; it can start at any point.
 Task 029 builds for embedded Linux on aarch64, with a device example, and waits on a
 board to finish. Task 030 ports to 32-bit ARM, after task 029's guide. Task 031 moves the
-REST server's records, loaders, and writers into a module that goose-rest imports, after
-task 025's branches merge, since both change the same server. Task 032 gives the bench
+REST server's records, loaders, and writers into a module that goose-rest imports; task
+025's changes to that server are on `main` (2026-10-14). Task 032 gives the bench
 scripts one shared harness that goose-rest can reuse.
 
-Next, in this order (asked for 2026-10-14): task 027's remaining API work, each step
-committed and pushed; the overnight benchmarks that the branches in task 027's "Pending"
-wait on, then their merges into `main`; task 032; and goose-rest's first benchmark run
-on the benchmark desktop, once the HTTP changes are on `main`.
+Next, in this order (asked for 2026-10-14): task 032, and goose-rest's first benchmark
+run on the benchmark desktop; the HTTP changes it waits on are on `main` (2026-10-14).

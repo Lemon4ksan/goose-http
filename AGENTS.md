@@ -82,5 +82,9 @@ directory. What only one machine needs, such as where its Goose checkout is, goe
 
 ## Commits
 
+- Push finished work to `main` once its tests pass, even when its benchmarks are still
+  to run: record the pending check in its task, and add the results when they come. A
+  change whose benchmarks then show a cost is reverted on `main` with an inverse commit
+  (2026-10-14). Work branches are for work that isn't finished.
 - One lean sentence in imperative mood, at most 72 characters.
 - No body, no `Co-Authored-By` or any other trailers.

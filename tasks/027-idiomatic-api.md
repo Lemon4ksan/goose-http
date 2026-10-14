@@ -96,7 +96,8 @@ The task then rewrites the examples and the API reference for the API that resul
    proposals below name.
 2. Each proposal is its own commit, with its tests, the README, `examples/`, and
    `server/` updated in the same commit, on the `task-027` branch until its benchmarks
-   hold (asked for 2026-10-13). Before the commit, `bench/codegen.sh` against the
+   hold (asked for 2026-10-13). Since 2026-10-14 it goes to `main` once its tests pass,
+   with its benchmarks recorded when they come (`AGENTS.md`, "Commits"). Before the commit, `bench/codegen.sh` against the
    baseline and the commit before, looking for new specializations and growth in the
    loops' hot functions (asked for 2026-10-13).
 3. After each, run `scripts/test.sh` on Linux and macOS. The proposals' checks run in
