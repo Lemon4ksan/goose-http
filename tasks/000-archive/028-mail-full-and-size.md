@@ -1,6 +1,6 @@
 # 028: Tell a full box from a long message, and give a sender the slot size
 
-Status: in-progress (built 2026-10-14 on `findings-46356c2`; the tests have yet to run)
+Status: done (2026-10-14)
 
 Found by goose-rest's spike 06 (2026-10-13), which sends a reply larger than a slot back
 to a waiting route in pieces. Two gaps in `mail.goose` make the sender guess:
@@ -24,8 +24,8 @@ Additive: `FULL` keeps its meaning for a message that fits.
       `http::mail_slot_size(to)`, from any thread, -1 for a `STALE` address. The C
       checks the box's generation and holds off a close while it reads, as a send
       does. `mail_size` stays the owner's name in the shim.
-- [ ] Tests of each: a send one byte over the slot size, and a send to a box whose
-      slots are all taken. Written in `test/test_mail.goose`, beside the full box's
-      existing test; they run once the benchmarks of 2026-10-14 are done.
+- [x] Tests of each: a send one byte over the slot size, and a send to a box whose
+      slots are all taken. In `test/test_mail.goose`, beside the full box's existing
+      test; `scripts/test.sh` passes in WSL and Git Bash (2026-10-14).
 - [x] `mail.goose`'s header and the README describe both: `examples/README.md`, the
       API reference, and `docs/architecture/README.md`
