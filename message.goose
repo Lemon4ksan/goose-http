@@ -724,9 +724,21 @@ fn hex(c: u8) -> i32 {
 // needs from the request. A handler writes one whole response, with start,
 // field, and finish, or with respond; or opens one with begin, and writes its
 // body in pieces with send until end.
+//
+// common is the fields start writes after each status line, as they are:
+// Server and Date, which the loop renders once a second. A handler may set
+// it to add fields to every response it writes through out: to whole field
+// lines, each ending in CRLF and none empty, after the loop's, as
+// "Server: goose\r\nDate: ...\r\nX-Frame-Options: DENY\r\n". out is the
+// handler's copy, so the change holds for the starts given out after it, in
+// the functions it calls included, until the handler returns; the next call
+// gets the loop's fields again, and the responses the loop writes itself,
+// such as a 400 for a request it couldn't parse, never get it. start copies
+// the bytes, so they need last only until then. Check a value from the
+// request with is_field first, as field would.
 struct Reply {
     buf: u8[>..]&,
-    common: const u8[:],    // common_fields, rendered once a second
+    common: const u8[:],
     keep_alive: bool&,      // whether the connection stays open; clear it before start to close
     minor: i32,             // the request's x of HTTP/1.x
     head: bool,             // a HEAD request: finish writes the body's fields, not the body
@@ -794,6 +806,28 @@ inline fn field(out: Reply, name: const u8[:], value: const u8[:]) {
     out.buf.append(": ");
     out.buf.append(value);
     out.buf.append("\r\n");
+}
+
+// A field added to the response begun at mark, out.buf's length before its
+// start, once the response is written: for a value known only then, such as
+// Server-Timing's, by code around a handler. The field goes at the end of the
+// head, before its blank line, and the bytes after it move up; while begin's
+// head is open, it's a field as any other. Nothing when nothing was written
+// after mark, or for a field is_field refuses.
+fn insert_field(out: Reply, mark: i64, name: const u8[:], value: const u8[:]) {
+    guard mark >= 0 && out.buf.len > mark && is_field(name, value) else { return; }
+    let end = find(out.buf[mark..], "\r\n\r\n");
+    if end < 0 {
+        if out.stream.in_head { field(out, name, value); }
+        return;
+    }
+    let at = mark + end + 2;
+    let old = out.buf.len;
+    field(out, name, value);
+    // Rotates the field, appended last, to at.
+    reverse(out.buf[at..old]);
+    reverse(out.buf[old..]);
+    reverse(out.buf[at..]);
 }
 
 // finish's fields for the common bodies. A program with fields of its own

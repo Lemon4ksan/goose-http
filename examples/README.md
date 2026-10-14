@@ -63,6 +63,28 @@ Shown in `hello/` and `routes/`.
     split the response; `http::is_field(name, value)` checks one first. `finish`'s
     `fields` are written as they are, for constant text.
   - Clear `out.keep_alive` before `start` to close after the response.
+  - `out.common` is the fields `start` writes after each status line: `Server` and
+    `Date`, which the loop renders once a second. To add fields to every response, as
+    for CORS, set it to the loop's fields followed by yours, whole lines each ending
+    in `\r\n`:
+
+    ```goose
+    var common: u8[>..] = [];
+    common.append(out.common);
+    common.append("X-Frame-Options: DENY\r\n");
+    out.common = common;
+    ```
+
+    `out` is the handler's copy, so the change holds for each `start` after it, in the
+    functions given `out` included, until the handler returns. The next call starts
+    from the loop's fields again, and the responses the loop writes itself, such as a
+    400 for a request it couldn't parse, don't get yours. `start` copies the bytes, so
+    they need last only until then. Check a value from the request with
+    `http::is_field` first.
+  - `http::insert_field(out, mark, name, value)` adds a field to a response already
+    written, for a value known only then, such as `Server-Timing`'s: `mark` is
+    `out.buf.len` from before the response began. The field goes at the end of the
+    head, and the body moves up. It's dropped as `http::field` drops one.
 
 A handler passed by name, `http::serve(cfg, route)`, should be an `inline fn`, as in
 `server/routes.goose`. As a call, it keeps `http::start` from folding a constant status:

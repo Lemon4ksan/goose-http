@@ -859,6 +859,55 @@ fn test_reply() {
     same(j, "\"a\\\"b\\\\c\\u000a\\u0001\"");
 }
 
+fn test_insert_field() {
+    var out: u8[>..] = [];
+    var keep = true;
+    var st = http::Stream { .. };
+    let r = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: st };
+
+    // After the head's last field, in the response begun at mark only, with
+    // its body moved up.
+    http::respond(r, 200, "text/plain", "one");
+    let mark = out.len;
+    http::respond(r, 200, "text/plain", "a\r\n\r\nb");
+    http::insert_field(r, mark, "Server-Timing", "app;dur=1.5");
+    same(out[mark..], "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Type: text/plain\r\nContent-Length: 6\r\nServer-Timing: app;dur=1.5\r\n\r\na\r\n\r\nb");
+    assert(out[mark - 3..mark] == "one");
+
+    // A bodyless status's head, and begin's head while it's open. A Reply
+    // holds out, so each clear takes a new one.
+    out.clear();
+    let r204 = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: st };
+    http::start(r204, 204);
+    http::finish(r204, "", "");
+    http::insert_field(r204, 0, "X-A", "1");
+    same(out, "HTTP/1.1 204 No Content\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nX-A: 1\r\n\r\n");
+    out.clear();
+    let open = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: st };
+    http::begin(open, 200, 2);
+    http::insert_field(open, 0, "X-A", "1");
+    http::send(open, "hi");
+    http::end(open);
+    same(out, "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Length: 2\r\nX-A: 1\r\n\r\nhi");
+
+    // Nothing without a response after mark, or for a field is_field refuses.
+    let all = out.len;
+    http::insert_field(open, all, "X-A", "1");
+    http::insert_field(open, 0, "X-A", "1\r\nX-B: 2");
+    http::insert_field(open, 0, "X A", "1");
+    assert(out.len == all);
+
+    // Fields a handler adds to common go after the loop's in each start.
+    out.clear();
+    let mine =http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: st };
+    var extra: u8[>..] = [];
+    extra.append(mine.common);
+    extra.append("X-Frame-Options: DENY\r\n");
+    mine.common = extra;
+    http::respond(mine, 404, "text/plain", "");
+    same(out, "HTTP/1.1 404 Not Found\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nX-Frame-Options: DENY\r\nContent-Type: text/plain\r\nContent-Length: 0\r\n\r\n");
+}
+
 fn test_files() {
     assert(http::is_safe_path("a/b.txt") && http::is_safe_path("a..b/.c") && http::is_safe_path("x"));
     for p in ["../a", "a/..", "a/./b", ".", "a\\b", "c:x"] { assert(!http::is_safe_path(p)); }
@@ -981,6 +1030,7 @@ fn main() {
     test_limits();
     test_date();
     test_reply();
+    test_insert_field();
     test_stream();
     test_router();
     test_upgrade();
