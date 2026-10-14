@@ -98,7 +98,8 @@ liburing (`liburing-dev`), Windows the Visual Studio Build Tools. Setup:
   and IOCP on Windows; `http::serve_epoll` is epoll or kqueue. A program calls one, and
   only that one is compiled in.
 - **A handler for whole requests**, `{ req, body, out => }`: the parsed head, the body
-  if it fits in the read buffer, and one response of any size.
+  if it fits in the read buffer, and one response of any size. `http::gather` gives a
+  handler with state a longer body whole, up to a limit.
 - **A handler with state**, `{ ev, st, out => }`, for everything else: the loop calls it
   for each event of an exchange (the head, each piece of a body, room to send more, a
   message from another thread, a time limit), with state of the program's own type kept

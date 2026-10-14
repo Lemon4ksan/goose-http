@@ -524,6 +524,11 @@ every request's path, which `bench/count.sh` checks before it lands.
    (`runtime.goose`, `gather_head`, about 70 lines). A package helper, such as
    `http::gather(g, ev, out, spill, limit)` and then `http::gathered(g, spill)`, would
    replace that code. Additive.
+   Done (2026-10-14): `http::gather(ev, g, out, limit) { req, body, o =>
+   }`, with `g` an `http::Gather` in the request's state. The runs are in a per-worker
+   global slice pool (spec §11.2), as `compression.goose` keeps its encoders, so the
+   program passes no buffer. At `END` it parses the copied head again. Tested in
+   `test/test_api.goose`, and by `upload/`'s `/words` in `scripts/test-examples.sh`.
 2. `finish`'s `fields` must end in `"Content-Length: "`. Without it, the digits run
    into the line before, with no error. The examples, `server/routes.goose`, and
    goose-rest all write the raw string. Constants such as `http::JSON` and

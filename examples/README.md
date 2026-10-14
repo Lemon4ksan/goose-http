@@ -13,7 +13,7 @@ program of your own imports it as the [Quick start](../README.md#quick-start) do
 | [`hello/`](hello/hello.goose) | One route, one worker per core: the Quick start |
 | [`routes/`](routes/routes.goose) | The router: parameters, 404 and 405, a JSON response, a request body, and a stop on Ctrl+C |
 | [`api/`](api/api.goose) | A JSON API: path parameters, a JSON request body, a bearer token, and a cookie |
-| [`upload/`](upload/upload.goose) | Uploads read as they arrive: a raw body, and a multipart form part by part, with a body limit |
+| [`upload/`](upload/upload.goose) | Uploads read as they arrive: a raw body, and a multipart form part by part, with a body limit; and a body larger than the read buffer, gathered whole |
 | [`later/`](later/later.goose) | An answer that waits for a backend thread over mail, with 504 when it takes too long |
 | [`files/`](files/files.goose) | A directory's files, with ranges, conditional requests, and precompressed copies |
 | [`compress/`](compress/compress.goose) | Responses compressed by `Accept-Encoding`, whole and streamed, with goose-compress |
@@ -51,7 +51,9 @@ Shown in `hello/` and `routes/`.
   - `http::decode(s, out)`: decodes one. With `plus` set, `+` is a space.
   - A target with a bad `%` escape gets 400.
 - **`body`**: the whole body, if it fits in the read buffer with the head. Chunked is
-  decoded. A longer body is dropped and `body` is empty; see [Streaming](#streaming).
+  decoded. A longer body is dropped and `body` is empty. To read one, gather it whole
+  with `http::gather` ([Helpers for APIs](#helpers-for-apis)) or take it in pieces
+  ([Streaming](#streaming)).
 - **`out`**: an `http::Reply`. One whole response, any size.
   - `http::respond(out, status, content_type, body)`, or
   - `http::start(out, status)`, `http::field(out, name, value)`,
@@ -100,7 +102,7 @@ else { http::otherwise(r, out); }
 ### Helpers for APIs
 
 `respond_json` is shown in `routes/` and `api/`; `require_type`, cookies, and
-`authorization` in `api/`; multipart and `body_within` in `upload/`; the client address
+`authorization` in `api/`; multipart, `body_within`, and `gather` in `upload/`; the client address
 in `server/`. The rest have no example yet.
 
 The helpers that read a request take it as `const http::Request&`, so a call doesn't
@@ -126,6 +128,14 @@ call's result to a reference parameter
 - `http::respond_json(out, status) { b => json::format_key(b, "id"); ... }`.
 - `Config.max_requests` caps a connection's requests. `http::body_within(st.taken, ev,
   out, limit)` at `REQUEST` and each `BODY` answers 413 past a route's own limit.
+- `http::gather(ev, st.body, out, limit) { req, body, o => }`, called with every event
+  of a handler with state, calls its block once with the whole body, however large, up
+  to `limit` bytes. `st.body` is an `http::Gather` in the request's state. A body that
+  came with its head goes to the block at `REQUEST`. A longer one is copied, with the
+  head, into a buffer of the worker's as it arrives, and goes to the block at `END`.
+  `CLOSED` frees what it held. Past `limit`, at most `Config.max_body`, it answers 413
+  and closes, as `body_within` does. The worker holds each gathered body whole, so keep
+  `limit` to what the program can hold at once.
 - `http::peer(out)`: the connection's address and port. `http::client(req, out,
   trusted)`: the client a trusted proxy forwarded for, from `Forwarded` or
   `X-Forwarded-For`, with `trusted` from `http::network("10.0.0.0/8")`.
