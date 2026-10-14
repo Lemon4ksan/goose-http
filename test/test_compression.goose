@@ -3,7 +3,7 @@
 // encoders. scripts/http_client.py compress decompresses real responses.
 import std;
 import http from "../";
-import compress from "github.com/kaitk/goose-compress@4bed2d2e6c99d42bd36e79b4dde4f6fd786d5148";
+import compress from "github.com/kaitk/goose-compress@3969fd1d173955fe0bfb438fa8b02d40d0fa123f";
 import http.compression;
 
 let COMMON = "Server: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\n";
