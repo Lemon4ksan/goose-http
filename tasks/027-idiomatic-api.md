@@ -569,6 +569,10 @@ every request's path, which `bench/count.sh` checks before it lands.
    `device/` and `server/` drop their own `stopped`. Tested in `test/test_http.goose`.
 8. `query_int` returns 0 for a missing value, a malformed one, and a real 0. Return
    `i64, bool` instead. Breaking; cold.
+   Done on `api-cold` (2026-10-14): `http::query_int(target, key) -> i64, bool`, false
+   with 0 for a value missing or not an integer. `server/routes.goose` ignores the
+   `bool`, as it read a missing value as 0 before; `examples/README.md` lists it, and
+   `test/test_http.goose` tests a real 0 against both failures.
 9. A program's own check can't fail a `Multipart`, so `upload/` keeps a flag beside
    the one `each_part` keeps. Add `http::fail_multipart`. Additive; cold.
 10. `field` and `set_cookie` drop invalid input without a word. Return a `bool`.

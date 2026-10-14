@@ -119,7 +119,16 @@ fn test_decode() {
     assert(!mok);
     let z, zok = http::query_of("/no-query", "q");
     assert(!zok);
-    assert(http::query_int(t, "n") == 12 && http::query_int(t, "q") == 0);
+    let n, nok = http::query_int(t, "n");
+    assert(nok && n == 12);
+    let bad, bok = http::query_int(t, "q");
+    assert(!bok && bad == 0);
+    let gone, gok = http::query_int(t, "missing");
+    assert(!gok && gone == 0);
+    let zero, zok = http::query_int("/s?z=0&m=-7", "z");
+    assert(zok && zero == 0);
+    let minus, mok = http::query_int("/s?z=0&m=-7", "m");
+    assert(mok && minus == -7);
     var pairs: u8[>..] = [];
     http::each_query(t) { key, value =>
         pairs.append(key);

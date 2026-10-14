@@ -161,7 +161,9 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
         http::finish(out, http::NO_TYPE, "");
     } else if baseline {
         // A body too long for the read buffer counts as empty.
-        var sum = http::query_int(req.target, "a") + http::query_int(req.target, "b");
+        let a, _ = http::query_int(req.target, "a");
+        let b, _ = http::query_int(req.target, "b");
+        var sum = a + b;
         if post {
             let n, ok = parse_int(trim(body));
             if ok { sum += n; }
@@ -174,7 +176,8 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
         http::start(out, 200);
         http::finish(out, http::TEXT,"ok");
     } else if bytes || stream || zstream {
-        let n = min(max(http::query_int(req.target, "n"), 0), MAX_BYTES);
+        let asked, _ = http::query_int(req.target, "n");
+        let n = min(max(asked, 0), MAX_BYTES);
         if zstream {
             http::begin_compressed(out, req, 200, "text/plain", st.coded);
         } else {

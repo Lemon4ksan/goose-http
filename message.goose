@@ -633,12 +633,14 @@ fn known_method(method: const u8[:]) -> bool {
         method == "PATCH";
 }
 
-// The integer value of key in target's query, or 0.
-fn query_int(target: const u8[:], key: const u8[:]) -> i64 {
+// The integer value of key in target's query, and whether the query has it
+// as an integer: 0 and false when it's missing or isn't one.
+fn query_int(target: const u8[:], key: const u8[:]) -> i64, bool {
     let v, found = query_of(target, key);
-    guard found else { return 0; }
+    guard found else { return 0, false; }
     let n, ok = parse_int(v);
-    return if ok { n } else { 0 };
+    guard ok else { return 0, false; }
+    return n, true;
 }
 
 // The value of key in target's query, and whether the query has it; the

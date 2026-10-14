@@ -48,6 +48,8 @@ Shown in `hello/` and `routes/`.
     `Host` (RFC 9112 §3.2.2).
   - `http::path_of(req.target)`, `http::query_of(req.target, key)`,
     `http::each_query(req.target) { key, value => }`: still percent-encoded.
+  - `http::query_int(req.target, key)`: a query value as an integer, and whether it's
+    there as one.
   - `http::decode(s, out)`: decodes one. With `plus` set, `+` is a space.
   - A target with a bad `%` escape gets 400.
 - **`body`**: the whole body, if it fits in the read buffer with the head. Chunked is
