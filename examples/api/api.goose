@@ -25,7 +25,7 @@ thread_fn worker(cfg: http::Config) {
     exit(1);
 }
 
-fn answer(req: http::Request, body: const u8[:], out: http::Reply, notes: Note[>..]&) {
+fn answer(req: const http::Request&,body: const u8[:], out: http::Reply, notes: Note[>..]&) {
     var r = http::router(req);
     if http::on(r, "GET", "/notes/:id") {
         let i = index_of(http::param(r, "id"), notes);
@@ -75,7 +75,7 @@ fn answer(req: http::Request, body: const u8[:], out: http::Reply, notes: Note[>
 }
 
 // Whether req carries the bearer token; if not, answers 401.
-fn authorized(req: http::Request, out: http::Reply) -> bool {
+fn authorized(req: const http::Request&,out: http::Reply) -> bool {
     let token, ok = http::bearer(req);
     guard ok && token == TOKEN else {
         http::challenge(out, "Bearer realm=\"notes\"");

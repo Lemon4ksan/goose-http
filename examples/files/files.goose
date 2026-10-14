@@ -35,7 +35,7 @@ thread_fn worker(cfg: http::Config, dir: u8[..256]) {
 // Answers with the file in dir that name names. The router leaves name
 // percent-encoded; it's decoded, and checked not to leave dir, before it's
 // opened.
-fn download(req: http::Request, dir: const u8[:], name: const u8[:], st: Download&, out: http::Reply) {
+fn download(req: const http::Request&,dir: const u8[:], name: const u8[:], st: Download&, out: http::Reply) {
     var decoded: u8[>..] = [];
     guard http::decode(name, decoded) && http::is_safe_path(decoded) else {
         http::respond(out, 404, "text/plain", "");
