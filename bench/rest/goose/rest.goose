@@ -2760,22 +2760,22 @@ inline fn handle(req: http::Request, body: const u8[:], out: http::Reply) {
 }
 
 thread_fn worker(cfg: http::Config) {
-    take_all();
+    take_set();
     stopped(http::serve(cfg, handle));
 }
 
 thread_fn worker_epoll(cfg: http::Config) {
-    take_all();
+    take_set();
     stopped(http::serve_epoll(cfg, handle));
 }
 
 thread_fn worker_writes(cfg: http::Config) {
-    take_all();
+    take_set();
     stopped(http::serve(cfg, Upload { .. }, handle_writes));
 }
 
 thread_fn worker_writes_epoll(cfg: http::Config) {
-    take_all();
+    take_set();
     stopped(http::serve_epoll(cfg, Upload { .. }, handle_writes));
 }
 
@@ -2843,14 +2843,23 @@ fn print_lens() {
 // thread_spawn, which would hold them twice for the worker's life: in the
 // packet it copies the globals through, and on the worker's stacks
 // (docs/goose-findings.md). main spawns the workers, so the globals a spawn
-// copies are main's, which are empty; the loader puts one set of the arrays
-// per worker, and the worker takes it into its globals, which the runtime
-// copies straight onto their stacks, freeing the queue's copy. Arrays of one
-// element type share a queue, so one worker takes at a time, a whole set:
-// the loader puts the next set only after a Taken. hand_over and take_all
-// name the same arrays in the same order. Ready tells main a set is on the
-// queues, and Flags carries the scalar globals with it.
+// copies are main's, which are empty. The loader puts one set of the arrays
+// and returns; the distributor takes it and puts one set per worker, which
+// the worker takes into its globals: the runtime copies each straight onto
+// its stack and frees the queue's copy. Arrays of one element type share a
+// queue, so one thread takes at a time, a whole set: the distributor puts
+// the next set only after a Taken. hand_over and take_all name the same
+// arrays in the same order. Ready tells main a set is on the queues, and
+// Flags carries the scalar globals with it.
 struct Flags { template: bool, version_epoch: i64 }
+
+// glibc's: with M_MMAP_THRESHOLD set, malloc keeps serving each queue copy
+// with its own mapping, which free unmaps. Left to adjust itself, glibc
+// raises the threshold to the first such block freed, so the next sets come
+// from an arena that keeps their pages: about one set more, 17 MB on tier C
+// templated, measured with 2 and 4 workers.
+extern fn mallopt(param: i32, value: i32) -> i32;
+let M_MMAP_THRESHOLD: i32 = -3;
 struct Ready { set: i64 }
 struct Taken { set: i64 }
 
@@ -2956,11 +2965,29 @@ fn take_all() {
     let f = qget<Flags>();
     template = f.template;
     version_epoch = f.version_epoch;
+}
+
+// A worker's: takes its set, and tells the distributor it may put the next.
+fn take_set() {
+    take_all();
     qput(Taken { set: 0 });
 }
 
-// Loads the records into this thread's globals and hands one set of them to
-// each worker main spawns (hand_over). The runtime never gives a data
+// Takes the set the loader put, and puts one copy of it for each worker main
+// spawns, the next only once the last is taken. The loader has returned by
+// then, so the files it read and parsed are unmapped, and startup's peak
+// holds this set, one copy on the queues, and the workers'.
+thread_fn distributor(count: i64) {
+    take_all();
+    for i in count {
+        hand_over();
+        qput(Ready { set: i });
+        qget<Taken>();
+    }
+}
+
+// Loads the records into this thread's globals and puts one set of them on
+// the queues for the distributor (hand_over). The runtime never gives a data
 // stack's pages back while its thread runs, so main would hold the records
 // and the files they were read from for the program's life; a thread's
 // return unmaps both.
@@ -2996,11 +3023,7 @@ thread_fn loader(cfg: http::Config, tier: u8[..1], count: i64, epoll: bool) {
     }
     var lens: u8[>..] = [];
     if env("REST_LENS", lens) { print_lens(); }
-    for i in count {
-        hand_over();
-        qput(Ready { set: i });
-        qget<Taken>();
-    }
+    hand_over();
 }
 
 fn main() {
@@ -3029,8 +3052,10 @@ fn main() {
     let s = http::stop_on_signals();
     guard s == 0 else { stopped(http::Error { call: "sigaction", code: -s }); }
     let count = http::worker_count(cfg);
+    mallopt(M_MMAP_THRESHOLD, 131072);
     // main's record globals stay empty, so each spawn copies nothing of them.
-    let loading = thread_spawn(loader, cfg, tier, count, epoll);
+    thread_wait(thread_spawn(loader, cfg, tier, count, epoll));
+    let giving = thread_spawn(distributor, count);
     var ids: i64[>..] = [];
     for i in count {
         qget<Ready>();
@@ -3039,6 +3064,6 @@ fn main() {
                  else if epoll { thread_spawn(worker_epoll, cfg) }
                  else { thread_spawn(worker, cfg) });
     }
-    thread_wait(loading);
+    thread_wait(giving);
     for id in ids { thread_wait(id); }
 }
