@@ -703,8 +703,9 @@ Writing them turned up rough edges in the API, each a candidate for this task's 
 
 A review of the API against the examples and goose-rest at goose-http `e27ab21`
 (2026-10-14) found more, most valuable first. "Hot" marks one on every request's
-path, which `bench/count.sh` checks before it lands. All are settled (2026-10-14): 1,
-2, 4, and 6 to 11 are on `main`, 5 stays as it is, and 3 is dropped.
+path, which `bench/count.sh` checks before it lands. All but 12 are settled
+(2026-10-14): 1, 2, 4, and 6 to 11 are on `main`, 5 stays as it is, and 3 is dropped.
+Item 12, found later the same day, is open.
 
 1. A body larger than the read buffer: goose-rest copies the head out of `Request`,
    keeps it and the body in a buffer of its own, and parses again at the end
@@ -807,6 +808,28 @@ path, which `bench/count.sh` checks before it lands. All are settled (2026-10-14
     lists it. `test/test_http.goose` tests escaped `..`, `/`, NUL, `\`, and `:`. A
     `for` over a literal array of strings there is refused when its body shrinks an
     array, so the test binds the literal to a `let` first.
+12. A reply sent to the address of an exchange that no longer waits, because its client
+    closed or its wait timed out, returns `SENT`. The loop's `delivered` (`epoll.goose`)
+    finds no waiting exchange for the key, whose connection generation has moved on, and
+    drops the reply silently. A thread working for that exchange, such as a database
+    thread answering `rest::ask`, does the whole job and sends every piece of a long
+    reply for a client that has gone. The mailbox's credits name the idea that a send
+    says at once that an address is stale; today it does so only when the whole box is
+    closed or reopened. Found by goose-rest's task 017 (2026-10-14), at goose-http
+    `bc75f2a`. Changes what a send to an exchange that has ended returns: `STALE`,
+    where it's `SENT` today.
+    Proposed: a send to the key of an exchange that no longer waits returns `STALE`.
+    One way is a box opened with a table of live keys, indexed by a key's high bits
+    (`later_base` already puts the connection's slot and generation there). Only the
+    owner sets and clears an entry, and `mail_send` reads it atomically before taking a
+    slot. The loop sets a connection's entry when its exchange waits (`http::later`) and
+    clears it when the exchange is woken, times out, or its connection closes. Add
+    `http::mail_live(to) -> bool`, which reads the same entry without sending. Open for
+    goose-http to settle: mail.goose is meant to know nothing of HTTP, so the table
+    should be generic, keys the owner marks live; and the atomic read belongs in
+    `shim/mail.c`. Once it exists, goose-rest's `rest::answer` already stops on `STALE`,
+    and goose-rest adds `rest::wanted(a) = http::mail_live(a.reply)`, so a service skips
+    a job or stops a reply's pieces for a client that has gone.
 
 ## Kept as they are
 
