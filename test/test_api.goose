@@ -379,6 +379,32 @@ fn test_json() {
         b.push('}');
     };
     same(out, "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: 24\r\n\r\n{\"name\":\"a \\\"b\\\"\",\"n\":7}");
+
+    // Lengths of 1 to 4 digits, after what the buffer held before; HEAD gets
+    // the length without the body, and a 204 neither.
+    for size in [0, 9, 10, 1234] {
+        out.clear();
+        out.append("before");
+        http::respond_json(http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: st }, 200) { b =>
+            for i in size { b.push('a' + (i % 26) as! u8); }
+        };
+        var want: u8[>..] = [];
+        want.append("beforeHTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ");
+        format(want, size);
+        want.append("\r\n\r\n");
+        for i in size { want.push('a' + (i % 26) as! u8); }
+        same(out, want);
+    }
+    out.clear();
+    http::respond_json(http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: true, stream: st }, 200) { b =>
+        b.append("[1,2]");
+    };
+    same(out, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 5\r\n\r\n");
+    out.clear();
+    http::respond_json(http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: st }, 204) { b =>
+        b.append("[1,2]");
+    };
+    same(out, "HTTP/1.1 204 No Content\r\nContent-Type: application/json\r\n\r\n");
 }
 
 // body_within on a request with fields, whole or not, and then pieces, with a
