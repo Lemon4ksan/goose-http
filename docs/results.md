@@ -1,8 +1,8 @@
 # Results
 
-The Goose server's latest numbers against the competing servers. Each section's
-numbers come from one machine, which the section names; numbers from different
-machines aren't compared. How each number is taken is in [bench/README.md](../bench/README.md#method), and
+Every benchmark run. Where Goose stands now, one table per workload, is in
+[benchmarks.md](benchmarks.md). Each section's numbers come from one machine, which the
+section names; numbers from different machines aren't compared. How each number is taken is in [bench/README.md](../bench/README.md#method), and
 the servers' pins and builds are in its [Servers](../bench/README.md#servers) table. The
 runs behind each section, and the earlier ones, are recorded in task 009
 ([tasks/000-archive/009-more-competitors.md](../tasks/000-archive/009-more-competitors.md)), but for the WSL2
