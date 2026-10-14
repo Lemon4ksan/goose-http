@@ -69,3 +69,5 @@ where the benchmarks show speed holds, then rewrites the examples and the API re
 It comes next, since breaking changes cost least before programs such as goose-rest use
 the API. Task 028 tells a full mailbox from a message longer than a slot, and gives a
 sender the slot size, for goose-rest's replies in pieces; it can start at any point.
+Task 029 builds for embedded Linux on aarch64, with a device example, and waits on a
+board to finish. Task 030 ports to 32-bit ARM, after task 029's guide.

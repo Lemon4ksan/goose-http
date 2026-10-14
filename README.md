@@ -25,6 +25,7 @@ Early work. No TLS yet.
 | | Platform | Notes |
 |---|---|---|
 | 🟢 | Linux | io_uring (kernel 6.1+) or epoll. |
+| 🟡 | Embedded Linux, aarch64 | Cross-built, and tested on emulated arm64; not on a board yet ([embedded Linux](docs/embedded.md), task 029). 32-bit ARM doesn't run yet (task 030). |
 | 🟢 | macOS | kqueue. |
 | 🟢 | Windows | IOCP. 2 to 2.7 times slower than io_uring on WSL2 on the same machine, with oha on plaintext (task 017, 2026-10-12); not benchmarked further. |
 

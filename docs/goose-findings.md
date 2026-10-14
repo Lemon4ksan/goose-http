@@ -628,3 +628,20 @@ past it, or to run its cleanup when one does.
 
 Workaround: a handler that returns early is a function, passed by name or called from
 the block (`examples/README.md`, "Handler").
+
+## `goose build` takes no C flags for a cross compiler
+
+Found on `46356c2`, task 029. Status: open
+
+`goose build --cc` takes one path, and passes the compiler only `-O2` (or `-O0 -g`) and
+what sidecars name. A Yocto SDK's compiler is a command with flags, `$CC`, such as
+`aarch64-poky-linux-gcc -mcpu=cortex-a53 --sysroot=/opt/poky/...`: the SDK's
+environment script keeps the target's flags in `$CC`, not in the compiler. Expected: a way to pass flags for the
+program's, the runtime's, and every package's C, such as `--cflags` or `GOOSE_CFLAGS`,
+which a cross build needs for all three alike. A bare cross compiler's name fails too:
+
+    $ goose build --cc aarch64-linux-gnu-gcc -o hello examples/hello/hello.goose
+    unknown C compiler name aarch64-linux-gnu-gcc (--cc): the names are clang, gcc and cc, or give a path
+
+Workaround: a script that runs `$CC "$@"`, given to `--cc` by its path
+([embedded Linux](embedded.md#with-a-yocto-sdk)).
