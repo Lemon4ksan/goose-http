@@ -8,7 +8,8 @@
 - What `extern fn` looks like from C, for the shim: `docs/c-interop.md`
 - Goose compiler and stdlib gaps found here: `docs/goose-findings.md`
 - Task tracking: `tasks/` (see `tasks/README.md`)
-- Writing docs: `.claude/skills/google-style/SKILL.md`
+- Substantial doc drafts and requested prose reviews:
+  `.claude/skills/google-style/SKILL.md`; other writing follows "Writing" below
 - The language: the pinned Goose checkout's `docs/tutorial.md`, `docs/goose_spec.md`,
   and `docs/stdlib.md`. Read the tutorial before writing Goose; check the spec before
   assuming a feature exists.
@@ -20,6 +21,22 @@ agent finds them. Docs and commits name no people: date a decision or a request
 (`(2026-10-11)`), and describe the setup without anyone's machine, checkouts, or home
 directory. What only one machine needs, such as where its Goose checkout is, goes in
 `CLAUDE.local.md`, which git ignores. Benchmark results still name their machine.
+
+## Writing
+
+- Lead with the decision, behavior, or action, then explain why. Name the responsible
+  component and use concrete facts. Cut filler and repeated summaries.
+- Preserve technical meaning when editing: actors, negations, conditions, numbers,
+  versions, commands, paths, and identifiers. Keep decided/proposed/open,
+  implemented/planned, and must/should/can distinct. Flag contradictions instead of
+  silently resolving them while copyediting.
+- Record a decision with its reason and the trade-off that matters. Keep each fact in
+  one place and link to it elsewhere. Use absolute dates for dated events.
+- Match the document's format. Tasks follow `tasks/README.md`, with concrete acceptance
+  criteria. Use sentence-case headings, backticks for code identifiers and commands,
+  and descriptive links. Wrap prose at about 90 characters.
+- Use prose for connected ideas, lists for steps or separate items, and tables for
+  comparisons. Keep structure proportional to the content.
 
 ## Goose, not an addition to Goose
 
