@@ -65,11 +65,10 @@ passes.
 - `task-025-shared-templates` (task 025), on top of that: the REST server's prebuilt JSON
   in a store in C that every worker reads (`bench/rest/goose/store.c`), one copy per
   process. `scripts/test.sh` passes in WSL and Git Bash, and the checker all 16 cells.
-  The store is the REST server's own, not the package's: the subagent that built it
-  moved it there, against the plan of a package module goose-rest could share; which
-  one stays is open (2026-10-14). Its unit test,
-  `bench/rest/goose/test_store.goose`, isn't run by `scripts/test-unit.sh`, which scans
-  `test/` and `server/` only. Waits on REST tiers A-C against `task-025-worker-load`, as a
+  The store is the package's, `store.goose` over `shim/store.c`, so goose-rest and task
+  031's module get its C with the import (decided 2026-10-14); `scripts/test-unit.sh`
+  runs its test, `test/test_store.goose`. At `9b7786a`, `bench/rest/check.py` passes all
+  14 cells, both loops. Waits on REST tiers A-C against `task-025-worker-load`, as a
   variant labeled as such in the results.
 
 They merge into `main` in that order, each once its benchmarks hold, and their branches
