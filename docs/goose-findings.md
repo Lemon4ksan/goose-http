@@ -645,3 +645,45 @@ which a cross build needs for all three alike. A bare cross compiler's name fail
 
 Workaround: a script that runs `$CC "$@"`, given to `--cc` by its path
 ([embedded Linux](embedded.md#with-a-yocto-sdk)).
+
+## Data built at run time can't be shared read-only between threads
+
+Found on `46356c2`, task 025. Status: open (not asked; contact waits on the maintainer
+being allowed)
+
+Threads share only static data (spec §11.2): string literals, `let` globals that lead
+only to them, and `const` globals of fixed type with compile-time-evaluable
+initializers. Every other global a worker uses is copied at `thread_spawn`. So records
+that main loads at startup, and never writes again, cost one copy per worker: a REST
+server with 4 workers holds tier C's records and prebuilt JSON four times, 17.4 MB
+each, where hyper's threads share one (task 025). Expected: a way to share data that
+is read-only from the first spawn on, as static data is shared, for example a global
+frozen before any thread starts.
+
+A `const` whose initializer calls a function isn't static data either. It compiles,
+and is copied to each worker like a `var`, with nothing to say so:
+
+    struct Rec { id: i64, n: i32 }
+
+    fn make() -> Rec[4] {
+        var r: Rec[4] = [Rec { id: 0, n: 0 }; 4];
+        for i in 4 { r[i] = Rec { id: i * 10, n: i as i32 }; }
+        return r;
+    }
+
+    const RECS: Rec[4] = make();
+
+    thread_fn worker(i: i64) { print(RECS[i].id); }
+
+    fn main() { thread_wait(thread_spawn(worker, 2)); }
+
+The generated C fills `GS_GL->RECS_g` at startup and copies it into the worker's
+globals (`memcpy(&GS_GL->RECS_g, img, ...)`).
+
+`embed_file(path)` is the one way to share bytes made outside the program: every worker
+views the same static data. The bytes are compiled into the program (a 10 MB file
+makes 47 MB of generated C), and a worker must read them in place, since parsing them
+into its own arrays copies them again.
+
+Workaround: none for the copy itself. Task 025 works on keeping it to one per worker,
+without the second that `thread_spawn`'s packet keeps.
