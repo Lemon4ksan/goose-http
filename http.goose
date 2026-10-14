@@ -757,7 +757,7 @@ inline fn gather<H>(ev: Event, g: Gather&, out: Reply, limit: i64) {
             H(req, gathered[g.at + g.head..g.at + g.len], out);
         } else {
             start(out, 500);
-            finish(out, "Content-Length: ", "");
+            finish(out, NO_TYPE, "");
         }
         release_gather(g);
     } else if ev.kind == CLOSED {
@@ -768,7 +768,7 @@ inline fn gather<H>(ev: Event, g: Gather&, out: Reply, limit: i64) {
 fn too_large(out: Reply) {
     out.keep_alive = false;
     start(out, 413);
-    finish(out, "Content-Length: ", "");
+    finish(out, NO_TYPE, "");
 }
 
 // Starts g's run with req's head, whose bytes the read buffer holds only
