@@ -4,9 +4,12 @@ Status: in progress (asked for 2026-10-13). The maintainer decided what stays
 (2026-10-13, "Decisions" below). p1 is reverted, and p7 dropped. p2 to p6 are on
 `main`, tested and benchmarked at Goose `0bdbd18` (2026-10-14, "The series at Goose
 `0bdbd18`" below). The four new examples are on `main`, built and run by
-`scripts/test.sh` (2026-10-14). Next: the README's quick start and concepts against
-them, and the API rough edges they found ("Examples and docs" below). Breaking changes
-cost least before programs use the API, and goose-rest will be the first.
+`scripts/test.sh` (2026-10-14), and the README matches them. Of the follow-up review's
+eleven items ("Examples and docs" below), 1, 2, 4, and 6 to 11 are on `main`, and 5 was
+kept as it is, with tests (2026-10-14). Item 3 waits on `api-hot`: it costs the epoll
+loop 13.8 instructions a request. `main`'s epoll build with items 7 to 11 is rechecked
+in the next overnight batch ("Pending"). Breaking changes cost least before programs
+use the API, and goose-rest will be the first.
 
 ## Decisions
 
@@ -47,6 +50,19 @@ Done: step 1 (`c16cca6`), step 3 for what is kept, and step 4. p3 waits on
 
 What `main` holds unchecked, or what waits on a branch. Remove an item once its check
 passes.
+
+- Review items 7 to 11 on `main` (merged 2026-10-14, at the maintainer's call): their
+  instructions per request hold, but the epoll build spends about 9% more user cycles a
+  request, and plaintext with 4 workers reads 1% under, from item 8's change to a
+  route plaintext doesn't run ("The review items at Goose `46356c2`" below). Recheck
+  in the next overnight batch, on a quiet machine: `bench/count.sh` and plaintext and
+  JSON from `bench/run.sh`, both loops, against `e67d92d`, `main` before them.
+- `api-hot` (2026-10-14), on top of `main`: review item 3, `respond` checking only its
+  content type. It costs 13.8 user instructions a plaintext request on epoll, which
+  never calls `respond` ("The review items at Goose `46356c2`"), so it doesn't land
+  as it is. Its gain is in `bench/rest`'s server, which REST tiers A-C would weigh
+  against that. `findings-46356c2-hot` writes no `Content-Type` for an empty one too,
+  so whichever merges second drops that part.
 
 - `findings-46356c2-hot` (2026-10-14), on top of `main` at `c55ad10`: the workarounds on a request's
   path (`http::whole` taking the handler, `INTERIM`, `pos += k` in `parse`, std's
@@ -261,6 +277,60 @@ review's estimates; "unverified" marks what no program has checked yet.
       `router(req)` cheap as it is, with no API change. Nothing was benchmarked.
 
 A proposal the work turns up later joins this list with its check before it lands.
+
+## The review items at Goose `46356c2`
+
+Run on the desktop on 2026-10-14, daytime: Ryzen 7 5800X3D, WSL2 kernel 6.18.54.1, gcc
+15.2.0, Goose `46356c2`. Three builds, each from `git archive` of its branch with
+`scripts/build.sh`, both loops: main `e67d92d`, items 2, 4, and 6 on top of
+`e4f7b55`; cold `1f00143`, items 7 to 11 on main; and hot `cf03468`, item 3 on main.
+The commits after `1f00143` on `api-cold` add tests and a finding only.
+
+```sh
+RUNS=3 bench/count.sh goose-27{main,cold,hot} goose-27{main,cold,hot}-uring
+SERVERS="goose-27main goose-27cold goose-27hot" TESTS="plaintext:256" LATENCY=0 \
+    bench/run.sh
+```
+
+`bench/count.sh`: one worker on CPU 0, 10 million plaintext requests from h2load
+1.68.0 (CPUs 4-15, 8 threads, 256 connections, 16 in flight each), 3 runs, which
+repeat to 0.1 instruction. Epoll's main and cold were counted three more times, 3
+runs each, in other orders, and their cycles repeat; the ranges below take in every
+run ([runs](../bench/results/2026-10-14-desktop-027-api-count/)):
+
+| Build | epoll, user insns/req | user cycles/req | uring, user insns/req | user cycles/req |
+|---|---:|---:|---:|---:|
+| main | 1,833.1 | 474-486 | 1,888.5 | 439-455 |
+| cold | 1,835.0 (+1.9) | 513-532 | 1,885.5 (-3.0) | 428-431 |
+| hot | 1,846.9 (+13.8) | 495-502 | 1,886.2 (-2.3) | 443-448 |
+
+Main spends what `e4f7b55` did to the tenth on both loops, so items 2, 4, and 6 cost
+nothing. Cold's instructions hold, but its epoll cycles are 8-9% above main's in every
+run, where uring's are lower. Each commit of `api-cold`, built for epoll and counted
+3 times: item 7 1,833.1 instructions and 490-498 cycles; item 8 1,832.1 and 527-545;
+items 9 and 10 the same as 8, within 526-549. Item 8 changes only the benchmark
+server's `/baseline` and `/bytes` routes, which plaintext doesn't run, for
+`query_int`'s new result. By `bench/codegen.sh main api-cold`, gcc now inlines
+`query_int`, which it had kept out of line, and both loops' `answer` change with it:
+4,906 and 4,966 instructions to 4,821 and 4,914. The same routes through the server's own `query_or` bring the
+cycles back to 476-489 but cost 21.3 instructions, 1,854.4. Both are the layout of
+`answer`, not the work a request does.
+
+`bench/run.sh`: wrk 4.1.0, epoll builds, the server on CPUs 0-3 and wrk on 4-15 with 8
+threads, 256 connections pipelining 16 deep, 3 runs of 15 s after 5 s of warm-up,
+latency left out, medians and the runs' range in millions of requests per second
+([summary](../bench/results/2026-10-14-desktop-027-api-run/summary.md)):
+
+| Workers | main | cold | hot |
+|---|---|---|---|
+| 1 | 1.597 (1.597-1.622) | 1.614 (1.590-1.657) | 1.620 (1.585-1.638) |
+| 4 | 5.178 (5.174-5.204) | 5.119 (4.887-5.122) | 5.135 (5.116-5.139) |
+
+Peak RSS is the same, 3.4 MB with 1 worker and 3.8-3.9 MB with 4. With 1 worker the
+three overlap. With 4, cold's and hot's medians are 1.1% and 0.8% under main's, their
+ranges just below it. The machine wasn't kept quiet for these runs. Items 7 to 11 were
+merged on these numbers at the maintainer's call, to be measured again overnight
+("Pending").
 
 ## The series at Goose `0bdbd18`
 
@@ -516,8 +586,10 @@ Writing them turned up rough edges in the API, each a candidate for this task's 
 - A box's slot size is guessed from `to_bytes` image sizes (task 028).
 
 A review of the API against the examples and goose-rest at goose-http `e27ab21`
-(2026-10-14) found more, most valuable first. None is decided yet. "Hot" marks one on
-every request's path, which `bench/count.sh` checks before it lands.
+(2026-10-14) found more, most valuable first. "Hot" marks one on every request's
+path, which `bench/count.sh` checks before it lands. All but 3 are settled
+(2026-10-14): 1, 2, 4, and 6 to 11 are on `main`, 5 stays as it is, and 3 waits on
+`api-hot` ("Pending").
 
 1. A body larger than the read buffer: goose-rest copies the head out of `Request`,
    keeps it and the body in a buffer of its own, and parses again at the end
@@ -538,15 +610,27 @@ every request's path, which `bench/count.sh` checks before it lands.
    the package, `server/`, the examples, and `examples/README.md`; `test/` keeps its
    exact bytes. They're `const` fixed arrays: a global `let` slice is read at run time,
    so its append has a length gcc doesn't know, where a fixed array's sits in static
-   data with a constant length, as a literal's does in the generated C. It waits for
-   `bench/count.sh` before it lands.
+   data with a constant length, as a literal's does in the generated C. On `main`, with
+   4 and 6. `bench/count.sh` at `e67d92d` holds: 1,833.1 user
+   instructions a request on epoll and 1,888.5 on uring, what `e4f7b55` spent before
+   them ("The review items at Goose `46356c2`").
 3. `respond` checks its content type through `field` and `is_field` on each call, a
    `find_any` over the constant name included. Check only the value instead. Measure
    it first: gcc may already fold it. Hot.
+   Done on `api-hot` (2026-10-14): gcc didn't fold it, since each `respond` called
+   `gs_scan_any` over `"Content-Type"`. `respond` now checks the value with
+   `is_field_value`, appends `"Content-Type: "` as a constant, and writes no
+   `Content-Type` for an empty one. In `bench/rest`'s server, `.text` shrinks from
+   612,111 to 605,199 bytes and both `answer` and `call` shrink. But in the benchmark
+   server gcc now inlines the cold `client` and `wait_for_backend` routes into
+   `answer`, which grows from 4,906 to 6,023 instructions on epoll, and a plaintext
+   request, which never calls `respond`, costs 13.8 user instructions more there: 1,846.9
+   against 1,833.1, with uring 2.3 under ("The review items at Goose `46356c2`"). It
+   waits on `api-hot` ("Pending").
 4. No supported way to add fields to every response: goose-rest swaps `out.common` for
    CORS and moves bytes in the written head for `Server-Timing`. Either document
    `Reply.common` as a handler's to set, or add `http::insert_field`. Additive.
-   Done on `api-246` (2026-10-14), both: `Reply`'s declaration and
+   Done (2026-10-14), both: `Reply`'s declaration and
    `examples/README.md` state `common`'s contract, and
    `http::insert_field(out, mark, name, value)` adds a field at the end of the head of
    the response begun at `mark`, checked as `field` checks one, tested in
@@ -554,21 +638,57 @@ every request's path, which `bench/count.sh` checks before it lands.
    `Server-Timing`'s, can't go in `common`.
 5. `respond_json` builds a new array on each call (`media.goose`). A form that reuses
    a caller's buffer would avoid it. Additive; hot for JSON APIs.
+   Kept (2026-10-14): the array costs a header and a stack top restored, and the one
+   cost worth saving is the `memcpy` into `out.buf`. Writing the body straight into
+   `out.buf` and moving it up past its length replaces that `memcpy` with a byte loop
+   of about 7 instructions a byte, since Goose has no `memmove` within an array
+   ([finding](../docs/goose-findings.md#moving-bytes-up-within-an-array-takes-a-byte-loop)).
+   `out.buf` can't shrink under the loop's `Reply` either (spec §5.1), so HEAD and a
+   204 would need the array anyway, and W would be built twice: `examples/api`'s
+   `.text` grew by 2,560 bytes. A caller's scratch buffer saves only the header.
+   `test/test_api.goose` now pins its bytes for HEAD, a 204, and lengths of 1 to 4
+   digits.
 6. The examples' own functions take `http::Request` by value, a copy of about 300
    bytes per call. They should take `const http::Request&`. Docs and examples only.
-   Done on `api-246` (2026-10-14): `api/` and `files/`; no README snippet takes one.
+   Done (2026-10-14): `api/` and `files/`; no README snippet takes one.
    `server/`'s functions still take it by value, on the benchmark's path.
 7. `stop_on_signals` returns an `i32` and `mail_open` a code, so each `main` builds its
    `http::Error` by hand. Return an `Error` instead, and add an `exit_on_error`.
    Breaking; cold.
+   Done (2026-10-14): `http::stop_on_signals()` and `http::mail_open`
+   return an `http::Error`, and `http::exit_on_error(e)` reports one and exits with
+   status 1 unless its code is 0. mail.goose stays free of HTTP: its opener is
+   `http::mail_open_code`, which still returns a code, and http.goose's `mail_open`
+   wraps it. Every `main` in `examples/`, `server/`, and `bench/rest` uses it, and
+   `device/` and `server/` drop their own `stopped`. Tested in `test/test_http.goose`.
 8. `query_int` returns 0 for a missing value, a malformed one, and a real 0. Return
    `i64, bool` instead. Breaking; cold.
+   Done (2026-10-14): `http::query_int(target, key) -> i64, bool`, false
+   with 0 for a value missing or not an integer. `server/routes.goose` ignores the
+   `bool`, as it read a missing value as 0 before; `examples/README.md` lists it, and
+   `test/test_http.goose` tests a real 0 against both failures.
 9. A program's own check can't fail a `Multipart`, so `upload/` keeps a flag beside
    the one `each_part` keeps. Add `http::fail_multipart`. Additive; cold.
+   Done (2026-10-14): `http::fail_multipart(m)` fails `m` as a body that
+   isn't multipart does. Called from `each_part`'s function, it ends that `each_part`,
+   which calls the function no more and returns false. `upload/` drops its flag.
+   `test/test_api.goose` fails the body at each call, in pieces of 1, 7, and the whole
+   body.
 10. `field` and `set_cookie` drop invalid input without a word. Return a `bool`.
     Additive.
+    Done (2026-10-14): `http::field`, `http::set_cookie`, and
+    `http::insert_field`, which drops a field as `field` does, return whether they
+    wrote it. A call that ignores the result is unchanged, so no caller changes.
+    `test/test_http.goose` and `test/test_api.goose` assert each result.
 11. A file from an encoded path takes `decode`, `is_safe_path`, and a join. Add an
     `http::file_path(dir, encoded, out)`. Additive; cold.
+    Done (2026-10-14): `http::file_path(dir, encoded, out)` appends
+    `dir`, a `/` unless `dir` is empty or ends in one, and the decoded path, and
+    returns false, with `out` as it was, for a bad escape or a path `is_safe_path`
+    refuses. `files/` and `server/`'s `/files/` use it, and `examples/README.md`
+    lists it. `test/test_http.goose` tests escaped `..`, `/`, NUL, `\`, and `:`. A
+    `for` over a literal array of strings there met a new finding
+    ([A `for` over a literal array of strings refers into any array its body shrinks](../docs/goose-findings.md#a-for-over-a-literal-array-of-strings-refers-into-any-array-its-body-shrinks)).
 
 ## Kept as they are
 

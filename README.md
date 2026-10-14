@@ -114,6 +114,9 @@ liburing (`liburing-dev`), Windows the Visual Studio Build Tools. Setup:
   into the read buffer, valid until the handler returns; the router allocates nothing.
 - **`http::Config`** holds the address, limits, timeouts, and buffer sizes, all with
   defaults. `http::stop()` or `http::stop_on_signals()` ends the loops gracefully.
+- **Errors are `http::Error`**: the call that failed and its code. A loop,
+  `http::stop_on_signals()`, and `http::mail_open` return one, `http::report` prints it,
+  and `http::exit_on_error(e)` prints it and ends the process unless its code is 0.
 
 The API by topic, with the examples that show it: [examples/](examples/README.md).
 

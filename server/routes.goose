@@ -161,7 +161,9 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
         http::finish(out, http::NO_TYPE, "");
     } else if baseline {
         // A body too long for the read buffer counts as empty.
-        var sum = http::query_int(req.target, "a") + http::query_int(req.target, "b");
+        let a, _ = http::query_int(req.target, "a");
+        let b, _ = http::query_int(req.target, "b");
+        var sum = a + b;
         if post {
             let n, ok = parse_int(trim(body));
             if ok { sum += n; }
@@ -174,7 +176,8 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
         http::start(out, 200);
         http::finish(out, http::TEXT,"ok");
     } else if bytes || stream || zstream {
-        let n = min(max(http::query_int(req.target, "n"), 0), MAX_BYTES);
+        let asked, _ = http::query_int(req.target, "n");
+        let n = min(max(asked, 0), MAX_BYTES);
         if zstream {
             http::begin_compressed(out, req, 200, "text/plain", st.coded);
         } else {
@@ -228,17 +231,13 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
 // or a precompressed copy of it.
 fn serve_static(req: http::Request, name: const u8[:], st: Transfer&, out: http::Reply) {
     var dir: u8[>..] = [];
-    var decoded: u8[>..] = [];
+    var full: u8[>..] = [];
     var status: i32 = 404;
-    if env("FILES", dir) && dir.len > 0 && http::decode(name, decoded) && http::is_safe_path(decoded) {
-        var full: u8[>..] = [];
-        full.append(dir);
-        full.push('/');
-        full.append(decoded);
+    if env("FILES", dir) && dir.len > 0 && http::file_path(dir, name, full) {
         let f, s = http::open_precompressed(req, full);
         if s == 200 {
             st.route = FILE;
-            http::serve_file(req, out, f, http::content_type_of(decoded), st.file);
+            http::serve_file(req, out, f, http::content_type_of(full), st.file);
             return;
         }
         status = s;

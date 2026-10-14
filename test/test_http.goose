@@ -119,7 +119,16 @@ fn test_decode() {
     assert(!mok);
     let z, zok = http::query_of("/no-query", "q");
     assert(!zok);
-    assert(http::query_int(t, "n") == 12 && http::query_int(t, "q") == 0);
+    let n, nok = http::query_int(t, "n");
+    assert(nok && n == 12);
+    let bad, bok = http::query_int(t, "q");
+    assert(!bok && bad == 0);
+    let gone, gok = http::query_int(t, "missing");
+    assert(!gok && gone == 0);
+    let zero, zok = http::query_int("/s?z=0&m=-7", "z");
+    assert(zok && zero == 0);
+    let minus, mok = http::query_int("/s?z=0&m=-7", "m");
+    assert(mok && minus == -7);
     var pairs: u8[>..] = [];
     http::each_query(t) { key, value =>
         pairs.append(key);
@@ -779,7 +788,7 @@ fn test_reply() {
     keep = false;
     let r = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: nobody };
     http::start(r, 299);
-    http::field(r, "X-Thing", "a b");
+    assert(http::field(r, "X-Thing", "a b"));
     http::finish(r, "Content-Length: ", "hi");
     same(out, "HTTP/1.1 299 \r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nConnection: close\r\nX-Thing: a b\r\nContent-Length: 2\r\n\r\nhi");
 
@@ -837,7 +846,7 @@ fn test_reply() {
         out.clear();
         let bn = http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: nobody };
         http::start(bn, 200);
-        http::field(bn, n, "v");
+        assert(!http::field(bn, n, "v"));
         http::finish(bn, "Content-Length: ", "");
         same(out, "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
     }
@@ -845,7 +854,7 @@ fn test_reply() {
         out.clear();
         let bv = http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: nobody };
         http::start(bv, 302);
-        http::field(bv, "Location", v);
+        assert(!http::field(bv, "Location", v));
         http::finish(bv, "Content-Length: ", "");
         same(out, "HTTP/1.1 302 Found\r\nContent-Length: 0\r\n\r\n");
         out.clear();
@@ -870,7 +879,7 @@ fn test_insert_field() {
     http::respond(r, 200, "text/plain", "one");
     let mark = out.len;
     http::respond(r, 200, "text/plain", "a\r\n\r\nb");
-    http::insert_field(r, mark, "Server-Timing", "app;dur=1.5");
+    assert(http::insert_field(r, mark, "Server-Timing", "app;dur=1.5"));
     same(out[mark..], "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Type: text/plain\r\nContent-Length: 6\r\nServer-Timing: app;dur=1.5\r\n\r\na\r\n\r\nb");
     assert(out[mark - 3..mark] == "one");
 
@@ -880,21 +889,21 @@ fn test_insert_field() {
     let r204 = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: st };
     http::start(r204, 204);
     http::finish(r204, "", "");
-    http::insert_field(r204, 0, "X-A", "1");
+    assert(http::insert_field(r204, 0, "X-A", "1"));
     same(out, "HTTP/1.1 204 No Content\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nX-A: 1\r\n\r\n");
     out.clear();
     let open = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: st };
     http::begin(open, 200, 2);
-    http::insert_field(open, 0, "X-A", "1");
+    assert(http::insert_field(open, 0, "X-A", "1"));
     http::send(open, "hi");
     http::end(open);
     same(out, "HTTP/1.1 200 OK\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nContent-Length: 2\r\nX-A: 1\r\n\r\nhi");
 
     // Nothing without a response after mark, or for a field is_field refuses.
     let all = out.len;
-    http::insert_field(open, all, "X-A", "1");
-    http::insert_field(open, 0, "X-A", "1\r\nX-B: 2");
-    http::insert_field(open, 0, "X A", "1");
+    assert(!http::insert_field(open, all, "X-A", "1"));
+    assert(!http::insert_field(open, 0, "X-A", "1\r\nX-B: 2"));
+    assert(!http::insert_field(open, 0, "X A", "1"));
     assert(out.len == all);
 
     // Fields a handler adds to common go after the loop's in each start.
@@ -908,9 +917,33 @@ fn test_insert_field() {
     same(out, "HTTP/1.1 404 Not Found\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nX-Frame-Options: DENY\r\nContent-Type: text/plain\r\nContent-Length: 0\r\n\r\n");
 }
 
+fn test_errors() {
+    let s = http::stop_on_signals();
+    assert(s.code == 0 && s.call == "sigaction");
+    http::exit_on_error(s);
+    let b, e = http::mail_open(4, 8);
+    assert(e.code == 0 && e.call == "mail_open");
+    http::exit_on_error(e);
+    http::mail_close(b);
+    let _, bad = http::mail_open(3, 8);
+    assert(bad.code == http::EINVAL && bad.call == "mail_open");
+}
+
 fn test_files() {
     assert(http::is_safe_path("a/b.txt") && http::is_safe_path("a..b/.c") && http::is_safe_path("x"));
     for p in ["../a", "a/..", "a/./b", ".", "a\\b", "c:x"] { assert(!http::is_safe_path(p)); }
+    // file_path joins a directory and a decoded path that stays in it, and
+    // leaves out as it was otherwise, escaped separators and dots included.
+    let outside = ["..", "a/../b", "a/%2e%2E/b", "a%2F..%2Fb", "%00", "a%zz", "c%3Ax", "a%5Cb"];
+    var path: u8[>..] = [];
+    assert(http::file_path("www", "a%20b/c.txt", path) && path == "www/a b/c.txt");
+    path.clear();
+    assert(http::file_path("www/", "x", path) && path == "www/x");
+    path.clear();
+    assert(http::file_path("", "x", path) && path == "x");
+    for e in outside {
+        assert(!http::file_path("www", e, path) && path == "x");
+    }
     assert(http::content_type_of("a/b.HTML") == "text/html; charset=utf-8");
     assert(http::content_type_of("x.tar.gz") == "application/gzip");
     assert(http::content_type_of("README") == "application/octet-stream");
@@ -1031,6 +1064,7 @@ fn main() {
     test_date();
     test_reply();
     test_insert_field();
+    test_errors();
     test_stream();
     test_router();
     test_upgrade();

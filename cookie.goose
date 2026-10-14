@@ -89,10 +89,10 @@ fn is_attribute(s: const u8[:]) -> bool {
 }
 
 // Writes c as a Set-Cookie field, between start and finish, or begin and the
-// first send. A cookie that is_cookie refuses is dropped, as field drops a
-// field.
-fn set_cookie(out: Reply, c: Cookie) {
-    guard is_cookie(c) else { return; }
+// first send, and returns whether it did. A cookie that is_cookie refuses is
+// dropped, as field drops a field.
+fn set_cookie(out: Reply, c: Cookie) -> bool {
+    guard is_cookie(c) else { return false; }
     out.buf.append("Set-Cookie: ");
     out.buf.append(c.name);
     out.buf.push('=');
@@ -120,4 +120,5 @@ fn set_cookie(out: Reply, c: Cookie) {
         out.buf.append(c.same_site);
     }
     out.buf.append("\r\n");
+    return true;
 }

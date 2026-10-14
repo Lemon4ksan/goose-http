@@ -84,13 +84,12 @@ fn handle(ev: http::Event, out: http::Reply, backend: http::MailAddress) {
 }
 
 fn main() {
-    let s = http::stop_on_signals();
-    guard s == 0 else { http::report(http::Error { call: "sigaction", code: -s }); exit(1); }
+    http::exit_on_error(http::stop_on_signals());
     // mail_slots and max_waiting turn waiting on: each worker's box holds 256
     // replies at once, and up to 1024 exchanges wait at once.
     let cfg = http::Config { port: 8080, mail_slots: 256, max_waiting: 1024, .. };
     let b, err = http::mail_open(256, JOB_SIZE);
-    guard err == 0 else { http::report(http::Error { call: "mail_open", code: -err }); exit(1); }
+    http::exit_on_error(err);
     thread_spawn(backend, b);
     print("listening on port ", cfg.port);
     var ids: i64[>..] = [];

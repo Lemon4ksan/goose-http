@@ -124,9 +124,7 @@ extern fn net_stop_watch(waker: i64) -> i32;
 extern fn net_stop_unwatch(waker: i64);
 // Closes a waker no box owns.
 extern fn net_waker_close(waker: i64);
-// Makes SIGTERM and SIGINT, or on Windows Ctrl+C and Ctrl+Break, call stop
-// instead of ending the process. Returns 0 or -code.
-extern "net_stop_on_signals" fn stop_on_signals() -> i32;
+extern fn net_stop_on_signals() -> i32;
 // How many times stop has run; a loop stops once it differs from what it was
 // at the loop's start.
 extern "net_stops" fn stops() -> i64;
@@ -145,4 +143,19 @@ fn report(e: Error) {
     msg.append(text[..n]);
     msg.push('\n');
     write_stderr(msg);
+}
+
+// Reports e and ends the process with status 1, unless e's code is 0: for a
+// call's error in main, or a loop's in a worker that ends the process.
+fn exit_on_error(e: Error) {
+    guard e.code != 0 else { return; }
+    report(e);
+    exit(1);
+}
+
+// Makes SIGTERM and SIGINT, or on Windows Ctrl+C and Ctrl+Break, call stop
+// instead of ending the process. The Error's code is 0 when they do.
+fn stop_on_signals() -> Error {
+    let s = net_stop_on_signals();
+    return Error { call: "sigaction", code: -s };
 }

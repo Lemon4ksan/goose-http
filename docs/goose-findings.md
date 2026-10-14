@@ -255,6 +255,30 @@ Workaround: the helper shrinks only an array of its own and appends that to the
 caller's (`basic_auth`, `auth.goose`), or is done with the request before it shrinks
 anything. A limited array, as `Multipart.held` is, isn't refused.
 
+### A `for` over a literal array of strings refers into any array its body shrinks
+
+Found on `46356c2`, task 027. Status: open (not reported)
+
+A `for` loop over an array literal of string literals is refused when its body calls a
+function that shrinks an array declared before the loop: "cannot call shrink, which
+shrinks p: the for loop at a.goose:5 iterates ["a", "b"], whose elements may refer into
+p (§5.1)". The elements point at static data, not into `p`. The same literal bound to a
+`let` first, before or after `p`, checks, and so does a literal of integers. Expected:
+it checks as the named array does.
+
+    fn shrink(out: u8[>..]&) { out.resize(0); }
+
+    fn main() {
+        var p: u8[>..] = [];
+        for e in ["a", "b"] {
+            shrink(p);
+            print(e);
+        }
+    }
+
+Workaround: bind the literal to a `let` and iterate that (`test_files`,
+`test/test_http.goose`).
+
 ### A limited array's `..` default writes its whole capacity
 
 Found on `e7792d7`, task 009. Status: open (unchanged at `46356c2`)
@@ -455,6 +479,53 @@ with the word above and a SWAR test, and finished a byte at a time. It was the p
 largest single change: about 700 fewer instructions per request. Since task 008 it
 calls `std`'s `find_any`, which scans 16 bytes at a time, and saved another 175 user
 instructions per request; nothing here needs a word load now.
+
+### Moving bytes up within an array takes a byte loop
+
+Found on `46356c2`, task 027. Status: open (not reported)
+
+Goose has no way to move elements within one resizable array as `memmove` does.
+`std::copy_into` copies first to last, which is wrong for a destination above an
+overlapping source, and `append` copies only to the end. A loop that copies last to
+first is correct, and with its bounds checks elided gcc 15 at `-O2` turns it into
+`memmove` when the distance is a constant, but not when it's known only at run time:
+then it's a byte loop, about 7 instructions a byte. Expected: a stdlib move within an
+array, such as `move_within(xs, from, to, n)`, documented to compile to `memmove`.
+
+    import os;
+
+    fn shift_up(buf: u8[>..]&, at: i64, k: i64) {
+        let n = buf.len - at;
+        for _ in k { buf.push(0); }
+        let from = buf[at..at + n];
+        let to = buf[at + k..];
+        var i = from.len;
+        guard i <= to.len else { return; }
+        while i > 0 {
+            i--;
+            to[i] = from[i];
+        }
+    }
+
+    fn main() {
+        var b: u8[>..] = [];
+        b.append("hello, world");
+        shift_up(b, 7, args().len + 2);
+        print(b);
+    }
+
+    $ goose build --cc gcc --standalone -o mv mv.goose && ./mv
+    hello, worworld
+    $ objdump -d mv | grep -c memmove
+    0
+
+With `shift_up(b, 7, 3)`, `main` calls `memmove`.
+
+Workaround: `http::respond_json` keeps building its body in an array of its own and
+copying it into the write buffer after the length, one `memcpy`. Writing the body
+straight into the write buffer and moving it up past the length cost a byte loop
+(task 027). `http::insert_field`, which runs once per response at most, rotates the
+field into place with three `reverse`s.
 
 ### A worker holds its globals twice, and its spawner keeps a third copy
 

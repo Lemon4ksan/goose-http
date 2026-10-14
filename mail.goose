@@ -12,9 +12,11 @@
 // The queue and the wakeup are C (shim/mail.c, and each platform's net_waker),
 // since Goose has neither atomics nor a wait another thread can end. Nothing
 // here knows HTTP: this file imports nothing of the package's HTTP side, so
-// that it can move to a package of its own unchanged.
+// that it can move to a package of its own unchanged. So mail_open_code
+// returns an error code, and http.goose's mail_open an Error.
 //
 //   let b, err = http::mail_open(256, 512);
+//   http::exit_on_error(err);
 //   http::mail_send(http::address(b, key), tag, bytes);   // from any thread
 //   http::mail_wait(b, 1000);                             // in b's owner
 //   http::mail_take(b) { key, tag, bytes => ... };
@@ -57,7 +59,7 @@ extern fn net_waker(ep: i32, tag: u64) -> i64;
 // Opens a box of slots messages, a power of two, of up to size bytes each.
 // waker is a loop's (net_waker, ring_waker), which the box then owns, or 0
 // for one the box makes for mail_wait. Returns the box, and 0 or -code.
-fn mail_open(slots: i32, size: i32, waker: i64 = 0) -> Box, i64 {
+fn mail_open_code(slots: i32, size: i32, waker: i64 = 0) -> Box, i64 {
     let k = mail_open_c(slots, size, waker);
     guard k >= 0 else { return Box { .. }, k; }
     return Box { handle: handle_of(k as u64) }, 0;
