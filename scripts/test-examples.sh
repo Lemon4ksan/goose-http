@@ -152,6 +152,18 @@ expect 304 -H "If-None-Match: $etag" "$url/files/a.txt"
 expect 404 "$url/files/missing.txt"
 end_example
 
+start compress
+expect 200 --compressed -H 'Accept-Encoding: gzip' "$url/report"
+holds '"id":200'
+coding=$(curl -sS -D - -o /dev/null -H 'Accept-Encoding: gzip' "$url/report" | tr -d '\r' |
+    sed -n 's/^[Cc]ontent-[Ee]ncoding: //p')
+[ "$coding" = gzip ] || fail "compress: /report came with Content-Encoding '$coding', want gzip"
+expect 200 --compressed -H 'Accept-Encoding: gzip' "$url/count/1000"
+holds 1000
+expect 200 "$url/report"
+holds '"id":1,'
+end_example
+
 start c
 expect 200 "$url/"
 holds "Hello from C!"
