@@ -5,7 +5,9 @@
 # io_uring servers, xitca-web, zix, zeemo, libreactorng, vanilla-io_uring, and tina,
 # which bench/run.sh runs only when SERVERS names them, as goose-uring; the
 # library that gives wrk a monotonic clock (bench/wrk-monotonic.c); and the
-# latency summarizer for h2load's log (bench/latency.c).
+# latency summarizer for h2load's log (bench/latency.c). ONLY=goose builds the
+# Goose servers and the two helpers alone, to measure Goose beside competitor
+# cells from an earlier run.
 #
 # Cargo's target directories, the checkouts, V, libreactorng, and the copies
 # of the Zig projects that zig builds go under CACHE
@@ -58,6 +60,12 @@ LOOP=uring "$root/scripts/build.sh"
 cp "$root/build/server" "$out/goose-uring"
 LOOP=epoll "$root/scripts/build.sh"
 cp "$root/build/server" "$out/goose"
+${CC:-cc} -O2 -shared -fPIC "$root/bench/wrk-monotonic.c" -o "$out/wrk-monotonic.so"
+${CC:-cc} -O2 "$root/bench/latency.c" -o "$out/latency"
+if [ "${ONLY:-}" = goose ]; then
+    ls -l "$out"
+    exit 0
+fi
 
 # TechEmpower builds its Rust entries for the machine they run on, and
 # HttpArena's tokio image does too.
@@ -180,8 +188,5 @@ if [ "$(uname -m)" = x86_64 ]; then
     fi
     tar -xzf "$cache/caddy.tgz" -C "$out" caddy
 fi
-
-${CC:-cc} -O2 -shared -fPIC "$root/bench/wrk-monotonic.c" -o "$out/wrk-monotonic.so"
-${CC:-cc} -O2 "$root/bench/latency.c" -o "$out/latency"
 
 ls -l "$out"

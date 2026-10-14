@@ -5,7 +5,8 @@
 #   bench/rest.sh build    the datasets (bench/rest/gen.goose) into DATA, the
 #                          Goose server (bench/rest/goose) into build/rest/rest,
 #                          the competitors (bench/rest/NAME) into
-#                          build/rest/rest-NAME, and zrk into CACHE
+#                          build/rest/rest-NAME, and zrk into CACHE; with
+#                          ONLY=goose, all but the competitors
 #   bench/rest.sh run      checks each server with bench/rest/check.py, then
 #                          measures, round by round
 #
@@ -66,6 +67,18 @@ build)
     "$goose" build --cc gcc --standalone -o "$bin/gen" "$root/bench/rest/gen.goose"
     "$bin/gen" "$data"
     "$goose" build --cc gcc --standalone -o "$bin/rest" "$root/bench/rest/goose/rest.goose"
+    if [ ! -x "$zrk" ]; then
+        curl -sSLf -o "$cache/zrk.tar.gz" \
+            "https://github.com/zoxy-io/zrk/releases/download/v$ZRK_VERSION/zrk-$ZRK_VERSION-x86_64-linux.tar.gz"
+        [ "$(sha256sum <"$cache/zrk.tar.gz" | cut -d' ' -f1)" = "$ZRK_SHA256" ] ||
+            { echo "bench/rest.sh: zrk.tar.gz doesn't match ZRK_SHA256"; exit 1; }
+        mkdir -p "$(dirname "$zrk")"
+        tar -xzf "$cache/zrk.tar.gz" -C "$(dirname "$zrk")" zrk
+    fi
+    if [ "${ONLY:-}" = goose ]; then
+        ls -l "$bin"
+        exit 0
+    fi
     # As bench/build.sh builds bench/NAME: for this machine, from CACHE, and
     # xitca-web with its TechEmpower entry's flags.
     for name in hyper tokio may-minihttp xitca-web; do
@@ -109,14 +122,6 @@ build)
         --global-cache-dir "$cache/zig-global" --prefix "$cache/rest-dusty-out" \
         -Dtarget=$target -Dcpu=$cpu --release=fast)
     cp "$cache/rest-dusty-out/bin/rest-dusty" "$bin/rest-dusty"
-    if [ ! -x "$zrk" ]; then
-        curl -sSLf -o "$cache/zrk.tar.gz" \
-            "https://github.com/zoxy-io/zrk/releases/download/v$ZRK_VERSION/zrk-$ZRK_VERSION-x86_64-linux.tar.gz"
-        [ "$(sha256sum <"$cache/zrk.tar.gz" | cut -d' ' -f1)" = "$ZRK_SHA256" ] ||
-            { echo "bench/rest.sh: zrk.tar.gz doesn't match ZRK_SHA256"; exit 1; }
-        mkdir -p "$(dirname "$zrk")"
-        tar -xzf "$cache/zrk.tar.gz" -C "$(dirname "$zrk")" zrk
-    fi
     ls -l "$bin"
     exit 0
     ;;
