@@ -113,6 +113,47 @@ Every rate holds within the rounds' spread or gains, by up to 3.1% on B serializ
 Step 2 alone (`goose-uring-25b` in the summary) ran tier C templated at 142.9K, 1.9%
 under; step 3 wins it back.
 
+## Workers take their records over queues (2026-10-14, not yet measured)
+
+On `task-025-worker-load`, cut from `findings-46356c2-hot`. Built and typechecked only;
+nothing was run, since another session was benchmarking.
+
+A worker holds what `thread_spawn` copies twice for its life: in the `malloc`ed packet
+the runtime copies the globals through, which it frees only when the worker returns, and
+on the worker's own data stacks
+([findings](../docs/goose-findings.md#a-worker-holds-its-globals-twice-and-its-spawner-keeps-a-third-copy)).
+So `rest.goose`'s loader now hands each worker its arrays over the typed queues instead:
+
+- `hand_over` `qput`s each of the 45 global arrays once per worker and clears the
+  loader's own, so each spawn copies empty arrays and its packet is a few hundred
+  bytes.
+- Each worker's `take_all` `qget`s them into its globals. The generated C copies each
+  queued image straight onto the global's data stack and frees the queue's node.
+  `qput` `malloc`s each node; a node over glibc's mmap threshold (128 KB until the
+  first such free) is `mmap`ed, so its free gives the pages back. Every node is
+  allocated before any is freed, so the threshold doesn't move between them.
+- Arrays of one element type share a queue, so workers take theirs one at a time: the
+  loader spawns a worker, waits for its `Taken`, and only then spawns the next.
+- An array left out of `hand_over` and `take_all` still reaches the workers, copied
+  through `thread_spawn` as before, so a miss costs memory, not correctness.
+
+Expected: each worker holds one copy of its arrays where it held two, about half of
+each added worker's memory (tier C templated +35 MB a worker to about +18 MB,
+serialized +20 MB to about +10 MB, tier B templated +34 MB to about +17 MB). The
+loader's peak rises during the hand-off, by one copy of the arrays per worker, and it
+all goes when the loader returns. Startup adds one copy of the arrays per worker, in
+turn, a few milliseconds on tier C. No request runs any changed code: the handlers and
+the loops are as they were.
+
+Not done: dropping the record arrays a templated worker never reads. Tier C's templated
+routes still select by the records (bookings, shifts, visits, clients, and
+`staffers.len`); only `notes` would go, read for its `kind` alone, and the dataset has
+at most about 5,100 notes, about 0.2 MB a worker.
+
+To check, at `findings-46356c2-hot` and at this branch: `bench/rest-memory.sh`, which
+should move each worker's share out of the "large malloc" column; then tiers A to C of
+`bench/rest.sh run` for the rates.
+
 ## Acceptance criteria
 
 - [ ] Each worker's share split by source (records, templates, buffers, runtime), with
