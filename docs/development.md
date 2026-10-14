@@ -423,6 +423,10 @@ intermediate shell can otherwise expand variables before bash sees them.
   strace does not kill the server it started.
 - Windows and WSL git record different file stats. The first WSL diff after Windows
   git can reread the whole checkout, delaying benchmark startup.
+- A WSL `git push` stalled after fetch had succeeded, while Git for Windows pushed
+  the same commit successfully (2026-10-14). End the stalled push by PID before
+  retrying from Windows; both Git installations share this checkout. The cause
+  was not established.
 - Git for Windows 2.45 writes absolute Windows paths in worktree `.git` files that
   WSL git cannot follow. A relative `gitdir: ../goose-http/.git/worktrees/<name>`
   works for both.
