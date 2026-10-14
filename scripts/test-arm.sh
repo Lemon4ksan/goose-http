@@ -1,0 +1,69 @@
+#!/bin/sh
+# Cross-builds every example for ARM Linux, aarch64 or armhf as $1 says, then
+# runs scripts/test-examples.sh on the builds in an arm64 or arm/v7 container,
+# which Docker runs under emulation on an x86-64 host (docs/embedded.md).
+# Prints each example's peak RSS, which under emulation includes the
+# emulator's own. scripts/test-aarch64.sh and scripts/test-armhf.sh run it.
+#
+# GOOSE names a Linux build of the compiler, such as ../goose/build-linux/goose,
+# which must run on Ubuntu 26.04. The compiler finds its stdlib in the checkout
+# it was built in; for one built elsewhere, GOOSE_STDLIB names the stdlib.
+# Needs Docker with ARM emulation: Docker Desktop has it, and elsewhere
+# tonistiigi/binfmt installs it.
+set -eu
+
+case ${1:-} in
+aarch64) deb=arm64 gcc=aarch64-linux-gnu-gcc platform=linux/arm64 ;;
+armhf) deb=armhf gcc=arm-linux-gnueabihf-gcc platform=linux/arm/v7 ;;
+*) echo "usage: $0 aarch64|armhf" >&2; exit 2 ;;
+esac
+arch=$1
+root=$(cd "$(dirname "$0")/.." && pwd)
+: "${GOOSE:?GOOSE must name a Linux build of the compiler}"
+goose=$(cd "$(dirname "$GOOSE")" && pwd)/$(basename "$GOOSE")
+stdlib=${GOOSE_STDLIB:-$(dirname "$(dirname "$goose")")/stdlib}
+stdlib=$(cd "$stdlib" && pwd)
+out=$root/build/$arch
+mkdir -p "$out/examples" "$out/goose-home"
+
+docker build -q --platform linux/amd64 --build-arg DEB="$deb" --build-arg GCC="$gcc" \
+    -t "goose-http-cross-$arch" - >/dev/null <<'EOF'
+FROM ubuntu:26.04
+ARG DEB
+ARG GCC
+# ARM packages come from Ubuntu's ports archive, for the board's liburing-dev.
+# git fetches the packages examples import, such as examples/compress's. Where
+# the mount shows another owner, as Docker Desktop's file sharing can, git
+# refuses the fetch's directory unless safe.directory allows it.
+RUN sed -i 's/^Types: deb$/Types: deb\nArchitectures: amd64/' /etc/apt/sources.list.d/ubuntu.sources && \
+    . /etc/os-release && \
+    printf 'Types: deb\nURIs: http://ports.ubuntu.com/ubuntu-ports\nSuites: %s %s-updates\nComponents: main universe\nArchitectures: %s\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' \
+        "$VERSION_CODENAME" "$VERSION_CODENAME" "$DEB" >/etc/apt/sources.list.d/ports.sources && \
+    dpkg --add-architecture "$DEB" && apt-get update -qq && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "gcc-${GCC%-gcc}" "liburing-dev:$DEB" git ca-certificates >/dev/null
+EOF
+docker build -q --platform "$platform" -t "goose-http-run-$arch" - >/dev/null <<'EOF'
+FROM ubuntu:26.04
+RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq liburing2 curl >/dev/null
+EOF
+
+echo "cross-building the examples into $out/examples"
+docker run --rm --platform linux/amd64 --user "$(id -u):$(id -g)" \
+    -v "$root:$root" -v "$(dirname "$goose"):$(dirname "$goose")" -v "$stdlib:$stdlib" -w "$root" \
+    -e GOOSE="$goose" -e GOOSE_STDLIB="$stdlib" -e GOOSE_HOME="$out/goose-home" \
+    -e BIN="$out/examples" -e CC="/usr/bin/$gcc" -e ARCH="$arch" \
+    -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
+    "goose-http-cross-$arch" sh -c '
+set -eu
+for dir in examples/*/; do
+    name=$(basename "$dir")
+    src=$dir$name.goose
+    [ -f "$src" ] || src=${dir}app.goose
+    "$GOOSE" build --cc "$CC" --standalone -o "$BIN/$name" "$src" >"$BIN/$name.log" 2>&1 ||
+        { cat "$BIN/$name.log"; echo "FAIL: $name does not build for $ARCH"; exit 1; }
+done'
+
+echo "running them on $platform"
+docker run --rm --platform "$platform" --user "$(id -u):$(id -g)" -v "$root:$root" -w "$root" \
+    -e PREBUILT=1 -e RSS=1 -e BIN="$out/examples" \
+    "goose-http-run-$arch" sh scripts/test-examples.sh

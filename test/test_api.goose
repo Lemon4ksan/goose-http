@@ -138,12 +138,12 @@ fn test_cookies() {
     var keep = true;
     var st = http::Stream { .. };
     let reply = http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: st };
-    http::set_cookie(reply, http::Cookie { name: "sid", value: "abc", max_age: 3600, expires: 1791633600,
-                                           path: "/", domain: "example.com", secure: true, http_only: true,
-                                           same_site: "Lax" });
-    http::set_cookie(reply, http::Cookie { name: "q", value: "\"x y\"", .. });
-    http::set_cookie(reply, http::Cookie { name: "gone", value: "", max_age: -5, .. });
-    http::set_cookie(reply, http::Cookie { name: "q", value: "\"x\"", .. });
+    assert(http::set_cookie(reply, http::Cookie { name: "sid", value: "abc", max_age: 3600, expires: 1791633600,
+                                                  path: "/", domain: "example.com", secure: true, http_only: true,
+                                                  same_site: "Lax" }));
+    assert(!http::set_cookie(reply, http::Cookie { name: "q", value: "\"x y\"", .. }));
+    assert(http::set_cookie(reply, http::Cookie { name: "gone", value: "", max_age: -5, .. }));
+    assert(http::set_cookie(reply, http::Cookie { name: "q", value: "\"x\"", .. }));
     same(out, "Set-Cookie: sid=abc; Max-Age=3600; Expires=Sat, 10 Oct 2026 12:00:00 GMT; Path=/; Domain=example.com; Secure; HttpOnly; SameSite=Lax\r\nSet-Cookie: gone=; Max-Age=0\r\nSet-Cookie: q=\"x\"\r\n");
     // A cookie set_cookie can't write is dropped.
     out.clear();
@@ -155,7 +155,7 @@ fn test_cookies() {
                http::Cookie { name: "a", value: "x", same_site: "lax", .. }];
     for c in bad {
         assert(!http::is_cookie(c));
-        http::set_cookie(http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: st }, c);
+        assert(!http::set_cookie(http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: st }, c));
     }
     assert(out.len == 0);
 }
@@ -266,6 +266,28 @@ fn parts_in_pieces(req: http::Request, body: const u8[:], k: i64) -> u8[>..] {
     return log;
 }
 
+// The parts of MULTIPART read k bytes at a time, as 'h', 'd', and 'e' for
+// Head, Data, and End, with the function failing m at its nth call.
+fn failed_at(req: const http::Request&, k: i64, n: i64) -> u8[>..] {
+    var m = http::Multipart { .. };
+    var log: u8[>..] = [];
+    assert(http::start_multipart(req, m));
+    var calls = 0;
+    var at = 0;
+    while at < MULTIPART.len {
+        let piece = MULTIPART[at..min(at + k, MULTIPART.len)];
+        at += piece.len;
+        let ok = http::each_part(m, piece) { part =>
+            calls++;
+            log.push(match part { Head h => 'h', Data d => 'd', End => 'e' });
+            if calls == n { http::fail_multipart(m); }
+        };
+        if !ok { log.append("<fail>"); }
+    }
+    if http::multipart_done(m) { log.append("<done>"); }
+    return log;
+}
+
 // Whether start_multipart takes a request with fields.
 fn takes(fields: const u8[:]) -> bool {
     var buf: u8[>..] = [];
@@ -320,6 +342,26 @@ fn test_multipart() {
     }
     // A body cut short isn't done.
     assert(parts_in_pieces(req, "--XyZ\r\n\r\nab", 100) == "[,]ab");
+
+    // fail_multipart from each_part's function, at each of its calls: none
+    // follows, that each_part and every later one return false, and the body
+    // isn't done. In smaller pieces, a part's content comes in more calls.
+    same(failed_at(req, MULTIPART.len, 0), "hdehdehe<done>");
+    for k in [1, 7, MULTIPART.len] {
+        let all = failed_at(req, k, 0);
+        assert(all.ends_with("<done>"));
+        for n in 1..all.len - 5 {
+            let got = failed_at(req, k, n);
+            let f = find(got, "<fail>");
+            assert(f == n);
+            same(got[..f], all[..n]);
+            var at = f;
+            while at < got.len {
+                same(got[at..at + 6], "<fail>");
+                at += 6;
+            }
+        }
+    }
 }
 
 fn test_json() {
@@ -337,6 +379,32 @@ fn test_json() {
         b.push('}');
     };
     same(out, "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: 24\r\n\r\n{\"name\":\"a \\\"b\\\"\",\"n\":7}");
+
+    // Lengths of 1 to 4 digits, after what the buffer held before; HEAD gets
+    // the length without the body, and a 204 neither.
+    for size in [0, 9, 10, 1234] {
+        out.clear();
+        out.append("before");
+        http::respond_json(http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: st }, 200) { b =>
+            for i in size { b.push('a' + (i % 26) as! u8); }
+        };
+        var want: u8[>..] = [];
+        want.append("beforeHTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ");
+        format(want, size);
+        want.append("\r\n\r\n");
+        for i in size { want.push('a' + (i % 26) as! u8); }
+        same(out, want);
+    }
+    out.clear();
+    http::respond_json(http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: true, stream: st }, 200) { b =>
+        b.append("[1,2]");
+    };
+    same(out, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 5\r\n\r\n");
+    out.clear();
+    http::respond_json(http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: st }, 204) { b =>
+        b.append("[1,2]");
+    };
+    same(out, "HTTP/1.1 204 No Content\r\nContent-Type: application/json\r\n\r\n");
 }
 
 // body_within on a request with fields, whole or not, and then pieces, with a
@@ -377,6 +445,75 @@ fn test_body_within() {
     out.clear();
     same(limited("Transfer-Encoding: chunked\r\n", false, "", ["abcd", "efgh", "ij", "k", "l"], out), "yyyyn close");
     assert(find(out, "413") > 0);
+}
+
+// gather on a request with fields, whose body comes whole as first or else
+// in pieces, and then END, with a limit of 10: what the handler got, and
+// " close" if the connection closes. out gets the responses.
+fn gathered(fields: const u8[:], whole: bool, first: const u8[:], pieces: const u8[:][:], out: u8[>..]&) -> u8[>..] {
+    var buf: u8[>..] = [];
+    let req = request(fields, buf);
+    let none = http::Request { .. };
+    var keep = true;
+    var st = http::Stream { .. };
+    var g = http::Gather { .. };
+    var log: u8[>..] = [];
+    let reply = http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: st };
+    fn on(kind: u8, r: const http::Request&, data: const u8[:]) {
+        http::gather(http::Event { kind: kind, req: r, data: data, whole: whole, trailers: "" }, g, reply, 10) { q, body, o =>
+            format(log, q.method, " ", q.target, " ", q.minor, " ", q.body, " ", q.chunked, " [", q.fields, "] [", body,
+                   "]");
+            http::respond(o, 200, "text/plain", body);
+        };
+    }
+    on(http::REQUEST, req, first);
+    // The read buffer is reused once the handler returns.
+    for &b in buf { b = 'x'; }
+    if !whole {
+        for p in pieces { on(http::BODY, none, p); }
+        on(http::END, none, "");
+    }
+    assert(g.len == 0 && g.cap == 0);
+    if !keep { log.append(" close"); }
+    return log;
+}
+
+fn test_gather() {
+    var out: u8[>..] = [];
+    same(gathered("Content-Length: 10\r\n", false, "", ["abcd", "efgh", "ij"], out),
+         "POST /x 1 10 false [Host: x\r\nContent-Length: 10\r\n] [abcdefghij]");
+    same(out, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 10\r\n\r\nabcdefghij");
+    out.clear();
+    same(gathered("Transfer-Encoding: chunked\r\n", false, "", ["abc", "de"], out),
+         "POST /x 1 0 true [Host: x\r\nTransfer-Encoding: chunked\r\n] [abcde]");
+    same(gathered("Content-Length: 4\r\n", true, "abcd", [], out),
+         "POST /x 1 4 false [Host: x\r\nContent-Length: 4\r\n] [abcd]");
+    out.clear();
+    same(gathered("Content-Length: 11\r\n", false, "", ["abcdefghijk"], out), " close");
+    same(out, "HTTP/1.1 413 Content Too Large\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+    out.clear();
+    same(gathered("Transfer-Encoding: chunked\r\n", true, "abcdefghijk", [], out), " close");
+    assert(find(out, "413") > 0);
+    out.clear();
+    same(gathered("Transfer-Encoding: chunked\r\n", false, "", ["abcd", "efgh", "ij", "k", "l"], out), " close");
+    assert(find(out, "413") > 0);
+
+    // A connection that closes mid-body gives its run back for the next.
+    var buf: u8[>..] = [];
+    let req = request("Content-Length: 10\r\n", buf);
+    let none = http::Request { .. };
+    var keep = true;
+    var st = http::Stream { .. };
+    var g = http::Gather { .. };
+    var calls = 0;
+    out.clear();
+    let reply = http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: st };
+    for kind in [http::REQUEST, http::BODY, http::CLOSED] {
+        http::gather(http::Event { kind: kind, req: if kind == http::REQUEST { req } else { none }, data: "abc",
+                                   whole: false, trailers: "" }, g, reply, 10) { q, body, o => calls++; };
+        if kind == http::BODY { assert(g.len > g.head && g.cap > 0); }
+    }
+    assert(calls == 0 && g.len == 0 && g.cap == 0 && out.len == 0);
 }
 
 // The address text names, formatted again.
@@ -521,6 +658,7 @@ fn main() {
     test_multipart();
     test_json();
     test_body_within();
+    test_gather();
     test_addresses();
     test_forwarded();
     print("test_api: ok");

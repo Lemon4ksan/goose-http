@@ -65,22 +65,15 @@ fn run(default_loop: const u8[:]) {
     else { usage(); }
 }
 
-thread_fn worker(cfg: http::Config) { stopped(http::serve(cfg, Transfer { .. }, handle)); }
+// A loop that fails ends the process. One that a stop ended returns, and the
+// process ends once every worker has.
+thread_fn worker(cfg: http::Config) { http::exit_on_error(http::serve(cfg, Transfer { .. }, handle)); }
 
-thread_fn worker_epoll(cfg: http::Config) { stopped(http::serve_epoll(cfg, Transfer { .. }, handle)); }
-
-// Reports why a worker's loop failed, and ends the process. A loop that a
-// stop ended returns, and the process ends once every worker has.
-fn stopped(e: http::Error) {
-    guard e.code != 0 else { return; }
-    http::report(e);
-    exit(1);
-}
+thread_fn worker_epoll(cfg: http::Config) { http::exit_on_error(http::serve_epoll(cfg, Transfer { .. }, handle)); }
 
 fn serve_http(given: http::Config, default_loop: const u8[:]) {
     // SIGTERM and SIGINT stop the workers gracefully.
-    let s = http::stop_on_signals();
-    guard s == 0 else { stopped(http::Error { call: "sigaction", code: -s }); }
+    http::exit_on_error(http::stop_on_signals());
     var cfg = given;
     var name: u8[>..] = [];
     if !env("LOOP", name) { name.append(default_loop); }
@@ -96,7 +89,7 @@ fn serve_http(given: http::Config, default_loop: const u8[:]) {
     // of its own, which lives as long as the process.
     if cfg.mail_slots > 0 {
         let b, e = http::mail_open(256, JOB_SIZE);
-        guard e == 0 else { stopped(http::Error { call: "mail_open", code: -e }); }
+        http::exit_on_error(e);
         backend_box = http::address(b, 0);
         thread_spawn(backend, b, 4096);
     }

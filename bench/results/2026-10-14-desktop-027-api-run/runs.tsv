@@ -1,0 +1,19 @@
+server	workers	test	conns	run	rps	errors	non2xx	server_cpu_s	wrk_cpu_s	peak_rss_kb	steps	h2load_rps	h2load_failed	h2load_non2xx	p50_us	p99_us	p999_us	max_us	from
+goose-27main	1	plaintext	256	1	1596931.02	0	0	15.14	24.03	3432	1								
+goose-27cold	1	plaintext	256	1	1656954.44	0	0	15.14	23.57	3460	0								
+goose-27hot	1	plaintext	256	1	1619508.45	0	0	15.15	23.88	3452	1								
+goose-27main	4	plaintext	256	1	5174011.67	0	0	60.42	82.42	3948	1								
+goose-27cold	4	plaintext	256	1	5119021.58	0	0	60.44	82.00	3996	0								
+goose-27hot	4	plaintext	256	1	5135037.25	0	0	60.45	82.32	3852	1								
+goose-27main	1	plaintext	256	2	1621938.84	0	0	15.16	23.74	3492	1								
+goose-27cold	1	plaintext	256	2	1614101.11	0	0	15.16	23.65	3460	0								
+goose-27hot	1	plaintext	256	2	1638022.70	0	0	15.16	23.91	3480	0								
+goose-27main	4	plaintext	256	2	5203936.92	0	0	60.38	84.15	3948	1								
+goose-27cold	4	plaintext	256	2	5121813.29	0	0	60.44	82.09	3924	0								
+goose-27hot	4	plaintext	256	2	5139105.29	0	0	60.44	82.20	3928	0								
+goose-27main	1	plaintext	256	3	1597267.66	0	0	15.16	23.74	3456	1								
+goose-27cold	1	plaintext	256	3	1589758.31	0	0	15.16	23.59	3460	0								
+goose-27hot	1	plaintext	256	3	1585016.58	0	0	15.15	23.89	3504	0								
+goose-27main	4	plaintext	256	3	5177712.55	0	0	60.46	83.47	3940	1								
+goose-27cold	4	plaintext	256	3	4886700.22	0	0	60.42	81.33	3968	0								
+goose-27hot	4	plaintext	256	3	5115806.01	0	0	60.44	82.27	3940	0								

@@ -94,15 +94,18 @@ static const struct { int32_t code; const char *text; } net_texts[] = {
 };
 #define NET_TEXT_COUNT (int)(sizeof net_texts / sizeof net_texts[0])
 
-/* sys::PollEvent, packed as Goose packs a struct, and a slice of it. */
+/* The layouts shared with Goose, packed as Goose packs them (spec C.2): a
+   u8[:] and an i64[:], passed by value, sys::PollEvent, and a slice of it. A
+   slice is 12 bytes on a 32-bit target and 16 on a 64-bit one. */
 #pragma pack(push, 1)
-typedef struct { uint32_t events; uint64_t tag; } net_event;
-#pragma pack(pop)
-_Static_assert(sizeof(net_event) == 12, "net_event is not packed");
-typedef struct { net_event *data; int64_t len; } net_events;
-
-/* A u8[:]: a pointer and a length, passed by value. */
 typedef struct { uint8_t *data; int64_t len; } net_bytes;
+typedef struct { int64_t *data; int64_t len; } net_i64s;
+typedef struct { uint32_t events; uint64_t tag; } net_event;
+typedef struct { net_event *data; int64_t len; } net_events;
+#pragma pack(pop)
+_Static_assert(sizeof(net_bytes) == sizeof(void *) + 8 && sizeof(net_i64s) == sizeof(void *) + 8 &&
+               sizeof(net_event) == 12 && sizeof(net_events) == sizeof(void *) + 8,
+               "not packed as Goose packs them");
 
 /* Flags of net_listen and net_accept; sys::NONBLOCK, REUSEPORT, UNIX, and
    V6ONLY. */
@@ -387,9 +390,6 @@ static BOOL WINAPI net_on_console(DWORD event) {
 int32_t net_stop_on_signals(void) {
     return SetConsoleCtrlHandler(net_on_console, TRUE) ? 0 : -net_win_err((int)GetLastError());
 }
-
-/* An i64[:]. */
-typedef struct { int64_t *data; int64_t len; } net_i64s;
 
 /* Opens path, UTF-8, for reading, as a HANDLE: a file on disk, else -EISDIR
    for a directory and -EINVAL for anything else. Other programs may read,

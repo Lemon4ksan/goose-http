@@ -633,12 +633,14 @@ fn known_method(method: const u8[:]) -> bool {
         method == "PATCH";
 }
 
-// The integer value of key in target's query, or 0.
-fn query_int(target: const u8[:], key: const u8[:]) -> i64 {
+// The integer value of key in target's query, and whether the query has it
+// as an integer: 0 and false when it's missing or isn't one.
+fn query_int(target: const u8[:], key: const u8[:]) -> i64, bool {
     let v, found = query_of(target, key);
-    guard found else { return 0; }
+    guard found else { return 0, false; }
     let n, ok = parse_int(v);
-    return if ok { n } else { 0 };
+    guard ok else { return 0, false; }
+    return n, true;
 }
 
 // The value of key in target's query, and whether the query has it; the
@@ -724,9 +726,21 @@ fn hex(c: u8) -> i32 {
 // needs from the request. A handler writes one whole response, with start,
 // field, and finish, or with respond; or opens one with begin, and writes its
 // body in pieces with send until end.
+//
+// common is the fields start writes after each status line, as they are:
+// Server and Date, which the loop renders once a second. A handler may set
+// it to add fields to every response it writes through out: to whole field
+// lines, each ending in CRLF and none empty, after the loop's, as
+// "Server: goose\r\nDate: ...\r\nX-Frame-Options: DENY\r\n". out is the
+// handler's copy, so the change holds for the starts given out after it, in
+// the functions it calls included, until the handler returns; the next call
+// gets the loop's fields again, and the responses the loop writes itself,
+// such as a 400 for a request it couldn't parse, never get it. start copies
+// the bytes, so they need last only until then. Check a value from the
+// request with is_field first, as field would.
 struct Reply {
     buf: u8[>..]&,
-    common: const u8[:],    // common_fields, rendered once a second
+    common: const u8[:],
     keep_alive: bool&,      // whether the connection stays open; clear it before start to close
     minor: i32,             // the request's x of HTTP/1.x
     head: bool,             // a HEAD request: finish writes the body's fields, not the body
@@ -784,27 +798,59 @@ inline fn start(out: Reply, status: i32) {
 }
 
 // A field of the handler's own, between start and finish, or begin and the
-// first send. A field that is_field refuses is dropped, so that a value from
-// the request can't split the response: check with is_field first to answer
-// otherwise. The fields given to finish, and what a handler appends to
-// out.buf itself, are written as they are, for constant text.
-inline fn field(out: Reply, name: const u8[:], value: const u8[:]) {
-    guard is_field(name, value) else { return; }
+// first send, and whether it was written. A field that is_field refuses is
+// dropped, so that a value from the request can't split the response: check
+// with is_field first to answer otherwise. The fields given to finish, and
+// what a handler appends to out.buf itself, are written as they are, for
+// constant text.
+inline fn field(out: Reply, name: const u8[:], value: const u8[:]) -> bool {
+    guard is_field(name, value) else { return false; }
     out.buf.append(name);
     out.buf.append(": ");
     out.buf.append(value);
     out.buf.append("\r\n");
+    return true;
 }
+
+// A field added to the response begun at mark, out.buf's length before its
+// start, once the response is written: for a value known only then, such as
+// Server-Timing's, by code around a handler. The field goes at the end of the
+// head, before its blank line, and the bytes after it move up; while begin's
+// head is open, it's a field as any other. Returns whether it was added:
+// nothing is when nothing was written after mark, or for a field is_field
+// refuses.
+fn insert_field(out: Reply, mark: i64, name: const u8[:], value: const u8[:]) -> bool {
+    guard mark >= 0 && out.buf.len > mark && is_field(name, value) else { return false; }
+    let end = find(out.buf[mark..], "\r\n\r\n");
+    guard end >= 0 else { return out.stream.in_head && field(out, name, value); }
+    let at = mark + end + 2;
+    let old = out.buf.len;
+    field(out, name, value);
+    // Rotates the field, appended last, to at.
+    reverse(out.buf[at..old]);
+    reverse(out.buf[old..]);
+    reverse(out.buf[at..]);
+    return true;
+}
+
+// finish's fields for the common bodies. A program with fields of its own
+// writes them in one string that ends the same way:
+// "Allow: GET\r\nContent-Length: ".
+// Fixed arrays, in static data, so that an append of one has a length the C
+// compiler knows, as a literal's; a global slice is read at run time
+// (spec §11.1).
+const NO_TYPE: u8[16] = "Content-Length: ";
+const TEXT: u8[42] = "Content-Type: text/plain\r\nContent-Length: ";
+const JSON: u8[48] = "Content-Type: application/json\r\nContent-Length: ";
 
 // The body's fields, the blank line, and the body, unless the request was
 // HEAD. fields holds every field before the length's value, ending in
-// "Content-Length: ", so that they take one append. A 1xx, 204, or 304
-// status gets neither the length nor the body, whatever they are (RFC 9110
-// §6.4.1, §8.6).
+// "Content-Length: " (NO_TYPE, TEXT, JSON), so that they take one append. A
+// 1xx, 204, or 304 status gets neither the length nor the body, whatever they
+// are (RFC 9110 §6.4.1, §8.6).
 inline fn finish(out: Reply, fields: const u8[:], body: const u8[:]) {
     if out.stream.bodyless {
-        let length = "Content-Length: ";
-        out.buf.append(if ends_with(fields, length) { fields[..fields.len - length.len] } else { fields });
+        out.buf.append(if ends_with(fields, NO_TYPE) { fields[..fields.len - NO_TYPE.len] } else { fields });
         out.buf.append("\r\n");
     } else {
         write_body(out.buf, fields, body, out.head);
@@ -816,7 +862,7 @@ inline fn finish(out: Reply, fields: const u8[:], body: const u8[:]) {
 inline fn respond(out: Reply, status: i32, content_type: const u8[:], body: const u8[:]) {
     start(out, status);
     if content_type.len > 0 { field(out, "Content-Type", content_type); }
-    finish(out, "Content-Length: ", body);
+    finish(out, NO_TYPE, body);
 }
 
 // Starts a response whose body the handler sends in pieces, with send, up to

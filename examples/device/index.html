@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Device</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+  body { max-width: 28rem; margin: 2rem auto; padding: 0 1rem; }
+  .temp { font-size: 3rem; font-variant-numeric: tabular-nums; }
+  .row { display: flex; gap: .5rem; align-items: center; margin: 1rem 0; }
+  .row span { flex: 1; }
+  button { padding: .4rem 1rem; }
+  .muted { opacity: .6; font-size: .9rem; }
+</style>
+</head>
+<body>
+<h1>Device</h1>
+<div class="temp" id="temp">–</div>
+<div class="muted" id="info"></div>
+<div class="row"><span>LED <b id="led">–</b></span>
+  <button onclick="put('led', 'on')">On</button><button onclick="put('led', 'off')">Off</button></div>
+<div class="row"><span>GPIO <b id="gpio">–</b></span>
+  <button onclick="put('gpio', 'on')">On</button><button onclick="put('gpio', 'off')">Off</button></div>
+<script>
+const show = (id, v) => document.getElementById(id).textContent =
+  v === null ? 'none' : v === true ? 'on' : v === false ? 'off' : v;
+const temp = mc => show('temp', mc === null ? 'no sensor' : (mc / 1000).toFixed(1) + ' °C');
+async function refresh() {
+  const s = await (await fetch('/api/status')).json();
+  temp(s.temp_mc);
+  show('led', s.led);
+  show('gpio', s.gpio);
+  show('info', s.loop + ' loop' + (s.gpio_simulated ? ', GPIO simulated' : ''));
+}
+async function put(what, state) {
+  await fetch(`/api/${what}/${state}`, { method: 'PUT' });
+  refresh();
+}
+new EventSource('/api/events').onmessage = e => temp(JSON.parse(e.data).temp_mc);
+refresh();
+</script>
+</body>
+</html>
