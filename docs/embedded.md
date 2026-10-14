@@ -2,8 +2,8 @@
 
 The package runs on 64-bit ARM Linux boards (aarch64), such as NXP i.MX 8 and i.MX 9.
 Every example cross-builds with an aarch64 gcc and passes `scripts/test-examples.sh` on
-emulated arm64 (2026-10-14). None has run on a board yet (task 029). 32-bit ARM doesn't
-work yet ([below](#32-bit-arm)).
+emulated arm64 (2026-10-14). None has run on a board yet (task 029). 32-bit ARM
+cross-builds but doesn't run: two Goose bugs block it ([below](#32-bit-arm)).
 
 Goose compiles to C, so building for a board means having `goose build` run the board's
 C cross compiler. The compiler runs on the build machine, and only the executable goes to
@@ -84,17 +84,22 @@ such as `GOOSE_HOME=$PWD/build/goose-home-imx8 goose build ...`.
 
 ### Without the board: emulated arm64
 
-On an x86-64 Linux host with Docker, `scripts/test-aarch64.sh` cross-builds every example
-in a container, runs `scripts/test-examples.sh` on the builds in an arm64 container under
-emulation, and prints each one's peak RSS. Run it after a change, to catch a break before
-a board does:
+On a Linux or macOS host with Docker, `scripts/test-aarch64.sh` cross-builds every
+example in a container, runs `scripts/test-examples.sh` on the builds in an arm64
+container, and prints each one's peak RSS. `scripts/test-armhf.sh` does the same for
+32-bit ARM in an arm/v7 container. Both run `scripts/test-arm.sh`. Run them after a
+change, to catch a break before a board does:
 
 ```sh
 GOOSE=../goose/build-linux/goose scripts/test-aarch64.sh
+GOOSE=../goose/build-linux/goose scripts/test-armhf.sh
 ```
 
-The executables stay in `build/aarch64/examples/`. Under emulation, RSS includes about
-13,000 kB of the emulator's own per process (task 029), and Docker blocks io_uring, so the io_uring loop runs over its emulation there.
+`GOOSE` names a Linux build of the compiler; one built outside its checkout also needs
+`GOOSE_STDLIB` ([development](development.md#test-on-arm)). The executables stay in
+`build/aarch64/examples/` and `build/armhf/examples/`. On an x86-64 host, qemu runs the
+ARM containers, and RSS includes about 13,000 kB of qemu's own per process (task 029).
+Docker blocks io_uring, so the io_uring loop runs over its emulation there.
 
 ## Which loop
 
@@ -186,7 +191,62 @@ prints.
 
 ## 32-bit ARM
 
-32-bit ARM boards (i.MX 6 and 7, Cortex-A7, STM32MP1) don't run the package yet (task
-030). A Goose program without it runs on emulated armv7, but the package's shims declare
-the slices they share with Goose unpacked, and Goose packs them: 16 bytes against 12 on
-32-bit ARM, so every slice that crosses to the shim arrives garbled.
+32-bit ARM boards (armhf: i.MX 6 and 7, Cortex-A7, STM32MP1) don't run the package yet
+(task 030). Every example cross-builds without a C warning, and every one exits at start
+on emulated armv7, blocked by two Goose bugs:
+
+- `thread_spawn` writes the lengths in its packet through misaligned `int64_t`
+  pointers, and gcc's `strd` faults on them. The runtime reports the fault as a data
+  stack overflow, "a value on main's data stacks grew past the 512 MB reserved for it"
+  ([findings](goose-findings.md#thread_spawn-writes-its-packets-lengths-through-misaligned-int64_t-pointers)).
+  A 32-bit ARM kernel may fix up the misaligned `strd` on a board; qemu doesn't.
+- The compiler sizes slices and references for 64-bit pointers on every target, so
+  arrays of structs that hold one, such as the io_uring loop's connections, are laid
+  out two ways on a 32-bit target
+  ([findings](goose-findings.md#slices-and-references-in-a-struct-take-64-bit-sizes-on-a-32-bit-target)).
+
+The rest of this section is what armhf needs beyond the aarch64 steps above, for when
+the bugs are fixed.
+
+### Cross-build for armhf
+
+On Debian or Ubuntu, from the ports archive as for arm64:
+
+```sh
+sudo apt-get install gcc-arm-linux-gnueabihf liburing-dev:armhf
+goose build --cc /usr/bin/arm-linux-gnueabihf-gcc -o build/device examples/device/device.goose
+file build/device   # ELF 32-bit LSB pie executable, ARM, EABI5
+```
+
+The board's userland must be hard-float (`gnueabihf`); soft-float (`armel`) is untested.
+Ubuntu's armhf glibc has 64-bit `time_t` and is 2.43 in 26.04, newer than most boards':
+build with the board's SDK.
+
+A Yocto SDK for a Cortex-A7 sets `$CC` to a command such as `arm-poky-linux-gnueabi-gcc
+-mthumb -mfpu=neon-vfpv4 -mfloat-abi=hard -mcpu=cortex-a7 --sysroot=...`, from an
+environment script such as `environment-setup-cortexa7t2hf-neon-vfpv4-poky-linux-gnueabi`.
+Give it to `goose build` through a wrapper script, as [for aarch64](#with-a-yocto-sdk),
+with a `GOOSE_HOME` of its own.
+
+### C shared with Goose
+
+Goose packs every struct it shares with C, slices included, and on 32-bit ARM a packed
+slice is 12 bytes where C's own layout of the same fields is 16. C in a sidecar, such as
+`examples/device/board.c`, declares each slice and struct it takes from Goose under
+`#pragma pack(push, 1)`, with a `_Static_assert` that a slice is `sizeof(void *) + 8`
+([C interop](c-interop.md#names-and-layouts)). Unpacked, it builds without a warning and
+reads garbage.
+
+### Address space
+
+A 32-bit process has about 3 GB of address space, where an aarch64 one has 256 TB or
+more. Each data stack reserves 2 GB by default, and the runtime halves a reservation
+until it fits: on emulated armv7 (2026-10-14), `hello` started with 512 MB per stack of
+main's and `device` with 128 MB. Each halving also halves the largest value a stack
+holds, and workers started later get whatever address space is left.
+
+Set the reservation at build time instead, so each worker gets the same: `device`
+reserves 7 stacks plus 14 per worker. With 4 workers that is 63 stacks, so
+`--stack-reserve 16M` reserves about 1 GB and leaves room for the libraries, the heap,
+and each thread's 8 MB native stack. Keep the worker count at the core count, and lower
+`examples/c`'s 1 MB `MAX_RESPONSE` if memory is short.
