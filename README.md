@@ -89,9 +89,8 @@ liburing (`liburing-dev`), Windows the Visual Studio Build Tools. Setup:
 
 - **Workers.** The program spawns a thread per worker, and each runs a loop with the
   same handler. Each worker has its own connections, and on Linux its own listener.
-  `thread_spawn` can't take a `thread_fn` passed to a package function
-  ([findings](docs/goose-findings.md#thread_spawn-doesnt-take-a-function-value-bound-to-a-thread_fn)),
-  so the spawning stays in the program. `goose hello.goose` runs in the compiler, which
+  The program writes the spawn loop: `thread_spawn` takes a `thread_fn` passed to a
+  package function only since Goose `0073357`, and the package doesn't use that yet. `goose hello.goose` runs in the compiler, which
   can't reach `thread_spawn`: call `http::serve` from `main` there, for one worker.
 - **Two loops.** `http::serve` is io_uring on Linux, a ring emulated on kqueue on macOS,
   and IOCP on Windows; `http::serve_epoll` is epoll or kqueue. A program calls one, and

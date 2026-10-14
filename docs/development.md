@@ -127,9 +127,8 @@ platforms: WSL builds into `build-linux/` and Windows into `build/`, and the che
 
 The compiler finds the stdlib by walking up to four directories from its own binary, so
 both builds find `../goose/stdlib` with no setting. A compiler copied anywhere else needs
-`GOOSE_STDLIB` pointing at the checkout's `stdlib/`; the compiler reads it itself. The
-error when the stdlib is missing names the wrong path
-([findings](goose-findings.md#a-missing-stdlib-is-reported-as-a-missing-file-next-to-the-program)).
+`GOOSE_STDLIB` pointing at the checkout's `stdlib/`; the compiler reads it itself, and
+says where it looked when it finds none.
 
 ### Move the pin
 

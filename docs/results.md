@@ -471,8 +471,7 @@ any other error.
   2.9K with a p99 of 0.6 s, and it peaks at 814 MB; 5 uploads failed over the 3 runs.
 - On 2026-10-12, hyper took uploads alone 6-11% faster than either Goose loop. perf put
   19% of Goose's time in the multipart reader's delimiter search, the stdlib's `find`,
-  which compares the delimiter at every byte
-  ([finding](goose-findings.md#the-stdlibs-find-compares-the-whole-subsequence-at-every-offset)).
+  which compared the delimiter at every byte until Goose `d687028`.
   With `http::find_bytes`, which compares only where the delimiter's first byte is, run
   on 2026-10-13 with `STEPS=2`, 3 rounds, before and after in one session
   ([before](../bench/results/2026-10-13-uploads-before/summary.md),

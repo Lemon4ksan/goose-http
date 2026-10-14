@@ -299,8 +299,8 @@ or `uring-epoll`. See
 
 The `examples-c` branch has `examples/c/`, an experiment (2026-10-12): the package's
 server with a handler written in C, which `goose build` compiles from the example's
-sidecar. It's off `main` until Goose leaves examples out of a package: Goose links the
-C function of every `extern fn` under the package's root into the package's library
-for in-process runs, so the example's `gh_handle`, which only its own C defines, broke
-every `goose file.goose` that imported the package
-([findings](../docs/goose-findings.md#a-packages-jit-library-links-the-externs-of-every-file-under-its-root)).
+sidecar. It went off `main` because Goose linked the C function of every `extern fn`
+under the package's root into the package's library for in-process runs, so the
+example's `gh_handle`, which only its own C defines, broke every `goose file.goose` that
+imported the package. Since `f07b618`, Goose leaves out a directory with a sidecar of
+its own, so the example can come back.
