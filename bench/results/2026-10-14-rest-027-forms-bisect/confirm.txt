@@ -1,0 +1,24 @@
+-- n round 3
+512949898816,,instructions:u,39976744459,100.00,3.45,insn per cycle
+148578175599,,cycles:u,39976708148,100.00,,
+Requests/sec:   8465.92
+-- f round 3
+498519145740,,instructions:u,39986855356,100.00,3.34,insn per cycle
+149159086841,,cycles:u,39986804805,100.00,,
+Requests/sec:   8217.93
+-- find round 3
+500220266765,,instructions:u,39995756575,100.00,3.38,insn per cycle
+148204265290,,cycles:u,39995785496,100.00,,
+Requests/sec:   8268.12
+-- n round 4
+511566139601,,instructions:u,39995431637,100.00,3.45,insn per cycle
+148186532658,,cycles:u,39995386066,100.00,,
+Requests/sec:   8388.15
+-- f round 4
+495623618004,,instructions:u,39993668489,100.00,3.33,insn per cycle
+149007019671,,cycles:u,39993655801,100.00,,
+Requests/sec:   8153.75
+-- find round 4
+503356234904,,instructions:u,39993420752,100.00,3.40,insn per cycle
+148062795362,,cycles:u,39993381449,100.00,,
+Requests/sec:   8278.27

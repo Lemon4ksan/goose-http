@@ -98,24 +98,31 @@ keeps its records in memory. Bold is the column's lowest.
 | hyper (Rust) | 13 MB | **29 MB** | **37 MB** | **74 MB** | 72 MB |
 | tokio (Rust) | 16 MB | 30 MB | 307 MB | 365 MB | 412 MB |
 
-Task 025 cut Goose's peak on tier C templated from 387 MB to 177.
+Task 025 cut Goose's peak on tier C templated from 387 MB to 177 in this run, and since
+then to 58: workers take their records over queues, holding one copy where they held
+two, and the templated tiers' prebuilt JSON sits once per process in a shared store.
+Goose io_uring's peaks are now 12, 30, 71, and 58 MB on A to C templated, and 70 MB
+on uploads alone, its rates within the rounds' spread of before (`goose-uring-27s` at
+`effcd47`, 2026-10-14,
+[summary](../bench/results/2026-10-14-rest-027-025/summary.md)).
 
-Idle with the records loaded, by worker count: Goose on the epoll loop at `9408035`
+Idle with the records loaded, by worker count: Goose on the epoll loop at `1818526`
 (2026-10-14, VmRSS 3 s after it listened,
-[idle.tsv](../bench/results/2026-10-14-rest-025-idle/idle.tsv)), and hyper with 4
+[idle.tsv](../bench/results/2026-10-14-rest-idle-main/idle.tsv)), and hyper with 4
 workers on 2026-10-13 ([idle-rss.txt](../bench/results/2026-10-13-rest/idle-rss.txt)),
 whose memory stays flat with workers: 23 MB on tier C at 1, 2, and 4.
 
 | Tier | Goose, 1 worker | Goose, 4 workers | Each added worker | hyper, 4 workers |
 |---|---:|---:|---:|---:|
-| A | 4.5 MB | 8.9 MB | +1.5 MB | 7.5 MB |
-| B | 11 MB | 36 MB | +8.2 MB | 17 MB |
-| C | 23 MB | 84 MB | +20 MB | 24 MB |
-| C, templates | 38 MB | 143 MB | +35 MB | 62 MB |
+| A | 4.1 MB | 6.4 MB | +0.8 MB | 7.5 MB |
+| B | 7.7 MB | 20 MB | +4.1 MB | 17 MB |
+| C | 14 MB | 44 MB | +10 MB | 24 MB |
+| C, templates | 21 MB | 27 MB | +1.9 MB | 62 MB |
 
 Goose threads share no memory, so each worker holds its own copy of the records, where
-the other servers share one. With one worker Goose holds less than hyper on every tier;
-each added worker adds a copy.
+the other servers share one; only the templates' JSON is shared, through the store. With
+one worker Goose holds less than hyper on every tier; each added worker adds a copy of
+the records.
 
 The run behind these tables, with tier D beside forms and every route's latency
 ([results](results.md#rest-apis) and

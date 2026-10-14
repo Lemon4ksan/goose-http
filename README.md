@@ -5,9 +5,9 @@ per worker: io_uring or epoll on Linux, kqueue on macOS, I/O completion ports on
 
 Parsing, routing, and responses are Goose. C only for what Goose can't reach, in `shim/`
 ([below](#what-isnt-goose-and-why)). Compiler and stdlib gaps go to
-[docs/goose-findings.md](docs/goose-findings.md), not into patches (2026-10-10).
+[docs/goose-findings.md](docs/goose-findings.md), not into patches.
 
-Early work. No TLS yet.
+Early work.
 
 ## Status
 
@@ -18,18 +18,18 @@ Early work. No TLS yet.
 | 🟢 | HTTP/1.1 | Keep-alive, pipelining, chunked. HTTP/1.0 too. |
 | 🔴 | HTTP/2 | Later. |
 | 🔴 | TLS | Later, likely as a separate package. |
-| 🟢 | Compression | Precompressed `.br`, `.zst`, and `.gz` files, and gzip, deflate, and zstd on the fly by `Accept-Encoding`, whole or streamed, with [goose-compress](https://github.com/kaitk/goose-compress)'s pure-Goose encoders, in the module `http.compression` (task 022). |
+| 🟢 | Compression | Precompressed `.br`, `.zst`, and `.gz` files, and gzip, deflate, and zstd on the fly by `Accept-Encoding`, whole or streamed, with [goose-compress](https://github.com/kaitk/goose-compress)'s pure-Goose encoders, in the module `http.compression`. |
 | 🔴 | WebSocket | Out of scope for now. `Upgrade` hands the connection to the program. |
 | 🔴 | HTTP/3 | Out of scope for now. |
 
 | | Platform | Notes |
 |---|---|---|
 | 🟢 | Linux | io_uring (kernel 6.1+) or epoll. |
-| 🟡 | Embedded Linux, aarch64 | Cross-built, and tested on emulated arm64; not on a board yet ([embedded Linux](docs/embedded.md), task 029). 32-bit ARM cross-builds but doesn't run yet: two Goose bugs block it (task 030). |
+| 🟡 | Embedded Linux, aarch64 | Cross-built, and tested on emulated arm64; not on a board yet ([embedded Linux](docs/embedded.md)). 32-bit ARM cross-builds but doesn't run yet: two Goose bugs block it. |
 | 🟢 | macOS | kqueue. |
-| 🟢 | Windows | IOCP. 2 to 2.7 times slower than io_uring on WSL2 on the same machine, with oha on plaintext (task 017, 2026-10-12); not benchmarked further. |
+| 🟢 | Windows | IOCP. 2 to 2.7 times slower than io_uring on WSL2 on the same machine, with oha on plaintext; not benchmarked further. |
 
-The tag `v0.2.0` (2026-10-12) has everything in the table below, on both loops on
+The tag `v0.2.0` has everything in the table below, on both loops on
 Linux, kqueue on macOS, and IOCP on Windows. `v0.1.0` had fixed-size requests and
 responses only.
 
@@ -122,7 +122,7 @@ The API by topic, with the examples that show it: [examples/](examples/README.md
 ## Benchmarks
 
 Ryzen 7 5800X3D, WSL2, 4 workers against the same worker count, Goose at `e4f7b55` with
-compiler `0bdbd18` (2026-10-14) unless a row says otherwise. Every table, the method,
+compiler `0bdbd18` unless a row says otherwise. Every table, the method,
 and every loss: [docs/benchmarks.md](docs/benchmarks.md).
 
 | Workload | Goose | Best other | Where Goose stands |
@@ -130,7 +130,7 @@ and every loss: [docs/benchmarks.md](docs/benchmarks.md).
 | [Plaintext](docs/benchmarks.md#plaintext-and-json)†, pipelined, 256 connections | 6.90 M/s | vanilla-io_uring 8.12 M/s\* | Fastest of the servers that parse the request |
 | [JSON](docs/benchmarks.md#plaintext-and-json)†, 1,024 connections | 489 K/s | zix 614 K/s | Third of 8 |
 | [REST tiers](#rest-apis) A / B / C | 588 K / 278 K / 52.3 K/s | xitca-web 407 K / 235 K / 38.2 K/s | Fastest on every tier |
-| [Static files](docs/benchmarks.md#static-files), 1 MB (2026-10-12) | 31.3 GB/s | nginx 28.5 GB/s | On a par with nginx: ahead at 4 KB and 1 MB, behind at 64 KB |
+| [Static files](docs/benchmarks.md#static-files), 1 MB (`fcfd80d`) | 31.3 GB/s | nginx 28.5 GB/s | On a par with nginx: ahead at 4 KB and 1 MB, behind at 64 KB |
 | [Compressed JSON](docs/benchmarks.md#compression), json-comp (`6f584e2`) | 66.1 K/s | actix 62.6 K/s | Fastest of the servers that compress each response |
 | [Peak RSS](docs/benchmarks.md#plaintext-and-json), plaintext and JSON | 4.8-13 MB | zix 39 MB | Lowest |
 
@@ -167,22 +167,24 @@ framework built on this package.
 † Fell behind the fixed rate, so the reads queued.
 
 **Memory.** Each Goose worker holds its own copy of the records, because Goose threads
-share no memory; hyper's threads share one copy. With one worker Goose holds less than
-hyper on every tier, and each added worker adds a copy. With 4 workers:
+share no memory; hyper's threads share one copy. The prebuilt JSON of the templated
+tiers is the exception: it sits once per process in a store every worker reads
+(`store.goose`). With one worker Goose holds less than hyper on every tier, and each
+added worker adds a copy of the records: 0.8 MB on tier A, 4.1 MB on B, 10 MB on C, and
+1.9 MB on C with templates. With 4 workers, Goose idle at `1818526` and serving
+at `effcd47`, the same REST server:
 
 | Tier | Goose, records loaded | Goose, serving | hyper, records loaded | hyper, serving |
 |---|---:|---:|---:|---:|
-| A | 8.9 MB | 15 MB | 7.5 MB | 13 MB |
-| B | 36 MB | 47 MB | 17 MB | 29 MB |
-| C | 84 MB | 104 MB | 24 MB | 37 MB |
-| C, templates | 143 MB | 177 MB | 62 MB | 74 MB |
+| A | 6.4 MB | 12 MB | 7.5 MB | 13 MB |
+| B | 20 MB | 30 MB | 17 MB | 29 MB |
+| C | 44 MB | 71 MB | 24 MB | 37 MB |
+| C, templates | 27 MB | 58 MB | 62 MB | 74 MB |
 
 "Records loaded" is idle RSS after startup, Goose's on the epoll loop; "serving" is peak
 RSS at saturation, Goose's on the io_uring loop. hyper has the lowest peak of the other
-servers on B and C; tokio and xitca-web reach 307-512 MB on tier C. By worker count, and
-every server's peak: [docs/benchmarks.md](docs/benchmarks.md#rest-apis).
-
-Every table, tier D beside forms, and the losses:
+servers on B and C; tokio and xitca-web reach 307-512 MB on tier C. By worker count,
+every server's peak, tier D beside forms, and the losses:
 [docs/benchmarks.md](docs/benchmarks.md#rest-apis).
 
 ## What isn't Goose, and why
@@ -228,11 +230,7 @@ Each is C for one of four reasons:
   costs a copy per worker. `shim/store.c` holds byte blobs a program writes once,
   before its workers read them, and copies a range into a Goose array on each read.
   What the bytes are, and every response built around them, are Goose
-  (`store.goose`). Only a program that imports `http.store` calls it; the REST
-  benchmark's server keeps its prebuilt JSON there.
-
-`test/test_mail.build` names the same C for `test/test_mail.goose`, which declares the
-package by `mail.goose` alone and so gets no sidecar from `http.build`.
+  (`store.goose`). Only a program that imports `http.store` calls it.
 
 ### Outside the package
 
@@ -287,7 +285,7 @@ tasks/         task tracking (tasks/README.md)
 
 | What | Pin | Why |
 |---|---|---|
-| Goose compiler | `aardappel/goose` `46356c2` (`master`, 2026-10-13) | The language and stdlib change often |
+| Goose compiler | `aardappel/goose` `46356c2` (`master`) | The language and stdlib change often |
 | Benchmarked | Per workload in [docs/benchmarks.md](docs/benchmarks.md#pins): plaintext, JSON, and REST at `e4f7b55` with Goose `0bdbd18` | Benchmarks run in overnight batches, so they lag the pin |
 
 Move the pin in its own commit once the tests pass; benchmarks don't wait for it

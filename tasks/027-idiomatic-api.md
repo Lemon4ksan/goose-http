@@ -48,41 +48,23 @@ Done: step 1 (`c16cca6`), step 3 for what is kept, and step 4. p3 waits on
 
 ### Pending
 
-What `main` holds unchecked, or what waits on a branch. Remove an item once its check
-passes.
+Nothing (2026-10-14). The last branches merged into `main` as `1818526`, in this order,
+each once its benchmarks held, and were deleted here and on GitHub:
 
-- `findings-46356c2-hot` (2026-10-14), on top of `main`, which is merged into it: the
-  workarounds on a request's path (`http::whole` taking the handler, `INTERIM`, `pos +=
-  k` in `parse`, std's `find` in multipart, `each_cookie` over `each_field`,
-  `bench/rest`'s string constants) and `respond` with no `Content-Type` for an empty
-  one. `bench/codegen.sh main work`: the loops' `answer` 8 and 13 instructions larger,
-  `parse`'s bounds checks the same. `scripts/test.sh` passes in WSL and Git Bash.
-  Instructions, plaintext, JSON, and tiers A-C hold, but tier D's forms role runs 2-4%
-  slower alone and 3-5% more cycles a request, and the uploads beside it 6-9% slower
-  ("f's tier D, again" below). Not merged (2026-10-14); next, find the change the forms
-  path pays for, with `perf stat` on the forms role alone per change.
-- `task-025-worker-load` (task 025), on top of it: REST workers take their records over
-  the typed queues, so each holds one copy, not two. `bench/rest/check.py` passes all 16
-  cells. Its `extern fn mallopt` breaks every in-process test on Windows, since the
-  package links the externs of every `.goose` file under its root; the next branch fixes
-  that with `exclude = ["bench"]` in `http.build` (`e227c18`). Tiers A-C and D hold
-  against `findings-46356c2-hot` (task 025), so it waits only on that branch.
-- `task-025-shared-templates` (task 025), on top of that: the REST server's prebuilt JSON
-  in a store in C that every worker reads, one copy per process. The store is the
-  package's, `store.goose` over `shim/store.c`, so goose-rest and task 031's module get
-  its C with the import (decided 2026-10-14); `scripts/test-unit.sh` runs its test,
-  `test/test_store.goose`. `scripts/test.sh` passes in WSL and Git Bash, and
-  `bench/rest/check.py` every cell on both loops. Its rates hold against
-  `task-025-worker-load` and its templated peaks halve (task 025). Since it adds
-  public API and C to the package, it merges only once the maintainer agrees (asked
-  2026-10-14).
+- `findings-46356c2-hot`: the workarounds on a request's path that Goose `46356c2`
+  made unneeded (`http::whole` taking the handler, `INTERIM`, `pos += k` in `parse`,
+  `each_cookie` over `each_field`, `bench/rest`'s string constants), and `respond`
+  with no `Content-Type` for an empty one. Multipart keeps `find_bytes` ("f's tier D,
+  again" below).
+- `task-025-worker-load` and `task-025-shared-templates` (task 025): REST workers take
+  their records over the typed queues, and the templated tiers' JSON sits in the
+  package's shared store, `store.goose` over `shim/store.c` (merged at the
+  maintainer's call, 2026-10-14).
+- `api-hot`, review item 3, was dropped instead.
 
-They merge into `main` in that order, each once its benchmarks hold, and their branches
-are then deleted here and on GitHub. The README's REST memory paragraph is rewritten to
-the numbers then measured, as they stand, without task references (asked for
-2026-10-14).
+`scripts/test.sh` passes on `1818526` in WSL and Git Bash.
 
-Before these, nothing was pending. `main` at `48f8e37` spent 8 user instructions per request more
+Before these, `main` at `48f8e37` spent 8 user instructions per request more
 than the baseline ("The series at Goose `0bdbd18`"); at `e4f7b55`, with 022.03's routes
 in the benchmark server, it spends 1,833.1 on epoll and 1,888.5 on uring against the
 baseline's 1,838.9 and 1,887.2 (`RUNS=3 bench/count.sh`, 2026-10-14,
@@ -357,7 +339,7 @@ with uploads alone the same.
 
 ### f's tier D, again
 
-f's loss beside forms repeats, so f isn't merged (2026-10-14). `bench/rest.sh run` with
+f's loss beside forms repeats. `bench/rest.sh run` with
 `STEPS=2`, f first, the same servers, 3 rounds
 ([summary](../bench/results/2026-10-14-rest-027-uploads/summary.md)): uploads beside
 forms 141-155/s (median 146) against n's 150-159 (155), forms beside them 6.4-7.1K/s
@@ -377,7 +359,29 @@ An upload costs f 0.5% more instructions, std's `find` in multipart where
 `find_bytes` was, at the same cycles and rate. A form request costs it 1% fewer
 instructions but 3-5% more cycles, its IPC 4% lower, and the forms role alone runs
 2.4-4.0% slower in both rounds. The uploads beside forms share the workers with it.
-Which of f's changes the forms path pays for isn't found yet.
+
+f's code changes, each group taken back from `main` in turn on `40ce2a6` (f with
+`main` merged), the forms role alone measured the same way, 4 rounds for n, f, and the
+`find` group, 2 for the others
+([bisect](../bench/results/2026-10-14-rest-027-forms-bisect/)):
+
+| Build | Forms role, req/s |
+|---|---|
+| n | 8,571, 8,220, 8,466, 8,388 |
+| f | 8,342, 7,598, 8,218, 8,154 |
+| f, `find_bytes` in `form.goose` | 8,654, 8,355, 8,268, 8,278 |
+| f, `each_cookie`'s loop | 8,385, 8,025 |
+| f, `parse` and `respond` as before | 7,751, 8,113 |
+| f, `whole_only` and string functions | 7,890, 8,204 |
+
+f is 2.7-7.6% under n in every round. With `find_bytes` back it is 1.0-1.6% over n in
+the first two rounds and 1.3-2.3% under in the last two, within their spread; no other
+group comes back. So std's `find` still costs multipart, in cycles more than in
+instructions. `d1f4ffc` keeps `find_bytes` on the branch and the rest of f's changes.
+Tier D at `d1f4ffc` (g) against n, `STEPS=2`, g first
+([summary](../bench/results/2026-10-14-rest-027-uploads-g/summary.md)): uploads beside
+forms 148-155/s against 147-153, forms 6.7-6.9K/s against 6.3-6.9K, and uploads alone
+the same. Merged into `main` with that (2026-10-14).
 
 ## The review items at Goose `46356c2`
 

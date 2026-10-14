@@ -115,7 +115,8 @@ under; step 3 wins it back.
 
 ## Workers take their records over queues (2026-10-14)
 
-On `task-025-worker-load`, cut from `findings-46356c2-hot`. A worker held what
+Built on `task-025-worker-load`, cut from `findings-46356c2-hot`; on `main` with the
+shared store below since `1818526` (2026-10-14). A worker held what
 `thread_spawn` copies twice for its life: in the `malloc`ed packet the runtime copies
 the globals through, freed only when the worker returns, and on the worker's own data
 stacks
@@ -281,6 +282,20 @@ through `store_append` costs no rate. Templated peaks fall from 111 to 50 MB on 
 and from 112 to 58 MB on tier C, under hyper's 74 MB serving. Uploads beside tier C read
 2-4% under w's, ranges apart; tier D's server serializes, so it runs none of the store's
 code, and f read 705-715 there in the same batch.
+
+On `main` at `1818526`, idle on the epoll loop, VmRSS 3 s after listening, one run each
+([idle.tsv](../bench/results/2026-10-14-rest-idle-main/idle.tsv)), in MB:
+
+| Tier, JSON | 1 worker | 2 workers | 4 workers |
+|---|---:|---:|---:|
+| A, serialize | 4.1 | 4.8 | 6.4 |
+| A, template | 5.2 | 5.3 | 5.6 |
+| B, serialize | 7.7 | 11.7 | 19.9 |
+| B, template | 20.5 | 25.5 | 35.4 |
+| C, serialize | 13.5 | 23.6 | 43.9 |
+| C, template | 21.4 | 23.2 | 27.0 |
+
+With 4 workers, tier C templated holds 27 MB where `main` held 379 MB before this task.
 
 ## Acceptance criteria
 

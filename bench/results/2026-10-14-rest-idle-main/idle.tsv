@@ -1,0 +1,19 @@
+tier	json	workers	VmRSS KB	VmHWM KB
+a	serialize	1	4084	6384
+a	serialize	2	4800	6560
+a	serialize	4	6356	7804
+a	template	1	5196	8848
+a	template	2	5332	8860
+a	template	4	5632	8872
+b	serialize	1	7656	25772
+b	serialize	2	11736	25700
+b	serialize	4	19892	29380
+b	template	1	20500	51532
+b	template	2	25504	51700
+b	template	4	35444	51548
+c	serialize	1	13528	43628
+c	serialize	2	23588	50332
+c	serialize	4	43932	70808
+c	template	1	21380	59308
+c	template	2	23240	59148
+c	template	4	27020	59232
