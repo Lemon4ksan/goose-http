@@ -48,7 +48,9 @@ fail() {
 start() {
     name=$1
     shift
-    "$goose" build --cc "$cc" --standalone -o "$bin/$name" "$root/examples/$name/$name.goose" >"$tmp/log" 2>&1 ||
+    src=$root/examples/$name/$name.goose
+    [ -f "$src" ] || src=$root/examples/$name/app.goose
+    "$goose" build --cc "$cc" --standalone -o "$bin/$name" "$src" >"$tmp/log" 2>&1 ||
         { cat "$tmp/log"; fail "$name doesn't build"; }
     tries=0
     while curl -s -o /dev/null "$url/" 2>/dev/null; do
@@ -141,6 +143,18 @@ expect 206 -r 0-4 "$url/files/a.txt"
 etag=$(curl -sS -D - -o /dev/null "$url/files/a.txt" | tr -d '\r' | sed -n 's/^[Ee][Tt][Aa][Gg]: //p')
 expect 304 -H "If-None-Match: $etag" "$url/files/a.txt"
 expect 404 "$url/files/missing.txt"
+end_example
+
+start c
+expect 200 "$url/"
+holds "Hello from C!"
+expect 200 "$url/count"
+holds '{"requests":'
+expect 200 -A me "$url/agent"
+holds me
+expect 200 -d hi "$url/echo"
+holds hi
+expect 404 "$url/nope"
 end_example
 
 echo "test-examples.sh: all passed"

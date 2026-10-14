@@ -16,6 +16,7 @@ program of your own imports it as the [Quick start](../README.md#quick-start) do
 | [`upload/`](upload/upload.goose) | Uploads read as they arrive: a raw body, and a multipart form part by part, with a body limit |
 | [`later/`](later/later.goose) | An answer that waits for a backend thread over mail, with 504 when it takes too long |
 | [`files/`](files/files.goose) | A directory's files, with ranges, conditional requests, and precompressed copies |
+| [`c/`](c/) | A handler written in C, with the server and its loops in Goose ([below](#a-handler-in-c)) |
 | [`server/`](../server/routes.goose) | The benchmark server: bodies and responses in pieces, files, an upgrade, answers that wait, the access log |
 
 Build and run one from the repository's root:
@@ -295,12 +296,38 @@ The benchmark server links both. `LOOP` picks: `uring` (`iocp` on Windows), `epo
 or `uring-epoll`. See
 [architecture](../docs/architecture/README.md#the-io_uring-loop-task-005).
 
-## A handler in C, on a branch
+## A handler in C
 
-The `examples-c` branch has `examples/c/`, an experiment (2026-10-12): the package's
-server with a handler written in C, which `goose build` compiles from the example's
-sidecar. It's off `main` until Goose leaves examples out of a package: Goose links the
-C function of every `extern fn` under the package's root into the package's library
-for in-process runs, so the example's `gh_handle`, which only its own C defines, broke
-every `goose file.goose` that imported the package
-([findings](../docs/goose-findings.md#a-packages-jit-library-links-the-externs-of-every-file-under-its-root)).
+`examples/c/` is an experiment (2026-10-12): C programs using the package's server
+without writing Goose. `app.goose` runs the server and calls `gh_handle` for each
+request. `handler.c` defines `gh_handle`, and `goose_http.h` declares what it gets and
+returns. The sidecar, `app.build`, has `goose build` compile `handler.c` and link it in.
+
+```sh
+goose build -o build/examples/c-app examples/c/app.goose
+./build/examples/c-app
+curl localhost:8080/count
+```
+
+The handler gets the request's method, target, header field lines, and body. It writes
+a status, a content type, and a body of up to 1 MB (`MAX_RESPONSE` in `app.goose`). The
+server writes the response's head and frames it, and keeps every connection, limit, and
+timeout it has for Goose handlers.
+
+The interface is limited to bytes in and bytes out by Goose, not by this package:
+
+- The handler can't call the package's Goose functions, such as the router, the cookie
+  and form parsers, or `send_file`. C calls Goose only on the thread that called
+  `goose_init` (the pinned checkout's spec, §7.11), and the handler runs on the workers.
+  `goose_http.h` has a field lookup, `gh_field`, written in C for that reason.
+- Goose has no function pointers to hand a handler over at run time (§7.5). The handler
+  is the one C function named `gh_handle`, linked in.
+- The handler runs on every worker at once. State it shares must be atomic or locked, as
+  `handler.c`'s request counter is.
+- It gets a body only when the body fits in the read buffer with the head, 8 KB by
+  default, and doesn't stream a response.
+
+Rust or Zig could define `gh_handle` the same way, as an `extern "C"` or `export`
+function in a static library the sidecar links. That isn't set up here.
+`scripts/test-examples.sh` builds it and requests each route, on Linux with gcc and on
+Windows with MSVC (2026-10-14).

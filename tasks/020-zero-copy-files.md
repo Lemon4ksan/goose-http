@@ -108,11 +108,12 @@ owns the file from then on. The io_uring loop hands it over in `pump` as soon as
 
 Tested 2026-10-12: `scripts/test.sh` passed in WSL2 (Ubuntu 26.04, uring, uring over
 epoll, epoll) and on Windows (IOCP), with `examples/c` moved out of the tree for the
-run: it breaks every JIT test ([findings](../docs/goose-findings.md#a-packages-jit-library-links-the-externs-of-every-file-under-its-root)).
+run: Goose linked its `extern fn` into the package's library, which broke every JIT
+test.
 On macOS (the emulation over kqueue, with `sendfile`), `scripts/test.sh` passed twice
 on the MacBook Pro in `docs/development.md`, macOS 26.3.1, Goose `5c83a5a`, at
 `67ed334` with `examples/c` moved out, `files` reporting none left open on both loops
-(2026-10-12). `examples/c` is now off `main`, on the `examples-c` branch, until Goose
-leaves it out of the package.
+(2026-10-12). `examples/c` was off `main` until Goose `f07b618` left a program with its
+own sidecar out of the package; it is back since the pin at `46356c2` (2026-10-14).
 
 Left: the benchmark.
