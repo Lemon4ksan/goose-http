@@ -796,15 +796,21 @@ inline fn field(out: Reply, name: const u8[:], value: const u8[:]) {
     out.buf.append("\r\n");
 }
 
+// finish's fields for the common bodies. A program with fields of its own
+// writes them in one string that ends the same way:
+// "Allow: GET\r\nContent-Length: ".
+let NO_TYPE = "Content-Length: ";
+let TEXT = "Content-Type: text/plain\r\nContent-Length: ";
+let JSON = "Content-Type: application/json\r\nContent-Length: ";
+
 // The body's fields, the blank line, and the body, unless the request was
 // HEAD. fields holds every field before the length's value, ending in
-// "Content-Length: ", so that they take one append. A 1xx, 204, or 304
-// status gets neither the length nor the body, whatever they are (RFC 9110
-// §6.4.1, §8.6).
+// "Content-Length: " (NO_TYPE, TEXT, JSON), so that they take one append. A
+// 1xx, 204, or 304 status gets neither the length nor the body, whatever they
+// are (RFC 9110 §6.4.1, §8.6).
 inline fn finish(out: Reply, fields: const u8[:], body: const u8[:]) {
     if out.stream.bodyless {
-        let length = "Content-Length: ";
-        out.buf.append(if ends_with(fields, length) { fields[..fields.len - length.len] } else { fields });
+        out.buf.append(if ends_with(fields, NO_TYPE) { fields[..fields.len - NO_TYPE.len] } else { fields });
         out.buf.append("\r\n");
     } else {
         write_body(out.buf, fields, body, out.head);
