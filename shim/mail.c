@@ -109,6 +109,7 @@ static int mail_cas64(mail_a64 *p, int64_t e, int64_t d) { return atomic_compare
 #define MAIL_SENT 0
 #define MAIL_FULL 1
 #define MAIL_STALE 2
+#define MAIL_TOO_LONG 3
 
 /* From the platform's shim. A waker for ep, which a wake makes report tag,
    or for ep -1 one of its own that net_waker_wait waits on. */
@@ -229,8 +230,8 @@ void mail_close(uint64_t key) {
 }
 
 /* Copies data, with key and tag, into the box of to, at once: SENT, FULL for
-   no free slot or data longer than a slot, or STALE for a box closed, or
-   opened again since to was taken. */
+   no free slot, TOO_LONG for data longer than a slot, or STALE for a box
+   closed, or opened again since to was taken. */
 int32_t mail_send(uint64_t to, uint64_t key, int32_t tag, mail_bytes data) {
     uint32_t i = (uint32_t)to;
     if (i >= MAIL_MAX_BOXES) return MAIL_STALE;
@@ -238,8 +239,8 @@ int32_t mail_send(uint64_t to, uint64_t key, int32_t tag, mail_bytes data) {
     int32_t r = MAIL_STALE;
     mail_box *b = LOAD32_SEQ(&mail_table[i].gen) == (uint32_t)(to >> 32) ? mail_table[i].box : NULL;
     if (b) {
-        r = MAIL_FULL;
-        if (data.len <= (int64_t)b->size) {
+        r = data.len > (int64_t)b->size ? MAIL_TOO_LONG : MAIL_FULL;
+        if (r == MAIL_FULL) {
             uint32_t pos = LOAD32_RELAXED(&b->enq);
             mail_slot *s;
             for (;;) {
@@ -279,6 +280,19 @@ int64_t mail_pending(uint64_t key) {
 int32_t mail_size(uint64_t key) {
     mail_box *b = mail_own(key);
     return b ? (int32_t)b->size : 0;
+}
+
+/* The slot size of the box of to, for any thread, or -1 for a box closed, or
+   opened again since to was taken: it checks the generation as mail_send
+   does, and holds off a close the same way while it reads. */
+int32_t mail_slot_size(uint64_t to) {
+    uint32_t i = (uint32_t)to;
+    if (i >= MAIL_MAX_BOXES) return -1;
+    ADD64(&mail_table[i].senders, 1);
+    mail_box *b = LOAD32_SEQ(&mail_table[i].gen) == (uint32_t)(to >> 32) ? mail_table[i].box : NULL;
+    int32_t size = b ? (int32_t)b->size : -1;
+    ADD64(&mail_table[i].senders, -1);
+    return size;
 }
 
 /* Takes the box's next message: writes its bytes into out[..n], its key to

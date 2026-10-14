@@ -1,6 +1,7 @@
-// Unit tests for the mailboxes (mail.goose, shim/mail.c): FULL and STALE at
-// the send, many senders on threads of their own with nothing lost or
-// reordered per sender, and a ping-pong between two threads, which needs a
+// Unit tests for the mailboxes (mail.goose, shim/mail.c): FULL, TOO_LONG,
+// and STALE at the send, the slot size from an address, many senders on
+// threads of their own with nothing lost or reordered per sender, and a
+// ping-pong between two threads, which needs a
 // wakeup for every message, with no wait reaching its time limit. The
 // package is declared by mail.goose alone, so this compiles only while the
 // mailbox reaches nothing of the HTTP side. TinyCC can't run threads, so
@@ -33,17 +34,22 @@ fn test_full_and_stale() {
     };
     assert(n == 4 && tags.len == 4 && tags[0] == 0 && tags[3] == 3);
     assert(!http::mail_pending(b));
-    // Longer than a slot: FULL, with every slot free.
-    assert(http::mail_send(to, 0, "123456789") == http::FULL);
+    // One byte longer than a slot: TOO_LONG, with every slot free, and the
+    // slot size known from the address.
+    assert(http::mail_slot_size(to) == 8);
+    assert(http::mail_send(to, 0, "123456789") == http::TOO_LONG);
     assert(http::mail_send(to, 0, "") == http::SENT);
     http::mail_close(b);
     assert(http::mail_send(to, 0, "") == http::STALE);
+    assert(http::mail_send(to, 0, "123456789") == http::STALE);
+    assert(http::mail_slot_size(to) == -1);
     // A box opened in the closed one's place has a new generation.
     let c, err2 = http::mail_open(4, 8);
     assert(err2 == 0 && c.handle.slot == b.handle.slot && c.handle.gen != b.handle.gen);
     assert(http::mail_send(to, 0, "") == http::STALE);
     assert(http::mail_send(http::address(c, 1), 0, "") == http::SENT);
     assert(http::mail_send(http::MailAddress { .. }, 0, "") == http::STALE);
+    assert(http::mail_slot_size(http::MailAddress { .. }) == -1);
     http::mail_close(c);
     // Waiting with nothing sent ends at the time limit.
     let d, err3 = http::mail_open(2, 0);

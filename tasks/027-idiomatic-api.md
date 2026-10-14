@@ -220,6 +220,17 @@ review's estimates; "unverified" marks what no program has checked yet.
       per request. Breaking. Estimated 20-40 instructions and 100-250 cycles per routed
       request, unverified. Check: `bench/count.sh` against `bench/rest`'s server on a
       tier A route, then tiers A-C.
+      Blocked (2026-10-14, Goose `46356c2`): a `Router` that outlives the request
+      can't hold its slices. `reset` storing `req.method` into a worker's `Router` is
+      refused: "storing a reference rooted at req, which does not outlive the
+      destination (§9.2)". Keeping offsets instead of slices would make `on` and
+      `param` take `req` as well, at every call. `inline fn router` instead, built
+      with `bench/codegen.sh` against `findings-46356c2-hot`, moves the zeroing into
+      each caller: `bench/rest`'s server goes from 40 `rep stos` to 77 and from 122
+      `rep movs` to 120, with 22 KB more `.text`, so it was reverted. What costs is
+      two open findings: a limited array's `..` default writes its whole capacity,
+      and a struct literal is built in temporaries and copied. A fix for either makes
+      `router(req)` cheap as it is, with no API change. Nothing was benchmarked.
 
 A proposal the work turns up later joins this list with its check before it lands.
 

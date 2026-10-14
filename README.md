@@ -124,38 +124,34 @@ All tables, spreads, and losses: [docs/results.md](docs/results.md).
 Tiny fixed responses. They measure the loop and the parser, nothing else. A real program
 spends its time elsewhere.
 
-Ryzen 7 5800X3D, WSL2, kernel 6.18. `bench/run.sh`, 2026-10-12. 4 workers on CPUs 0-3,
-wrk on 4-15. Plaintext pipelined 16 deep, by connection count. Median of 3 runs of 15 s.
-Goose at `73dd28c`, Goose compiler `6448f3f`. Some competitors' cells come from earlier
-sessions with the same binaries, and sessions drift by up to 5%. Bold is the column's
-best. Rows go by each server's average rank over the columns, peak RSS by its highest.
+Ryzen 7 5800X3D, WSL2, kernel 6.18.54.1. `bench/run.sh`, 2026-10-14. 4 workers on
+CPUs 0-3, wrk 4.1.0 on 4-15 with 8 threads. Plaintext pipelined 16 deep, by connection
+count. Median of 3 runs of 15 s after 5 s of warm-up. Goose at `e4f7b55`, Goose compiler
+`0bdbd18`. Bold is the column's best. Rows go by each server's average rank over the
+columns; peak RSS is the highest of a server's cells.
 
 | Server | plaintext 256 | plaintext 1,024 | plaintext 4,096 | JSON 256 | JSON 1,024 | peak RSS |
 |---|---:|---:|---:|---:|---:|---:|
-| libreactorng (C)\* | 6.96 M | 7.38 M | 7.03 M | 545 K | 609 K | 6.1-80 MB |
-| **Goose io_uring** | 6.74 M | 6.52 M | 6.02 M | 498 K | 487 K | 8.9-15 MB |
-| vanilla-io_uring (V)\* | **8.14 M** | **8.25 M** | **7.60 M** | 456 K | 453 K | 37-154 MB |
-| zix (Zig) | 5.13 M | 5.44 M | 4.97 M | **552 K** | **614 K** | 6.7-39 MB |
-| **Goose epoll** | 5.37 M | 5.31 M | 5.24 M | 416 K | 408 K | **2.7-3.6 MB** |
-| zeemo (Zig) | 2.39 M | 2.69 M | 2.21 M | 540 K | 606 K | 6.6-37 MB |
-| xitca-web (Rust) | 3.30 M | 3.52 M | 3.21 M | 419 K | 442 K | 25-69 MB |
-| vanilla-epoll (V) | 6.10 M | 5.85 M | 5.46 M | (216 K) | (218 K) | 6.0-57 MB, 15 GB in JSON |
-| tokio (Rust) | 3.89 M | 3.83 M | 3.65 M | 394 K | 386 K | 12-183 MB |
-| may-minihttp (Rust) | 2.39 M | 4.31 M | 3.95 M | 375 K | 364 K | 40-621 MB |
-| Tina (Odin) | 0.73 M | 0.74 M | 0.47 M | 504 K | 446 K | 755 MB |
-| hyper (Rust) | 2.69 M | 2.67 M | 2.54 M | 303 K | 295 K | 8.0-88 MB |
+| libreactorng (C)\* | 7.02 M | 7.46 M | 7.01 M | 540 K | 610 K | 72 MB |
+| vanilla-io_uring (V)\* | **8.12 M** | **8.26 M** | **7.58 M** | 453 K | 462 K | 155 MB |
+| **Goose io_uring** | 6.90 M | 6.81 M | 6.38 M | 497 K | 489 K | 13 MB |
+| zix (Zig) | 5.19 M | 5.37 M | 4.83 M | **561 K** | **614 K** | 39 MB |
+| **Goose epoll** | 5.29 M | 5.36 M | 5.26 M | 404 K | 401 K | **4.8 MB** |
+| xitca-web (Rust) | 3.37 M | 3.60 M | 3.22 M | 419 K | 445 K | 69 MB |
+| tokio (Rust) | 3.83 M | 3.79 M | 3.63 M | 381 K | 373 K | 163 MB |
+| hyper (Rust) | 2.66 M | 2.64 M | 2.53 M | 294 K | 287 K | 81 MB |
 
-\* Answers plaintext without parsing the request.  
-() vanilla-epoll's JSON is from 2026-10-11: it leaks 6-15 GB a cell.
+\* Answers plaintext without parsing the request.
 
-The 1-worker table, latency, CPU per request, and notes:
-[docs/results.md](docs/results.md#the-full-field).
+zeemo, vanilla-epoll, may-minihttp, and Tina weren't in this run; their latest numbers,
+the 1-worker table, latency, CPU per request, and notes are in
+[docs/results.md](docs/results.md#the-full-field), from kernel 6.18.40.1.
 
 ### Large responses and files
 
 One file downloaded over and over, against nginx and Caddy, the usual static file
-servers. Same machine, `bench/files.sh`, 2026-10-12, Goose at `fcfd80d`, Goose compiler
-`5c83a5a`. Files on tmpfs.
+servers. Same machine on kernel 6.18.40.1, `bench/files.sh`, 2026-10-12, Goose at
+`fcfd80d`, Goose compiler `5c83a5a`. Files on tmpfs.
 1 worker on CPU 0 or 4 on CPUs 0-3, wrk on 4-15 with 12 threads and 96 connections.
 Median of 3 runs of 10 s. Bold is the column's best. Rows go by each server's average
 rank over the columns.
@@ -175,56 +171,50 @@ responses, and Windows:
 
 Three API workloads and one of uploads, against servers that serve the same routes
 without a framework. Responses are computed per request from records loaded at startup,
-and checked before each run. Same machine, `bench/rest.sh`, 2026-10-13, Goose at
-`23aa531`, Goose compiler `6448f3f`. 4 workers on CPUs 0-3, the load on 4-15. Median of 3 runs of 15 s.
+and checked before each run. Same machine and kernel, `bench/rest.sh`, 2026-10-14, Goose
+at `e4f7b55`, Goose compiler `0bdbd18`. 4 workers on CPUs 0-3, the load on 4-15. Median
+of 3 runs of 15 s.
 
 - **A**: HttpArena's `production-stack` API, items of 0.2 KB.
 - **B**: a time tracker's hot path, 0.3-13 KB of JSON.
 - **C**: a clinic's schedule and records, up to 728 KB.
 - **Uploads**: chunked CSVs of 2-8 MB and multipart files up to 1 MB.
 
-"Reads p99" is tier C's reads at a fixed 16K a second while uploads stream in. Bold is
-the column's best; rows go by average rank.
+"Uploads" is uploads alone. "Reads p99" is tier C's reads at a fixed 16K a second while
+uploads stream in, the range over the routes and runs. Bold is the column's best; rows
+go by average rank.
 
 | Server | A | B | C | C, templates\* | Uploads | Reads p99 |
 |---|---:|---:|---:|---:|---:|---:|
-| **Goose io_uring** | **585 K/s** | **268 K/s** | 51.8 K/s | **144 K/s** | **1,152/s** | 7.8-11 ms |
-| **Goose epoll** | 456 K/s | 222 K/s | **51.9 K/s** | 140 K/s | 1,147/s | **1.4-2.5 ms** |
-| xitca-web (Rust) | 404 K/s | 233 K/s | 37.9 K/s | 110 K/s | 1,029/s | 1.7-13 ms |
-| dusty (Zig)§ | 352 K/s | 164 K/s | 25.1 K/s | 126 K/s | 1,158/s | 17-1,863 ms |
-| hyper (Rust) | 274 K/s | 150 K/s | 32.0 K/s | 119 K/s | 1,110/s | 18-19 ms |
-| tokio (Rust) | 394 K/s | 183 K/s | 31.7 K/s | 101 K/s | 1,047/s | 5.0-7.4 s† |
-| may-minihttp (Rust) | 383 K/s | 186 K/s | 32.3 K/s | 100 K/s | ✗ | ✗ |
-| Tina (Odin) | 312 K/s | 52.2 K/s‡ | 3.4 K/s‡ | 99.8 K/s | ✗ | ✗ |
-| odin-http (Odin) | 210 K/s | 47.4 K/s‡ | 3.4 K/s‡ | 38.3 K/s | 706/s | 12-13 s† |
+| **Goose io_uring** | **588 K/s** | **278 K/s** | **52.3 K/s** | **142 K/s** | 1,154/s | 7.8-10.6 ms |
+| **Goose epoll** | 448 K/s | 222 K/s | 51.3 K/s | 136 K/s | **1,166/s** | **1.0-2.0 ms** |
+| xitca-web (Rust) | 407 K/s | 235 K/s | 38.2 K/s | 113 K/s | 1,016/s | 2.4-4.6 ms |
+| dusty (Zig)§ | 343 K/s | 162 K/s | 24.6 K/s | 125 K/s | 1,125/s | 6.7-42 ms |
+| hyper (Rust) | 271 K/s | 151 K/s | 32.1 K/s | 120 K/s | 1,107/s | 11-29 ms |
+| tokio (Rust) | 393 K/s | 183 K/s | 31.6 K/s | 100 K/s | 1,034/s | 1.1-5.8 s† |
 
 \* Each record's JSON is prebuilt at startup, with the per-request values spliced in.  
 † The server fell behind the fixed rate, so the reads queued.  
-‡ Odin's JSON library is the limit here.  
-✗ may-minihttp can't read a chunked body, and Tina crashes on some streamed ones.  
 § A framework, not a direct competitor: its peer is goose-rest, the framework planned on
-this package. Measured in a later run the same day
-([docs/results.md](docs/results.md#rest-apis)).
+this package.
 
-Memory, in two parts: what the server holds at rest once its records are loaded (idle,
-measured apart with the same binaries), plus what serving the benchmark added at its
-peak. Every server keeps its records in memory. Bold is the column's lowest total.
+may-minihttp, Tina, and odin-http weren't in this run; their latest numbers are in
+[docs/results.md](docs/results.md#rest-apis), from kernel 6.18.40.1.
+
+Peak RSS of the same runs, at saturation for A to C and for uploads alone. Every server
+keeps its records in memory. Bold is the column's lowest.
 
 | Server | A | B | C | C, templates | Uploads |
 |---|---:|---:|---:|---:|---:|
-| **Goose io_uring**\* | 28 + 4.4 MB | 88 + 6.8 MB | 125 + 15 MB | 372 + 15 MB | 125 + 80 MB |
-| **Goose epoll**\* | 26 + 0.2 MB | 87 + 0.3 MB | 123 + 5.7 MB | 370 + 5.6 MB | 123 + 91 MB |
-| xitca-web (Rust) | 24 + 8.1 MB | 48 + 22 MB | 48 + 428 MB | 78 + 427 MB | **48 + 137 MB** |
-| hyper (Rust) | 7.5 + 5.5 MB | **17 + 11 MB** | **24 + 13 MB** | **62 + 13 MB** | 24 + 172 MB |
-| tokio (Rust) | 6.8 + 9.2 MB | 17 + 13 MB | 23 + 277 MB | 61 + 307 MB | 23 + 454 MB |
-| may-minihttp (Rust) | 25 + 20 MB | 57 + 15 MB | 47 + 391 MB | 95 + 395 MB | ✗ |
-| Tina (Odin) | 482 + 0.1 MB | 517 + 0.2 MB | 517 + 132 MB | 554 + 119 MB | ✗ |
-| dusty (Zig)§ | 7.7 + 8.3 MB | 29 + 13 MB | 29 + 187 MB | 55 + 186 MB | 29 + 785 MB |
-| odin-http (Odin) | **8.7 + 2.8 MB** | 44 + 39 MB | 44 + 369 MB | 80 + 396 MB | 44 + 1,211 MB |
+| **Goose io_uring**\* | 15 MB | 47 MB | 104 MB | 177 MB | 103 MB |
+| **Goose epoll**\* | **9 MB** | 46 MB | 102 MB | 176 MB | 103 MB |
+| xitca-web (Rust) | 32 MB | 68 MB | 490 MB | 512 MB | 56 MB |
+| dusty (Zig)§ | 16 MB | 42 MB | 216 MB | 241 MB | **31 MB** |
+| hyper (Rust) | 13 MB | **29 MB** | **37 MB** | **74 MB** | 72 MB |
+| tokio (Rust) | 16 MB | 30 MB | 307 MB | 365 MB | 412 MB |
 
 \* Goose threads share no memory, so each of the 4 workers holds its own copy of the
-records, where the others share one. This unusually large size is being fixed. Serving
-adds only 0.2-15 MB on A to C.
+records, where the others share one. Task 025 cut tier C templated from 387 MB to 177.
 
 Fixed-rate CPU, every route's latency, and how each server reads bodies:
 [docs/results.md](docs/results.md#rest-apis).
@@ -324,7 +314,7 @@ tasks/         task tracking (tasks/README.md)
 | What | Pin | Why |
 |---|---|---|
 | Goose compiler | `aardappel/goose` `46356c2` (`master`, 2026-10-13) | The language and stdlib change often |
-| Benchmarked | REST at `23aa531`, plaintext and JSON at `73dd28c`, both with Goose `6448f3f`; files at `fcfd80d` with Goose `5c83a5a` | Benchmarks run in overnight batches, so they lag the pin |
+| Benchmarked | Plaintext, JSON, and REST at `e4f7b55` with Goose `0bdbd18`; files at `fcfd80d` with Goose `5c83a5a` | Benchmarks run in overnight batches, so they lag the pin |
 
 Move the pin in its own commit once the tests pass; benchmarks don't wait for it
 ([development.md](docs/development.md#move-the-pin)).

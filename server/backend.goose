@@ -45,7 +45,8 @@ thread_fn backend(box: http::Box, capacity: i64) {
         format(reply, " ", j.sent);
         let last = j.sent >= j.count;
         // A FULL box loses this reply, as STALE does for an exchange that's
-        // gone: the exchange waits out its time limit.
+        // gone: the exchange waits out its time limit. REPLY_SIZE holds any
+        // reply, so none is TOO_LONG.
         http::mail_send(j.reply, if last { REPLY_LAST } else { REPLY_MORE }, reply);
         if last { free.push(i); }
         else { http::arm(timers, i as u64, now + j.delay); }

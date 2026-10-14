@@ -249,7 +249,9 @@ else { http::respond(out, 503, "text/plain", "busy"); return; }
   dropped. At stop, a waiting exchange gets `Config.grace_ms`, then `CLOSED`.
 - A worker thread owns a box: `http::mail_open(slots, size)`, `http::mail_wait(box,
   ms)`, `http::mail_take(box) { key, tag, bytes => }`. `http::mail_send(address, tag,
-  bytes)` returns `SENT`, `FULL`, or `STALE` at once, from any thread, and never blocks.
+  bytes)` returns `SENT`, `FULL` (no slot free), `TOO_LONG` (longer than a slot), or
+  `STALE` at once, from any thread, and never blocks. `http::mail_slot_size(address)`
+  gives a sender the box's slot size, or -1 for a `STALE` address.
 - `http::mail_send_value(address, tag, v)` sends a flat value, such as a struct
   holding the reply's address, as its `to_bytes` image, and `http::mail_value(bytes,
   v)` reads it back into `v`, verified by `from_bytes`, or returns false. A limited

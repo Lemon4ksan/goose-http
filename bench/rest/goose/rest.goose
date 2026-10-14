@@ -2778,6 +2778,60 @@ fn stopped(e: http::Error) {
 // stack's pages back while its thread runs, so main would hold the records,
 // the image each spawn copies them through, and the files they were read
 // from for the program's life; a thread's return unmaps all three.
+// The length of each global array a worker copies, one "lens: kind name
+// type length" line each, for bench/rest-memory.sh: kind is records or
+// templates, and type the element's.
+fn print_lens() {
+    fn line(kind: const u8[:], name: const u8[:], elem: const u8[:], n: i64) {
+        print("lens: ", kind, " ", name, " ", elem, " ", n);
+    }
+    line("records", "text", "u8", text.len);
+    line("records", "words", "Str", words.len);
+    line("records", "items", "Item", items.len);
+    line("records", "users", "User", users.len);
+    line("records", "orgs", "Org", orgs.len);
+    line("records", "projects", "Project", projects.len);
+    line("records", "people", "Person", people.len);
+    line("records", "entries", "Entry", entries.len);
+    line("records", "by_token", "i64", by_token.len);
+    line("records", "by_person_id", "i64", by_person_id.len);
+    line("records", "by_entry_id", "i64", by_entry_id.len);
+    line("records", "staffers", "Staffer", staffers.len);
+    line("records", "services", "Service", services.len);
+    line("records", "clients", "Client", clients.len);
+    line("records", "visits", "Visit", visits.len);
+    line("records", "notes", "Note", notes.len);
+    line("records", "bookings", "Booking", bookings.len);
+    line("records", "shifts", "Shift", shifts.len);
+    line("records", "past", "i64", past.len);
+    line("templates", "item_json", "u8", item_json.len);
+    line("templates", "item_at", "i64", item_at.len);
+    line("templates", "user_json", "u8", user_json.len);
+    line("templates", "user_at", "i64", user_at.len);
+    line("templates", "session_json", "u8", session_json.len);
+    line("templates", "session_at", "i64", session_at.len);
+    line("templates", "project_json", "u8", project_json.len);
+    line("templates", "project_at", "i64", project_at.len);
+    line("templates", "entry_json", "u8", entry_json.len);
+    line("templates", "entry_at", "i64", entry_at.len);
+    line("templates", "entry_desc", "i64", entry_desc.len);
+    line("templates", "entry_tail", "i64", entry_tail.len);
+    line("templates", "timer_json", "u8", timer_json.len);
+    line("templates", "timer_at", "i64", timer_at.len);
+    line("templates", "booking_json", "u8", booking_json.len);
+    line("templates", "booking_at", "i64", booking_at.len);
+    line("templates", "shift_json", "u8", shift_json.len);
+    line("templates", "shift_at", "i64", shift_at.len);
+    line("templates", "client_json", "u8", client_json.len);
+    line("templates", "client_at", "i64", client_at.len);
+    line("templates", "visit_json", "u8", visit_json.len);
+    line("templates", "visit_at", "i64", visit_at.len);
+    line("templates", "note_json", "u8", note_json.len);
+    line("templates", "note_at", "i64", note_at.len);
+    line("templates", "note_mid", "i64", note_mid.len);
+    line("templates", "note_body_at", "i64", note_body_at.len);
+}
+
 thread_fn loader(cfg: http::Config, tier: u8[..1], count: i64, epoll: bool) {
     var dir: u8[>..] = [];
     if !env("REST_DATA", dir) { dir.append("build/rest"); }
@@ -2809,6 +2863,8 @@ thread_fn loader(cfg: http::Config, tier: u8[..1], count: i64, epoll: bool) {
         text.clear();
         words.clear();
     }
+    var lens: u8[>..] = [];
+    if env("REST_LENS", lens) { print_lens(); }
     for i in count {
         qput(if writes && epoll { thread_spawn(worker_writes_epoll, cfg) }
              else if writes { thread_spawn(worker_writes, cfg) }
