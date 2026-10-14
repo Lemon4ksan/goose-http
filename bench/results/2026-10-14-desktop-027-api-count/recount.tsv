@@ -1,0 +1,7 @@
+server	run	user instructions/req	user cycles/req	req/s
+goose-27cold	1	1835.0	518.9	1447382
+goose-27main	1	1833.1	483.8	1474204
+goose-27cold	2	1835.0	529.7	1443544
+goose-27main	2	1833.1	485.3	1468013
+goose-27cold	3	1835.0	526.0	1424920
+goose-27main	3	1833.1	474.9	1465888

@@ -1,0 +1,19 @@
+server	run	user instructions/req	user cycles/req	req/s
+goose-27main	1	1833.1	481.5	1427714
+goose-27cold	1	1835.0	525.7	1432289
+goose-27hot	1	1846.9	495.2	1475544
+goose-27main-uring	1	1888.5	439.9	1716518
+goose-27cold-uring	1	1885.6	427.8	1706256
+goose-27hot-uring	1	1886.2	447.7	1697563
+goose-27main	2	1833.1	477.1	1463986
+goose-27cold	2	1835.0	520.7	1433032
+goose-27hot	2	1846.9	497.1	1500930
+goose-27main-uring	2	1888.5	454.8	1714560
+goose-27cold-uring	2	1885.5	430.8	1738536
+goose-27hot-uring	2	1886.2	443.4	1711700
+goose-27main	3	1833.1	474.3	1453557
+goose-27cold	3	1835.0	513.2	1470681
+goose-27hot	3	1846.9	501.7	1463648
+goose-27main-uring	3	1888.5	439.0	1712496
+goose-27cold-uring	3	1885.5	431.0	1732548
+goose-27hot-uring	3	1886.2	445.9	1721983
