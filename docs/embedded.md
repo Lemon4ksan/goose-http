@@ -9,6 +9,24 @@ Goose compiles to C, so building for a board means having `goose build` run the 
 C cross compiler. The compiler runs on the build machine, and only the executable goes to
 the board.
 
+## Goose or C
+
+A board's program can be written two ways, and both cross-build the same way:
+
+| | [`examples/device`](../examples/device/device.goose) | [`examples/c`](../examples/c/) |
+|---|---|---|
+| Written in | Goose, with C only for what Goose can't reach | C: one function, `gh_handle`, answers every request |
+| The board's hardware | sysfs from Goose (`read_file`, `write_file`); a GPIO `ioctl` in `board.c`, called through `extern fn` | Any C the team already has, called from `gh_handle` |
+| What the package gives it | The router, JSON, cookies, forms, files, streaming, Server-Sent Events, and timers | Method, target, header fields, and a body that fits in 8 KB; a status, content type, and body of up to 1 MB back |
+
+Choose Goose for a new program, or when the API needs streaming or Server-Sent Events.
+Choose C to put an HTTP API in front of device code that is C already, without writing
+Goose. The C handler can't call the package's Goose functions, and runs on every worker
+at once, so what it shares must be atomic or locked
+([a handler in C](../examples/README.md#a-handler-in-c)). Either way, C's part goes in a
+sidecar, `device.build` or `app.build`, which `goose build` compiles with the same cross
+compiler as the program.
+
 ## What the board needs
 
 - Linux on aarch64 with glibc. musl is untested.
