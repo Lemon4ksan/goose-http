@@ -98,8 +98,7 @@ keeps its records in memory. Bold is the column's lowest.
 | hyper (Rust) | 13 MB | **29 MB** | **37 MB** | **74 MB** | 72 MB |
 | tokio (Rust) | 16 MB | 30 MB | 307 MB | 365 MB | 412 MB |
 
-Goose threads share no memory, so each of the 4 workers holds its own copy of the
-records, where the others share one. Task 025 cut tier C templated from 387 MB to 177.
+Task 025 cut Goose's peak on tier C templated from 387 MB to 177.
 
 Idle with the records loaded, by worker count: Goose on the epoll loop at `9408035`
 (2026-10-14, VmRSS 3 s after it listened,
@@ -114,8 +113,9 @@ whose memory stays flat with workers: 23 MB on tier C at 1, 2, and 4.
 | C | 23 MB | 84 MB | +20 MB | 24 MB |
 | C, templates | 38 MB | 143 MB | +35 MB | 62 MB |
 
-With one worker Goose holds less than hyper on every tier; each added worker adds a
-copy of the records.
+Goose threads share no memory, so each worker holds its own copy of the records, where
+the other servers share one. With one worker Goose holds less than hyper on every tier;
+each added worker adds a copy.
 
 The run behind these tables, with tier D beside forms and every route's latency
 ([results](results.md#rest-apis) and

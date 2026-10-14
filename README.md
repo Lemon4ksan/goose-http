@@ -167,21 +167,21 @@ in. 4 workers, 3 runs of 15 s, medians; bold is the column's best.
 framework built on this package.  
 † Fell behind the fixed rate, so the reads queued.
 
-**Memory grows with workers.** Goose threads share no memory, so each worker holds its
-own copy of the records, where hyper's threads share one. With one worker Goose holds
-less than hyper on every tier; each added worker adds a copy. Idle, records loaded:
+**Memory.** Each Goose worker holds its own copy of the records, because Goose threads
+share no memory; hyper's threads share one copy. With one worker Goose holds less than
+hyper on every tier, and each added worker adds a copy. With 4 workers:
 
-| Tier | Goose, 1 worker | Goose, 4 workers | Each added worker | hyper, 4 workers |
+| Tier | Goose, records loaded | Goose, serving | hyper, records loaded | hyper, serving |
 |---|---:|---:|---:|---:|
-| A | 4.5 MB | 8.9 MB | +1.5 MB | 7.5 MB |
-| B | 11 MB | 36 MB | +8.2 MB | 17 MB |
-| C | 23 MB | 84 MB | +20 MB | 24 MB |
-| C, templates | 38 MB | 143 MB | +35 MB | 62 MB |
+| A | 8.9 MB | 15 MB | 7.5 MB | 13 MB |
+| B | 36 MB | 47 MB | 17 MB | 29 MB |
+| C | 84 MB | 104 MB | 24 MB | 37 MB |
+| C, templates | 143 MB | 177 MB | 62 MB | 74 MB |
 
-Serving adds little on top: Goose's peak RSS at saturation is 15, 47, 104, and 177 MB
-on these four, where tokio's reaches 365 MB and xitca-web's 512 MB on tier C. Goose
-idle on the epoll loop at `9408035` (2026-10-14); hyper idle on 2026-10-13, which stays
-flat with workers: 23 MB on tier C at 1, 2, and 4.
+"Records loaded" is idle RSS after startup, Goose's on the epoll loop; "serving" is peak
+RSS at saturation, Goose's on the io_uring loop. hyper has the lowest peak of the other
+servers on B and C; tokio and xitca-web reach 307-512 MB on tier C. By worker count, and
+every server's peak: [docs/benchmarks.md](docs/benchmarks.md#rest-apis).
 
 Every table, tier D beside forms, and the losses:
 [docs/benchmarks.md](docs/benchmarks.md#rest-apis).
