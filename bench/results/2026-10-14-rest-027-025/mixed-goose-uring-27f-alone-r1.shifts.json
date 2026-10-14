@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v2/schedule/shifts?start=2026-09-07&end=2026-09-14&staff=1,2,3,4,5,6,7,8,9,10", "method": "GET" },
+  "config": { "connections": 23, "launched": 23, "duration_s": 15.000, "closed": false, "target_rate": 1440, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.000,
+  "requests": 21599,
+  "bytes": 306576206,
+  "achieved_rate": 1439.89,
+  "target_rate": 1440,
+  "target_rate_end": 1440,
+  "rate_ratio": 0.9999,
+  "bytes_per_sec": 20437865.71,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 0,
+  "latency_us": {
+    "min": 78, "mean": 195.3, "stdev": 184.1, "max": 2199,
+    "p50": 119, "p75": 166, "p90": 392, "p99": 1103, "p99_9": 1352, "p99_99": 1951
+  },
+  "status_codes": { "1xx": 0, "2xx": 21599, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAvl4nC2Sz4sURxTHq1+/flNTW9v2djrt2HSaZhiasWkmwzAMYVhHEVkWESMePEjEQyCIeNN/QJQEAjkpHvLrJMFD8A/w5Ek8yZ5CbvGwBJEclpBDDjn4fb2ZqZqq930/6r0PUz589JEx7M3xJ/z/DHrj0Tfm7NGx8ENgxaVJVrbL/fP7q8uXb12/c+/H4HXwnA7oiP4LD/n76Ik8Gzyxh/a5e+mebb3aOnDv3b/Dx+6X4Sv72+BP+VUOojfRP/yO/w4Pw6fh7/SOXuD7V/AWlV4GPwdPg3tfB4+D298GX12/+sWVc3vXNvNN1zXtqKmmZZXVeVoVeV3VaVGNsyavRmWeNnkyypICjrjIRz6xaeZ9ErPzmRUrxM6I89YLjIQsW+OFvRVmrDgWJwkzEXlyGBKp3sdWpDcST0le5Kkb5UWVxm2d4s22QC/TMR5ri7Zty2bWdkXXrq6u9mbLZb3c33Sb5sJivp6sFuvlpXW3udis28Vs1Tbz3fW5bm+ynK72F7vLbjPH3kzW0/NNt1m21e5s0Y0nn12cN82kG5ezZjaup2U9qYuuasZNVc/Kts2q8bjoACAfjZoiLsrcxklWp2UV48ww+iiv0kziwiVJGluXuizNnXPGO+edj72NMSAnLI6FXM+GWCwsq4OzE2DiRIxYT9Yws/VG2CgyYeuEicmQAnS9bKwhowyJ2KiTjKUQASEESOqwyCDBj1G/GggNaYBz2KtYIfYW7eCMaEg4QvqY9Bb1QqT3U4gY0jYiT9FJ1kR13UShk/R5n7mDrbV0GYmIB319tfAyW22Dxegw6EV0KvTPjtGjSo51qxscxEI2OoMQfJYsGBln2OJKisYoNhR1qGsBVKw+G/c32/+zGGVRmj3CUVhFhzSlATqRABZQilLh/hUFgbawSSLuaat3CFIkIWwFReoJ+/JEAy2koAekYu/f0mGUruI4ZkAAdxrggAxUTiBlm05A05hPsT+B9SCg+wHdoC9hn6GfAoR/10s79EdAd+kDz0JkAA=="
+}

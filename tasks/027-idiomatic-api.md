@@ -6,10 +6,10 @@ Status: in progress (asked for 2026-10-13). The maintainer decided what stays
 `0bdbd18`" below). The four new examples are on `main`, built and run by
 `scripts/test.sh` (2026-10-14), and the README matches them. Of the follow-up review's
 eleven items ("Examples and docs" below), 1, 2, 4, and 6 to 11 are on `main`, and 5 was
-kept as it is, with tests (2026-10-14). Item 3 waits on `api-hot`: it costs the epoll
-loop 13.8 instructions a request. `main`'s epoll build with items 7 to 11 is rechecked
-in the next overnight batch ("Pending"). Breaking changes cost least before programs
-use the API, and goose-rest will be the first.
+kept as it is, with tests (2026-10-14). Items 7 to 11 hold on a recheck (2026-10-14).
+Item 3 waits on `api-hot`: it costs the epoll loop 13.8 instructions a request and
+shows no gain of its own ("Pending"). Breaking changes cost least before programs use
+the API, and goose-rest will be the first.
 
 ## Decisions
 
@@ -51,44 +51,40 @@ Done: step 1 (`c16cca6`), step 3 for what is kept, and step 4. p3 waits on
 What `main` holds unchecked, or what waits on a branch. Remove an item once its check
 passes.
 
-- Review items 7 to 11 on `main` (merged 2026-10-14, at the maintainer's call): their
-  instructions per request hold, but the epoll build spends about 9% more user cycles a
-  request, and plaintext with 4 workers reads 1% under, from item 8's change to a
-  route plaintext doesn't run ("The review items at Goose `46356c2`" below). Recheck
-  in the next overnight batch, on a quiet machine: `bench/count.sh` and plaintext and
-  JSON from `bench/run.sh`, both loops, against `e67d92d`, `main` before them.
 - `api-hot` (2026-10-14), on top of `main`: review item 3, `respond` checking only its
   content type. It costs 13.8 user instructions a plaintext request on epoll, which
   never calls `respond` ("The review items at Goose `46356c2`"), so it doesn't land
   as it is. Its gain is in `bench/rest`'s server: 7 KB less `.text` and 99 fewer
-  scans. Next: REST tiers A-C, `bench/rest.sh run` with `STEPS="1 2 4"`, `api-hot`
-  against `main`. Without a gain beyond the runs' spread, item 3 is dropped and
-  recorded with its cost; with one, the maintainer weighs it against the epoll cost
-  (asked for 2026-10-14). `findings-46356c2-hot` writes no `Content-Type` for an empty
-  one too, so whichever merges second drops that part.
-
-- `findings-46356c2-hot` (2026-10-14), on top of `main` at `c55ad10`: the workarounds on a request's
-  path (`http::whole` taking the handler, `INTERIM`, `pos += k` in `parse`, std's
-  `find` in multipart, `each_cookie` over `each_field`, `bench/rest`'s string
-  constants) and `respond` with no `Content-Type` for an empty one. `bench/codegen.sh
-  main work`: the loops' `answer` 8 and 13 instructions larger, `parse`'s bounds
-  checks the same. `scripts/test.sh` passes in WSL and Git Bash. Waits on the overnight
-  batch against `main` at Goose `46356c2`: `bench/count.sh`, plaintext and JSON from
-  `bench/run.sh`, and REST tiers A-C.
+  scans. REST tiers A-C against `main` show no gain beyond the rounds' spread but tier
+  C templated's, which `findings-46356c2-hot` shares without it ("The pending branches
+  at Goose `46356c2`" below). Waits on the maintainer's call to drop it (asked
+  2026-10-14). `findings-46356c2-hot` writes no `Content-Type` for an empty one too, so
+  whichever merges second drops that part.
+- `findings-46356c2-hot` (2026-10-14), on top of `main`, which is merged into it: the
+  workarounds on a request's path (`http::whole` taking the handler, `INTERIM`, `pos +=
+  k` in `parse`, std's `find` in multipart, `each_cookie` over `each_field`,
+  `bench/rest`'s string constants) and `respond` with no `Content-Type` for an empty
+  one. `bench/codegen.sh main work`: the loops' `answer` 8 and 13 instructions larger,
+  `parse`'s bounds checks the same. `scripts/test.sh` passes in WSL and Git Bash.
+  Instructions, plaintext, JSON, and tiers A-C hold, but tier D's forms role runs 2-4%
+  slower alone and 3-5% more cycles a request, and the uploads beside it 6-9% slower
+  ("f's tier D, again" below). Not merged (2026-10-14); next, find the change the forms
+  path pays for, with `perf stat` on the forms role alone per change.
 - `task-025-worker-load` (task 025), on top of it: REST workers take their records over
   the typed queues, so each holds one copy, not two. `bench/rest/check.py` passes all 16
   cells. Its `extern fn mallopt` breaks every in-process test on Windows, since the
   package links the externs of every `.goose` file under its root; the next branch fixes
-  that with `exclude = ["bench"]` in `http.build`, so the two merge together. Waits on
-  REST tiers A-C against `findings-46356c2-hot`.
+  that with `exclude = ["bench"]` in `http.build` (`e227c18`). Tiers A-C and D hold
+  against `findings-46356c2-hot` (task 025), so it waits only on that branch.
 - `task-025-shared-templates` (task 025), on top of that: the REST server's prebuilt JSON
-  in a store in C that every worker reads (`bench/rest/goose/store.c`), one copy per
-  process. `scripts/test.sh` passes in WSL and Git Bash, and the checker all 16 cells.
-  The store is the package's, `store.goose` over `shim/store.c`, so goose-rest and task
-  031's module get its C with the import (decided 2026-10-14); `scripts/test-unit.sh`
-  runs its test, `test/test_store.goose`. At `9b7786a`, `bench/rest/check.py` passes all
-  14 cells, both loops. Waits on REST tiers A-C against `task-025-worker-load`, as a
-  variant labeled as such in the results.
+  in a store in C that every worker reads, one copy per process. The store is the
+  package's, `store.goose` over `shim/store.c`, so goose-rest and task 031's module get
+  its C with the import (decided 2026-10-14); `scripts/test-unit.sh` runs its test,
+  `test/test_store.goose`. `scripts/test.sh` passes in WSL and Git Bash, and
+  `bench/rest/check.py` every cell on both loops. Its rates hold against
+  `task-025-worker-load` and its templated peaks halve (task 025). Since it adds
+  public API and C to the package, it merges only once the maintainer agrees (asked
+  2026-10-14).
 
 They merge into `main` in that order, each once its benchmarks hold, and their branches
 are then deleted here and on GitHub. The README's REST memory paragraph is rewritten to
@@ -281,6 +277,117 @@ review's estimates; "unverified" marks what no program has checked yet.
 
 A proposal the work turns up later joins this list with its check before it lands.
 
+## The pending branches at Goose `46356c2`
+
+Run on the desktop on 2026-10-14, daytime, with the machine not kept quiet: Ryzen 7
+5800X3D, WSL2 kernel 6.18.54.1, gcc 15.2.0, Goose `46356c2`. Each build is made from
+`git archive` of its commit, the benchmark server with `scripts/build.sh` for both loops
+and the REST server with `goose build --cc gcc --standalone`
+([batch.sh](../bench/results/2026-10-14-rest-027-025/batch.sh) has every build and
+command):
+
+| Tag | Commit | Built from |
+|---|---|---|
+| e | `e67d92d` | `main` before review items 7 to 11 |
+| n | `cb57a0b` | `main` |
+| h | `4292f87` | `api-hot`: item 3 on `main` (REST only) |
+| f | `e047040` | `findings-46356c2-hot`, with `main` merged |
+| w | `b10cf60` | `task-025-worker-load`, with f merged (REST only, task 025) |
+| s | `effcd47` | `task-025-shared-templates`, with w merged (REST only, task 025) |
+
+```sh
+RUNS=3 bench/count.sh goose-27{e,n,f} goose-27{e,n,f}-uring
+SERVERS="goose-27e goose-27n goose-27f goose-27e-uring goose-27n-uring goose-27f-uring" \
+    TESTS="plaintext:256 json:256" LATENCY=0 bench/run.sh
+SERVERS="goose-uring-27n goose-uring-27h goose-uring-27f goose-uring-27w goose-uring-27s" \
+    STEPS="1 2 4" RATE_C=16000 bench/rest.sh run
+```
+
+### Instructions
+
+`bench/count.sh`: one worker on CPU 0, 10 million plaintext requests from h2load 1.68.0
+(CPUs 4-15, 8 threads, 256 connections, 16 in flight each), 3 runs, which repeat to 0.1
+instruction ([runs](../bench/results/2026-10-14-desktop-027-recount/runs.tsv)):
+
+| Build | epoll, user insns/req | user cycles/req | uring, user insns/req | user cycles/req |
+|---|---:|---:|---:|---:|
+| e | 1,833.1 | 479-481 | 1,888.5 | 427-442 |
+| n | 1,835.0 (+1.9) | 513-524 | 1,885.5 (-3.0) | 422-428 |
+| f | 1,836.0 (+2.9) | 507-509 | 1,885.4 (-3.1) | 431-441 |
+
+n repeats the first count to the tenth: items 7 to 11 cost no instructions, and their
+epoll build again spends 7-9% more user cycles a request than e, where uring's spends
+fewer. f spends 1.0 instruction more than n on epoll and 0.1 fewer on uring.
+
+### Plaintext and JSON
+
+`bench/run.sh`: wrk 4.1.0, the server on CPUs 0-3 and wrk on 4-15 with 8 threads, 256
+connections pipelining 16 deep, 3 runs of 15 s after 5 s of warm-up, latency left out,
+medians and the runs' range in millions of requests per second
+([summary](../bench/results/2026-10-14-desktop-027-recheck-run/summary.md)):
+
+| Test, workers | e | n | f | e, uring | n, uring | f, uring |
+|---|---|---|---|---|---|---|
+| plaintext, 1 | 1.447 (1.442-1.624) | 1.538 (1.518-1.586) | 1.564 (1.469-1.617) | 1.850 (1.841-1.851) | 1.865 (1.864-1.915) | 1.885 (1.808-1.927) |
+| plaintext, 4 | 5.090 (4.875-5.265) | 5.181 (4.714-5.280) | 5.245 (4.702-5.260) | 6.784 (5.992-6.831) | 6.786 (6.739-6.919) | 6.820 (6.291-6.840) |
+| json, 1 | 0.119 (0.117-0.126) | 0.123 (0.122-0.123) | 0.125 (0.122-0.127) | 0.152 (0.152-0.153) | 0.152 (0.151-0.152) | 0.151 (0.148-0.152) |
+| json, 4 | 0.397 (0.373-0.402) | 0.398 (0.368-0.405) | 0.403 (0.372-0.405) | 0.503 (0.469-0.507) | 0.507 (0.476-0.512) | 0.504 (0.450-0.515) |
+
+With 4 workers, one round of nearly every cell fell 6-12% under the other two, the
+third on epoll for all three builds: the machine's load, not a build's. Peak RSS is the
+same for all three, 3.4 MB with 1 worker and 3.8-3.9 MB with 4 on epoll. n's median is
+at or above e's in all eight cells, so items 7 to 11 stay: their epoll cycles don't
+show in a rate. f's medians are within the runs' spread of n's in every cell.
+
+### REST
+
+`bench/rest.sh run`, steps 1, 2, and 4, uring, 4 workers on CPUs 0-3 and the load on
+4-15, 3 rounds of 15 s, tier C's reads at 16,000 a second in step 4
+([summary](../bench/results/2026-10-14-rest-027-025/summary.md)). Medians at
+saturation and their range, and tier D; w and s are in task 025:
+
+| Cell | n | h | f |
+|---|---:|---:|---:|
+| A serialize | 569.8K (558.1-584.9) | 578.1K (551.4-581.8) | 580.5K (576.6-584.7) |
+| A template | 585.9K (575.5-589.5) | 580.7K (559.2-593.3) | 593.0K (591.7-597.4) |
+| B serialize | 269.9K (259.2-271.8) | 272.7K (254.0-275.6) | 274.2K (268.9-274.9) |
+| B template | 371.6K (340.7-378.8) | 373.0K (336.9-387.6) | 380.4K (369.9-385.4) |
+| C serialize | 49.0K (46.8-50.0) | 49.8K (44.7-50.1) | 49.9K (49.8-50.5) |
+| C template | 141.9K (133.2-142.1) | 144.0K (143.3-144.2) | 143.5K (142.6-144.7) |
+| Uploads alone, p50 | 16.3-18.6 ms | 16.0-17.3 ms | 16.4-16.9 ms |
+| Uploads beside forms | 159-164/s | 163-168/s | 145-151/s |
+| Uploads beside tier C | 726-727/s | 716-720/s | 705-715/s |
+
+Peak RSS is the same for the three in every cell. h gains beyond the rounds' spread
+only on tier C templated, 1.5% over n, and f, which lacks item 3's check, gains as much
+there, 143.5K; so item 3 shows no gain of its own. f's ranges are above n's on A and C
+templated and overlap it elsewhere, but its uploads beside forms are 5-10% under n's,
+with uploads alone the same.
+
+### f's tier D, again
+
+f's loss beside forms repeats, so f isn't merged (2026-10-14). `bench/rest.sh run` with
+`STEPS=2`, f first, the same servers, 3 rounds
+([summary](../bench/results/2026-10-14-rest-027-uploads/summary.md)): uploads beside
+forms 141-155/s (median 146) against n's 150-159 (155), forms beside them 6.4-7.1K/s
+against 7.0-7.1K, and uploads alone 1.03-1.10K/s against 1.08-1.10K.
+
+`perf stat` on the server, each role alone, two rounds of 10 s, n then f
+([perf](../bench/results/2026-10-14-rest-027-uploads-perf/)):
+
+| Role | Build | Rate | User insns/req | User cycles/req | IPC |
+|---|---|---:|---:|---:|---:|
+| uploads | n | 1,086-1,124/s | 39.7-39.8 M | 13.2-13.6 M | 2.92-3.01 |
+| uploads | f | 1,107-1,121/s | 39.9-40.0 M | 13.3-13.4 M | 2.99-3.01 |
+| forms | n | 8,573-8,676/s | 6.13-6.17 M | 1.72-1.75 M | 3.54-3.56 |
+| forms | f | 8,325-8,370/s | 6.07-6.12 M | 1.79-1.80 M | 3.39-3.40 |
+
+An upload costs f 0.5% more instructions, std's `find` in multipart where
+`find_bytes` was, at the same cycles and rate. A form request costs it 1% fewer
+instructions but 3-5% more cycles, its IPC 4% lower, and the forms role alone runs
+2.4-4.0% slower in both rounds. The uploads beside forms share the workers with it.
+Which of f's changes the forms path pays for isn't found yet.
+
 ## The review items at Goose `46356c2`
 
 Run on the desktop on 2026-10-14, daytime: Ryzen 7 5800X3D, WSL2 kernel 6.18.54.1, gcc
@@ -332,8 +439,8 @@ latency left out, medians and the runs' range in millions of requests per second
 Peak RSS is the same, 3.4 MB with 1 worker and 3.8-3.9 MB with 4. With 1 worker the
 three overlap. With 4, cold's and hot's medians are 1.1% and 0.8% under main's, their
 ranges just below it. The machine wasn't kept quiet for these runs. Items 7 to 11 were
-merged on these numbers at the maintainer's call, to be measured again overnight
-("Pending").
+merged on these numbers at the maintainer's call, and held when measured again ("The
+pending branches at Goose `46356c2`").
 
 ## The series at Goose `0bdbd18`
 

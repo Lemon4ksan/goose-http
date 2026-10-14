@@ -1,0 +1,32 @@
+-- 27n round 1
+446878128482,,instructions:u,38116466869,100.00,3.01,insn per cycle
+148528534661,,cycles:u,38116050224,100.00,,
+6759833,,L1-icache-load-misses,38115950545,100.00,,
+5842613,,iTLB-load-misses,38115768057,100.00,,
+1900641226,,branch-misses,38115473251,100.00,,
+  13535 requests in 12.04s, 4.88MB read
+Requests/sec:   1124.04
+-- 27f round 1
+447564264704,,instructions:u,38313426298,100.00,2.99,insn per cycle
+149773355033,,cycles:u,38313548228,100.00,,
+6322516,,L1-icache-load-misses,38313498950,100.00,,
+5645218,,iTLB-load-misses,38312976865,100.00,,
+1878481703,,branch-misses,38312662729,100.00,,
+  13530 requests in 12.07s, 4.87MB read
+Requests/sec:   1121.20
+-- 27n round 2
+431493399533,,instructions:u,38068552685,100.00,2.92,insn per cycle
+147837891589,,cycles:u,38069016281,100.00,,
+6510873,,L1-icache-load-misses,38069179209,100.00,,
+5923859,,iTLB-load-misses,38069108169,100.00,,
+1839292286,,branch-misses,38068847853,100.00,,
+  13105 requests in 12.06s, 4.72MB read
+Requests/sec:   1086.39
+-- 27f round 2
+442426509994,,instructions:u,37784415979,100.00,3.01,insn per cycle
+146896086605,,cycles:u,37784542878,100.00,,
+6470097,,L1-icache-load-misses,37784124494,100.00,,
+6149129,,iTLB-load-misses,37783790518,100.00,,
+1867756466,,branch-misses,37783479451,100.00,,
+  13315 requests in 12.03s, 4.80MB read
+Requests/sec:   1106.88
