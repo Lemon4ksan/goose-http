@@ -98,7 +98,8 @@ fn multipart_done(m: const Multipart&) -> bool { m.place == MP_DONE }
 // pieces of its content, and its end, in order. A part's bytes last until F
 // returns. Returns false, and fails m for the rest of the body, when the
 // body isn't multipart, as a delimiter not followed by CRLF or "--", or a
-// part's head that isn't field lines or is longer than MAX_PART_HEAD.
+// part's head that isn't field lines or is longer than MAX_PART_HEAD, or
+// when F calls fail_multipart.
 fn each_part<F>(m: Multipart&, piece: const u8[:]) -> bool {
     guard m.place != MP_FAILED else { return false; }
     guard m.place != MP_DONE else { return true; }
@@ -128,6 +129,7 @@ fn read_parts<F>(m: Multipart&, work: const u8[:]) -> bool {
                 if m.place == MP_DATA && data.len > 0 {
                     let p: Part = Part.Data { bytes: data };
                     F(p);
+                    guard m.place != MP_FAILED else { return failed(m); }
                 }
                 m.held.append(work[work.len - keep..]);
                 return true;
@@ -136,9 +138,11 @@ fn read_parts<F>(m: Multipart&, work: const u8[:]) -> bool {
                 if k > 0 {
                     let p: Part = Part.Data { bytes: work[at..at + k] };
                     F(p);
+                    guard m.place != MP_FAILED else { return failed(m); }
                 }
                 let end: Part = Part.End;
                 F(end);
+                guard m.place != MP_FAILED else { return failed(m); }
             }
             at += k + d.len;
             m.place = MP_AFTER;
@@ -174,6 +178,7 @@ fn read_parts<F>(m: Multipart&, work: const u8[:]) -> bool {
             guard end - at <= MAX_PART_HEAD && field_lines(work[at..end]) else { return failed(m); }
             let head: Part = Part.Head { fields: work[at..end] };
             F(head);
+            guard m.place != MP_FAILED else { return failed(m); }
             at = end + 2;
             m.place = MP_DATA;
         } else {
@@ -185,9 +190,17 @@ fn read_parts<F>(m: Multipart&, work: const u8[:]) -> bool {
 }
 
 fn failed(m: Multipart&) -> bool {
+    fail_multipart(m);
+    return false;
+}
+
+// Fails m as each_part fails a body that isn't multipart, for a check of the
+// program's own, such as of a part's head. Called from each_part's function,
+// each_part calls it no more and returns false. Every later each_part returns
+// false, and multipart_done too.
+fn fail_multipart(m: Multipart&) {
     m.place = MP_FAILED;
     m.held.clear();
-    return false;
 }
 
 // Whether lines are field lines, each ending in CRLF, that field_in can read:

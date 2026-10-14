@@ -1,0 +1,4 @@
+// The GPIO line, in C, which goose build compiles and links with the program.
+c_sources = ["board.c"];
+// MSVC needs C11 for <stdatomic.h>, and a flag for it.
+c_flags_msvc = ["/std:c11", "/experimental:c11atomics"];

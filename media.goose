@@ -134,7 +134,7 @@ fn require_type(req: const Request&, out: Reply, want: const u8[:]) -> bool {
     guard !has_type(req, want) else { return true; }
     start(out, 415);
     field(out, "Accept", want);
-    finish(out, "Content-Length: ", "");
+    finish(out, NO_TYPE, "");
     return false;
 }
 
@@ -323,7 +323,7 @@ fn accept_or_406(req: const Request&, out: Reply, offers: const u8[:][:]) -> i64
     let i = negotiate(req, offers);
     guard i < 0 else { return i; }
     start(out, 406);
-    finish(out, "Content-Length: ", "");
+    finish(out, NO_TYPE, "");
     return -1;
 }
 

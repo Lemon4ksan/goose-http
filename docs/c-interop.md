@@ -17,17 +17,18 @@ declaration, and the shim defines the function under that name.
 A shim file is its own translation unit, so:
 
 - It sees none of the generated C. It declares the layouts it shares with Goose itself,
-  from the table below, such as `typedef struct { uint8_t *data; int64_t len; }
-  net_bytes;` for a `u8[:]`, and a packed struct for `http::PollEvent`.
+  from the table below, all packed: `typedef struct { uint8_t *data; int64_t len; }
+  net_bytes;` for a `u8[:]`, and `http::PollEvent`, each under `#pragma pack(push,
+  1)`. A `_Static_assert` checks each size: `sizeof(void *) + 8` for a slice, which
+  holds on 32-bit and 64-bit targets alike.
 - It can't reach the runtime, so it can't append to a `u8[>..]&` (`gs_bld_append`).
   `net_strerror` writes into a `u8[:]` and returns the length instead.
 - It sets its own feature-test macros: `shim/net.c` starts with `#define _GNU_SOURCE`.
 - The C compiler doesn't inline its functions into the program's C.
 - MSVC compiles C as C89 with extensions unless asked for more, and the shim uses C11's
   `_Static_assert`, so `http.build` passes `c_flags_msvc = ["/std:c11"]`.
-  MSVC has no `__attribute__((packed))`: a shim built by it, such as `shim/iocp.c`,
-  packs a struct with `#pragma pack(push, 1)`, which gcc and clang accept too, and
-  checks the size with `_Static_assert`.
+  MSVC has no `__attribute__((packed))`, so every shim packs with `#pragma pack(push,
+  1)`, which gcc and clang accept too.
 
 `goose --include header.h` still splices a header into the generated C, after the type
 declarations and before the `extern fn` prototypes, where it can use the generated types.
@@ -39,7 +40,7 @@ The server used it before task 010. Such a header can't set feature-test macros
 | Goose | C |
 |---|---|
 | `struct Ev { fd: i32, events: u32, tag: u64 }` | `Ev_g` with fields `fd_g`, `events_g`, `tag_g`, under `#pragma pack(1)` |
-| `Ev[:]` | `sl_Ev_g`: `{ Ev_g *data; int64_t len; }` |
+| `Ev[:]` | `sl_Ev_g`: `{ Ev_g *data; int64_t len; }`, packed: 16 bytes on a 64-bit target, 12 on a 32-bit one |
 | `u8[:]`, `i32[:]` | `sl_u8`, `sl_i32`: scalar slices have no `_g` |
 | `Ev&` | `Ev_g *` |
 | `u8[>..]&` | `gs_rref`, appended to with `gs_bld_append(ref, p, n)` |
@@ -52,6 +53,11 @@ Goose structs are packed, with no padding. A struct of a `u32` and a `u64` is 12
 which matches `struct epoll_event` on x86-64 but not on ARM, where the kernel's struct is
 16 bytes. That is why the shim converts epoll events into a struct of Goose's own instead
 of letting the kernel write into Goose memory (task 002).
+
+The slice struct is packed too. On a 64-bit target that changes nothing, but on a 32-bit
+one an unpacked `{ uint8_t *data; int64_t len; }` is 16 bytes, aligned to 8, and passes
+in different registers from Goose's 12. A shim that declared it unpacked received every
+slice garbled on armhf (task 030).
 
 ## On the Goose side
 

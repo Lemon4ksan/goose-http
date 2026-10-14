@@ -138,7 +138,7 @@ fn serve_file(req: const Request&, out: Reply, f: File, content_type: const u8[:
     if status == 416 {
         start(out, 416);
         content_range(out, 0, 0, f.size);
-        finish(out, "Content-Length: ", "");
+        finish(out, NO_TYPE, "");
         close_body(body);
         return;
     }
@@ -227,6 +227,23 @@ fn is_safe_path(path: const u8[:]) -> bool {
             let c = path[i];
             guard c != 0 && c != '\\' && c != ':' else { return false; }
         }
+    }
+    return true;
+}
+
+// Appends to out the path of the file in dir that encoded names, a request
+// path still percent-encoded, such as a router's *name parameter: dir, a '/'
+// unless dir is empty or ends in one, and encoded decoded. False, with out
+// as it was, for a bad escape or a decoded path is_safe_path refuses. An
+// empty dir is the working directory.
+fn file_path(dir: const u8[:], encoded: const u8[:], out: u8[>..]&) -> bool {
+    let start = out.len;
+    out.append(dir);
+    if dir.len > 0 && dir[dir.len - 1] != '/' { out.push('/'); }
+    let at = out.len;
+    guard decode(encoded, out) && is_safe_path(out[at..]) else {
+        out.resize(start);
+        return false;
     }
     return true;
 }

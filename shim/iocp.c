@@ -57,19 +57,21 @@ int32_t net_win_init(void);
 #define UR_ENOBUFS 105
 #define UR_ECANCELED 125
 
-/* A u8[:]: a pointer and a length, passed by value. */
-typedef struct { uint8_t *data; int64_t len; } ur_bytes;
-
-/* ring::Completion, packed as Goose packs a struct, and a slice of it. */
+/* The layouts shared with Goose, packed as Goose packs them (spec C.2): a
+   u8[:], passed by value, ring::Completion, and a slice of it. A slice is 12
+   bytes on a 32-bit target and 16 on a 64-bit one. */
 #pragma pack(push, 1)
+typedef struct { uint8_t *data; int64_t len; } ur_bytes;
 typedef struct {
     uint64_t tag;
     int32_t res, buf;
     uint8_t more, send;
 } ur_completion;
-#pragma pack(pop)
-_Static_assert(sizeof(ur_completion) == 18, "ur_completion is not packed");
 typedef struct { ur_completion *data; int64_t len; } ur_completions;
+#pragma pack(pop)
+_Static_assert(sizeof(ur_bytes) == sizeof(void *) + 8 && sizeof(ur_completion) == 18 &&
+               sizeof(ur_completions) == sizeof(void *) + 8,
+               "not packed as Goose packs them");
 
 /* ur_wait takes at most this many completions from the port per call. */
 #define UR_MAX_EVENTS 256

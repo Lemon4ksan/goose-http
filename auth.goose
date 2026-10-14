@@ -72,5 +72,5 @@ fn is_token68(s: const u8[:]) -> bool {
 fn challenge(out: Reply, value: const u8[:]) {
     start(out, 401);
     field(out, "WWW-Authenticate", value);
-    finish(out, "Content-Length: ", "");
+    finish(out, NO_TYPE, "");
 }

@@ -37,17 +37,21 @@
 
 _Static_assert(ENOBUFS == 105 && ECANCELED == 125, "errno values differ from src/ring.goose");
 
-/* A u8[:]: a pointer and a length, passed by value. */
+/* The layouts shared with Goose, packed as Goose packs them (spec C.2): a
+   u8[:], passed by value, ring::Completion, and a slice of it. A slice is 12
+   bytes on a 32-bit target and 16 on a 64-bit one. */
+#pragma pack(push, 1)
 typedef struct { uint8_t *data; int64_t len; } ur_bytes;
-
-/* ring::Completion, packed as Goose packs a struct, and a slice of it. */
-typedef struct __attribute__((packed)) {
+typedef struct {
     uint64_t tag;
     int32_t res, buf;
     uint8_t more, send;
 } ur_completion;
-_Static_assert(sizeof(ur_completion) == 18, "ur_completion is not packed");
 typedef struct { ur_completion *data; int64_t len; } ur_completions;
+#pragma pack(pop)
+_Static_assert(sizeof(ur_bytes) == sizeof(void *) + 8 && sizeof(ur_completion) == 18 &&
+               sizeof(ur_completions) == sizeof(void *) + 8,
+               "not packed as Goose packs them");
 
 /* A request's user_data: a Goose tag shifted left 2 (UR_TAGGED), a send
    record's address (UR_SEND), or UR_QUIET for cancels and closes, whose

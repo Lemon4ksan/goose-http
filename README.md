@@ -25,6 +25,7 @@ Early work. No TLS yet.
 | | Platform | Notes |
 |---|---|---|
 | 🟢 | Linux | io_uring (kernel 6.1+) or epoll. |
+| 🟡 | Embedded Linux, aarch64 | Cross-built, and tested on emulated arm64; not on a board yet ([embedded Linux](docs/embedded.md), task 029). 32-bit ARM cross-builds but doesn't run yet: two Goose bugs block it (task 030). |
 | 🟢 | macOS | kqueue. |
 | 🟢 | Windows | IOCP. 2 to 2.7 times slower than io_uring on WSL2 on the same machine, with oha on plaintext (task 017, 2026-10-12); not benchmarked further. |
 
@@ -97,7 +98,8 @@ liburing (`liburing-dev`), Windows the Visual Studio Build Tools. Setup:
   and IOCP on Windows; `http::serve_epoll` is epoll or kqueue. A program calls one, and
   only that one is compiled in.
 - **A handler for whole requests**, `{ req, body, out => }`: the parsed head, the body
-  if it fits in the read buffer, and one response of any size.
+  if it fits in the read buffer, and one response of any size. `http::gather` gives a
+  handler with state a longer body whole, up to a limit.
 - **A handler with state**, `{ ev, st, out => }`, for everything else: the loop calls it
   for each event of an exchange (the head, each piece of a body, room to send more, a
   message from another thread, a time limit), with state of the program's own type kept
@@ -112,6 +114,9 @@ liburing (`liburing-dev`), Windows the Visual Studio Build Tools. Setup:
   into the read buffer, valid until the handler returns; the router allocates nothing.
 - **`http::Config`** holds the address, limits, timeouts, and buffer sizes, all with
   defaults. `http::stop()` or `http::stop_on_signals()` ends the loops gracefully.
+- **Errors are `http::Error`**: the call that failed and its code. A loop,
+  `http::stop_on_signals()`, and `http::mail_open` return one, `http::report` prints it,
+  and `http::exit_on_error(e)` prints it and ends the process unless its code is 0.
 
 The API by topic, with the examples that show it: [examples/](examples/README.md).
 
@@ -123,14 +128,16 @@ and every loss: [docs/benchmarks.md](docs/benchmarks.md).
 
 | Workload | Goose | Best other | Where Goose stands |
 |---|---:|---:|---|
-| Plaintext, pipelined, 256 connections | 6.90 M/s | vanilla-io_uring 8.12 M/s\* | Fastest of the servers that parse the request |
-| JSON, 1,024 connections | 489 K/s | zix 614 K/s | Third of 8 |
-| REST tiers A / B / C ([below](#rest-apis)) | 588 K / 278 K / 52.3 K/s | xitca-web 407 K / 235 K / 38.2 K/s | Fastest on every tier |
-| Static files, 1 MB (2026-10-12) | 31.3 GB/s | nginx 28.5 GB/s | On a par with nginx: ahead at 4 KB and 1 MB, behind at 64 KB |
-| Compressed JSON, json-comp (`6f584e2`) | 66.1 K/s | actix 62.6 K/s | Fastest of the servers that compress each response |
-| Peak RSS, plaintext and JSON | 4.8-13 MB | zix 39 MB | Lowest |
+| [Plaintext](docs/benchmarks.md#plaintext-and-json)†, pipelined, 256 connections | 6.90 M/s | vanilla-io_uring 8.12 M/s\* | Fastest of the servers that parse the request |
+| [JSON](docs/benchmarks.md#plaintext-and-json)†, 1,024 connections | 489 K/s | zix 614 K/s | Third of 8 |
+| [REST tiers](#rest-apis) A / B / C | 588 K / 278 K / 52.3 K/s | xitca-web 407 K / 235 K / 38.2 K/s | Fastest on every tier |
+| [Static files](docs/benchmarks.md#static-files), 1 MB (2026-10-12) | 31.3 GB/s | nginx 28.5 GB/s | On a par with nginx: ahead at 4 KB and 1 MB, behind at 64 KB |
+| [Compressed JSON](docs/benchmarks.md#compression), json-comp (`6f584e2`) | 66.1 K/s | actix 62.6 K/s | Fastest of the servers that compress each response |
+| [Peak RSS](docs/benchmarks.md#plaintext-and-json), plaintext and JSON | 4.8-13 MB | zix 39 MB | Lowest |
 
-\* Answers without parsing the request.
+\* Answers without parsing the request.  
+† Tiny fixed responses, which measure the loop and the parser and little else. The
+[REST tiers](#rest-apis) are more representative of a real program.
 
 ### REST APIs
 
@@ -156,7 +163,8 @@ in. 4 workers, 3 runs of 15 s, medians; bold is the column's best.
 | hyper (Rust) | 271 K/s | 151 K/s | 32.1 K/s | 120 K/s | 1,107/s | 11-29 ms |
 | tokio (Rust) | 393 K/s | 183 K/s | 31.6 K/s | 100 K/s | 1,034/s | 1.1-5.8 s† |
 
-\* A framework: its peer is goose-rest, the framework planned on this package.  
+\* A framework: its peer is [goose-rest](https://github.com/kaitk/goose-rest), the REST
+framework built on this package.  
 † Fell behind the fixed rate, so the reads queued.
 
 **Memory grows with workers.** Goose threads share no memory, so each worker holds its
@@ -171,8 +179,7 @@ less than hyper on every tier; each added worker adds a copy. Idle, records load
 | C, templates | 38 MB | 143 MB | +35 MB | 62 MB |
 
 Serving adds little on top: Goose's peak RSS at saturation is 15, 47, 104, and 177 MB
-on these four, where tokio's reaches 365 MB and xitca-web's 512 MB on tier C. Task 025
-cuts the per-worker copy: idle tier C templated went from 379 MB to 143 so far. Goose
+on these four, where tokio's reaches 365 MB and xitca-web's 512 MB on tier C. Goose
 idle on the epoll loop at `9408035` (2026-10-14); hyper idle on 2026-10-13, which stays
 flat with workers: 23 MB on tier C at 1, 2, and 4.
 

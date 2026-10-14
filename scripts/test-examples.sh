@@ -4,7 +4,9 @@
 # listens on port 8080, which must be free. Needs curl.
 #
 # GOOSE names the compiler (default: goose on PATH), and CC the C compiler,
-# as scripts/build.sh takes them.
+# as scripts/build.sh takes them. BIN is where the examples are built, and
+# PREBUILT=1 runs the ones already there, as scripts/test-aarch64.sh does on a
+# machine without the compiler. RSS=1 prints each example's peak RSS on Linux.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -14,7 +16,7 @@ case $(uname -s) in
 MINGW* | MSYS*) windows=1 cc=${CC:-msvc} ;;
 *) windows= cc=${CC:-gcc} ;;
 esac
-bin=$root/build/examples
+bin=${BIN:-$root/build/examples}
 mkdir -p "$bin"
 tmp=$(mktemp -d)
 pid=
@@ -22,6 +24,9 @@ pid=
 # Ends the running example. Git Bash's kill doesn't always end a native
 # program, so on Windows it goes by the Windows process id.
 end_example() {
+    if [ -n "${RSS:-}" ] && [ -r "/proc/$pid/status" ]; then
+        echo "$name${LOOP:+ ($LOOP)}: peak RSS $(sed -n 's/^VmHWM:[[:space:]]*//p' "/proc/$pid/status")"
+    fi
     if [ -n "$windows" ]; then
         taskkill //F //PID "$(cat "/proc/$pid/winpid")" >/dev/null
     else
@@ -50,8 +55,10 @@ start() {
     shift
     src=$root/examples/$name/$name.goose
     [ -f "$src" ] || src=$root/examples/$name/app.goose
-    "$goose" build --cc "$cc" --standalone -o "$bin/$name" "$src" >"$tmp/log" 2>&1 ||
-        { cat "$tmp/log"; fail "$name doesn't build"; }
+    if [ -z "${PREBUILT:-}" ]; then
+        "$goose" build --cc "$cc" --standalone -o "$bin/$name" "$src" >"$tmp/log" 2>&1 ||
+            { cat "$tmp/log"; fail "$name doesn't build"; }
+    fi
     tries=0
     while curl -s -o /dev/null "$url/" 2>/dev/null; do
         tries=$((tries + 1))
@@ -123,6 +130,15 @@ expect 200 -F note=hi -F "file=@$tmp/part.txt" "$url/form"
 holds "note: 2 bytes"
 holds "file (part.txt): 5 bytes"
 expect 415 -d plain "$url/form"
+# Larger than the read buffer, so gathered: 17,786 bytes, sized and chunked,
+# and then a megabyte and a byte, past /words's limit.
+{ seq 1 3000; seq 1 1000; } >"$tmp/words"
+expect 200 --data-binary "@$tmp/words" "$url/words"
+holds "4000 words, 3000 different"
+expect 200 -H 'Transfer-Encoding: chunked' --data-binary "@$tmp/words" "$url/words"
+holds "4000 words, 3000 different"
+head -c 1048577 /dev/zero >"$tmp/big"
+expect 413 -H 'Expect: 100-continue' --data-binary "@$tmp/big" "$url/words"
 end_example
 
 start later
@@ -145,6 +161,18 @@ expect 304 -H "If-None-Match: $etag" "$url/files/a.txt"
 expect 404 "$url/files/missing.txt"
 end_example
 
+start compress
+expect 200 --compressed -H 'Accept-Encoding: gzip' "$url/report"
+holds '"id":200'
+coding=$(curl -sS -D - -o /dev/null -H 'Accept-Encoding: gzip' "$url/report" | tr -d '\r' |
+    sed -n 's/^[Cc]ontent-[Ee]ncoding: //p')
+[ "$coding" = gzip ] || fail "compress: /report came with Content-Encoding '$coding', want gzip"
+expect 200 --compressed -H 'Accept-Encoding: gzip' "$url/count/1000"
+holds 1000
+expect 200 "$url/report"
+holds '"id":1,'
+end_example
+
 start c
 expect 200 "$url/"
 holds "Hello from C!"
@@ -156,5 +184,36 @@ expect 200 -d hi "$url/echo"
 holds hi
 expect 404 "$url/nope"
 end_example
+
+# The device's sysfs, faked: a thermal zone and an LED of its own. Windows has
+# no epoll loop.
+mkdir "$tmp/zone" "$tmp/led"
+printf '47250\n' >"$tmp/zone/temp"
+printf '0\n' >"$tmp/led/brightness"
+printf '255\n' >"$tmp/led/max_brightness"
+THERMAL=$tmp/zone LED=$tmp/led
+[ -z "$windows" ] || { THERMAL=$(cygpath -m "$THERMAL"); LED=$(cygpath -m "$LED"); }
+export THERMAL LED
+loops="uring epoll"
+[ -z "$windows" ] || loops=uring
+for LOOP in $loops; do
+    export LOOP
+    start device
+    expect 200 "$url/"
+    holds "EventSource"
+    expect 200 "$url/api/status"
+    holds '"temp_mc":47250,"led":false,"gpio":false,"gpio_simulated":true'
+    expect 204 -X PUT "$url/api/led/on"
+    [ "$(cat "$tmp/led/brightness")" = 255 ] || fail "device: LED brightness $(cat "$tmp/led/brightness")"
+    expect 204 -X PUT "$url/api/gpio/on"
+    expect 200 "$url/api/status"
+    holds '"led":true,"gpio":true'
+    expect 204 -X PUT "$url/api/led/off"
+    expect 400 -X PUT "$url/api/gpio/maybe"
+    expect 200 -N "$url/api/events?n=2&ms=100"
+    [ "$(grep -c '^data: {"temp_mc":47250}' "$tmp/body")" = 2 ] || fail "device: events $(cat "$tmp/body")"
+    end_example
+done
+unset THERMAL LED LOOP
 
 echo "test-examples.sh: all passed"

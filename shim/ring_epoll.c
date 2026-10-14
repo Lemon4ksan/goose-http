@@ -52,16 +52,20 @@
 #define RP_LISTENER UINT64_MAX
 #define RP_WAKER (UINT64_MAX - 1)
 
-/* The layouts shared with Goose, per spec C.2: a u8[:], http::PollEvent,
-   http::Completion, and slices of the last two. */
-typedef struct { uint8_t *data; int64_t len; } rp_bytes;
+/* The layouts shared with Goose, packed as Goose packs them (spec C.2): a
+   u8[:], http::PollEvent, http::Completion, and slices of the last two. A
+   slice is 12 bytes on a 32-bit target and 16 on a 64-bit one. */
 #pragma pack(push, 1)
+typedef struct { uint8_t *data; int64_t len; } rp_bytes;
 typedef struct { uint32_t events; uint64_t tag; } rp_event;
 typedef struct { uint64_t tag; int32_t res, buf; uint8_t more, send; } rp_completion;
-#pragma pack(pop)
-_Static_assert(sizeof(rp_event) == 12 && sizeof(rp_completion) == 18, "not packed");
 typedef struct { rp_event *data; int64_t len; } rp_events;
 typedef struct { rp_completion *data; int64_t len; } rp_completions;
+#pragma pack(pop)
+_Static_assert(sizeof(rp_bytes) == sizeof(void *) + 8 && sizeof(rp_event) == 12 &&
+               sizeof(rp_completion) == 18 && sizeof(rp_events) == sizeof(void *) + 8 &&
+               sizeof(rp_completions) == sizeof(void *) + 8,
+               "not packed as Goose packs them");
 
 /* From shim/net.c or shim/kqueue.c. */
 int32_t net_accept(int32_t fd, int32_t flags);
