@@ -515,6 +515,42 @@ Writing them turned up rough edges in the API, each a candidate for this task's 
   `examples/README.md` names the idiom.
 - A box's slot size is guessed from `to_bytes` image sizes (task 028).
 
+A review of the API against the examples and goose-rest at goose-http `e27ab21`
+(2026-10-14) found more, most valuable first. None is decided yet. "Hot" marks one on
+every request's path, which `bench/count.sh` checks before it lands.
+
+1. A body larger than the read buffer: goose-rest copies the head out of `Request`,
+   keeps it and the body in a buffer of its own, and parses again at the end
+   (`runtime.goose`, `gather_head`, about 70 lines). A package helper, such as
+   `http::gather(g, ev, out, spill, limit)` and then `http::gathered(g, spill)`, would
+   replace that code. Additive.
+2. `finish`'s `fields` must end in `"Content-Length: "`. Without it, the digits run
+   into the line before, with no error. The examples, `server/routes.goose`, and
+   goose-rest all write the raw string. Constants such as `http::JSON` and
+   `http::TEXT` would remove the raw string, at no cost. Additive; hot, but a constant
+   is the same append.
+3. `respond` checks its content type through `field` and `is_field` on each call, a
+   `find_any` over the constant name included. Check only the value instead. Measure
+   it first: gcc may already fold it. Hot.
+4. No supported way to add fields to every response: goose-rest swaps `out.common` for
+   CORS and moves bytes in the written head for `Server-Timing`. Either document
+   `Reply.common` as a handler's to set, or add `http::insert_field`. Additive.
+5. `respond_json` builds a new array on each call (`media.goose`). A form that reuses
+   a caller's buffer would avoid it. Additive; hot for JSON APIs.
+6. The examples' own functions take `http::Request` by value, a copy of about 300
+   bytes per call. They should take `const http::Request&`. Docs and examples only.
+7. `stop_on_signals` returns an `i32` and `mail_open` a code, so each `main` builds its
+   `http::Error` by hand. Return an `Error` instead, and add an `exit_on_error`.
+   Breaking; cold.
+8. `query_int` returns 0 for a missing value, a malformed one, and a real 0. Return
+   `i64, bool` instead. Breaking; cold.
+9. A program's own check can't fail a `Multipart`, so `upload/` keeps a flag beside
+   the one `each_part` keeps. Add `http::fail_multipart`. Additive; cold.
+10. `field` and `set_cookie` drop invalid input without a word. Return a `bool`.
+    Additive.
+11. A file from an encoded path takes `decode`, `is_safe_path`, and a join. Add an
+    `http::file_path(dir, encoded, out)`. Additive; cold.
+
 ## Kept as they are
 
 The review looked at these and found reasons to keep them:
