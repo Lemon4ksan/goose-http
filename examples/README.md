@@ -16,6 +16,7 @@ program of your own imports it as the [Quick start](../README.md#quick-start) do
 | [`upload/`](upload/upload.goose) | Uploads read as they arrive: a raw body, and a multipart form part by part, with a body limit |
 | [`later/`](later/later.goose) | An answer that waits for a backend thread over mail, with 504 when it takes too long |
 | [`files/`](files/files.goose) | A directory's files, with ranges, conditional requests, and precompressed copies |
+| [`compress/`](compress/compress.goose) | Responses compressed by `Accept-Encoding`, whole and streamed, with goose-compress |
 | [`c/`](c/) | A handler written in C, with the server and its loops in Goose ([below](#a-handler-in-c)) |
 | [`device/`](device/device.goose) | A board's HTTP API: temperature and an LED through sysfs, a GPIO line through C, the temperature as Server-Sent Events, and either loop by `LOOP` ([embedded Linux](../docs/embedded.md)) |
 | [`server/`](../server/routes.goose) | The benchmark server: bodies and responses in pieces, files, an upgrade, answers that wait, the access log |

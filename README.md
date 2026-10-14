@@ -124,14 +124,16 @@ and every loss: [docs/benchmarks.md](docs/benchmarks.md).
 
 | Workload | Goose | Best other | Where Goose stands |
 |---|---:|---:|---|
-| Plaintext, pipelined, 256 connections | 6.90 M/s | vanilla-io_uring 8.12 M/s\* | Fastest of the servers that parse the request |
-| JSON, 1,024 connections | 489 K/s | zix 614 K/s | Third of 8 |
-| REST tiers A / B / C ([below](#rest-apis)) | 588 K / 278 K / 52.3 K/s | xitca-web 407 K / 235 K / 38.2 K/s | Fastest on every tier |
-| Static files, 1 MB (2026-10-12) | 31.3 GB/s | nginx 28.5 GB/s | On a par with nginx: ahead at 4 KB and 1 MB, behind at 64 KB |
-| Compressed JSON, json-comp (`6f584e2`) | 66.1 K/s | actix 62.6 K/s | Fastest of the servers that compress each response |
-| Peak RSS, plaintext and JSON | 4.8-13 MB | zix 39 MB | Lowest |
+| [Plaintext](docs/benchmarks.md#plaintext-and-json)†, pipelined, 256 connections | 6.90 M/s | vanilla-io_uring 8.12 M/s\* | Fastest of the servers that parse the request |
+| [JSON](docs/benchmarks.md#plaintext-and-json)†, 1,024 connections | 489 K/s | zix 614 K/s | Third of 8 |
+| [REST tiers](#rest-apis) A / B / C | 588 K / 278 K / 52.3 K/s | xitca-web 407 K / 235 K / 38.2 K/s | Fastest on every tier |
+| [Static files](docs/benchmarks.md#static-files), 1 MB (2026-10-12) | 31.3 GB/s | nginx 28.5 GB/s | On a par with nginx: ahead at 4 KB and 1 MB, behind at 64 KB |
+| [Compressed JSON](docs/benchmarks.md#compression), json-comp (`6f584e2`) | 66.1 K/s | actix 62.6 K/s | Fastest of the servers that compress each response |
+| [Peak RSS](docs/benchmarks.md#plaintext-and-json), plaintext and JSON | 4.8-13 MB | zix 39 MB | Lowest |
 
-\* Answers without parsing the request.
+\* Answers without parsing the request.  
+† Tiny fixed responses, which measure the loop and the parser and little else. The
+[REST tiers](#rest-apis) are more representative of a real program.
 
 ### REST APIs
 
@@ -157,7 +159,8 @@ in. 4 workers, 3 runs of 15 s, medians; bold is the column's best.
 | hyper (Rust) | 271 K/s | 151 K/s | 32.1 K/s | 120 K/s | 1,107/s | 11-29 ms |
 | tokio (Rust) | 393 K/s | 183 K/s | 31.6 K/s | 100 K/s | 1,034/s | 1.1-5.8 s† |
 
-\* A framework: its peer is goose-rest, the framework planned on this package.  
+\* A framework: its peer is [goose-rest](https://github.com/kaitk/goose-rest), the REST
+framework built on this package.  
 † Fell behind the fixed rate, so the reads queued.
 
 **Memory grows with workers.** Goose threads share no memory, so each worker holds its

@@ -82,8 +82,9 @@ rows go by average rank.
 
 \* Each record's JSON is prebuilt at startup, with the per-request values spliced in.  
 † The server fell behind the fixed rate, so the reads queued.  
-§ A framework, not a direct competitor: its peer is goose-rest, the framework planned
-on this package.
+§ A framework, not a direct competitor: its peer is
+[goose-rest](https://github.com/kaitk/goose-rest), the REST framework built on this
+package.
 
 Peak RSS of the same runs, at saturation for A to C and for uploads alone. Every server
 keeps its records in memory. Bold is the column's lowest.
