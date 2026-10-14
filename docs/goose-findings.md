@@ -162,6 +162,34 @@ Workaround: none here. The package keeps slices in its structs throughout.
 
 ## Feature requests
 
+### `json::format_string` scans a byte at a time
+
+Found on `46356c2`, task 033. Status: open (not reported)
+
+`json::plain`, which `format_string` and `format_key` call on every string, tests each
+byte in a loop. In the REST server's tier C it takes about a third of the user cycles,
+and the same instructions take up to 7% more of them when the binary's layout puts
+the loop across a cache line, which any edit to the program can do. std's own
+`find_any` runs a `ByteSet` over 16 bytes at a time:
+
+    let ESCAPED = escaped_set();
+    fn escaped_set() -> ByteSet {
+        var m = [false; 256];
+        for i in 256 { m[i] = i < 0x20 || i == '"' || i == '\\'; }
+        return byte_set(m);
+    }
+    fn plain(s: u8[:]) -> bool { find_any(s, ESCAPED) < 0 }
+
+In std it would be json's first computed global, so every thread that uses `json` would
+carry its own copy of the 293-byte `ByteSet` (globals are copied per thread, next entry).
+With that change, std's own `stdlib_json` test gives the same output, both compiled
+and under the JIT.
+
+Workaround: the REST server's `json_string` checks with `find_any` first, which serves
+serialized B and C 11-23% faster
+([measurement](results.md#2026-10-14-rest-strings-scanned-16-bytes-at-a-time)). The
+package's examples and its benchmark server still call `format_string`.
+
 ### A worker holds its globals twice, and its spawner keeps a third copy
 
 Found on `0bdbd18`, task 025. Status: open (unchanged at `46356c2`)
