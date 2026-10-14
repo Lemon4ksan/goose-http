@@ -1,4 +1,4 @@
-# 031: One bench harness that goose-rest can reuse
+# 032: One bench harness that goose-rest can reuse
 
 Status: todo (asked for 2026-10-14)
 
