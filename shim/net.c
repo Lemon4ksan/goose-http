@@ -40,13 +40,18 @@ _Static_assert(EPOLL_CTL_ADD == 1 && EPOLL_CTL_DEL == 2 && EPOLL_CTL_MOD == 3,
                "epoll_ctl ops differ from src/sys.goose");
 _Static_assert(SHUT_WR == 1, "shutdown's how differs from src/sys.goose");
 
-/* A u8[:]: a pointer and a length, passed by value. */
+/* The layouts shared with Goose, packed as Goose packs them (spec C.2): a
+   u8[:] and an i64[:], passed by value, sys::PollEvent, and a slice of it. A
+   slice is 12 bytes on a 32-bit target and 16 on a 64-bit one. */
+#pragma pack(push, 1)
 typedef struct { uint8_t *data; int64_t len; } net_bytes;
-
-/* sys::PollEvent, packed as Goose packs a struct, and a slice of it. */
-typedef struct __attribute__((packed)) { uint32_t events; uint64_t tag; } net_event;
-_Static_assert(sizeof(net_event) == 12, "net_event is not packed");
+typedef struct { int64_t *data; int64_t len; } net_i64s;
+typedef struct { uint32_t events; uint64_t tag; } net_event;
 typedef struct { net_event *data; int64_t len; } net_events;
+#pragma pack(pop)
+_Static_assert(sizeof(net_bytes) == sizeof(void *) + 8 && sizeof(net_i64s) == sizeof(void *) + 8 &&
+               sizeof(net_event) == 12 && sizeof(net_events) == sizeof(void *) + 8,
+               "not packed as Goose packs them");
 
 /* Flags of net_listen and net_accept; sys::NONBLOCK, REUSEPORT, UNIX, and
    V6ONLY. */
@@ -410,9 +415,6 @@ int32_t net_stop_on_signals(void) {
 }
 
 #define ERR(e) (e)
-
-/* An i64[:]. */
-typedef struct { int64_t *data; int64_t len; } net_i64s;
 
 /* Opens path, which holds no NUL, for reading: a regular file, else -EISDIR
    for a directory and -EINVAL for anything else. O_NONBLOCK keeps a FIFO from
