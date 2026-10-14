@@ -33,20 +33,17 @@ thread_fn worker(cfg: http::Config, dir: u8[..256]) {
 }
 
 // Answers with the file in dir that name names. The router leaves name
-// percent-encoded; it's decoded, and checked not to leave dir, before it's
-// opened.
-fn download(req: const http::Request&,dir: const u8[:], name: const u8[:], st: Download&, out: http::Reply) {
-    var decoded: u8[>..] = [];
-    guard http::decode(name, decoded) && http::is_safe_path(decoded) else {
+// percent-encoded; file_path decodes it, and checks it doesn't leave dir.
+fn download(req: const http::Request&, dir: const u8[:], name: const u8[:], st: Download&, out: http::Reply) {
+    var path: u8[>..] = [];
+    guard http::file_path(dir, name, path) else {
         http::respond(out, 404, "text/plain", "");
         return;
     }
-    var path: u8[>..] = [];
-    format(path, dir, "/", decoded);
     let f, status = http::open_precompressed(req, path);
     guard status == 200 else { http::respond(out, status, "text/plain", ""); return; }
     // The head now, and the body at each MORE.
-    http::serve_file(req, out, f, http::content_type_of(decoded), st.file);
+    http::serve_file(req, out, f, http::content_type_of(path), st.file);
 }
 
 fn main() {

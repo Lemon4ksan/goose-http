@@ -588,6 +588,13 @@ every request's path, which `bench/count.sh` checks before it lands.
     `test/test_http.goose` and `test/test_api.goose` assert each result.
 11. A file from an encoded path takes `decode`, `is_safe_path`, and a join. Add an
     `http::file_path(dir, encoded, out)`. Additive; cold.
+    Done on `api-cold` (2026-10-14): `http::file_path(dir, encoded, out)` appends
+    `dir`, a `/` unless `dir` is empty or ends in one, and the decoded path, and
+    returns false, with `out` as it was, for a bad escape or a path `is_safe_path`
+    refuses. `files/` and `server/`'s `/files/` use it, and `examples/README.md`
+    lists it. `test/test_http.goose` tests escaped `..`, `/`, NUL, `\`, and `:`. A
+    `for` over a literal array of strings there met a new finding
+    ([A `for` over a literal array of strings refers into any array its body shrinks](../docs/goose-findings.md#a-for-over-a-literal-array-of-strings-refers-into-any-array-its-body-shrinks)).
 
 ## Kept as they are
 

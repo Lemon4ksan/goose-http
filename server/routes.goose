@@ -231,17 +231,13 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
 // or a precompressed copy of it.
 fn serve_static(req: http::Request, name: const u8[:], st: Transfer&, out: http::Reply) {
     var dir: u8[>..] = [];
-    var decoded: u8[>..] = [];
+    var full: u8[>..] = [];
     var status: i32 = 404;
-    if env("FILES", dir) && dir.len > 0 && http::decode(name, decoded) && http::is_safe_path(decoded) {
-        var full: u8[>..] = [];
-        full.append(dir);
-        full.push('/');
-        full.append(decoded);
+    if env("FILES", dir) && dir.len > 0 && http::file_path(dir, name, full) {
         let f, s = http::open_precompressed(req, full);
         if s == 200 {
             st.route = FILE;
-            http::serve_file(req, out, f, http::content_type_of(decoded), st.file);
+            http::serve_file(req, out, f, http::content_type_of(full), st.file);
             return;
         }
         status = s;

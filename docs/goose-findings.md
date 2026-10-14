@@ -255,6 +255,30 @@ Workaround: the helper shrinks only an array of its own and appends that to the
 caller's (`basic_auth`, `auth.goose`), or is done with the request before it shrinks
 anything. A limited array, as `Multipart.held` is, isn't refused.
 
+### A `for` over a literal array of strings refers into any array its body shrinks
+
+Found on `46356c2`, task 027. Status: open (not reported)
+
+A `for` loop over an array literal of string literals is refused when its body calls a
+function that shrinks an array declared before the loop: "cannot call shrink, which
+shrinks p: the for loop at a.goose:5 iterates ["a", "b"], whose elements may refer into
+p (§5.1)". The elements point at static data, not into `p`. The same literal bound to a
+`let` first, before or after `p`, checks, and so does a literal of integers. Expected:
+it checks as the named array does.
+
+    fn shrink(out: u8[>..]&) { out.resize(0); }
+
+    fn main() {
+        var p: u8[>..] = [];
+        for e in ["a", "b"] {
+            shrink(p);
+            print(e);
+        }
+    }
+
+Workaround: bind the literal to a `let` and iterate that (`test_files`,
+`test/test_http.goose`).
+
 ### A limited array's `..` default writes its whole capacity
 
 Found on `e7792d7`, task 009. Status: open (unchanged at `46356c2`)

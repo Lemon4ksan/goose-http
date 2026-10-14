@@ -932,6 +932,18 @@ fn test_errors() {
 fn test_files() {
     assert(http::is_safe_path("a/b.txt") && http::is_safe_path("a..b/.c") && http::is_safe_path("x"));
     for p in ["../a", "a/..", "a/./b", ".", "a\\b", "c:x"] { assert(!http::is_safe_path(p)); }
+    // file_path joins a directory and a decoded path that stays in it, and
+    // leaves out as it was otherwise, escaped separators and dots included.
+    let outside = ["..", "a/../b", "a/%2e%2E/b", "a%2F..%2Fb", "%00", "a%zz", "c%3Ax", "a%5Cb"];
+    var path: u8[>..] = [];
+    assert(http::file_path("www", "a%20b/c.txt", path) && path == "www/a b/c.txt");
+    path.clear();
+    assert(http::file_path("www/", "x", path) && path == "www/x");
+    path.clear();
+    assert(http::file_path("", "x", path) && path == "x");
+    for e in outside {
+        assert(!http::file_path("www", e, path) && path == "x");
+    }
     assert(http::content_type_of("a/b.HTML") == "text/html; charset=utf-8");
     assert(http::content_type_of("x.tar.gz") == "application/gzip");
     assert(http::content_type_of("README") == "application/octet-stream");

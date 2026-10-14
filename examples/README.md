@@ -259,8 +259,10 @@ Shown in `files/`, and in `server/`: `/files/NAME` serves the directory in `FILE
   downloads at once may queue there. A smaller file, which one read and a send serve
   faster, and a chunked response read up to 64 KB with `pread` per call.
 - `http::close_body(st.file)` at `CLOSED`.
-- `http::is_safe_path(path)`: rejects `.` and `..` segments, backslashes, and colons.
-  Check the decoded path before joining it to a directory.
+- `http::file_path(dir, name, path)`: appends to `path` the file in `dir` that `name`
+  names, such as a route's `*name` parameter, decoded. False for a bad escape or a
+  path that would leave `dir`, which `http::is_safe_path` checks: it rejects `.` and
+  `..` segments, NUL, backslashes, and colons, escaped or not.
 
 ## Answers that wait
 
