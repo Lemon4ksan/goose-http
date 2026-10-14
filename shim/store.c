@@ -1,7 +1,6 @@
-/* The REST server's shared store, for store.goose: byte blobs written once
-   at startup and then read by every worker. rest.build has goose build
-   compile this beside the server, so it sees none of the generated C but
-   goose.h. It's the benchmark's, not the package's.
+/* The shared store, for store.goose, on every platform: byte blobs written
+   once at startup and then read by every thread. goose build compiles this
+   beside the program, so it sees none of the generated C but goose.h.
 
    Goose shares only static data between threads (spec §11.2): every other
    global a worker uses is copied when it's spawned. Data a program builds at

@@ -199,8 +199,9 @@ that imports the package, on each platform its own:
 | `shim/iocp.c` | Windows | The same ring over a completion port, and the waker, a completion packet |
 | `shim/ring_epoll.c` | Linux, macOS | The ring emulated over epoll or kqueue, where io_uring is blocked, and always on macOS |
 | `shim/mail.c` | all | The mailboxes' bounded queue, and the list of loop wakers that `http::stop` wakes |
+| `shim/store.c` | all | The shared store's blobs, written once at startup and read by every thread |
 
-Each is C for one of three reasons:
+Each is C for one of four reasons:
 
 - **Syscalls and kernel structures.** Goose calls C functions, not the kernel, and its
   structs are packed, so they don't match the kernel's own (`struct epoll_event` is 16
@@ -216,6 +217,13 @@ Each is C for one of three reasons:
   and each platform's waker ends a loop's wait. The mailbox's design is Tina's
   ([Credits](#credits)). What goes in a message, the addresses, and everything above
   the queue are Goose (`mail.goose`).
+- **Memory every thread reads.** Goose shares only static data between threads, and
+  copies every other global a worker uses when it's spawned, so data built at startup
+  costs a copy per worker. `shim/store.c` holds byte blobs a program writes once,
+  before its workers read them, and copies a range into a Goose array on each read.
+  What the bytes are, and every response built around them, are Goose
+  (`store.goose`). Only a program that imports `http.store` calls it; the REST
+  benchmark's server keeps its prebuilt JSON there.
 
 `test/test_mail.build` names the same C for `test/test_mail.goose`, which declares the
 package by `mail.goose` alone and so gets no sidecar from `http.build`.
@@ -232,12 +240,6 @@ None of this is in a program that imports the package:
 - **Benchmark tools, in C**: `bench/latency.c` reads h2load's per-request log into
   percentiles, and `bench/wrk-monotonic.c`, preloaded into wrk, gives it the
   monotonic clock where WSL2 steps the wall clock.
-- **The REST benchmark server's shared store, in C**: `bench/rest/goose/store.c`.
-  Goose shares only static data between threads, so the server's prebuilt JSON would
-  cost a copy per worker; the store holds it once, and each response copies its range
-  in. The bytes and every response around them are built in Goose. It's part of that
-  server alone, through its own sidecar (`rest.build`), and has nothing to do with
-  the package.
 - **Scripts.** Shell runs the builds, tests, and benchmarks (`scripts/*.sh`,
   `bench/*.sh`). Python drives the HTTP and echo checks (`scripts/http_client.py`,
   `scripts/echo_client.py`), summarizes benchmark runs (`bench/summarize.py`), and logs
@@ -263,9 +265,9 @@ http.goose     the package's entry: settings, errors, what both loops share
                (message.goose), loops (uring.goose, epoll.goose), router
                (router.goose), files (file.goose), shim functions (sys.goose, ring.goose),
                and with nothing of HTTP in them, the mailbox (mail.goose), timer table
-               (timers.goose), and handles (handle.goose)
+               (timers.goose), handles (handle.goose), and the shared store (store.goose)
 http.build     the package's sidecar: each platform's shim
-shim/          C for syscalls: sockets, epoll, io_uring, kqueue, IOCP, and mailboxes
+shim/          C for syscalls: sockets, epoll, io_uring, kqueue, IOCP, mailboxes, and the store
 server/        the benchmark server, importing the package from "../"
 examples/      small servers, and the API by topic (examples/README.md)
 test/          unit tests

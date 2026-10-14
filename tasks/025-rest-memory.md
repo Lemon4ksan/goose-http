@@ -190,23 +190,24 @@ at most about 5,100 notes, about 0.2 MB a worker.
 Goose shares only static data between threads (spec §11.2), so the queue hand-off above
 is as low as Goose alone goes: one copy of a worker's globals each. Asked for
 2026-10-14: the server keeps its prebuilt JSON in a store in C that every worker reads,
-one copy for the process. `bench/rest/goose/store.c` and `store.goose`, compiled into
-this server alone by its sidecar `rest.build`; the package doesn't have it (asked for
-2026-10-14: it's the benchmark's, not the package's). The loader builds the JSON in
+one copy for the process. The store is the package's, `store.goose` and `shim/store.c`
+(decided 2026-10-14), so goose-rest and task 031's shared module get its C with the
+import. The loader builds the JSON in
 Goose as before, puts each `*_json` array in the store, empties its own, and freezes
 the store; the blobs' ids go to the workers in `Flags`, through the queues, which
 order the store's writes before the reads. Each template read copies its range into
 the response through `store_append`, a bounds check and a `memcpy` in C. Building the
 responses stays Goose. Loading the data from disk per request was rejected: it moves
 the memory into the page cache, out of RSS, and adds a syscall per response.
-`bench/rest/goose/test_store.goose` tests the store (`goose bench/rest/goose/test_store.goose`).
+`test/test_store.goose` tests the store, run by `scripts/test-unit.sh`.
 
 `bench/` is now out of the package (`exclude` in `http.build`): the package's library
 links the `extern fn`s of every file under its root, and the server's `mallopt`, which
 Windows lacks, broke every in-process test there (found 2026-10-14).
 
 Measured on the desktop: Ryzen 7 5800X3D, WSL2 kernel 6.18.54.1, gcc 15.2.0, Goose
-`46356c2`, at `d7c9b91`, the same way as the section above: `bench/rest-memory.sh`
+`46356c2`, at `d7c9b91`, with the store in the server's directory, the same way as the
+section above: `bench/rest-memory.sh`
 ([split](../bench/results/2026-10-14-rest-memory-store/memory.tsv)), 1 and 2 workers,
 epoll, idle, one run each, and VmRSS and VmHWM with 4 workers 3 s after listening.
 `bench/rest/check.py` passes every tier, both JSON ways, both loops, 4 workers.

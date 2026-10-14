@@ -1,3 +1,0 @@
-// The C test_store.goose needs: the store it tests.
-c_sources = ["store.c"];
-c_flags_msvc = ["/std:c11"];

@@ -1,4 +1,0 @@
-// The REST server's own C, which goose build compiles and links with it: the
-// shared store of its prebuilt JSON (store.goose).
-c_sources = ["store.c"];
-c_flags_msvc = ["/std:c11"];
