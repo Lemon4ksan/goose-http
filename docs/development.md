@@ -383,6 +383,11 @@ Operational constraints:
 - wrk's wall clock can step backward in WSL. The benchmark preloads
   `wrk-monotonic.so`; HTTP load checks rely on monotonic-clock h2load and oha for
   timeouts. With oha, a request count avoids deadline-aborted requests from `-z`.
+- Check status counts when benchmarking `/later` with a small `MAIL_SLOTS`: the
+  benchmark backend drops replies on `FULL`, and the resulting wait timeouts can
+  dominate a fixed-count run's rate. The
+  [WAKE measurement](../bench/results/2026-10-14-mail-wake-method.md#results-and-limits)
+  records this with 256 connections and 64 slots per worker (2026-10-14).
 - Docker Desktop's host network is the Docker VM's, not WSL's loopback. HttpArena's
   readiness probes and cgroup reads use helper containers; published ports reach WSL.
 - HttpArena validation can leave its watchdog holding output open until

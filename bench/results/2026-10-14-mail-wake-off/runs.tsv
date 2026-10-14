@@ -1,0 +1,13 @@
+server	workers	path	run	rps	ok	other	user_s	kernel_s	user_us	kernel_us
+base	4	/plaintext	1	550279	500000	0	0.16	3.06	0.32	6.12
+base	4	/json	1	536754	500000	0	0.16	3.04	0.32	6.08
+fixed	4	/plaintext	1	552528	500000	0	0.18	3.04	0.36	6.08
+fixed	4	/json	1	553785	500000	0	0.17	3.07	0.34	6.14
+base	4	/plaintext	2	537738	500000	0	0.20	3.14	0.40	6.28
+base	4	/json	2	528306	500000	0	0.21	3.12	0.42	6.24
+fixed	4	/plaintext	2	545923	500000	0	0.17	3.10	0.34	6.20
+fixed	4	/json	2	529789	500000	0	0.17	3.14	0.34	6.28
+base	4	/plaintext	3	481687	500000	0	0.29	3.37	0.58	6.74
+base	4	/json	3	515981	500000	0	0.25	3.25	0.50	6.50
+fixed	4	/plaintext	3	503310	500000	0	0.20	3.30	0.40	6.60
+fixed	4	/json	3	514297	500000	0	0.19	3.17	0.38	6.34

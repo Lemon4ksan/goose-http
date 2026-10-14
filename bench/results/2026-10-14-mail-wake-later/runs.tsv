@@ -1,0 +1,7 @@
+server	workers	path	run	rps	ok	other	user_s	kernel_s	user_us	kernel_us
+base	4	/later?id=b&delay=0	1	88419	499976	24	1.22	3.60	2.44	7.20
+fixed	4	/later?id=b&delay=0	1	92052	499994	6	1.11	3.75	2.22	7.50
+base	4	/later?id=b&delay=0	2	85893	499992	8	1.21	3.61	2.42	7.22
+fixed	4	/later?id=b&delay=0	2	87519	499982	18	1.23	3.68	2.46	7.36
+base	4	/later?id=b&delay=0	3	94506	499982	18	1.13	3.84	2.26	7.68
+fixed	4	/later?id=b&delay=0	3	97967	499993	7	1.37	3.94	2.74	7.88

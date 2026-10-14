@@ -705,7 +705,7 @@ A review of the API against the examples and goose-rest at goose-http `e27ab21`
 (2026-10-14) found more, most valuable first. "Hot" marks one on every request's
 path, which `bench/count.sh` checks before it lands. All but 12 are settled
 (2026-10-14): 1, 2, 4, and 6 to 11 are on `main`, 5 stays as it is, and 3 is dropped.
-Item 12, found later the same day, is open.
+Item 12, found later the same day, is completed below.
 
 1. A body larger than the read buffer: goose-rest copies the head out of `Request`,
    keeps it and the body in a buffer of its own, and parses again at the end
@@ -879,9 +879,43 @@ Item 12, found later the same day, is open.
     assertions after a disconnect and timeout. The Goose pin stays unchanged;
     upstream's only newer commit is a logo change.
 
-    Pending: the full Linux and Windows `scripts/test.sh` suites at this fix, and
-    a paired request-path benchmark against `0c7b0e4`, since every handler call now
-    checks `Stream.live`.
+    Completed (2026-10-14, `d29ac5f`, Goose `46356c2`): the full `scripts/test.sh`
+    suites pass on Linux (native io_uring, epoll, and the ring over epoll) and
+    Windows in Git Bash (IOCP, MSVC 19.51), including the examples. Linux used
+    `PORT=29180`, Windows `PORT=29280`, both `WORKERS=4`; no further fix or release
+    was needed. `CLAUDE.local.md` was absent, so the documented adjacent Goose
+    checkout supplied both compilers.
+
+    Paired benchmark of the fix: Ryzen 7 5800X3D, WSL2 Ubuntu 26.04.1, kernel
+    `6.18.54.1-microsoft-standard-WSL2`, Goose `46356c2`, gcc 15.2.0 release
+    builds through `LOOP=uring scripts/build.sh`. The baseline is `0c7b0e4` and
+    the fixed binary is `8ab362c`. oha 1.16.0 through `bench/oha.sh`, 4 workers,
+    256 connections, 500,000 requests per cell, 3 paired rounds, no CPU affinity,
+    port 29380. Rates are the three runs' ranges in K requests/s; the difference
+    is between medians. Waiting on means `MAIL_SLOTS=64`.
+
+    | Waiting | Path | Baseline | Fixed | Median difference |
+    |---|---|---:|---:|---:|
+    | Off | Plaintext | 481.7-550.3 | 503.3-552.5 | +1.5% |
+    | Off | JSON | 516.0-536.8 | 514.3-553.8 | +0.3% |
+    | On | Plaintext | 540.0-559.9 | 521.4-555.0 | -3.2% |
+    | On | JSON | 539.4-551.4 | 521.3-545.6 | -2.5% |
+    | On | `/later?id=b&delay=0` | 85.9-94.5 | 87.5-98.0 | +4.1% |
+
+    Every pair's ranges overlap: no gain or loss separates from the runs' spread.
+    The plaintext and JSON cells return only 200s. The waiting-path rates include
+    8-24 HTTP 504s per baseline run and 6-18 per fixed run, with no transport errors.
+    The benchmark backend drops a reply on `FULL`; uneven connection distribution
+    can fill a worker's 64-slot mailbox and leave a wait to time out after 5 seconds.
+    Thus the waiting-path rates do not isolate this fix's cost. `oha.sh` passes the
+    query string correctly, verified in a separate probe; no route substitution
+    was needed. This correctness fix stays; the observed median costs with waiting
+    on are recorded, and do not invoke the rule for speed-only changes.
+
+    [Method, commands, saved binary hashes, and the query probe](../bench/results/2026-10-14-mail-wake-method.md);
+    raw runs and CPU time: [waiting off](../bench/results/2026-10-14-mail-wake-off/runs.tsv),
+    [waiting on](../bench/results/2026-10-14-mail-wake-on/runs.tsv), and
+    [the waiting path](../bench/results/2026-10-14-mail-wake-later/runs.tsv).
 
 ## Kept as they are
 
