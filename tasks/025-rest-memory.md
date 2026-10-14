@@ -185,6 +185,57 @@ routes still select by the records (bookings, shifts, visits, clients, and
 `staffers.len`); only `notes` would go, read for its `kind` alone, and the dataset has
 at most about 5,100 notes, about 0.2 MB a worker.
 
+## The templates in a shared store (2026-10-14)
+
+Goose shares only static data between threads (spec §11.2), so the queue hand-off above
+is as low as Goose alone goes: one copy of a worker's globals each. Asked for
+2026-10-14: the server keeps its prebuilt JSON in a store in C that every worker reads,
+one copy for the process. `bench/rest/goose/store.c` and `store.goose`, compiled into
+this server alone by its sidecar `rest.build`; the package doesn't have it (asked for
+2026-10-14: it's the benchmark's, not the package's). The loader builds the JSON in
+Goose as before, puts each `*_json` array in the store, empties its own, and freezes
+the store; the blobs' ids go to the workers in `Flags`, through the queues, which
+order the store's writes before the reads. Each template read copies its range into
+the response through `store_append`, a bounds check and a `memcpy` in C. Building the
+responses stays Goose. Loading the data from disk per request was rejected: it moves
+the memory into the page cache, out of RSS, and adds a syscall per response.
+`bench/rest/goose/test_store.goose` tests the store (`goose bench/rest/goose/test_store.goose`).
+
+`bench/` is now out of the package (`exclude` in `http.build`): the package's library
+links the `extern fn`s of every file under its root, and the server's `mallopt`, which
+Windows lacks, broke every in-process test there (found 2026-10-14).
+
+Measured on the desktop: Ryzen 7 5800X3D, WSL2 kernel 6.18.54.1, gcc 15.2.0, Goose
+`46356c2`, at `d7c9b91`, the same way as the section above: `bench/rest-memory.sh`
+([split](../bench/results/2026-10-14-rest-memory-store/memory.tsv)), 1 and 2 workers,
+epoll, idle, one run each, and VmRSS and VmHWM with 4 workers 3 s after listening.
+`bench/rest/check.py` passes every tier, both JSON ways, both loops, 4 workers.
+
+Each added worker, idle (2 workers less 1):
+
+| Tier | Queues | Shared store |
+|---|---:|---:|
+| A, template | 1.8 MB | 0.1 MB |
+| B, template | 17.1 MB | 4.7 MB |
+| C, template | 17.6 MB | 1.7 MB |
+
+Serialized tiers don't change: they have no templates. In the store, once for the
+process: 11.8 MB on tier B and 15.2 MB on tier C.
+
+4 workers, 3 s after listening:
+
+| Tier | VmRSS, queues | VmRSS, store | VmHWM, queues | VmHWM, store |
+|---|---:|---:|---:|---:|
+| B, template | 70.0 MB | 34.6 MB | 109.0 MB | 50.2 MB |
+| C, template | 71.8 MB | 26.4 MB | 107.5 MB | 57.6 MB |
+
+Tier C templated now holds less than hyper's 62 MB idle up to about 24 workers: 21.4 MB
+with one, and 1.7 MB more for each added. `bench/codegen.sh 3ee50dd d7c9b91`: the benchmark server's code is the
+same; in this server, each template read is one of 43 calls to `store_append`, which
+gcc can't inline from its own file, and the template routes' functions shrink slightly
+(`.text` 13 KB smaller in all). Rates aren't measured yet: tiers A to C of
+`bench/rest.sh run` against `task-025-worker-load`.
+
 ## Acceptance criteria
 
 - [ ] Each worker's share split by source (records, templates, buffers, runtime), with
