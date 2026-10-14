@@ -13,10 +13,12 @@ program of your own imports it as the [Quick start](../README.md#quick-start) do
 | [`hello/`](hello/hello.goose) | One route, one worker per core: the Quick start |
 | [`routes/`](routes/routes.goose) | The router: parameters, 404 and 405, a JSON response, a request body, and a stop on Ctrl+C |
 | [`api/`](api/api.goose) | A JSON API: path parameters, a JSON request body, a bearer token, and a cookie |
-| [`upload/`](upload/upload.goose) | Uploads read as they arrive: a raw body, and a multipart form part by part, with a body limit |
+| [`upload/`](upload/upload.goose) | Uploads read as they arrive: a raw body, and a multipart form part by part, with a body limit; and a body larger than the read buffer, gathered whole |
 | [`later/`](later/later.goose) | An answer that waits for a backend thread over mail, with 504 when it takes too long |
 | [`files/`](files/files.goose) | A directory's files, with ranges, conditional requests, and precompressed copies |
+| [`compress/`](compress/compress.goose) | Responses compressed by `Accept-Encoding`, whole and streamed, with goose-compress |
 | [`c/`](c/) | A handler written in C, with the server and its loops in Goose ([below](#a-handler-in-c)) |
+| [`device/`](device/device.goose) | A board's HTTP API: temperature and an LED through sysfs, a GPIO line through C, the temperature as Server-Sent Events, and either loop by `LOOP` ([embedded Linux](../docs/embedded.md)) |
 | [`server/`](../server/routes.goose) | The benchmark server: bodies and responses in pieces, files, an upgrade, answers that wait, the access log |
 
 Build and run one from the repository's root:
@@ -46,19 +48,50 @@ Shown in `hello/` and `routes/`.
     `Host` (RFC 9112 §3.2.2).
   - `http::path_of(req.target)`, `http::query_of(req.target, key)`,
     `http::each_query(req.target) { key, value => }`: still percent-encoded.
+  - `http::query_int(req.target, key)`: a query value as an integer, and whether it's
+    there as one.
   - `http::decode(s, out)`: decodes one. With `plus` set, `+` is a space.
   - A target with a bad `%` escape gets 400.
 - **`body`**: the whole body, if it fits in the read buffer with the head. Chunked is
-  decoded. A longer body is dropped and `body` is empty; see [Streaming](#streaming).
+  decoded. A longer body is dropped and `body` is empty. To read one, gather it whole
+  with `http::gather` ([Helpers for APIs](#helpers-for-apis)) or take it in pieces
+  ([Streaming](#streaming)).
 - **`out`**: an `http::Reply`. One whole response, any size.
   - `http::respond(out, status, content_type, body)`, with no `Content-Type` for an
     empty `content_type`, as for a 204, or
   - `http::start(out, status)`, `http::field(out, name, value)`,
-    `http::finish(out, fields, body)`.
+    `http::finish(out, fields, body)`. `fields` ends in `"Content-Length: "`, which
+    `finish` follows with the body's length: `http::TEXT` and `http::JSON` add their
+    `Content-Type`, `http::NO_TYPE` none, and a response with fields of its own writes
+    them in one string, as `"Allow: GET\r\nContent-Length: "`.
   - `http::field` drops a field with CR, LF, or an invalid name, so request data can't
-    split the response; `http::is_field(name, value)` checks one first. `finish`'s
-    `fields` are written as they are, for constant text.
+    split the response, and returns false; `http::is_field(name, value)` checks one
+    before the response starts. `finish`'s `fields` are written as they are, for
+    constant text.
   - Clear `out.keep_alive` before `start` to close after the response.
+  - `out.common` is the fields `start` writes after each status line: `Server` and
+    `Date`, which the loop renders once a second. To add fields to every response, as
+    for CORS, set it to the loop's fields followed by yours, whole lines each ending
+    in `\r\n`:
+
+    ```goose
+    var common: u8[>..] = [];
+    common.append(out.common);
+    common.append("X-Frame-Options: DENY\r\n");
+    out.common = common;
+    ```
+
+    `out` is the handler's copy, so the change holds for each `start` after it, in the
+    functions given `out` included, until the handler returns. The next call starts
+    from the loop's fields again, and the responses the loop writes itself, such as a
+    400 for a request it couldn't parse, don't get yours. `start` copies the bytes, so
+    they need last only until then. Check a value from the request with
+    `http::is_field` first.
+  - `http::insert_field(out, mark, name, value)` adds a field to a response already
+    written, for a value known only then, such as `Server-Timing`'s: `mark` is
+    `out.buf.len` from before the response began. The field goes at the end of the
+    head, and the body moves up. It's dropped as `http::field` drops one, and returns
+    whether it was added.
 
 A handler passed by name, `http::serve(cfg, route)`, should be an `inline fn`, as in
 `server/routes.goose`. As a call, it keeps `http::start` from folding a constant status:
@@ -99,7 +132,7 @@ else { http::otherwise(r, out); }
 ### Helpers for APIs
 
 `respond_json` is shown in `routes/` and `api/`; `require_type`, cookies, and
-`authorization` in `api/`; multipart and `body_within` in `upload/`; the client address
+`authorization` in `api/`; multipart, `body_within`, and `gather` in `upload/`; the client address
 in `server/`. The rest have no example yet.
 
 The helpers that read a request take it as `const http::Request&`, so a call doesn't
@@ -113,7 +146,8 @@ call's result to a reference parameter
   `http::param_of` parse a type and its parameters.
 - Cookies: `http::cookie_of(req, name)`, `http::each_cookie(req) { name, value => }`,
   and `http::set_cookie(out, http::Cookie { name: "sid", value: id, max_age: 3600,
-  http_only: true, same_site: "Lax", .. })`.
+  http_only: true, same_site: "Lax", .. })`, which returns false and writes nothing
+  for a cookie `http::is_cookie` refuses.
 - `http::authorization(req)`: the scheme and credentials. `http::basic_auth(req,
   decoded)`: the user and password. `http::bearer(req)`: a Bearer token.
   `http::challenge(out, "Basic realm=\"api\"")`: 401.
@@ -121,10 +155,20 @@ call's result to a reference parameter
   }`. Multipart: `http::start_multipart(req, st.parts)` at `REQUEST`, then
   `http::each_part(st.parts, ev.data) { part => }` for each piece of the body, where
   `part` is an `http::Part`: `Head { fields }`, `Data { bytes }`, or `End`. Use
-  `http::disposition(fields)` for a part's name and filename.
+  `http::disposition(fields)` for a part's name and filename. A check of your own,
+  such as of a part's head, fails the body with `http::fail_multipart(st.parts)`.
+  At `END`, the body is whole if `http::multipart_done(st.parts)`.
 - `http::respond_json(out, status) { b => json::format_key(b, "id"); ... }`.
 - `Config.max_requests` caps a connection's requests. `http::body_within(st.taken, ev,
   out, limit)` at `REQUEST` and each `BODY` answers 413 past a route's own limit.
+- `http::gather(ev, st.body, out, limit) { req, body, o => }`, called with every event
+  of a handler with state, calls its block once with the whole body, however large, up
+  to `limit` bytes. `st.body` is an `http::Gather` in the request's state. A body that
+  came with its head goes to the block at `REQUEST`. A longer one is copied, with the
+  head, into a buffer of the worker's as it arrives, and goes to the block at `END`.
+  `CLOSED` frees what it held. Past `limit`, at most `Config.max_body`, it answers 413
+  and closes, as `body_within` does. The worker holds each gathered body whole, so keep
+  `limit` to what the program can hold at once.
 - `http::peer(out)`: the connection's address and port. `http::client(req, out,
   trusted)`: the client a trusted proxy forwarded for, from `Forwarded` or
   `X-Forwarded-For`, with `trusted` from `http::network("10.0.0.0/8")`.
@@ -216,8 +260,10 @@ Shown in `files/`, and in `server/`: `/files/NAME` serves the directory in `FILE
   downloads at once may queue there. A smaller file, which one read and a send serve
   faster, and a chunked response read up to 64 KB with `pread` per call.
 - `http::close_body(st.file)` at `CLOSED`.
-- `http::is_safe_path(path)`: rejects `.` and `..` segments, backslashes, and colons.
-  Check the decoded path before joining it to a directory.
+- `http::file_path(dir, name, path)`: appends to `path` the file in `dir` that `name`
+  names, such as a route's `*name` parameter, decoded. False for a bad escape or a
+  path that would leave `dir`, which `http::is_safe_path` checks: it rejects `.` and
+  `..` segments, NUL, backslashes, and colons, escaped or not.
 
 ## Answers that wait
 
@@ -247,8 +293,8 @@ else { http::respond(out, 503, "text/plain", "busy"); return; }
   stops once it's full.
 - A message to an exchange that has ended, or to a connection that closed, is
   dropped. At stop, a waiting exchange gets `Config.grace_ms`, then `CLOSED`.
-- A worker thread owns a box: `http::mail_open(slots, size)`, `http::mail_wait(box,
-  ms)`, `http::mail_take(box) { key, tag, bytes => }`. `http::mail_send(address, tag,
+- A worker thread owns a box: `http::mail_open(slots, size)`, which returns the box
+  and an `http::Error`, `http::mail_wait(box, ms)`, `http::mail_take(box) { key, tag, bytes => }`. `http::mail_send(address, tag,
   bytes)` returns `SENT`, `FULL` (no slot free), `TOO_LONG` (longer than a slot), or
   `STALE` at once, from any thread, and never blocks. `http::mail_slot_size(address)`
   gives a sender the box's slot size, or -1 for a `STALE` address.
@@ -281,7 +327,19 @@ A loop returns:
   Each other connection gets `Connection: close` on its next response. The loop returns
   when they close, or after `Config.grace_ms`.
 
-`http::stop_on_signals()` makes `SIGTERM` and `SIGINT` stop the loops.
+`http::stop_on_signals()` makes `SIGTERM` and `SIGINT` stop the loops, and returns an
+`http::Error` whose code is 0 when it can. `http::exit_on_error(e)` prints an error to
+stderr and ends the process with status 1, and does nothing for code 0:
+
+```goose
+fn main() {
+    http::exit_on_error(http::stop_on_signals());
+    let cfg = http::Config { port: 8080, .. };
+    var ids: i64[>..] = [];
+    for i in http::worker_count(cfg) { ids.push(thread_spawn(worker, cfg)); }
+    for id in ids { thread_wait(id); }
+}
+```
 
 ### Event loops
 

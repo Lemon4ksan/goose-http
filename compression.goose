@@ -99,7 +99,7 @@ fn respond_compressed(out: Reply, req: const Request&, status: i32, content_type
     start(out, status);
     field(out, "Content-Type", content_type);
     guard compressible(content_type) else {
-        finish(out, "Content-Length: ", body);
+        finish(out, NO_TYPE,body);
         return;
     }
     out.buf.append("Vary: Accept-Encoding\r\n");
@@ -109,7 +109,7 @@ fn respond_compressed(out: Reply, req: const Request&, status: i32, content_type
         coding_for(req, c)
     };
     guard coding != Coding.Identity else {
-        finish(out, "Content-Length: ", body);
+        finish(out, NO_TYPE,body);
         return;
     }
     out.buf.append(coding_field(coding));
@@ -117,7 +117,7 @@ fn respond_compressed(out: Reply, req: const Request&, status: i32, content_type
     // Goose can't tell that out.buf isn't the global, and won't clear it.
     var compressed: u8[>..] = [];
     compress_whole(body, compressed, coding, c);
-    finish(out, "Content-Length: ", compressed);
+    finish(out, NO_TYPE,compressed);
 }
 
 // A streamed response's coding, and the encoder it holds from the worker's

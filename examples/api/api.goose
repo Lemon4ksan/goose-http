@@ -25,7 +25,7 @@ thread_fn worker(cfg: http::Config) {
     exit(1);
 }
 
-fn answer(req: http::Request, body: const u8[:], out: http::Reply, notes: Note[>..]&) {
+fn answer(req: const http::Request&,body: const u8[:], out: http::Reply, notes: Note[>..]&) {
     var r = http::router(req);
     if http::on(r, "GET", "/notes/:id") {
         let i = index_of(http::param(r, "id"), notes);
@@ -67,14 +67,14 @@ fn answer(req: http::Request, body: const u8[:], out: http::Reply, notes: Note[>
         http::start(out, 200);
         http::set_cookie(out, http::Cookie { name: "visits", value: text, max_age: 86400, http_only: true,
                                              same_site: "Lax", .. });
-        http::finish(out, "Content-Type: text/plain\r\nContent-Length: ", text);
+        http::finish(out, http::TEXT, text);
     } else {
         http::otherwise(r, out);
     }
 }
 
 // Whether req carries the bearer token; if not, answers 401.
-fn authorized(req: http::Request, out: http::Reply) -> bool {
+fn authorized(req: const http::Request&,out: http::Reply) -> bool {
     let token, ok = http::bearer(req);
     guard ok && token == TOKEN else {
         http::challenge(out, "Bearer realm=\"notes\"");
@@ -113,8 +113,7 @@ fn read_note(body: const u8[:], n: Note&) -> bool {
 }
 
 fn main() {
-    let s = http::stop_on_signals();
-    guard s == 0 else { http::report(http::Error { call: "sigaction", code: -s }); exit(1); }
+    http::exit_on_error(http::stop_on_signals());
     let cfg = http::Config { port: 8080, .. };
     print("listening on port ", cfg.port);
     var ids: i64[>..] = [];
