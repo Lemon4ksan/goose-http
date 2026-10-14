@@ -209,6 +209,79 @@ routes still select by the records (bookings, shifts, visits, clients, and
 `staffers.len`); only `notes` would go, read for its `kind` alone, and the dataset has
 at most about 5,100 notes, about 0.2 MB a worker.
 
+## The templates in a shared store (2026-10-14)
+
+Goose shares only static data between threads (spec §11.2), so the queue hand-off above
+is as low as Goose alone goes: one copy of a worker's globals each. Asked for
+2026-10-14: the server keeps its prebuilt JSON in a store in C that every worker reads,
+one copy for the process. The store is the package's, `store.goose` and `shim/store.c`
+(decided 2026-10-14), so goose-rest and task 031's shared module get its C with the
+import. The loader builds the JSON in
+Goose as before, puts each `*_json` array in the store, empties its own, and freezes
+the store; the blobs' ids go to the workers in `Flags`, through the queues, which
+order the store's writes before the reads. Each template read copies its range into
+the response through `store_append`, a bounds check and a `memcpy` in C. Building the
+responses stays Goose. Loading the data from disk per request was rejected: it moves
+the memory into the page cache, out of RSS, and adds a syscall per response.
+`test/test_store.goose` tests the store, run by `scripts/test-unit.sh`.
+
+`bench/` is now out of the package (`exclude` in `http.build`): the package's library
+links the `extern fn`s of every file under its root, and the server's `mallopt`, which
+Windows lacks, broke every in-process test there (found 2026-10-14).
+
+Measured on the desktop: Ryzen 7 5800X3D, WSL2 kernel 6.18.54.1, gcc 15.2.0, Goose
+`46356c2`, at `d7c9b91`, with the store in the server's directory, the same way as the
+section above: `bench/rest-memory.sh`
+([split](../bench/results/2026-10-14-rest-memory-store/memory.tsv)), 1 and 2 workers,
+epoll, idle, one run each, and VmRSS and VmHWM with 4 workers 3 s after listening.
+`bench/rest/check.py` passes every tier, both JSON ways, both loops, 4 workers.
+
+Each added worker, idle (2 workers less 1):
+
+| Tier | Queues | Shared store |
+|---|---:|---:|
+| A, template | 1.8 MB | 0.1 MB |
+| B, template | 17.1 MB | 4.7 MB |
+| C, template | 17.6 MB | 1.7 MB |
+
+Serialized tiers don't change: they have no templates. In the store, once for the
+process: 11.8 MB on tier B and 15.2 MB on tier C.
+
+4 workers, 3 s after listening:
+
+| Tier | VmRSS, queues | VmRSS, store | VmHWM, queues | VmHWM, store |
+|---|---:|---:|---:|---:|
+| B, template | 70.0 MB | 34.6 MB | 109.0 MB | 50.2 MB |
+| C, template | 71.8 MB | 26.4 MB | 107.5 MB | 57.6 MB |
+
+Tier C templated now holds less than hyper's 62 MB idle up to about 24 workers: 21.4 MB
+with one, and 1.7 MB more for each added. `bench/codegen.sh 3ee50dd d7c9b91`: the benchmark server's code is the
+same; in this server, each template read is one of 43 calls to `store_append`, which
+gcc can't inline from its own file, and the template routes' functions shrink slightly
+(`.text` 13 KB smaller in all).
+
+Rates, in the batch of the section above, at `effcd47` (s, with w merged) against
+`b10cf60` (w), as a variant labeled `goose-uring-27s`
+([summary](../bench/results/2026-10-14-rest-027-025/summary.md)):
+
+| Cell | w, req/s | peak RSS | s, req/s | peak RSS |
+|---|---:|---:|---:|---:|
+| A serialize | 579.2K (551.0-580.6K) | 12 MB | 580.6K (573.8-580.9K) | 12 MB |
+| A template | 576.8K (567.8-590.2K) | 16 MB | 588.7K (583.9-593.4K) | 12 MB |
+| B serialize | 269.3K (266.0-270.5K) | 30 MB | 271.7K (269.9-277.5K) | 30 MB |
+| B template | 374.8K (357.4-377.0K) | 111 MB | 380.7K (375.5-392.3K) | 50 MB |
+| C serialize | 49.5K (49.3-50.1K) | 70 MB | 49.7K (49.1-50.3K) | 71 MB |
+| C template | 143.0K (142.3-146.3K) | 112 MB | 144.8K (142.7-146.4K) | 58 MB |
+| Uploads alone, p50 | 16.2-16.7 ms | 70 MB | 16.4-17.1 ms | 70 MB |
+| Uploads beside forms | 156-162/s | 125 MB | 151-160/s | 125 MB |
+| Uploads beside tier C | 718-732/s | | 697-712/s | |
+
+s's medians are at or above w's at saturation, every range overlapping, so the copy
+through `store_append` costs no rate. Templated peaks fall from 111 to 50 MB on tier B
+and from 112 to 58 MB on tier C, under hyper's 74 MB serving. Uploads beside tier C read
+2-4% under w's, ranges apart; tier D's server serializes, so it runs none of the store's
+code, and f read 705-715 there in the same batch.
+
 ## Acceptance criteria
 
 - [ ] Each worker's share split by source (records, templates, buffers, runtime), with

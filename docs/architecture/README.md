@@ -232,6 +232,17 @@ until the task named beside it confirms or replaces it.
   key holds the connection's slot, 24 bits of its generation, and 20 of the exchange's
   number, and a message whose key no waiting exchange holds is dropped. The design and
   what the competitors do are in task 015, "Answers that wait: a proposal".
+- **A shared store for data every thread reads** (task 025, 2026-10-14). Goose shares
+  only static data between threads (spec §11.2) and copies every other global a worker
+  uses when it's spawned, so data built at startup costs a copy per worker. The store
+  (`store.goose` over `shim/store.c`) holds byte blobs that one thread puts and then
+  freezes before any other reads them; it hands the blobs' ids on through a queue,
+  `thread_spawn`, or `thread_wait`, which order the writes before the reads. Reads copy
+  a range into a Goose array, since an `extern fn` can't return a view of C's memory
+  (spec §7.10). It holds bytes only: what they mean, and the responses built around
+  them, stay Goose. It imports nothing of HTTP, and a program reaches it only by
+  `import http.store`. Rejected: loading the data from disk per request, which would
+  move the memory to the page cache, out of RSS, and add a syscall per response.
 
 ## Proposed
 
