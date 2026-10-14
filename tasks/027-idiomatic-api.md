@@ -808,28 +808,56 @@ Item 12, found later the same day, is open.
     lists it. `test/test_http.goose` tests escaped `..`, `/`, NUL, `\`, and `:`. A
     `for` over a literal array of strings there is refused when its body shrinks an
     array, so the test binds the literal to a `let` first.
-12. A reply sent to the address of an exchange that no longer waits, because its client
-    closed or its wait timed out, returns `SENT`. The loop's `delivered` (`epoll.goose`)
-    finds no waiting exchange for the key, whose connection generation has moved on, and
-    drops the reply silently. A thread working for that exchange, such as a database
-    thread answering `rest::ask`, does the whole job and sends every piece of a long
-    reply for a client that has gone. The mailbox's credits name the idea that a send
-    says at once that an address is stale; today it does so only when the whole box is
-    closed or reopened. Found by goose-rest's task 017 (2026-10-14), at goose-http
-    `bc75f2a`. Changes what a send to an exchange that has ended returns: `STALE`,
-    where it's `SENT` today.
-    Proposed: a send to the key of an exchange that no longer waits returns `STALE`.
-    One way is a box opened with a table of live keys, indexed by a key's high bits
-    (`later_base` already puts the connection's slot and generation there). Only the
-    owner sets and clears an entry, and `mail_send` reads it atomically before taking a
-    slot. The loop sets a connection's entry when its exchange waits (`http::later`) and
-    clears it when the exchange is woken, times out, or its connection closes. Add
-    `http::mail_live(to) -> bool`, which reads the same entry without sending. Open for
-    goose-http to settle: mail.goose is meant to know nothing of HTTP, so the table
-    should be generic, keys the owner marks live; and the atomic read belongs in
-    `shim/mail.c`. Once it exists, goose-rest's `rest::answer` already stops on `STALE`,
-    and goose-rest adds `rest::wanted(a) = http::mail_live(a.reply)`, so a service skips
-    a job or stops a reply's pieces for a client that has gone.
+12. A reply to an exchange whose client closed or whose wait timed out returned `SENT`,
+    then the loop dropped it silently. A database thread answering `rest::ask` could
+    do the whole job and send every piece of a long reply for a client that had gone.
+    Found by goose-rest's task 017 (2026-10-14), at goose-http `bc75f2a`: only closing
+    or reopening the whole box made a send return `STALE`.
+    Implemented (2026-10-14): `mail_live(to)` and an optional generic table of keys
+    the owner marks live with `mail_mark`. The mailbox owns the atomic table and
+    knows no HTTP state. The HTTP worker sizes it by `max_conns` and selects entries
+    with the key's top 20 bits. The lifecycle and the race with a send already in
+    flight are recorded in
+    [the waiting design](../docs/architecture/README.md#waiting-answers-logging-and-shutdown).
+    Publishing in `later` itself lets another thread reply before the handler
+    returns; timer exhaustion or an immediate whole response clears the key again.
+    `mail_slot_size` now returns -1 for a stale tracked key too.
+
+    Validation on Goose `46356c2`: `scripts/test.sh` passes on Linux (io_uring,
+    epoll, and the ring over epoll) and Windows (IOCP). Final unit checks include
+    tracked concurrent sends, entry replacement, queued mail after clearing,
+    immediate replies, timer exhaustion, `CLOSED`, and answering instead of waiting.
+    The HTTP suite checks `STALE` and `mail_live == false` in the backend after a
+    client disconnects mid-wait and after a timeout, then checks connection reuse
+    and repeated SSE waits. Both kqueue paths use the same updated Goose loops and
+    tests; a native macOS run remains pending because no macOS runner is available.
+    Request-path benchmark: Ryzen 7 5800X3D, WSL2 Ubuntu 26.04.1, kernel
+    `6.18.54.1-microsoft-standard-WSL2`, Goose `46356c2`, gcc 15.2.0 release
+    builds. The baseline's HTTP source is `1e963ba`; the candidate adds this item.
+    oha 1.16.0, 4 workers, 256 connections, 500,000 requests per cell, 3 paired
+    rounds, no CPU affinity, on the io_uring loop. Each cell runs
+    `oha -n 500000 -c 256 --no-tui --json http://127.0.0.1:29380/PATH` through
+    `bench/oha.sh`, on `/plaintext` and `/json`, with waiting disabled and with
+    `MAIL_SLOTS=64`. Rates below are the three runs' ranges, in K requests/s;
+    the difference is between medians. Neither gain nor loss separates from
+    the runs' spread.
+
+    | Waiting | Path | Baseline | Live keys | Median difference |
+    |---|---|---:|---:|---:|
+    | Off | Plaintext | 511.3-523.0 | 506.5-529.0 | +2.9% |
+    | Off | JSON | 508.8-525.6 | 502.7-516.9 | +1.0% |
+    | On | Plaintext | 538.5-565.0 | 531.5-551.5 | -2.7% |
+    | On | JSON | 545.9-558.4 | 522.2-573.7 | +0.3% |
+
+    Raw runs and CPU time:
+    [waiting disabled](../bench/results/2026-10-14-mail-live-off/runs.tsv),
+    [waiting enabled](../bench/results/2026-10-14-mail-live-on/runs.tsv).
+    [The measurement settings and binary hashes](../bench/results/2026-10-14-mail-live-method.md)
+    identify the saved builds independently of the metadata's runtime HEAD.
+
+    goose-rest can add `rest::wanted(a) = http::mail_live(a.reply)` so a service
+    skips a job or stops sending pieces for a client that has gone. Its
+    `rest::answer` already stops on `STALE`; that repository is outside this change.
 
 ## Kept as they are
 

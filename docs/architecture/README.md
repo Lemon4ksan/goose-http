@@ -149,9 +149,22 @@ bound, allow any thread to receive, and cannot wake an event loop.
 
 A loop allocates a box and timer table only when `Config.mail_slots` and
 `Config.max_waiting` are positive. `http::later` requires a time limit and returns an
-exchange address. Messages for ended exchanges or closed connections are dropped.
+exchange address. Each HTTP worker's box tracks live keys in an atomic table of
+`Config.max_conns` entries: 8 bytes each, 128 KiB at the default. The mailbox knows
+only keys: its owner chooses the table size and the shift that selects an entry,
+then marks and clears whole keys. Untracked boxes accept any key.
+
+`later` marks the key before returning, so a reply from another thread can arrive
+before the handler returns. Both Goose loops clear it before `WAKE`, `TIMEOUT`, or
+`CLOSED`, when a timer cannot be armed, or when a handler answers instead of waiting.
+This covers io_uring, epoll, kqueue, and IOCP through their shared Goose paths.
+Send checks the key atomically before claiming a queue slot and returns `STALE` for
+an exchange that no longer waits. `mail_live` gives any thread the same snapshot
+without sending. A send that read a live key before it was cleared can still be
+queued; the loop checks each delivered key and drops messages that no longer match
+a waiting exchange. Repeating `later` on the same exchange marks its key live again.
 Send returns `SENT`, `FULL`, `TOO_LONG`, or `STALE` without blocking; senders can query
-the slot size (task 028, 2026-10-14).
+the slot size, or -1 for a stale address (tasks 027 and 028, 2026-10-14).
 
 `http::peer` asks for the socket address on demand. Forwarded addresses are used only
 when the peer is in the program's trusted networks. With `Config.log`, `DONE` reports

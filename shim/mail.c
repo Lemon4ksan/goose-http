@@ -149,6 +149,8 @@ typedef struct {
     int64_t waker;
     int own_waker;
     unsigned char *slots;
+    mail_a64 *live;
+    uint32_t live_count, key_shift;
 } mail_box;
 
 #define MAIL_MAX_BOXES 4096
@@ -166,9 +168,12 @@ static mail_slot *mail_at(mail_box *b, uint32_t pos) {
 
 /* Opens a box of slots slots, a power of two, each taking a message of up to
    size bytes. waker is the platform's waker the box wakes, which the box then
-   owns, or 0 for one of the box's own, for mail_wait. Returns the box's key. */
-int64_t mail_open(int32_t slots, int32_t size, int64_t waker) {
-    if (slots <= 0 || (slots & (slots - 1)) || size < 0) return -MAIL_EINVAL;
+   owns, or 0 for one of the box's own, for mail_wait. live_count is the number
+   of keys the owner can mark, indexed by key >> key_shift; 0 disables key
+   tracking. Returns the box's key. */
+int64_t mail_open(int32_t slots, int32_t size, int64_t waker, int32_t live_count, int32_t key_shift) {
+    if (slots <= 0 || (slots & (slots - 1)) || size < 0 || live_count < 0 ||
+        key_shift < 0 || key_shift > 63) return -MAIL_EINVAL;
     mail_box *b = calloc(1, sizeof *b);
     if (!b) return -MAIL_ENOMEM;
     b->mask = (uint32_t)slots - 1;
@@ -180,10 +185,22 @@ int64_t mail_open(int32_t slots, int32_t size, int64_t waker) {
         return -MAIL_ENOMEM;
     }
     for (uint32_t i = 0; i < (uint32_t)slots; i++) STORE32_RELEASE(&mail_at(b, i)->seq, i);
+    b->live_count = (uint32_t)live_count;
+    b->key_shift = (uint32_t)key_shift;
+    if (live_count) {
+        b->live = calloc((size_t)live_count, sizeof *b->live);
+        if (!b->live) {
+            free(b->slots);
+            free(b);
+            return -MAIL_ENOMEM;
+        }
+        for (int32_t j = 0; j < live_count; j++) STORE64_SEQ(&b->live[j], 0);
+    }
     b->own_waker = waker == 0;
     b->waker = waker ? waker : net_waker(-1, 0);
     if (b->waker < 0) {
         int64_t err = b->waker;
+        free(b->live);
         free(b->slots);
         free(b);
         return err;
@@ -194,6 +211,7 @@ int64_t mail_open(int32_t slots, int32_t size, int64_t waker) {
     if (i == MAIL_MAX_BOXES) {
         UNLOCK();
         if (b->own_waker) net_waker_close(b->waker);
+        free(b->live);
         free(b->slots);
         free(b);
         return -MAIL_EMFILE;
@@ -230,20 +248,50 @@ void mail_close(uint64_t key) {
     mail_table[i].box = NULL;
     UNLOCK();
     net_waker_close(b->waker);
+    free(b->live);
     free(b->slots);
     free(b);
 }
 
+static int mail_key_live(mail_box *b, uint64_t key) {
+    if (!b->live_count) return 1;
+    uint64_t i = key >> b->key_shift;
+    return key != 0 && i < b->live_count && (uint64_t)LOAD64_ACQUIRE(&b->live[i]) == key;
+}
+
+/* Only the owner marks keys. Zero is reserved for an empty entry; the high
+   bits above key_shift select the entry, and the whole key must match. */
+void mail_mark(uint64_t box, uint64_t key, int32_t live) {
+    mail_box *b = mail_own(box);
+    if (!b || !b->live_count || !key) return;
+    uint64_t i = key >> b->key_shift;
+    if (i >= b->live_count) return;
+    if (live) STORE64_SEQ(&b->live[i], (int64_t)key);
+    else CAS64(&b->live[i], (int64_t)key, 0);
+}
+
+/* A snapshot, protected against a concurrent close as a send is. A key
+   cleared after this read can still have a send in flight or queued. */
+int32_t mail_live(uint64_t to, uint64_t key) {
+    uint32_t i = (uint32_t)to;
+    if (i >= MAIL_MAX_BOXES) return 0;
+    ADD64(&mail_table[i].senders, 1);
+    mail_box *b = LOAD32_SEQ(&mail_table[i].gen) == (uint32_t)(to >> 32) ? mail_table[i].box : NULL;
+    int32_t live = b && mail_key_live(b, key);
+    ADD64(&mail_table[i].senders, -1);
+    return live;
+}
+
 /* Copies data, with key and tag, into the box of to, at once: SENT, FULL for
    no free slot, TOO_LONG for data longer than a slot, or STALE for a box
-   closed, or opened again since to was taken. */
+   closed, reopened, or a tracked key not marked live. */
 int32_t mail_send(uint64_t to, uint64_t key, int32_t tag, mail_bytes data) {
     uint32_t i = (uint32_t)to;
     if (i >= MAIL_MAX_BOXES) return MAIL_STALE;
     ADD64(&mail_table[i].senders, 1);
     int32_t r = MAIL_STALE;
     mail_box *b = LOAD32_SEQ(&mail_table[i].gen) == (uint32_t)(to >> 32) ? mail_table[i].box : NULL;
-    if (b) {
+    if (b && mail_key_live(b, key)) {
         r = data.len > (int64_t)b->size ? MAIL_TOO_LONG : MAIL_FULL;
         if (r == MAIL_FULL) {
             uint32_t pos = LOAD32_RELAXED(&b->enq);
@@ -287,15 +335,14 @@ int32_t mail_size(uint64_t key) {
     return b ? (int32_t)b->size : 0;
 }
 
-/* The slot size of the box of to, for any thread, or -1 for a box closed, or
-   opened again since to was taken: it checks the generation as mail_send
-   does, and holds off a close the same way while it reads. */
-int32_t mail_slot_size(uint64_t to) {
+/* The slot size for any thread, or -1 for a stale address. It checks the
+   box and key as mail_send does, holding off a close while it reads. */
+int32_t mail_slot_size(uint64_t to, uint64_t key) {
     uint32_t i = (uint32_t)to;
     if (i >= MAIL_MAX_BOXES) return -1;
     ADD64(&mail_table[i].senders, 1);
     mail_box *b = LOAD32_SEQ(&mail_table[i].gen) == (uint32_t)(to >> 32) ? mail_table[i].box : NULL;
-    int32_t size = b ? (int32_t)b->size : -1;
+    int32_t size = b && mail_key_live(b, key) ? (int32_t)b->size : -1;
     ADD64(&mail_table[i].senders, -1);
     return size;
 }

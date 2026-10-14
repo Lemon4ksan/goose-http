@@ -236,7 +236,8 @@ struct Event {
 // pipelined behind it wait in the read buffer, and the loop stops reading
 // once that's full. The address is the same for each call in one exchange,
 // and a message to it after the exchange has ended, or once the connection
-// has closed, is dropped. A call that writes a whole response doesn't wait,
+// has closed, makes a send return STALE; messages already in flight may be
+// dropped. A call that writes a whole response doesn't wait,
 // so a handler that can't hand the work on answers instead, as below. Only
 // the handler given state gets WAKE and TIMEOUT.
 //
@@ -248,6 +249,7 @@ fn later(out: Reply, ms: i64) -> MailAddress {
     s.waiting = true;
     s.rearm = true;
     s.wait_ms = max(ms, 0);
+    mail_mark(Box { handle: s.later.box }, s.later.key, true);
     return s.later;
 }
 
@@ -269,12 +271,12 @@ fn waits_for(c, key: u64) -> bool {
 fn open_waiting(cfg: const Config&, waker: i64) -> Box, Error {
     guard cfg.mail_slots > 0 && cfg.max_waiting > 0 else { return Box { .. }, Error { call: "", code: 0 }; }
     guard cfg.max_conns <= 1 << 20 else { return Box { .. }, Error { call: "max_conns", code: EINVAL }; }
-    return mail_open(cfg.mail_slots, cfg.mail_size, waker);
+    return mail_open(cfg.mail_slots, cfg.mail_size, waker, cfg.max_conns as i32, 44);
 }
 
 // mail_open_code (mail.goose), with its error as an Error.
-fn mail_open(slots: i32, size: i32, waker: i64 = 0) -> Box, Error {
-    let b, k = mail_open_code(slots, size, waker);
+fn mail_open(slots: i32, size: i32, waker: i64 = 0, live_keys: i32 = 0, key_shift: i32 = 0) -> Box, Error {
+    let b, k = mail_open_code(slots, size, waker, live_keys, key_shift);
     return b, Error { call: "mail_open", code: -k };
 }
 
@@ -301,6 +303,7 @@ fn start_wait(c, timers: Timers&, now: i64) -> bool {
     cancel(timers, c.x.timer);
     c.x.timer = arm(timers, s.later.key, now + s.wait_ms);
     guard c.x.timer.slot < 0 else { return false; }
+    mail_mark(Box { handle: s.later.box }, s.later.key, false);
     s.waiting = false;
     return true;
 }
@@ -338,6 +341,9 @@ struct Exchange<S> {
 // Calls H with CLOSED for c's exchange, if it was owed another call.
 fn abandon<H, C>(c: C&) {
     let x .= c.x;
+    if x.stream.later.box.slot >= 0 {
+        mail_mark(Box { handle: x.stream.later.box }, x.stream.later.key, false);
+    }
     guard x.stream.open || x.stream.waiting || (!x.skip && x.body != BodyReader.None) else { return; }
     x.stream.waiting = false;
     var sink: u8[>..] = [];
@@ -415,6 +421,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
 
     // A call that both waited and wrote a whole response doesn't wait.
     fn unwait() {
+        mail_mark(Box { handle: x.stream.later.box }, x.stream.later.key, false);
         x.stream.waiting = false;
         x.stream.rearm = false;
     }
@@ -805,4 +812,3 @@ fn release_gather(g: Gather&) {
     if g.cap > 0 { gathered.free_slice(gathered[g.at..g.at + g.cap]); }
     g = Gather { .. };
 }
-

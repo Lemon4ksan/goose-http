@@ -250,6 +250,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         let c .= conns[i];
         cancel(timers, c.x.timer);
         c.x.stream.waiting = false;
+        mail_mark(box, key, false);
         let ev = Event { kind: WAKE, req: nothing, data: bytes, whole: false, trailers: "", tag: tag };
         resume(c, ev);
     }
@@ -263,6 +264,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         guard c.fd >= 0 && c.state == OPEN && c.x.stream.later.key == key && c.x.stream.waiting == waited else { return; }
         c.x.stream.waiting = false;
         let ev = Event { kind: TIMEOUT, req: nothing, data: "", whole: false, trailers: "" };
+        mail_mark(box, key, false);
         resume(c, ev);
     }
 

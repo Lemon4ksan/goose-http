@@ -3,11 +3,12 @@
 // sends to it by address, and the send says at once whether the message
 // went in: SENT, FULL (no slot free, which may pass), TOO_LONG (the message
 // longer than a slot, which never will), or STALE (the box is closed, or
-// opened again since the address was taken). mail_slot_size gives a sender
+// opened again since the address was taken, or its tracked key isn't live).
+// mail_slot_size gives a sender
 // the slot size from the address alone. A send never blocks or grows the
 // box. An address is the box's handle and a
-// 64-bit key the box doesn't read, which comes back with each message sent
-// to it: the owner gives it its meaning.
+// 64-bit key, which comes back with each message sent to it. A box may track
+// keys the owner marks live; the owner gives them their meaning.
 //
 // The queue and the wakeup are C (shim/mail.c, and each platform's net_waker),
 // since Goose has neither atomics nor a wait another thread can end. Nothing
@@ -41,12 +42,14 @@ let TOO_LONG: i32 = 3;
 // The shim's calls, on a box's key (key_of its handle). shim/mail.c says
 // what each does. mail_take_one writes up to out.len bytes into out and 2
 // values into head.
-extern "mail_open" fn mail_open_c(slots: i32, size: i32, waker: i64) -> i64;
+extern "mail_open" fn mail_open_c(slots: i32, size: i32, waker: i64, live_keys: i32, key_shift: i32) -> i64;
 extern "mail_close" fn mail_close_c(box: u64);
+extern "mail_mark" fn mail_mark_c(box: u64, key: u64, live: i32);
+extern "mail_live" fn mail_live_c(box: u64, key: u64) -> i32;
 extern "mail_send" fn mail_send_c(to: u64, key: u64, tag: i32, data: const u8[:]) -> i32;
 extern "mail_pending" fn mail_pending_c(box: u64) -> i64;
 extern "mail_size" fn mail_size_c(box: u64) -> i32;
-extern "mail_slot_size" fn mail_slot_size_c(to: u64) -> i32;
+extern "mail_slot_size" fn mail_slot_size_c(to: u64, key: u64) -> i32;
 extern "mail_take_one" fn mail_take_one_c(box: u64, out: u8[:], head: i64[:]) -> i64;
 extern "mail_settle" fn mail_settle_c(box: u64, n: i64) -> i32;
 extern "mail_wait" fn mail_wait_c(box: u64, ms: i32) -> i32;
@@ -58,9 +61,12 @@ extern fn net_waker(ep: i32, tag: u64) -> i64;
 
 // Opens a box of slots messages, a power of two, of up to size bytes each.
 // waker is a loop's (net_waker, ring_waker), which the box then owns, or 0
-// for one the box makes for mail_wait. Returns the box, and 0 or -code.
-fn mail_open_code(slots: i32, size: i32, waker: i64 = 0) -> Box, i64 {
-    let k = mail_open_c(slots, size, waker);
+// for one the box makes for mail_wait. With live_keys > 0, sends require a
+// nonzero key marked live in entry key >> key_shift (0..63). The table has
+// live_keys entries of 8 bytes, initially empty. With 0, any key is accepted.
+// Returns the box, and 0 or -code.
+fn mail_open_code(slots: i32, size: i32, waker: i64 = 0, live_keys: i32 = 0, key_shift: i32 = 0) -> Box, i64 {
+    let k = mail_open_c(slots, size, waker, live_keys, key_shift);
     guard k >= 0 else { return Box { .. }, k; }
     return Box { handle: handle_of(k as u64) }, 0;
 }
@@ -71,6 +77,15 @@ fn mail_close(b: Box) { mail_close_c(key_of(b.handle)); }
 // The address of b with key.
 fn address(b: Box, key: u64) -> MailAddress { MailAddress { box: b.handle, key: key } }
 
+// In the owner only: marks key live, replacing its entry, or clears it if
+// it still matches. Does nothing for an untracked box or an invalid key.
+fn mail_mark(b: Box, key: u64, live: bool) { mail_mark_c(key_of(b.handle), key, if live { 1 } else { 0 }); }
+
+// Any thread: whether the box is open and accepts this key now. A snapshot:
+// the owner may clear it before a following send, which then returns STALE.
+// A send already in flight or queued may still arrive after a clear.
+fn mail_live(to: MailAddress) -> bool { mail_live_c(key_of(to.box), to.key) != 0 }
+
 // Sends data with tag to to's box, at once. Any thread may call it.
 fn mail_send(to: MailAddress, tag: i32, data: const u8[:]) -> i32 {
     return mail_send_c(key_of(to.box), to.key, tag, data);
@@ -78,7 +93,7 @@ fn mail_send(to: MailAddress, tag: i32, data: const u8[:]) -> i32 {
 
 // The most bytes a message to to's box may have, or -1 for an address that's
 // STALE. Any thread may call it.
-fn mail_slot_size(to: MailAddress) -> i32 { mail_slot_size_c(key_of(to.box)) }
+fn mail_slot_size(to: MailAddress) -> i32 { mail_slot_size_c(key_of(to.box), to.key) }
 
 // Sends v, a flat value, with tag to to's box, as mail_send does: the image
 // to_bytes writes of a one-element array, which mail_value reads back. A

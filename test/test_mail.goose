@@ -24,6 +24,7 @@ fn test_full_and_stale() {
     let b, err = http::mail_open_code(4, 8);
     assert(err == 0);
     let to = http::address(b, 77);
+    assert(http::mail_live(to));
     for i in 4 { assert(http::mail_send(to, i as i32, "12345678") == http::SENT); }
     assert(http::mail_send(to, 9, "x") == http::FULL);
     assert(!http::mail_wait(b, 0) == false);
@@ -40,6 +41,7 @@ fn test_full_and_stale() {
     assert(http::mail_send(to, 0, "123456789") == http::TOO_LONG);
     assert(http::mail_send(to, 0, "") == http::SENT);
     http::mail_close(b);
+    assert(!http::mail_live(to));
     assert(http::mail_send(to, 0, "") == http::STALE);
     assert(http::mail_send(to, 0, "123456789") == http::STALE);
     assert(http::mail_slot_size(to) == -1);
@@ -59,6 +61,48 @@ fn test_full_and_stale() {
     assert(bad < 0);
 }
 
+thread_fn check_dead(to: http::MailAddress) {
+    assert(!http::mail_live(to));
+    assert(http::mail_send(to, 0, "") == http::STALE);
+}
+
+fn test_live_keys() {
+    let b, err = http::mail_open_code(2, 8, 0, 2, 60);
+    assert(err == 0);
+    let a = http::address(b, 7);
+    let next = http::address(b, 8);
+    let high = http::address(b, ((1 as u64) << 60) | 9);
+    let outside = http::address(b, (2 as u64) << 60);
+    assert(!http::mail_live(a));
+    assert(http::mail_slot_size(a) == -1);
+    assert(http::mail_send(a, 0, "123456789") == http::STALE);
+    http::mail_mark(b, a.key, true);
+    http::mail_mark(b, high.key, true);
+    assert(http::mail_live(a) && http::mail_live(high));
+    assert(http::mail_slot_size(a) == 8);
+    assert(http::mail_send(a, 0, "123456789") == http::TOO_LONG);
+    assert(http::mail_send(a, 1, "a") == http::SENT);
+    assert(http::mail_send(high, 2, "b") == http::SENT);
+    assert(http::mail_send(a, 0, "") == http::FULL);
+    http::mail_mark(b, next.key, true);
+    http::mail_mark(b, a.key, false);
+    assert(!http::mail_live(a) && http::mail_live(next));
+    assert(http::mail_send(a, 0, "") == http::STALE);
+    http::mail_mark(b, outside.key, true);
+    http::mail_mark(b, 0, true);
+    assert(!http::mail_live(outside) && !http::mail_live(http::address(b, 0)));
+    assert(http::mail_send(outside, 0, "") == http::STALE);
+    // A clear doesn't remove messages already queued.
+    assert(http::mail_take(b) { key, tag, bytes => assert(bytes.len == 1); } == 2);
+    http::mail_mark(b, high.key, false);
+    thread_wait(thread_spawn(check_dead, high));
+    http::mail_close(b);
+    thread_wait(thread_spawn(check_dead, next));
+    let _, bad_count = http::mail_open_code(2, 0, 0, -1);
+    let _, bad_shift = http::mail_open_code(2, 0, 0, 2, 64);
+    assert(bad_count < 0 && bad_shift < 0);
+}
+
 let SENDERS = 8;
 let EACH = 20000;
 
@@ -75,8 +119,9 @@ thread_fn sender(to: http::MailAddress, id: i64) {
 // SENDERS threads into a box of 64 slots: every message arrives, each
 // sender's in order, and the owner never waits out its time limit.
 fn test_senders() {
-    let b, err = http::mail_open_code(64, 8);
+    let b, err = http::mail_open_code(64, 8, 0, 1, 63);
     assert(err == 0);
+    http::mail_mark(b, 5, true);
     var ids: i64[>..] = [];
     for s in SENDERS { ids.push(thread_spawn(sender, http::address(b, 5), s)); }
     var next: i64[>..] = [];
@@ -156,6 +201,7 @@ fn test_ping_pong(rounds: i64, pause_ms: i64) {
 
 fn main() {
     test_full_and_stale();
+    test_live_keys();
     test_senders();
     test_ping_pong(20000, 0);
     test_ping_pong(400, 1);

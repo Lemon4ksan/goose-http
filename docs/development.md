@@ -408,6 +408,9 @@ intermediate shell can otherwise expand variables before bash sees them.
   configuration from parent directories on the Windows filesystem.
 - Keep a long benchmark's foreground WSL call open. A detached run may end when the
   call returns; a background server may instead survive and retain its port.
+- Use different `PORT` values for simultaneous Linux and Windows HTTP tests. WSL's
+  localhost forwarding can make one suite's listener visible to the other's port
+  probe, which reports the port taken (2026-10-14).
 - Keep a running script unchanged: Bash reads later commands from the file as it
   executes. Editing a benchmark script during its builds caused an unexpected EOF
   before measurement began (2026-10-14). Prepare a separate script for an extension.

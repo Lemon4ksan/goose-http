@@ -4,6 +4,7 @@
 // (http::later). A job asks for count replies, one every delay milliseconds:
 // one for /later, as many as the events for /events.
 import std;
+import os;
 import http;
 
 // A job's tag: the kind of job. A reply's tag: whether more follow.
@@ -26,6 +27,8 @@ let REPLY_SIZE: i32 = 64;
 // Takes jobs from box until a job of no kind it knows, keeping up to
 // capacity at once; a job past that is answered at once with "busy".
 thread_fn backend(box: http::Box, capacity: i64) {
+    var check: u8[>..] = [];
+    let check_stale = env("MAIL_CHECK_STALE", check) && check == "1";
     var timers = http::timer_table(capacity);
     var jobs: Job[>..] = [];
     var free: i64[>..<] = [];
@@ -47,7 +50,11 @@ thread_fn backend(box: http::Box, capacity: i64) {
         // A FULL box loses this reply, as STALE does for an exchange that's
         // gone: the exchange waits out its time limit. REPLY_SIZE holds any
         // reply, so none is TOO_LONG.
-        http::mail_send(j.reply, if last { REPLY_LAST } else { REPLY_MORE }, reply);
+        let result = http::mail_send(j.reply, if last { REPLY_LAST } else { REPLY_MORE }, reply);
+        if check_stale && (j.id == "gone" || j.id == "expired") {
+            assert(result == http::STALE && !http::mail_live(j.reply));
+            print("mail stale: ", j.id);
+        }
         if last { free.push(i); }
         else { http::arm(timers, i as u64, now + j.delay); }
     }

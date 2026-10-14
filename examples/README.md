@@ -291,8 +291,13 @@ else { http::respond(out, 503, "text/plain", "busy"); return; }
   that writes a whole response doesn't wait.
 - Requests pipelined behind a waiting exchange wait in the read buffer, and reading
   stops once it's full.
-- A message to an exchange that has ended, or to a connection that closed, is
-  dropped. At stop, a waiting exchange gets `Config.grace_ms`, then `CLOSED`.
+- A send to an exchange that no longer waits returns `STALE`. A message already
+  queued or in flight when the wait ends can still be dropped by the loop. At stop,
+  a waiting exchange gets `Config.grace_ms`, then `CLOSED`.
+- `http::mail_live(address)` tells any thread whether the box accepts that key now,
+  so a service can skip work for a client that has gone. It is a snapshot: a later
+  send can still return `STALE`. The key is cleared before `WAKE`, `TIMEOUT`, or
+  `CLOSED`; `later` on the same exchange makes it live again.
 - A worker thread owns a box: `http::mail_open(slots, size)`, which returns the box
   and an `http::Error`, `http::mail_wait(box, ms)`, `http::mail_take(box) { key, tag, bytes => }`. `http::mail_send(address, tag,
   bytes)` returns `SENT`, `FULL` (no slot free), `TOO_LONG` (longer than a slot), or
@@ -304,6 +309,11 @@ else { http::respond(out, 503, "text/plain", "busy"); return; }
   array's image takes its whole capacity: size the box for that.
 - `http::timer_table(n)`, `http::arm`, `http::cancel`, and `http::expire` are the
   loops' timers, for a worker's own.
+- Generic boxes can opt into key tracking with
+  `http::mail_open(slots, size, waker, live_keys, key_shift)`. Only their owner calls
+  `http::mail_mark(box, key, live)`: a nonzero key selects entry `key >> key_shift`,
+  and sends require the whole key to match. Clearing an old key preserves a newer
+  key in the same entry. With `live_keys = 0`, the default, any key is accepted.
 
 ## Running a server
 

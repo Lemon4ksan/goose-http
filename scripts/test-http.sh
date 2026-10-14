@@ -223,11 +223,15 @@ stop
 unset ACCESS_LOG
 # Answers that wait, with a box and a timer table in each worker.
 export MAIL_SLOTS=64
+export MAIL_CHECK_STALE=1
 start
 $client later
+grep -q '^mail stale: gone' "$log_path" || fail "a reply after disconnect wasn't STALE"
+grep -q '^mail stale: expired' "$log_path" || fail "a reply after timeout wasn't STALE"
 kill -0 "$pid" || fail "the server died"
 stop
 unset MAIL_SLOTS
+unset MAIL_CHECK_STALE
 # Where it listens: "::", dual-stack, then IPv6 only, and on Linux and macOS a
 # Unix socket, whose file the server removes when it stops. The socket's path
 # must fit sun_path, 104 bytes on macOS, which mktemp's directory does.

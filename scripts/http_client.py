@@ -1027,9 +1027,14 @@ def later(port):
     if r.status != 200 or r.body != b"a 1" or not 0.19 <= took < 1:
         fail(f"/later: {r.status} {r.body!r} after {took:.2f} s")
 
+    for _ in range(20):
+        r, _ = timed(c, b"/later?id=now&delay=0")
+        if r.status != 200 or r.body != b"now 1":
+            fail(f"an immediate reply was rejected: {r.status} {r.body!r}")
+
     # The time limit, then the late reply dropped: the next request on the
     # connection gets its own answer.
-    r, took = timed(c, b"/later?id=t&delay=500&ms=100")
+    r, took = timed(c, b"/later?id=expired&delay=500&ms=100")
     if r.status != 504 or not 0.09 <= took < 0.45:
         fail(f"/later past its limit: {r.status} {r.body!r} after {took:.2f} s")
     time.sleep(0.6)
@@ -1052,7 +1057,7 @@ def later(port):
     # A stale reply: a's connection closes while it waits, and eight others,
     # one likely in its worker and slot, wait across the time a's reply comes.
     a = Conn(port)
-    a.send(request(b"/later?id=a&delay=300"))
+    a.send(request(b"/later?id=gone&delay=300"))
     time.sleep(0.05)
     a.close()
     time.sleep(0.05)

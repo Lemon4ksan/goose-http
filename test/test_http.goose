@@ -1055,6 +1055,48 @@ fn test_codings() {
     for suffix in ["", ".gz", ".br"] { assert(delete_file(str(name, suffix))); }
 }
 
+struct WaitingConn { fd: i32, state: u8, x: http::Exchange<bool> }
+
+fn test_wait_liveness() {
+    let box, err = http::mail_open(2, 8, 0, 1, 44);
+    assert(err.code == 0);
+    var c = WaitingConn { fd: 1, state: http::OPEN, .. };
+    c.x.stream.later = http::address(box, http::later_base(0, 1) | 1);
+    var out: u8[>..] = [];
+    var keep = true;
+    let reply = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: c.x.stream };
+    let to = http::later(reply, 1000);
+    assert(http::mail_live(to));
+    assert(http::mail_send(to, 0, "now") == http::SENT);
+    var timers = http::timer_table(0);
+    assert(http::start_wait(c, timers, 0));
+    assert(!http::mail_live(to) && http::mail_send(to, 0, "late") == http::STALE);
+    http::later(reply, 1000);
+    var closed = false;
+    http::abandon(c) { ev, st, out =>
+        assert(ev.kind == http::CLOSED && !http::mail_live(to));
+        closed = true;
+    };
+    assert(closed && !http::mail_live(to));
+    c.x = http::Exchange<bool> { .. };
+    c.x.stream.later = to;
+    var input: u8[>..] = [];
+    input.append(GET);
+    out.clear();
+    fn answer_now(ev: http::Event, st: bool&, out: http::Reply) {
+        let to = http::later(out, 1000);
+        assert(http::mail_live(to));
+        http::respond(out, 200, "text/plain", "ready");
+    }
+    let nothing = http::Request { .. };
+    let cfg = http::Config { .. };
+    let ev = http::Event { req: nothing, .. };
+    let fresh = false;
+    let rest, done, full = http::answer(c, input, input.len, out, COMMON, cfg, fresh, false, 0, ev, answer_now) { false };
+    assert(done == 1 && !c.x.stream.waiting && !http::mail_live(c.x.stream.later));
+    http::mail_close(box);
+}
+
 fn main() {
     test_parse();
     test_fields();
@@ -1076,5 +1118,6 @@ fn main() {
     test_conditional();
     test_files();
     test_codings();
+    test_wait_liveness();
     print("test_http: ok");
 }

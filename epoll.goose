@@ -367,6 +367,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
         guard i < conns.len && waits_for(conns[i], key) else { return; }
         cancel(timers, conns[i].x.timer);
         conns[i].x.stream.waiting = false;
+        mail_mark(box, key, false);
         let ev = Event { kind: WAKE, req: nothing, data: bytes, whole: false, trailers: "", tag: tag };
         resume(i, ev);
     }
@@ -380,6 +381,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
         guard c.fd >= 0 && c.state == OPEN && c.x.stream.later.key == key && c.x.stream.waiting == waited else { return; }
         c.x.stream.waiting = false;
         let ev = Event { kind: TIMEOUT, req: nothing, data: "", whole: false, trailers: "" };
+        mail_mark(box, key, false);
         resume(i, ev);
     }
 
