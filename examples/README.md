@@ -246,8 +246,9 @@ Shown in `files/`, and in `server/`: `/files/NAME` serves the directory in `FILE
 - `http::open_precompressed(req, path)`: the same, or in its place `path.br`,
   `path.zst`, or `path.gz`, whichever the request's `Accept-Encoding` weighs highest,
   and not older than `path`. `serve_file` then adds `Content-Encoding`, `Vary`, and an
-  `ETag` of the copy's own. Responses aren't compressed on the fly yet: task 022 adds
-  gzip, deflate, and zstd through [goose-compress](https://github.com/kaitk/goose-compress).
+  `ETag` of the copy's own. Dynamic gzip, deflate, and zstd use the optional
+  `http.compression` module, as [`compress/`](compress/compress.goose) shows;
+  `serve_file` does not compress a file on the fly.
 - `http::serve_file(req, out, f, http::content_type_of(path), st.file)`: answers `GET`
   or `HEAD` with 200, 206, 304, or 416, with `ETag`, `Last-Modified`, and
   `Accept-Ranges`.

@@ -1,629 +1,130 @@
-# Results
+# Measurement records
 
-Every benchmark run. Where Goose stands now, one table per workload, is in
-[benchmarks.md](benchmarks.md). Each section's numbers come from one machine, which the
-section names; numbers from different machines aren't compared. How each number is taken is in [bench/README.md](../bench/README.md#method), and
-the servers' pins and builds are in its [Servers](../bench/README.md#servers) table. The
-runs behind each section, and the earlier ones, are recorded in task 009
-([tasks/000-archive/009-more-competitors.md](../tasks/000-archive/009-more-competitors.md)), but for the WSL2
-run of 2026-10-12, which this file alone describes; task 004
-([archived](../tasks/000-archive/004-benchmark.md)) holds the first matrix and its
-profile, and task 008 ([archived](../tasks/000-archive/008-clang-simd.md)) the compiler
-comparison.
+Provenance and limitations for the [current benchmarks](benchmarks.md), plus selected
+earlier measurements that still explain a decision or an open issue. Raw run
+directories remain in `bench/results/`; superseded tables and session narratives are
+recoverable from git. [bench/README.md](../bench/README.md) owns the harness and method.
 
 ## Machine
 
-- AMD Ryzen 7 5800X3D, 8 cores, 16 logical CPUs, 15 GB of memory for WSL2.
-- Windows 11, WSL2 kernel 6.18.40.1-microsoft-standard-WSL2, Ubuntu 26.04.1.
-- The Goose server built by gcc 15.2.0 (`-O2`), in both of the package's loops: epoll,
-  and io_uring, at the commit and Goose compiler each section names. rustc 1.99.0, Zig
-  0.16.0, and V 0.5.2 for the others.
-- Every server runs on CPUs 0-3 (two cores with both SMT threads), with the same worker
-  count as Goose; the load generators run on CPUs 4-15.
+Desktop comparisons use an AMD Ryzen 7 5800X3D, 8 cores and 16 logical CPUs, Windows 11,
+and WSL2 Ubuntu 26.04.1 with 15 GB assigned to WSL. Servers use CPUs 0-3, load generators
+4-15; one-worker cells use CPU 0. Goose is built with gcc 15.2.0 at `-O2`, competitors
+in release mode with the configurations in
+[the server table](../bench/README.md#servers).
 
-WSL2 runs the loopback network in a VM, so the kernel's share of each request is larger
-than it would be on bare metal.
+WSL2 loopback runs through a VM; its kernel cost differs from bare metal. Runs through
+2026-10-12 use kernel 6.18.40.1-microsoft-standard-WSL2. The 2026-10-14 runs use
+6.18.54.1-microsoft-standard-WSL2. Each run's `env.txt` records the environment.
 
 ## 2026-10-14: main after tasks 022.03, 025, and 027
 
-The field run again overnight on 2026-10-14, after WSL moved to kernel
-6.18.54.1-microsoft-standard-WSL2, with Goose at `e4f7b55` (task 027's p2 to p6, 022.03's
-compression, and task 025's smaller REST records) and the Goose compiler at `0bdbd18`.
-The sections below this one are from kernel 6.18.40.1 and earlier commits.
+The field run uses server `e4f7b55` and Goose `0bdbd18`, before the final worker-load
+and shared-store merges. Current throughput tables are in
+[benchmarks](benchmarks.md); later memory measurements have separate build labels.
 
 ### Plaintext and JSON
 
 `bench/run.sh` with `SERVERS="goose goose-uring libreactorng vanilla-io_uring zix
-xitca-web tokio hyper" WORKER_COUNTS=4 LATENCY=0`: 4 workers on CPUs 0-3, wrk 4.1.0 on
-4-15 with 8 threads, 3 runs of 15 s after 5 s of warm-up, medians
-([summary](../bench/results/2026-10-14-field/summary.md)). Requests per second, and the
-highest peak RSS of a server's cells:
+xitca-web tokio hyper" WORKER_COUNTS=4 LATENCY=0`: 4 workers, wrk 4.1.0 with 8 threads,
+3 runs of 15 s after 5 s of warm-up. Plaintext uses 16-deep pipelines at 256, 1,024,
+and 4,096 connections; JSON uses 256 and 1,024 without pipelining.
+[Summary](../bench/results/2026-10-14-field/summary.md).
 
-| Server | plaintext 256 | plaintext 1,024 | plaintext 4,096 | JSON 256 | JSON 1,024 | peak RSS |
-|---|---:|---:|---:|---:|---:|---:|
-| vanilla-io_uring (V)\* | 8.12 M | 8.26 M | 7.58 M | 453 K | 462 K | 155 MB |
-| libreactorng (C)\* | 7.02 M | 7.46 M | 7.01 M | 540 K | 610 K | 72 MB |
-| Goose io_uring | 6.90 M | 6.81 M | 6.38 M | 497 K | 489 K | 13 MB |
-| zix (Zig) | 5.19 M | 5.37 M | 4.83 M | 561 K | 614 K | 39 MB |
-| Goose epoll | 5.29 M | 5.36 M | 5.26 M | 404 K | 401 K | 4.8 MB |
-| tokio (Rust) | 3.83 M | 3.79 M | 3.63 M | 381 K | 373 K | 163 MB |
-| xitca-web (Rust) | 3.37 M | 3.60 M | 3.22 M | 419 K | 445 K | 69 MB |
-| hyper (Rust) | 2.66 M | 2.64 M | 2.53 M | 294 K | 287 K | 81 MB |
-
-\* Answers plaintext without parsing the request.
-
-Every cell is within 3% of the 2026-10-12 table below, but Goose io_uring's plaintext
-at 1,024 and 4,096 connections, 4.4% and 6.0% over it; Goose epoll's JSON at 256 is
-2.9% under. `bench/count.sh`
-(`RUNS=3`, one worker, 10 million requests): 1,833.1 user instructions per plaintext
-request on epoll and 1,888.5 on io_uring, against 1,838.9 and 1,887.2 for task 027's
-baseline `2afc12f` built at the same Goose pin.
+`RUNS=3 bench/count.sh` uses one worker and 10 million requests to compare executed
+user instructions with `2afc12f`, rebuilt at the same Goose pin. Task 027 records
+the comparisons and unresolved benchmark checks.
 
 ### REST APIs
 
-`bench/rest.sh build`, then `bench/rest.sh run` with `SERVERS="goose-uring goose-epoll
-xitca-web hyper tokio dusty"`, every step, 4 workers on CPUs 0-3 and the load on 4-15,
-3 rounds of 15 s, after each server passed its checks
-([summary](../bench/results/2026-10-14-rest-field/summary.md)). Medians at saturation,
-peak RSS in MB after the rate, uploads alone, and tier C's reads at a fixed 16,000 a
-second beside uploads: their p99 and the uploads a second they ran beside.
+`bench/rest.sh build`, then `bench/rest.sh run` with
+`SERVERS="goose-uring goose-epoll xitca-web hyper tokio dusty"`: 4 workers, 3 rounds of
+15 s after 5 s of warm-up, with each server checked first. Saturation uses wrk with
+8 threads and 256 connections. Uploads alone use 1 thread and 32 connections;
+the mixed run offers tier C reads at 16,000 requests per second beside uploads.
+[Field summary](../bench/results/2026-10-14-rest-field/summary.md).
 
-| Server | A | B | C | C, templates | Uploads alone | Reads p99 beside uploads | Uploads beside reads |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Goose io_uring | 588 K/s, 15 | 278 K/s, 47 | 52.3 K/s, 104 | 142 K/s, 177 | 1.2 K/s | 7.8-10.6 ms | 852-877/s |
-| Goose epoll | 448 K/s, 9 | 222 K/s, 46 | 51.3 K/s, 102 | 136 K/s, 176 | 1.1-1.2 K/s | 1.0-2.0 ms | 878-886/s |
-| xitca-web (Rust) | 407 K/s, 32 | 235 K/s, 68 | 38.2 K/s, 490 | 113 K/s, 512 | 1.0 K/s | 2.4-4.6 ms | 618-635/s |
-| hyper (Rust) | 271 K/s, 13 | 151 K/s, 29 | 32.1 K/s, 37 | 120 K/s, 74 | 1.1 K/s | 10.9-29.1 ms | 760-776/s |
-| tokio (Rust) | 393 K/s, 16 | 183 K/s, 30 | 31.6 K/s, 307 | 100 K/s, 365 | 1.0-1.1 K/s | 1,055-5,769 ms | 677-730/s |
-| dusty (Zig) | 343 K/s, 16 | 162 K/s, 42 | 24.6 K/s, 216 | 125 K/s, 241 | 1.1 K/s | 6.7-41.8 ms | 514-526/s |
+The later task 025 comparison uses Goose `46356c2` and variant
+`goose-uring-27s` at `effcd47`, on the same machine and kernel with the same load
+settings. It records the final store and worker-load memory reduction:
+[variant summary](../bench/results/2026-10-14-rest-027-025/summary.md).
+Its `env.txt` names the orchestration checkout as modified; task 025 identifies
+each variant's source commit. The final epoll peak memory has not been remeasured.
 
-A to C are serialized but for the templates column. Goose's peak RSS on tier C
-templated is 177 MB, from 387 at `main`'s `dd68f22` before task 025, against hyper's 74.
+Idle memory at `1818526`, Goose `46356c2`, uses the epoll loop, 1, 2, and 4 workers,
+one sample of VmRSS 3 s after listening, with no requests:
+[idle.tsv](../bench/results/2026-10-14-rest-idle-main/idle.tsv).
+Task 025 records the measurement and its remaining accounting work.
 
-## TechEmpower's tests
+## The full field
 
-### The full field
+The earlier desktop matrix at `73dd28c`, Goose `6448f3f`, kernel 6.18.40.1, includes
+servers absent from the later field: zeemo, vanilla-epoll, may-minihttp, and Tina.
+`bench/run.sh` used 1 and 4 workers, wrk with 8 threads, the same plaintext and JSON
+connection counts as above, 3 runs of 15 s, and h2load latency measurements.
+[2026-10-12 matrix](../bench/results/2026-10-12-matrix/summary.md).
 
-`bench/run.sh` on 2026-10-12, in the evening, with the 12 servers of tasks 005, 009, and
-019, odin-http left out and Tina for Odin: Goose at `73dd28c` with Goose `6448f3f`, the
-settings below. `REUSE` copied the cells whose binary and settings were unchanged:
-tokio's, may-minihttp's, and hyper's, and vanilla-epoll's plaintext, from the morning's
-run below, and xitca-web's, zix's, zeemo's, libreactorng's, and vanilla-io_uring's
-plaintext at 256 and 1,024 connections and JSON at 256, from
-[2026-10-11-uring-matrix](../bench/results/2026-10-11-uring-matrix/summary.md). The rest
-ran in this session. Sessions drift by up to 5%: the morning's Goose build served 4%
-less in this session than in the morning's ([below](#goose-since-the-morning)). Results,
-with latency, CPU, and memory per cell, in
-[2026-10-12-matrix](../bench/results/2026-10-12-matrix/summary.md); the tables come from
-`bench/table.py`. Requests per second from wrk, medians of 3 runs, and peak RSS over
-the row's cells; bold is the column's best.
-
-4 workers on CPUs 0-3:
-
-| Server | plaintext 256 | plaintext 1,024 | plaintext 4,096 | json 256 | json 1,024 | peak RSS |
-|---|---:|---:|---:|---:|---:|---:|
-| Goose io_uring | 6.74 M | 6.52 M | 6.02 M | 498 K | 487 K | 8.9-15 MB |
-| Goose epoll | 5.37 M | 5.31 M | 5.24 M | 416 K | 408 K | **2.7-3.6 MB** |
-| vanilla-io_uring (V) | **8.14 M** | **8.25 M** | **7.60 M** | 456 K | 453 K | 37-154 MB |
-| libreactorng (C) | 6.96 M | 7.38 M | 7.03 M | 545 K | 609 K | 6.1-80 MB |
-| zix (Zig) | 5.13 M | 5.44 M | 4.97 M | **552 K** | **614 K** | 6.7-39 MB |
-| vanilla-epoll (V) | 6.10 M | 5.85 M | 5.46 M | (216 K) | (218 K) | 6.0-57 MB, 15 GB in JSON |
-| tokio (Rust) | 3.89 M | 3.83 M | 3.65 M | 394 K | 386 K | 12-183 MB |
-| may-minihttp (Rust) | 2.39 M | 4.31 M | 3.95 M | 375 K | 364 K | 40-621 MB |
-| xitca-web (Rust) | 3.30 M | 3.52 M | 3.21 M | 419 K | 442 K | 25-69 MB |
-| hyper (Rust) | 2.69 M | 2.67 M | 2.54 M | 303 K | 295 K | 8.0-88 MB |
-| zeemo (Zig) | 2.39 M | 2.69 M | 2.21 M | 540 K | 606 K | 6.6-37 MB |
-| Tina (Odin) | 0.73 M | 0.74 M | 0.47 M | 504 K | 446 K | 755 MB |
-
-1 worker on CPU 0:
-
-| Server | plaintext 256 | plaintext 1,024 | plaintext 4,096 | json 256 | json 1,024 | peak RSS |
-|---|---:|---:|---:|---:|---:|---:|
-| Goose io_uring | 2.10 M | 2.06 M | 1.89 M | **173 K** | **152 K** | 4.0-6.2 MB |
-| Goose epoll | 1.84 M | 1.83 M | 1.52 M | 148 K | 121 K | **2.4-3.3 MB** |
-| vanilla-io_uring (V) | **2.67 M** | **2.54 M** | **1.89 M** | 148 K | 90 K | 14-75 MB |
-| libreactorng (C) | 2.35 M | 2.44 M | 1.31 M | 129 K | 92 K | 5.1-82 MB |
-| zix (Zig) | 1.77 M | 1.51 M | 0.99 M | 152 K | 99 K | 3.8-34 MB |
-| vanilla-epoll (V) | 1.90 M | 1.91 M | 1.53 M | (71 K) | (61 K) | 5.6-56 MB, 6 GB in JSON |
-| tokio (Rust) | 1.38 M | 1.35 M | 1.19 M | 134 K | 116 K | 12-183 MB |
-| may-minihttp (Rust) | 1.22 M | 1.30 M | 1.07 M | 123 K | 113 K | 39-619 MB |
-| xitca-web (Rust) | 1.10 M | 1.05 M | 0.82 M | 98 K | 83 K | 13-59 MB |
-| hyper (Rust) | 0.86 M | 0.69 M | 0.71 M | 85 K | 72 K | 7.5-78 MB |
-| zeemo (Zig) | 0.84 M | 0.76 M | 0.55 M | 140 K | 107 K | 3.4-33 MB |
-| Tina (Odin) | 0.21 M | 0.20 M | 0.10 M | 128 K | 98 K | 190 MB |
-
-vanilla-epoll's JSON didn't run: it leaks 6-15 GB a cell. Its JSON cells, in
-parentheses, are the ones the morning's tables give, with 1 worker from that morning
-and with 4 from 2026-10-11 ([below](#the-mornings-seven-servers)).
-
-- vanilla-io_uring leads plaintext in every cell: by 21-27% over Goose's io_uring loop
-  with 4 workers, and by 23-27% with 1 worker at 256 and 1,024 connections. At 4,096
-  connections with 1 worker the two tie, and vanilla-io_uring counted 1,990 socket
-  errors. libreactorng leads Goose's io_uring loop in plaintext with 4 workers, by
-  3-17%, and with 1 worker at 256 and 1,024 connections.
-- In JSON with 4 workers, zix, zeemo, and libreactorng lead Goose's io_uring loop by
-  8-11% at 256 connections and 24-26% at 1,024. With 1 worker, Goose's io_uring loop
-  leads JSON at both connection counts.
-- Goose's epoll loop trails vanilla-epoll in plaintext with 4 workers by 4-12%, across
-  sessions (vanilla-epoll's cells are the morning's); in the morning's session the gap
-  was 0-5%.
-- Goose's io_uring loop leads every Rust server in every cell, and Tina in every cell
-  but JSON at 256 connections with 4 workers: 498K against 504K. Goose's epoll loop has
-  the lowest peak RSS in every cell.
-- Tina's pipelined plaintext runs at 5-11% of Goose's io_uring rate, and its JSON at
-  0.64 to 1.01 times, with 30 to 85 times its memory (task 019).
-
-### Goose since the morning
-
-The evening's Goose builds served 8% less plaintext than the morning's on the epoll loop
-and 4.5% less on io_uring. Run side by side on 2026-10-13
-([2026-10-13-regress](../bench/results/2026-10-13-regress/summary.md), 4 workers,
-plaintext and JSON at 256 connections, 3 runs of 15 s), the morning's `ef09c0f` and the
-evening's `73dd28c`:
-
-| Build | plaintext, epoll | plaintext, io_uring | JSON, epoll | JSON, io_uring |
-|---|---:|---:|---:|---:|
-| `ef09c0f` | 5.61 M | 6.87 M | 420 K | 499 K |
-| `73dd28c` | 5.43 M | 6.67 M | 414 K | 504 K |
-
-So about 4% was the session and 3% the code. `bench/count.sh` counts 1,826.9 user
-instructions per plaintext request on the evening's epoll build against 1,786.7 on the
-morning's, and 1,875.2 against 1,832.1 on io_uring; JSON is unchanged. Counted at each
-commit between the two that changed the package or the server, on the epoll loop, the
-40 instructions came from:
-
-| Commit | Change | Instructions per request |
-|---|---|---:|
-| `f306c6f` | Response fields checked for CR, LF, and invalid names | +2.1 |
-| `d617b2b` | A cap on a connection's requests, a per-route body limit | +7.2 |
-| `7c31b13` | The `DONE` event, for an access log | +7.0 |
-| `ea6192d` to `af23e84` | Timers, mailboxes, answers that wait, the eventfd waker | +18.1 |
-| `30d4b34` | Files with `sendfile` on the epoll loop | +5.4 |
-| `5ca934f` | `Config.max_read` | +1.2 |
-
-`64fec0d` and `551ee19` don't build on their own, so the waiting feature's share isn't
-split further. User cycles per request rose from 438-448 to 470-473.
-
-### The morning's seven servers
-
-`bench/run.sh` with its defaults, on 2026-10-12 in the morning, Goose at `ef09c0f` with
-Goose `5c83a5a`: plaintext pipelined 16 deep and JSON without pipelining, with TechEmpower's request headers; 1 worker on CPU 0 and 4 workers
-on CPUs 0-3; wrk and h2load with 8 threads; a fresh server per cell; 3 runs of 15 s after
-5 s of warm-up, interleaved. Medians of the 3 runs, from
-[2026-10-12-full-plaintext](../bench/results/2026-10-12-full-plaintext/summary.md) and
-[2026-10-12-full-json](../bench/results/2026-10-12-full-json/summary.md), which also
-have each cell's spread, the h2load rate, and the clock steps. Nothing else ran on the
-machine meanwhile. The Goose server ran with each loop: `goose` serves with the epoll
-loop, and `goose-uring` with the io_uring loop.
-
-Requests per second, from wrk:
-
-| Test, conns, workers | Goose epoll | Goose io_uring | vanilla-epoll | tokio | may-minihttp | hyper | dusty |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| plaintext, 256, 1 | 1.902 M | 2.131 M | 1.903 M | 1.375 M | 1.216 M | 0.860 M | 0.089 M |
-| plaintext, 256, 4 | 5.830 M | 7.062 M | 6.097 M | 3.891 M | 2.390 M | 2.689 M | 0.408 M |
-| plaintext, 1,024, 1 | 1.864 M | 2.119 M | 1.911 M | 1.347 M | 1.297 M | 0.692 M | 0.087 M |
-| plaintext, 1,024, 4 | 5.773 M | 6.910 M | 5.855 M | 3.831 M | 4.310 M | 2.668 M | 0.357 M |
-| plaintext, 4,096, 1 | 1.538 M | 1.875 M | 1.532 M | 1.190 M | 1.070 M | 0.713 M | 0.080 M |
-| plaintext, 4,096, 4 | 5.532 M | 6.451 M | 5.463 M | 3.648 M | 3.953 M | 2.540 M | 0.338 M |
-| json, 256, 1 | 0.145 M | 0.171 M | 0.071 M | 0.134 M | 0.123 M | 0.085 M | 0.083 M |
-| json, 256, 4 | 0.430 M | 0.513 M | (0.216 M) | 0.394 M | 0.375 M | 0.303 M | 0.366 M |
-| json, 1,024, 1 | 0.127 M | 0.153 M | 0.061 M | 0.116 M | 0.113 M | 0.072 M | 0.074 M |
-| json, 1,024, 4 | 0.425 M | 0.501 M | (0.218 M) | 0.386 M | 0.364 M | 0.295 M | 0.316 M |
-
-- The io_uring loop leads every cell, at 1.12-1.22 times the epoll loop.
-- The epoll loop and vanilla-epoll are within each other's spreads in five of six
-  plaintext cells. In the sixth, 4 workers at 256 connections, vanilla-epoll leads by 5%
-  ([below](#where-goose-loses)).
-- In JSON, the epoll loop leads every other server, at 1.08-1.10 times tokio, the next.
-- vanilla-epoll's JSON ran in a run of its own,
-  [2026-10-12-full-json-vanilla](../bench/results/2026-10-12-full-json-vanilla/runs.tsv),
-  under a watchdog that stops it when the host's free memory falls below 3 GB.
-  HttpArena builds it with `-gc none`, and its JSON encoder's allocations are never
-  freed (`docs/development.md`). Its 1-worker cells finished one run each, at 5.6-6.1 GB
-  of RSS. The watchdog stopped it in the first 4-worker cell, so those two cells, in
-  parentheses, are from the matrix of 2026-10-11 at `7cb3e27`
-  ([2026-10-11-matrix](../bench/results/2026-10-11-matrix/summary.md)), at 15 GB.
-
-Latency, p50 / p99 in ms, from h2load. h2load runs slower than wrk here, so every fast
-server sees about the same offered load, and p99 shows how evenly each treats its
-connections:
-
-| Test, conns, workers | Goose epoll | Goose io_uring | vanilla-epoll | tokio | may-minihttp | hyper | dusty |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| plaintext, 256, 1 | 2.60 / 3.46 | 2.26 / 3.14 | 2.59 / 3.41 | 3.68 / 4.24 | 3.35 / 4.07 | 5.22 / 6.12 | 37.4 / 42.3 |
-| plaintext, 256, 4 | 1.22 / 1.44 | 1.22 / 1.50 | 1.23 / 1.47 | 1.18 / 1.55 | 1.21 / 1.43 | 1.49 / 3.29 | 6.22 / 15.1 |
-| plaintext, 1,024, 1 | 10.4 / 12.6 | 8.72 / 10.8 | 10.4 / 12.6 | 14.7 / 16.8 | 13.5 / 16.6 | 4.92 / 168 | 188 / 525 |
-| plaintext, 1,024, 4 | 4.79 / 5.31 | 4.78 / 5.26 | 4.85 / 5.31 | 4.77 / 5.94 | 4.84 / 5.42 | 4.80 / 19.2 | 34.7 / 65.4 |
-| plaintext, 4,096, 1 | 42.5 / 49.6 | 40.4 / 45.2 | 43.0 / 47.4 | 57.8 / 74.3 | 54.3 / 60.6 | 4.86 / 753 | 188 / 3,694 |
-| plaintext, 4,096, 4 | 19.0 / 20.7 | 18.9 / 20.5 | 18.9 / 20.7 | 19.0 / 21.2 | 19.1 / 20.6 | 5.14 / 111 | 113 / 445 |
-| json, 256, 1 | 2.05 / 2.39 | 1.75 / 2.12 | 3.62 / 5.16 | 2.19 / 2.51 | 2.29 / 2.57 | 2.83 / 3.33 | 2.17 / 2.69 |
-| json, 256, 4 | 0.48 / 0.78 | 0.40 / 0.59 | – | 0.57 / 0.85 | 0.64 / 0.83 | 0.76 / 1.65 | 0.69 / 0.98 |
-| json, 1,024, 1 | 8.03 / 9.57 | 7.09 / 8.14 | 14.3 / 19.8 | 8.66 / 9.64 | 8.98 / 10.7 | 2.82 / 171 | 2.57 / 157 |
-| json, 1,024, 4 | 2.05 / 2.70 | 1.65 / 2.22 | – | 2.45 / 3.15 | 2.66 / 3.19 | 2.19 / 12.6 | 2.45 / 12.4 |
-
-hyper and dusty answer some connections at once and starve others at 1,024 and 4,096
-connections, so their p50 there is low and their p99 high.
-
-Server CPU time per request in µs: the server's CPU time over the measured wrk run,
-divided by the requests wrk counted, the median of the 3 runs. Every server used all of
-its CPUs in every cell except may-minihttp at 256 connections with 4 workers, which used
-32 of 60 CPU-seconds.
-
-| Test, conns, workers | Goose epoll | Goose io_uring | vanilla-epoll | tokio | may-minihttp | hyper | dusty |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| plaintext, 256, 1 | 0.53 | 0.47 | 0.53 | 0.73 | 0.82 | 1.17 | 11.3 |
-| plaintext, 256, 4 | 0.69 | 0.57 | 0.66 | 1.04 | 0.88 | 1.50 | 9.87 |
-| plaintext, 1,024, 1 | 0.54 | 0.47 | 0.53 | 0.75 | 0.77 | 1.46 | 11.4 |
-| plaintext, 1,024, 4 | 0.70 | 0.58 | 0.69 | 1.05 | 0.92 | 1.51 | 11.2 |
-| plaintext, 4,096, 1 | 0.65 | 0.53 | 0.65 | 0.84 | 0.93 | 1.42 | 12.3 |
-| plaintext, 4,096, 4 | 0.72 | 0.62 | 0.73 | 1.10 | 1.01 | 1.58 | 11.8 |
-| json, 256, 1 | 6.95 | 5.84 | 14.1 | 7.49 | 8.17 | 11.8 | 12.0 |
-| json, 256, 4 | 9.33 | 7.77 | – | 10.2 | 10.7 | 13.2 | 11.0 |
-| json, 1,024, 1 | 7.85 | 6.51 | 16.2 | 8.64 | 8.81 | 13.9 | 13.4 |
-| json, 1,024, 4 | 9.36 | 7.95 | – | 10.3 | 11.0 | 13.5 | 12.6 |
-
-Peak RSS (`VmHWM`) in MB, the largest of the cell's runs:
-
-| Test, conns, workers | Goose epoll | Goose io_uring | vanilla-epoll | tokio | may-minihttp | hyper | dusty |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| plaintext, 256, 1 | 2.4 | 5.3 | 5.6 | 13.8 | 71.6 | 8.0 | 8.8 |
-| plaintext, 256, 4 | 2.6 | 9.8 | 6.0 | 13.4 | 77.5 | 9.5 | 9.0 |
-| plaintext, 1,024, 1 | 2.4 | 5.5 | 15.7 | 46.5 | 178.9 | 22.0 | 30.1 |
-| plaintext, 1,024, 4 | 2.7 | 12.3 | 16.2 | 47.4 | 206.7 | 25.7 | 30.3 |
-| plaintext, 4,096, 1 | 2.9 | 6.0 | 56.1 | 183.2 | 618.6 | 78.2 | 77.0 |
-| plaintext, 4,096, 4 | 3.2 | 15.9 | 57.0 | 183.3 | 621.0 | 88.4 | 116.6 |
-| json, 256, 1 | 2.4 | 4.6 | 6,212 | 12.2 | 38.6 | 7.6 | 8.8 |
-| json, 256, 4 | 2.6 | 9.7 | (14,988) | 13.2 | 40.6 | 8.3 | 9.0 |
-| json, 1,024, 1 | 2.5 | 5.3 | 5,739 | 43.5 | 114.8 | 20.7 | 30.1 |
-| json, 1,024, 4 | 2.7 | 11.4 | (15,065) | 45.1 | 122.8 | 21.4 | 30.3 |
-
-The io_uring loop peaks 2-13 MB above the epoll loop; task 016 accounts for each
-worker's memory. dusty dropped 1,361 requests at 4,096 connections with 1
-worker; no other cell had errors.
+Some competitor cells were copied with `REUSE` from compatible earlier runs. Their
+source appears in the summaries. Session drift reached 5%, so small cross-session
+differences do not establish a server improvement. vanilla-epoll's JSON cells were
+not rerun because they leaked enough memory to exhaust the VM; those entries are
+older measurements.
 
 ## Static files
 
-`bench/files.sh` on 2026-10-12, Goose at `fcfd80d`: wrk downloads one file over and over
-from tmpfs, 96 connections, wrk 4.1.0 on CPUs 4-15 with 12 threads; 1 worker on CPU 0 or
-4 on CPUs 0-3; 3 runs of 10 s after 3 s of warm-up, medians
-([2026-10-12-files](../bench/results/2026-10-12-files/summary.md), which also has each
-cell's spread and CPU). nginx 1.28.3 is Ubuntu's, with `sendfile`, `tcp_nopush`,
-`open_file_cache`, and no access log; Caddy 2.10.2 is its release binary with
-`file_server`, `GOMAXPROCS` set to the worker count. The rate counts body bytes only. Bold
-is the column's best; the emulated ring is Goose's fallback where io_uring is blocked.
+`bench/files.sh` on 2026-10-12, server `fcfd80d`, Goose `5c83a5a`, desktop kernel
+6.18.40.1: files on tmpfs, wrk 4.1.0 with 12 threads on CPUs 4-15 and 96 connections;
+1 worker on CPU 0 or 4 on CPUs 0-3; 3 runs of 10 s after 3 s of warm-up, medians.
+[Summary](../bench/results/2026-10-12-files/summary.md) includes rates, spread, and CPU.
 
-| Server | 4 KB, 1 w | 4 KB, 4 w | 64 KB, 1 w | 64 KB, 4 w | 1 MB, 1 w | 1 MB, 4 w |
-|---|---:|---:|---:|---:|---:|---:|
-| Goose io_uring | **81.6 K/s** | **219 K/s** | 2.08 GB/s | 6.42 GB/s | 10.98 GB/s | 30.39 GB/s |
-| Goose epoll | 56.0 K/s | 179 K/s | 2.23 GB/s | 7.41 GB/s | 11.59 GB/s | **31.28 GB/s** |
-| Goose, emulated ring | 76.8 K/s | 206 K/s | **2.90 GB/s** | 7.85 GB/s | **12.38 GB/s** | 31.11 GB/s |
-| nginx | 50.2 K/s | 173 K/s | 2.31 GB/s | **8.15 GB/s** | 9.93 GB/s | 28.52 GB/s |
-| Caddy | 13.0 K/s | 47 K/s | 0.83 GB/s | 2.99 GB/s | 6.80 GB/s | 20.08 GB/s |
+nginx 1.28.3 uses `sendfile`, `tcp_nopush`, `open_file_cache`, and no access log.
+Caddy 2.10.2 uses `file_server` and `GOMAXPROCS` equal to the worker count.
+At 1 MB with 4 workers, wrk uses all its assigned CPU time: rate measures the client
+limit, while server CPU per request still distinguishes the implementations.
 
 Server CPU per request, in µs:
 
-| Server | 4 KB, 1 w | 4 KB, 4 w | 64 KB, 1 w | 64 KB, 4 w | 1 MB, 1 w | 1 MB, 4 w |
+| Server | 4 KB, 1 worker | 4 KB, 4 | 64 KB, 1 | 64 KB, 4 | 1 MB, 1 | 1 MB, 4 |
 |---|---:|---:|---:|---:|---:|---:|
-| Goose io_uring | **12.3** | **18.5** | 31.6 | 41.1 | 96.3 | 122 |
-| Goose epoll | 18.1 | 22.7 | 29.7 | 35.8 | 91.5 | **106** |
-| Goose, emulated ring | 13.2 | 19.7 | **22.8** | 33.8 | **85.7** | 107 |
-| nginx | 20.2 | 23.4 | 28.6 | **32.5** | 106.8 | 148 |
+| Goose io_uring | 12.3 | 18.5 | 31.6 | 41.1 | 96.3 | 122 |
+| Goose epoll | 18.1 | 22.7 | 29.7 | 35.8 | 91.5 | 106 |
+| Goose, emulated ring | 13.2 | 19.7 | 22.8 | 33.8 | 85.7 | 107 |
+| nginx | 20.2 | 23.4 | 28.6 | 32.5 | 106.8 | 148 |
 | Caddy | 77.7 | 81.0 | 79.9 | 84.1 | 155.9 | 197 |
 
-- Goose copies a file under 64 KB, and sends a larger one with `sendfile` (epoll and the
-  emulation) or two splices through a pipe (io_uring). At 4 KB, copying serves 1.3 to
-  1.8 times what zero-copy does (task 020).
-- nginx wins 64 KB with 4 workers, and with 1 worker against both real loops. The
-  splices cost io_uring more than `sendfile` from 32 KB up.
-- With 4 workers at 1 MB, wrk used all 120 of its CPU-seconds in Goose's cells, so
-  the rates there measure wrk; CPU per request still separates the servers.
-- WSL2's kernel costs most of a small file: 12-20 µs a request at 4 KB for Goose and
-  nginx, against 5.8 µs for an unpipelined JSON response.
-- Against that morning's `4a65d96`, which copied every file: 1 MB is 3.4 times faster
-  on epoll and 8 to 11 times on io_uring.
-- Responses built in memory (`/bytes`, Goose only, the same setup): io_uring is level
-  with epoll at 1 MB (2.51 against 2.49 GB/s with 1 worker) and 25% ahead at 64 KB
-  (2.58 against 2.06). That morning it ran at half of epoll's rate.
-- On Windows, each file request costs 100-200 µs of kernel time, mostly opening the
-  file, so IOCP serves 5,000-17,000 files a second at every size. `TransmitFile` is 3 to
-  4 times faster than copying a 1 MB file with 1 worker, and no faster with 4, because
-  client Windows runs two at a time (task 020).
-- Why nginx wins 64 KB, where the emulated ring doesn't lose, is task 024's.
+The direct-file threshold and Windows `TransmitFile` comparison are recorded in
+task 020. The unexplained 64 KB gap to nginx remains task 024. The same summary
+records Goose's in-memory `/bytes` comparison, which separates file handling from
+response transmission.
 
-## REST APIs
+<a id="rest-apis"></a>
+<a id="rest-apis-1"></a>
+## Earlier REST comparisons
 
-Task 021's four tiers, run by `bench/rest.sh run` on 2026-10-13 with all eight servers:
-Goose at `23aa531` with Goose `6448f3f`, on each loop, against six servers that serve the
-same routes without a framework. Each server with 4 workers on CPUs 0-3, the load on
-CPUs 4-15, a fresh server per cell warmed up for 5 s, 3 rounds of 15 s interleaved.
-`bench/rest/check.py` passed against every server on every tier it serves first.
+The 2026-10-13 desktop field at `23aa531`, Goose `6448f3f`, kernel 6.18.40.1,
+used `bench/rest.sh run`: 4 workers, 8 client threads and 256 connections for
+saturation, 3 rounds of 15 s after 5 s of warm-up.
+[Summary](../bench/results/2026-10-13-rest/summary.md).
+[Fixed-rate rerun](../bench/results/2026-10-13-rest-rates/summary.md).
 
-| Server | Version | JSON writer | Request bodies |
-|---|---|---|---|
-| hyper | 1.12.0 on Tokio 1.53.2 | serde_json | streamed |
-| tokio | Tokio 1.52.3, TechEmpower's hand-written entry | serde_json | buffered whole |
-| may-minihttp | 0.1.11 on may 0.3.51 | serde_json | streamed; no chunked bodies |
-| xitca-web | xitca-http 0.8.2, xitca-server 0.6.1, io_uring | serde_json | streamed |
-| odin-http | `fac113f`, Odin `dev-2026-10` | `core:encoding/json` | buffered whole |
-| Tina | `a2e8d4d`, Odin `dev-2026-10` | `core:encoding/json` | streamed; faults |
-| dusty\* | `ae164fa` on zio 0.19.1, Zig 0.16.0 | `std.json` | streamed |
-
-\* dusty is a framework, with a router and its own body readers, so it isn't a direct
-competitor to this package; its peer is goose-rest, the framework planned on this
-package. It joined after this run, and ran later on 2026-10-13, at this run's fixed
-rates, beside hyper and four Goose builds of task 027
-([2026-10-13-rest-027](../bench/results/2026-10-13-rest-027/summary.md)), with the
-same settings. In that session hyper ran 1.6-6.4% faster at saturation than in this
-run, and Goose's `2afc12f` 2.3-3.7% faster than `23aa531` here, within the 5% that
-sessions drift by; tier D held. dusty's rows below come from it, so compare them with
-that run's hyper first.
-
-The Rust servers share their routes (`bench/rest/rust`, hyper keeps its own copy), and
-the Odin servers theirs (`bench/rest/odin`). Each is built with its `bench/` entry's
-profile and flags (`bench/rest.sh build`). may-minihttp and Tina skip tier D: may-minihttp
-frames a body by `Content-Length` alone, and reading Tina's streamed body faults after a
-few bodies sent in small chunks (task 021). Results in
-[2026-10-13-rest](../bench/results/2026-10-13-rest/summary.md), and steps 3 and 4 again
-at 2026-10-12's rates in
-[2026-10-13-rest-rates](../bench/results/2026-10-13-rest-rates/summary.md). Goose's and
-hyper's cells fell within 3.3% of 2026-10-12's run with the same binaries.
-
-Tiers A to C at saturation: wrk 4.1.0 with each tier's script, 8 threads, 256
-connections. Requests per second, the median of 3 runs, and the server's CPU time per
-request. A is HttpArena's items of 0.2 KB, B a time tracker's 0.3-13 KB, and C a
-clinic's schedule of up to 728 KB:
-
-| Server | A, serialize | A, template | B, serialize | B, template | C, serialize | C, template | Peak RSS |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Goose io_uring | **585K**, 6.8 µs | **595K**, 6.7 µs | **268K**, 14.9 µs | **376K**, 10.6 µs | 51.8K, 77 µs | **144K**, 28 µs | 33-387 MB |
-| Goose epoll | 456K, 8.8 µs | 471K, 8.5 µs | 222K, 18.1 µs | 295K, 13.6 µs | **51.9K**, 77 µs | 140K, 29 µs | 26-376 MB |
-| hyper | 274K, 14.6 µs | 293K, 13.7 µs | 150K, 26.7 µs | 197K, 20.3 µs | 32.0K, 126 µs | 119K, 33 µs | **13-75 MB** |
-| tokio | 394K, 10.1 µs | 428K, 9.4 µs | 183K, 21.9 µs | 269K, 14.9 µs | 31.7K, 127 µs | 101K, 40 µs | 16-368 MB |
-| may-minihttp | 383K, 10.4 µs | 413K, 9.7 µs | 186K, 21.6 µs | 273K, 14.7 µs | 32.3K, 124 µs | 100K, 40 µs | 45-490 MB |
-| xitca-web | 404K, 9.9 µs | 425K, 9.4 µs | 233K, 17.2 µs | 305K, 13.1 µs | 37.9K, 105 µs | 110K, 36 µs | 32-505 MB |
-| odin-http | 210K, 19.1 µs | 254K, 15.8 µs | 47.4K, 85 µs | 190K, 21.1 µs | 3.4K, 1,171 µs | 38.3K, 98 µs | 11-476 MB |
-| Tina | 312K, 12.9 µs | 439K, 9.1 µs | 52.2K, 77 µs | 337K, 11.9 µs | 3.4K, 1,180 µs | 99.8K, 40 µs | 482-672 MB |
-| dusty\* | 352K, 11.4 µs | 392K, 10.2 µs | 164K, 24.5 µs | 287K, 14.0 µs | 25.1K, 160 µs | 126K, 32 µs | 16-241 MB |
-| hyper, dusty's run | 284K, 14.1 µs | 312K, 12.8 µs | 153K, 26.2 µs | 200K, 20.0 µs | 32.5K, 124 µs | 122K, 33 µs | 13-75 MB |
-
-- Every run fell within 5% of its cell's median, and no run counted a socket error or a
-  status other than 2xx, but dusty's on A templated, whose fastest run came 6.6% over.
-- Against hyper in its run, dusty serves 1.24-1.26 times its rate on A, 1.07 times on B
-  serialized and 1.43 times templated, and 0.77 times on C serialized, where `std.json`
-  costs 160 µs a request to serde_json's 124 µs; 1.03 times on C templated.
-- Goose's io_uring loop leads every column but C serialized, where the two loops tie.
-  Against the best of the others it serves 1.45 times xitca-web's rate on A serialized,
-  1.35 times Tina's on A templated, 1.15 times xitca-web's on B serialized, 1.11 times
-  Tina's on B templated, 1.37 times xitca-web's on C serialized, and 1.21 times hyper's
-  on C templated.
-- The epoll loop loses tier B to xitca-web, by 5% serialized (222K against 233K) and 3%
-  templated (295K against 305K), and beats every other server but Goose's io_uring loop
-  on A and C.
-- The Odin servers serialize with `core:encoding/json`, which costs 1.2 ms of CPU per
-  tier C request, 9 to 15 times the others' cost: both serve 3.4K a second. With templates,
-  Tina is second on B (337K) and fourth on C (99.8K).
-- Peak RSS spans tiers A to C. Each Goose worker loads its own copy of the records, and
-  templates add a copy of their JSON. hyper's threads share one copy. Tina holds 482 MB
-  even on tier A, whose records take 1.6 MB as JSON; what it allocates isn't measured.
-
-Memory in two parts: each server idle at rest with its records loaded, 4 workers on
-CPUs 0-3 and no load, read 2 s after its port listened, with this run's binaries in a
-later session the same day ([idle-rss.txt](../bench/results/2026-10-13-rest/idle-rss.txt));
-plus what serving added, the run's peak RSS (highest of 3 runs, tier D's over both roles)
-less the idle figure:
-
-| Server | A | B | C | C, templates | Uploads |
-|---|---:|---:|---:|---:|---:|
-| Goose io_uring | 28 + 4.4 MB | 88 + 6.8 MB | 125 + 15 MB | 372 + 15 MB | 125 + 80 MB |
-| Goose epoll | 26 + 0.2 MB | 87 + 0.3 MB | 123 + 5.7 MB | 370 + 5.6 MB | 123 + 91 MB |
-| xitca-web | 24 + 8.1 MB | 48 + 22 MB | 48 + 428 MB | 78 + 427 MB | **48 + 137 MB** |
-| hyper | 7.5 + 5.5 MB | **17 + 11 MB** | **24 + 13 MB** | **62 + 13 MB** | 24 + 172 MB |
-| tokio | 6.8 + 9.2 MB | 17 + 13 MB | 23 + 277 MB | 61 + 307 MB | 23 + 454 MB |
-| may-minihttp | 25 + 20 MB | 57 + 15 MB | 47 + 391 MB | 95 + 395 MB | not run |
-| Tina | 482 + 0.1 MB | 517 + 0.2 MB | 517 + 132 MB | 554 + 119 MB | not run |
-| dusty\* | 7.7 + 8.3 MB | 29 + 13 MB | 29 + 187 MB | 55 + 186 MB | 29 + 785 MB |
-| odin-http | **8.7 + 2.8 MB** | 44 + 39 MB | 44 + 369 MB | 80 + 396 MB | 44 + 1,211 MB |
-
-- Goose's memory is its records at rest: every worker, and main, holds a copy, since
-  Goose threads share only static data. Idle on tier C with the epoll loop it holds 58,
-  79, and 122 MB with 1, 2, and 4 workers, where hyper holds 23 MB at any count. Task 025
-  shrinks it.
-- Serving adds 0.2-15 MB to Goose on tiers A to C, about what it adds to hyper (5.5-13
-  MB). tokio, may-minihttp, xitca-web, and odin-http add 277-428 MB on tier C, whose
-  responses run to 728 KB.
-- dusty's row comes from its own run ([idle](../bench/results/2026-10-13-rest-027/idle-rss.txt),
-  [peaks](../bench/results/2026-10-13-rest-027/summary.md)). At rest it holds about what
-  hyper does; serving tier C adds 186-187 MB, less than the 277-428 MB tokio,
-  may-minihttp, and xitca-web add, and uploads beside forms add 785 MB.
-
-Tier D, request bodies of 2 KB to 8 MB (`tier-d.lua`): the uploads role, chunked CSV
-imports and multipart attachments, on 1 thread and 32 connections, alone and beside
-the forms role, JSON batches and forms, on 7 threads and 224. Requests per second, the
-range of 3 runs:
-
-| Server | Uploads alone | p50 | Uploads beside forms | p50 | Forms role | p99 | Peak RSS |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Goose io_uring | **1,143-1,164** | 16 ms | 160-166 | 127-131 ms | 7.1-7.3K | **74-78 ms** | 205 MB |
-| Goose epoll | 1,145-1,190 | **14-15 ms** | 113-117 | 172-213 ms | **7.4-7.6K** | 85-95 ms | 214 MB |
-| hyper | 1,084-1,113 | 15 ms | 51-60 | 143-150 ms | 4.9K | 143-155 ms | 195 MB |
-| tokio | 1,028-1,051 | 20 ms | **264-271** | **78-82 ms** | 3.7-3.8K | 110-120 ms | 477 MB |
-| may-minihttp | not run: no chunked bodies | | | | | | |
-| xitca-web | 986-1,039 | 17-23 ms | 47-71 | 270-348 ms | 4.3-4.5K | 166-177 ms | **185 MB** |
-| odin-http | 704-715 | 37 ms | 120-121 | 207-209 ms | 820-826 | 1,110-1,140 ms | 1,255 MB |
-| Tina | not run: faults on streamed bodies | | | | | | |
-| dusty\* | 1,127-1,161 | 15-16 ms | 14-41 | 347-824 ms | 2.9K | 621-677 ms | 814 MB |
-| hyper, dusty's run | 1,081-1,155 | 15 ms | 51-69 | 129-228 ms | 4.9-5.0K | 164-172 ms | 219 MB |
-
-Bold marks each column's best, uploads alone by the median, dusty's run aside. wrk counts the invalid
-batches' 422s, about a seventh of the forms role's responses, as errors; no run counted
-any other error.
-
-- Uploads alone, Goose takes 3-4% more than hyper at the median, 10-12% more than tokio
-  and xitca-web, and 1.6 times odin-http's, which reads each body whole first.
-- Beside the forms role, tokio takes the most uploads, 1.6 times Goose io_uring's, while
-  its forms role runs at half of Goose's rate. hyper's and xitca-web's uploads starve
-  there, at 47-71 a second. Goose takes 1.5-1.8 times every other server's forms.
-- odin-http buffers each body whole: its forms role runs at 820 a second with a p99 of
-  1.1 s, in 1.3 GB.
-- dusty takes uploads alone at about hyper's rate in their run, and Goose's here.
-  Beside the forms role its uploads starve, at 14-41 a second, its forms role runs at
-  2.9K with a p99 of 0.6 s, and it peaks at 814 MB; 5 uploads failed over the 3 runs.
-- On 2026-10-12, hyper took uploads alone 6-11% faster than either Goose loop. perf put
-  19% of Goose's time in the multipart reader's delimiter search, the stdlib's `find`,
-  which compared the delimiter at every byte until Goose `d687028`.
-  With `http::find_bytes`, which compares only where the delimiter's first byte is, run
-  on 2026-10-13 with `STEPS=2`, 3 rounds, before and after in one session
-  ([before](../bench/results/2026-10-13-uploads-before/summary.md),
-  [after](../bench/results/2026-10-13-uploads-after/summary.md)):
-
-  | Uploads alone, per second | Before | After |
-  |---|---:|---:|
-  | Goose epoll | 1,003-1,015 | **1,127-1,153** |
-  | Goose io_uring | 978-995 | 1,108-1,141 |
-  | hyper | 1,107-1,116 | 1,084-1,095 |
-
-  Goose now takes uploads alone 1-6% faster than hyper. Beside the forms role, nothing
-  changed beyond the runs' spread. Per upload before the change, Goose ran 43.3 M user
-  instructions to hyper's 33.4 M.
-
-Tiers A to C at a fixed rate: 140K requests per second on A, 74K on B, and 16K on C, from
-zrk 2.3.0, one process per route at its share of the tier's mix (`bench/rest/rate.py`),
-corrected for coordinated omission. These are 2026-10-12's rates, half the lowest median
-of Goose and hyper then, rerun for all eight servers (`STEPS="3 4"`). The run's own rule,
-half the lowest median of all eight, gave 100K, 24K, and 1.7K, set by odin-http and
-Tina, at which every server held every rate but odin-http on C serialized
-([2026-10-13-rest](../bench/results/2026-10-13-rest/summary.md)). The server's CPU time
-per request, and each tier's highest route p99 over the 3 runs:
-
-| Server | A, serialize | A, template | B, serialize | B, template | C, serialize | C, template |
-|---|---:|---:|---:|---:|---:|---:|
-| Goose io_uring | 17.9-18.2 µs, 0.21 ms | 17.7-18.2 µs, 4.7 ms | 28.7-29.5 µs, 2.8 ms | 26.8-27.2 µs, 0.19 ms | 87.0-88.5 µs, 1.0 ms | 43.5-44.3 µs, 0.40 ms |
-| Goose epoll | **17.8-18.0 µs**, 0.22 ms | **17.5-18.0 µs**, 12 ms | **28.3-29.2 µs**, 0.21 ms | **26.2-26.6 µs**, 17 ms | **86.7-87.3 µs**, 0.89 ms | **42.0-43.9 µs**, 0.40 ms |
-| hyper | 22.9-23.0 µs, 0.57 ms | 22.3-22.4 µs, 0.55 ms | 38.8-39.5 µs, 0.30 ms | 35.0-35.7 µs, 0.24 ms | 143-144 µs, 1.5 ms | 53.2-55.2 µs, 0.42 ms |
-| tokio | 18.9-19.4 µs, 35 ms | 18.0-18.8 µs, 0.24 ms | 31.7-32.2 µs, 0.28 ms | 27.8-28.6 µs, 0.20 ms | 134-135 µs, 2.7 ms | 47.1-48.3 µs, 0.43 ms |
-| may-minihttp | 18.7-19.1 µs, 0.21 ms | 18.5-18.8 µs, 0.82 ms | 31.1-31.7 µs, 0.33 ms | 26.9-27.3 µs, 7.9 ms | 128-133 µs, 22 ms | 47.9-49.2 µs, 0.49 ms |
-| xitca-web | 22.9-23.1 µs, 2.1 ms | 23.0 µs, 0.31 ms | 36.8-37.2 µs, 5.0 ms | 33.3-34.7 µs, 4.5 ms | 124-126 µs, 2.8 ms | 58.9-59.3 µs, 0.46 ms |
-| odin-http | 27.2-27.7 µs, 83 ms | 24.8-25.0 µs, 2.7 ms | missed: 50.0-51.4K of 74K, 6.5 s | 35.3-36.1 µs, 16 ms | missed: 4.0-10.8K of 16K, 14 s | 113-116 µs, 21 ms |
-| Tina | polls, 0.85 ms | polls, 0.30 ms | missed: 52.1-52.9K of 74K, 5.9 s | polls, 0.20 ms | missed: 10.4-10.5K of 16K, 13 s | polls, 1.2 ms |
-| dusty\* | 23.3-23.6 µs, 0.20 ms | 22.9-23.3 µs, 0.21 ms | 40.0-40.6 µs, 0.28 ms | 34.4-35.0 µs, 0.24 ms | 175 µs, 2.7 ms | 52.9-53.7 µs, 0.36 ms |
-
-Bold marks each column's lowest CPU per request. The p99s come from one route in one run
-each; most cells' other runs stay under 1 ms on A and B.
-
-- The Goose loops spend the least CPU per request in every column. At the medians, that
-  is 4-6% less than tokio and may-minihttp on A, 9-10% less on B serialized and 2-6%
-  templated, 30-39% less than the Rust servers on C serialized, and 10-27% less on C
-  templated. Against hyper it is 0.6 to 0.8 times.
-- odin-http and Tina can't hold B or C serialized, the tiers their JSON writer limits:
-  the requests queue, and the p99 reaches 5 to 14 s. Templated, both hold every rate.
-- Tina's threads poll: it used all 4 CPUs at every rate, so its CPU per request is 4
-  CPUs divided by the rate and says nothing about a request's cost.
-- Every route's median stays at 0.08-0.15 ms on every server that holds the rate, but
-  odin-http's on A serialized, 0.23-0.25 ms, and C's 715 KB bookings: 0.67 ms on Goose
-  serialized, 1.09-1.23 ms on the Rust servers, and 0.25-0.34 ms with templates
-  (odin-http's 0.9 ms).
-- odin-http counted one read error in each of two tier A runs, of about 2 million
-  requests each.
-
-The mixed run, in the same rerun: a server with `TIER=d` takes tier C's reads at 16K
-requests per second, alone and beside the uploads role. Read latency in ms, p50 / p99,
-the range over the 6 routes and 3 runs:
-
-| Server | Reads alone | Reads beside uploads | Uploads |
-|---|---:|---:|---:|
-| Goose io_uring | **0.10-0.68 / 0.48-3.1** | 2.3-3.3 / 7.8-11 | 754-773/s |
-| Goose epoll | 0.10-0.68 / 0.51-20 | **0.27-0.90 / 1.4-2.5** | **769-781/s** |
-| hyper | 0.12-1.19 / 0.52-7.1 | 6.0-6.8 / 18-19 | 553-567/s |
-| tokio | 0.12-1.27 / 1.4-10 | missed: 11.1-11.8K of 16K, 155-2,246 / 5,032-7,420 | 647-653/s |
-| may-minihttp | not run: no chunked bodies | | |
-| xitca-web | 0.12-1.29 / 1.1-29 | 0.18-1.33 / 1.7-13 | 402-482/s |
-| odin-http | missed: 3.3-8.8K of 16K, p99 6-14 s | missed: 1.9-2.2K of 16K, p99 12-13 s | 260-293/s |
-| Tina | not run: faults on streamed bodies | | |
-| dusty\* | 0.11-1.46 / 1.6-2.7 | 0.88-105 / 17-1,863 | 327-363/s |
-
-- The epoll loop keeps reads beside uploads under 2.5 ms at p99, since it reads at most
-  `Config.max_read` (16 KB) from a connection per turn, and takes the most uploads.
-  xitca-web's p99 there is 1.7-13 ms with half the uploads, Goose io_uring's 7.8-11 ms,
-  and hyper's 18-19 ms.
-- tokio, which buffers each body whole before its handler runs, falls behind on the reads
-  beside uploads, at a p99 of 5-7 s, while it takes more uploads than hyper. Why isn't
-  measured.
-- odin-http can't hold the reads alone: its tier C serialized rate is 3.4K a second.
-- dusty holds the reads alone, at a p99 of 1.6-2.7 ms. Beside uploads, a read waits up
-  to 1.9 s in some rounds, and a few fall short of their rate (client 471 of 480 a
-  second, poll 8.5K of 8.8K); hyper, in the same run, kept them at 17-22 ms.
-- Each server's worst p99 alone comes from one round: Goose epoll's 20 ms, xitca-web's
-  29 ms, and tokio's 10 ms. Goose's uploads rose from 627-651 a second on 2026-10-12,
-  with `http::find_bytes`.
+dusty joined in a separate comparison with hyper and task 027's Goose variants:
+[2026-10-13 REST variants](../bench/results/2026-10-13-rest-027/summary.md).
+Session drift means its results should first be compared with hyper from that run.
+Task 021 records the workloads, competitor exclusions, and the epoll fairness
+decision. Tasks 025 and 027 retain the before/after evidence for their changes.
 
 ## Instructions per request
 
-`bench/instructions.sh`, on 2026-10-12 in the evening, Goose at `47876ad`: one worker on
-CPU 0, plaintext pipelined 16 deep at 256 connections, wrk on CPUs 4-15 with 8 threads for
-20 s, and `perf stat` on CPU 0 for 10 s from 5 s in, so the counts include the kernel's
-network work on that CPU. Three runs per server
-([2026-10-12-desktop-instructions](../bench/results/2026-10-12-desktop-instructions/runs.tsv)),
-the range of the three, ordered by cycles; bold is the column's best. dusty's row is
-from the morning's run
-([2026-10-12-full-instructions](../bench/results/2026-10-12-full-instructions/instructions.tsv)),
-with the same binary.
+The earlier cross-server instruction comparison uses `bench/instructions.sh` on
+2026-10-12, server `47876ad`, desktop kernel 6.18.40.1: one worker on CPU 0,
+plaintext pipelined 16 deep at 256 connections, wrk with 8 threads on CPUs 4-15 for
+20 s, and perf on CPU 0 for 10 s from 5 s into the run; 3 runs. Counts include
+kernel network work on that CPU.
+[Raw counts](../bench/results/2026-10-12-desktop-instructions/runs.tsv).
 
-| Server | Instructions per request | In user code | Cycles per request | Peak RSS |
-|---|---:|---:|---:|---:|
-| vanilla-io_uring | **1,702-1,731** | **745-759** | **1,541-1,560** | 14.2 MB |
-| libreactorng | 2,266-2,308 | 1,307-1,328 | 1,719-1,746 | 5.3 MB |
-| Goose io_uring | 2,533-2,580 | 1,576-1,601 | 1,808-1,819 | 4.9 MB |
-| vanilla-epoll | 1,744-1,768 | 756-766 | 1,980-2,010 | 5.5 MB |
-| Goose epoll | 2,475-2,530 | 1,535-1,574 | 1,995-2,036 | **2.4 MB** |
-| zix | 4,675-4,720 | 3,703-3,736 | 2,331-2,359 | 3.8 MB |
-| tokio | 4,353-4,415 | 3,408-3,453 | 2,724-2,736 | 10.0 MB |
-| may-minihttp | 2,983-3,005 | 1,945-1,953 | 2,731-2,776 | 65 MB |
-| xitca-web | 7,166-7,259 | 6,090-6,168 | 3,881-3,943 | 15.4 MB |
-| hyper | 6,136-6,291 | 5,177-5,318 | 4,117-4,326 | 7.2 MB |
-| zeemo | 10,111-10,203 | 7,791-7,870 | 4,949-4,970 | 3.4 MB |
-| Tina | 19,983-20,260 | 8,230-8,334 | 18,566-18,751 | 190 MB |
-| dusty | 20,264-20,293 | 7,990-7,992 | 26,811-27,263 | 8.8 MB |
-
-- Goose's io_uring loop is third by cycles, behind vanilla-io_uring and libreactorng.
-  Both answer without parsing the request as Goose does: vanilla runs half of Goose's user
-  instructions.
-- The io_uring loop runs 40-60 more user instructions per request than the epoll loop,
-  and about 200 fewer cycles, as in the morning. The day's work (answers that wait,
-  queued sends, files without copying) left the epoll loop's user instructions within
-  50 of the morning's 1,494-1,527.
-- Tina pipelines poorly: 216-221 K requests per second here, and 20,000 instructions a
-  request, about 8 times Goose's (task 019). It holds 190 MB, for 4,096 connection
-  slots.
-
-Binary sizes, as `bench/build.sh` builds them: Goose 183,128 bytes with both loops,
-vanilla-epoll 205,920, tokio 630,304, hyper 818,592, may-minihttp 931,456, and dusty
-1,769,856. The package is 2,793 lines of Goose, the benchmark server 328, and the Linux
-shim, `shim/net.c` and `shim/uring.c`, 642 lines of C.
-
-## The package's build
-
-Task 011 made the server a program over the package, with the routes as its handler.
-On the machine above, on 2026-10-11, at `2d61b55` with Goose `fe6c543`, both loops run
-as fast as `1bea5a0`, the last build before it, built fresh beside it with the same
-compiler. `bench/instructions.sh` (as above, 3 runs):
-
-| Build | Instructions per request | In user code | Cycles per request |
-|---|---:|---:|---:|
-| epoll, `2d61b55` | 2,286-2,311 | 1,349-1,364 | 1,888-1,921 |
-| epoll, `1bea5a0` | 2,344-2,355 | 1,407-1,415 | 1,890-1,895 |
-| io_uring, `2d61b55` | 2,370-2,378 | 1,405-1,410 | 1,694-1,701 |
-| io_uring, `1bea5a0` | 2,417-2,439 | 1,453-1,467 | 1,702-1,725 |
-
-`bench/run.sh` with its defaults, `TESTS="plaintext:256 plaintext:1024 json:256"`, 1
-worker on CPU 0 and 4 on CPUs 0-3, 3 runs of 15 s: each loop's median wrk rate is
-within 3% of `1bea5a0`'s in all 6 cells, inside the runs' spreads but for three cells
-where the package's build is 2-3% faster. The epoll loop served 6.01 M requests per
-second in plaintext at 256 connections with 4 workers, and the io_uring loop 7.45 M.
-The cells, and the regression the first build had before its parser and response
-writers were made `inline fn`, are in task 011
-([tasks/000-archive/011-package.md](../tasks/000-archive/011-package.md#speed-2026-10-11)); the runs are in
-`bench/results/2026-10-11-package/` and `bench/results/2026-10-11-package-instructions/`.
+Tina's comparison and interpretation are retained in task 019. Fixed-count user
+instruction comparisons for current API changes belong to task 027; their totals
+are not interchangeable with these CPU-wide counts.
 
 ## HttpArena's profiles
 
@@ -677,81 +178,15 @@ Latency is the best run's.
 - At 10,000 requests per second, the four spend 3 times latency-1m's CPU per request:
   each request wakes an idle loop. Goose, tokio, and vanilla-epoll are within 2%.
 
-## The parser alone
-
-`bench/parse.sh` and the parsers' own benchmarks, on CPU 2, per parse of
-picohttpparser's benchmark request (725 bytes, a browser's with a long cookie). Goose at
-`b6a26c5`; the others as task 009 records them.
-
-| Parser, build | ns per parse |
-|---|---:|
-| picohttpparser, gcc `-O2 -msse4.2` | 108.0 |
-| Goose's `http::parse`, `goose -O2`, gcc `-O2` | 124.0 |
-| httparse 1.10.1, `-C target-cpu=native` (httparse's own request, 17 bytes longer) | 144.7 |
-| httparse 1.10.1, default build (the same) | 168.0 |
-| picohttpparser, gcc `-O2` | 217.8 |
-
-Goose's `parse` also checks `Host`, `Content-Length`, `Transfer-Encoding`, and
-`Connection`, where the other two only split the head into slices.
-
-## Where Goose loses
-
-From the runs of 2026-10-12 above. Against the full field, the io_uring servers in C,
-V, and Zig beat Goose's io_uring loop; against the morning's seven servers, the losses
-are the epoll loop's, which is also the HttpArena entry, and memory.
-
-- **Plaintext, to vanilla-io_uring, by 21-27%** in every cell but 4,096 connections with
-  1 worker, a tie, and **to libreactorng, by 3-17%**, with 4 workers and with 1 worker
-  at 256 and 1,024 connections ([the full field](#the-full-field)). Both answer without
-  parsing the request as Goose does, and spend fewer cycles per request
-  ([instructions](#instructions-per-request)).
-- **JSON with 4 workers, to zix, zeemo, and libreactorng**, by 8-11% at 256 connections
-  and 24-26% at 1,024; and to Tina by 1% at 256.
-- **3% since the morning's build**, about 40 user instructions per plaintext request
-  ([Goose since the morning](#goose-since-the-morning)).
-
-- **The epoll loop, plaintext with 4 workers at 256 connections, to vanilla-epoll, by
-  5%**: 5.830 M (5.799-5.874 M) against 6.097 M (5.983-6.104 M), beyond both spreads.
-  In the other five plaintext cells the two are within each other's spreads. Profiled
-  with `perf` on CPUs 0-3 on 2026-10-11 (`b6a26c5`, task 009), the two spent the same
-  cycles per request, 2,819 against 2,787-2,819, and the same kernel instructions,
-  about 1,000. Goose ran about 740 more instructions per request in user code: most are
-  parsing, which vanilla-epoll skips for `GET /plaintext ` by matching the request's
-  first bytes. Both spent about 5% of their cycles in the kernel's epoll wake-up lock
-  under WSL2's paravirtual spinlocks.
-- **Instructions per request, to vanilla-epoll**: 2,418-2,469 for the epoll loop against
-  1,750-1,758, and 1,494-1,527 against 763-767 in user code, for the same reason.
-  Cycles per request are even, 1,921-1,933 against 1,916-1,929.
-- **p99 latency, in four plaintext cells.** The epoll loop trails a competitor by
-  0.05 ms or less at 256 connections, by 0.1 ms at 4,096 with 4 workers, and by 2.2 ms
-  at 4,096 with 1 worker (49.6 against 47.4 ms for vanilla-epoll). The io_uring loop
-  has the lowest p99 of the servers that don't starve connections in every cell but
-  plaintext with 4 workers at 256 connections: 1.50 ms against 1.43 ms for
-  may-minihttp.
-- **Peak RSS of the io_uring loop at 256 connections with 4 workers**: 9.7-9.8 MB, above
-  vanilla-epoll's 6.0 MB, hyper's 8.3-9.5 MB, and dusty's 9.0 MB. The epoll loop's is
-  the lowest in every cell (task 016).
-- **HttpArena's limited-conn**, a new connection every 10 requests: 311K against tokio's
-  316K and dusty's 352K. dusty's lead exists under Docker only: outside Docker, at the
-  same settings, Goose ran 368-389K and dusty 334K (task 009). Goose and tokio make the
-  same syscalls per request but two: Goose calls `epoll_wait` 0.30 times per request,
-  tokio 0.11, and Goose calls `recv` once more per connection (task 009).
-- **HttpArena's latency-1m p99**: 230 µs against 159-181 µs, a measure that moves by up
-  to 15 times between runs.
-- **REST memory**: 2 to 5 times hyper's peak RSS on every tier, since each worker loads
-  its own copy of the records.
-- **REST reads beside uploads on the io_uring loop**: p99 9-17 ms against the epoll
-  loop's 1.6-2.7 ms. The epoll loop bounds its reads per connection turn. The io_uring
-  loop takes up to 256 completions per wait, each up to 4 KB of an upload, which would
-  fit; not measured yet.
 
 ## M1 Pro, Linux in Docker
 
-The same matrix, shortened, in Docker Desktop's Linux VM on a MacBook Pro
-(`MacBookPro18,3`, Apple M1 Pro, 8 performance and 2 efficiency cores, macOS 26.3.1).
-The VM had 10 CPUs and 8 GB, kernel 7.0.14-linuxkit, and ran `ubuntu:26.04` with gcc
-15.2.0, rustc 1.99.0, wrk 4.1.0, and h2load 1.68.0. The Goose server is at `9623c6a`,
-built by Goose `efe3155`. On 2026-10-11:
+The host is a MacBook Pro `MacBookPro18,3`, Apple M1 Pro with 8 performance and
+2 efficiency cores, macOS 26.3.1. Docker Desktop 29.8.2 supplies a 10-CPU, 8 GB VM,
+kernel 7.0.14-linuxkit, running Ubuntu 26.04 with gcc 15.2.0, rustc 1.99.0,
+wrk 4.1.0, and h2load 1.68.0.
+
+The partial field at server `9623c6a`, Goose `efe3155`, used:
 
 ```sh
 MACHINE=m1pro-docker SERVERS="goose goose-uring may-minihttp hyper tokio xitca-web" \
@@ -759,156 +194,46 @@ MACHINE=m1pro-docker SERVERS="goose goose-uring may-minihttp hyper tokio xitca-w
     RUNS=3 DURATION=10 WARMUP=3 TESTS="plaintext:256 plaintext:1024 json:256" bench/run.sh
 ```
 
-That's 4 workers on VM CPUs 0-3 and wrk and h2load with 8 threads on CPUs 4-9, 3
-interleaved runs of 10 s after 3 s of warm-up. Medians, from
-[2026-10-11-m1pro-docker](../bench/results/2026-10-11-m1pro-docker/summary.md):
+[2026-10-11 summary](../bench/results/2026-10-11-m1pro-docker/summary.md).
+wrk was near its CPU limit in the fastest cells. Transparent huge pages dominated
+Goose's RSS, so it cannot be compared directly with desktop RSS.
 
-| | Goose | goose-uring | tokio | may-minihttp | hyper | xitca-web |
-|---|---:|---:|---:|---:|---:|---:|
-| plaintext, 256 conns, req/s | 6.96 M | 6.42 M | 6.10 M | 2.98 M | 3.31 M | 2.44 M |
-| plaintext, 1,024 conns, req/s | 6.89 M | 6.60 M | 5.89 M | 5.90 M | 3.21 M | 2.37 M |
-| JSON, 256 conns, req/s | 0.870 M | 0.870 M | 0.828 M | 0.816 M | 0.580 M | 0.643 M |
-| p99 (h2load), JSON | 3.01 ms | 3.08 ms | 3.02 ms | 2.90 ms | 1.20 ms | 1.72 ms |
+The fuller arm64 field at `b2e0337`, Goose `efe3155`, used 3 workers on CPUs 0-2
+and 8 client threads on CPUs 3-9, 3 runs of 10 s after 3 s of warm-up:
+[plaintext](../bench/results/2026-10-11-m1pro-docker-3w-plaintext/summary.md) and
+[JSON](../bench/results/2026-10-11-m1pro-docker-3w-json/summary.md).
+JSON omitted vanilla-epoll because its memory growth exceeded the VM's capacity.
+Copied competitor rows carry session drift; task 012 retains the open full-matrix
+validation. These results are historical platform checks, not current-build rankings.
 
-Goose leads every cell. The epoll loop runs 4-8% ahead of the io_uring loop in
-plaintext and even in JSON. In JSON, hyper's and xitca-web's p99 is 1.2-1.7 ms against
-2.9-3.1 ms for the four faster servers, at two thirds of their rate.
-
-- The field is partial: vanilla-epoll, odin-http, and the Zig servers didn't build here.
-  `bench/build.sh` builds the Zig servers for `x86_64-linux-musl`, and V's bootstrap is
-  pinned for x86-64.
-- wrk used 51-58 s of the 60 CPU seconds its 6 CPUs had, in every Goose, goose-uring,
-  and tokio cell, so the client bounds those cells and the gaps among the three are
-  likely smaller than the servers' own.
-- The VM runs transparent huge pages set to `always`, so peak RSS (30-36 MB for Goose)
-  is mostly 2 MB pages: an idle Goose server with 4 workers held 22 MB, 20 MB of it in
-  `AnonHugePages`. RSS doesn't compare with the WSL2 machine's here.
-- The VM's CPUs are macOS threads, shared with macOS's own load (a load average of 4-10
-  during the session, from other work on the machine).
-
-### The full field, 3 workers
-
-The same VM and image with Zig 0.16.0 and Odin `dev-2026-10` added, every server built for
-arm64 by `bench/build.sh` (its notes in [bench/README.md](../bench/README.md#servers)),
-on 2026-10-11. The Goose server is at `b2e0337`, built by Goose `efe3155`; `env.txt`
-shows "(modified)" because the runs used a copy of the working tree:
-
-```sh
-MACHINE=m1pro-docker SERVERS="goose goose-uring tokio vanilla-epoll vanilla-io_uring \
-    may-minihttp hyper xitca-web odin-http dusty zix zeemo libreactorng" \
-    WORKER_COUNTS=3 SERVER_CPUS=0-2 CLIENT_CPUS=3-9 CLIENT_THREADS=8 \
-    RUNS=3 DURATION=10 WARMUP=3 TESTS="plaintext:256 plaintext:1024" bench/run.sh
-```
-
-JSON ran the same way, with `TESTS=json:256` and without vanilla-epoll, whose JSON cells
-grow its memory past the VM's 8 GB. That's 3 workers on VM CPUs 0-2 and wrk and h2load
-with 8 threads on CPUs 3-9: a pilot with 4 workers left wrk at 50 of its 60 CPU seconds,
-and with 2 workers the server was the limit. Medians of 3 interleaved runs of 10 s, from
-[3w-plaintext](../bench/results/2026-10-11-m1pro-docker-3w-plaintext/summary.md) and
-[3w-json](../bench/results/2026-10-11-m1pro-docker-3w-json/summary.md):
-
-| Server | plaintext, 256 | plaintext, 1,024 | JSON, 256 | JSON p99 (h2load) |
-|---|---:|---:|---:|---:|
-| goose-uring | 6.65 M | 7.00 M | 0.826 M | 1.64 ms |
-| goose | 6.90 M | 7.09 M | 0.749 M | 1.67 ms |
-| zix | 4.65 M | 4.34 M | 0.742 M | 1.01 ms |
-| zeemo | 2.74 M | 2.72 M | 0.737 M | 0.99 ms |
-| libreactorng | 4.60 M | 5.17 M | 0.721 M | 0.99 ms |
-| tokio | 5.26 M | 5.22 M | 0.624 M | 1.06 ms |
-| may-minihttp | 2.92 M | 5.48 M | 0.579 M | 0.84 ms |
-| vanilla-io_uring | 6.20 M | 6.16 M | 0.539 M | 2.56 ms |
-| xitca-web | 1.88 M | 1.71 M | 0.504 M | 0.96 ms |
-| dusty | 0.41 M | 0.28 M | 0.474 M | 0.86 ms |
-| odin-http | 0.37 M | 0.35 M | 0.335 M | 1.76 ms |
-| hyper | 2.24 M | 2.15 M | 0.334 M | 1.20 ms |
-| vanilla-epoll | 6.03 M | 6.03 M | not run | |
-
-- The two Goose loops lead plaintext, and goose-uring leads JSON, 10% ahead of the epoll
-  loop, which ties zix, zeemo, and libreactorng within 4%. JSON is the cell that ranks
-  the servers here: every server used all 30 of its CPU seconds, and wrk used 26-53 of its
-  70.
-- In plaintext both ends are near their limits in the top cells: the servers used 26-29
-  of 30 CPU seconds, wrk 60-65 of 70. The plaintext order of Goose, goose-uring, and the
-  vanilla servers is within run-to-run spreads of up to 20%.
-- Rows other than the Goose builds, dusty, and zix were measured in a first pass and
-  copied by `REUSE` (the summaries' From column). Goose drifted between the passes: 6.11 M
-  against 6.90 M at 256 connections, and 0.717 M against 0.749 M in JSON, so the copied
-  rows' gaps to Goose carry up to 13% of session drift. The first pass is in
-  [field-plaintext](../bench/results/2026-10-11-m1pro-docker-field-plaintext/summary.md)
-  and [field-json](../bench/results/2026-10-11-m1pro-docker-field-json/summary.md).
-- dusty and zix were measured again because the first pass built them with Zig's
-  `native`, which resolves to generic arm64 in the VM. With `apple_m1`, zix lost 10% in
-  plaintext (5.19 M to 4.65 M) and held JSON; dusty gained 7% in JSON.
-- dusty and odin-http serve pipelined plaintext at 0.3-0.5 M, below their JSON rate, as
-  dusty did under HttpArena on WSL2 (0.60 M).
-
-### HttpArena's profiles
-
-HttpArena's harness at `0720ee5`, run by `bench/httparena.sh run` from a Linux container
-on Docker Desktop (`docs/development.md`, "HttpArena under Docker on macOS"), on
-2026-10-11 at `16528ea` with Goose `efe3155`, so the Goose entry is the epoll loop: each
-server's container on VM CPUs 0-2, gcannon `11c802b` on CPUs 3-9 with 4 threads, the best
-of 3 runs of 5 s per profile, and latency-1m at 200,000 requests per second. On arm64 the
-script takes zrk's aarch64 release and tccbin's arm64 branch for vanilla-epoll; every
-entry passed `validate`. Results in
-[bench/results/httparena-2026-10-11-m1pro-docker](../bench/results/httparena-2026-10-11-m1pro-docker).
-
-| Profile | Goose | tokio | vanilla-epoll | dusty |
-|---|---:|---:|---:|---:|
-| baseline (mixed GET and POST), req/s | 631K | 526K | 518K | 390K |
-| limited-conn (10 requests per connection), req/s | 503K | 389K | 439K | 444K |
-| pipelined, req/s | 6.59M | 6.26M | 6.58M | 0.55M |
-| latency-1m, CPU per request | 8.05 µs | 8.35 µs | 8.42 µs | 10.84 µs |
-| latency-1m, p99 | 210 µs | 200 µs | 323 µs | 332 µs |
-| baseline, container memory | 53 MiB | 136 MiB | 77 MiB | 148 MiB |
-
-Goose leads baseline by 20% and limited-conn by 13%, ties vanilla-epoll in pipelined, and
-spends the least CPU per request at the fixed rate, 4% under tokio. On WSL2, dusty led
-limited-conn; here it's third. The servers used 243-292% of their 300% CPU in baseline and
-limited-conn, and 203-290% in pipelined (Goose 203%), so those profiles measure gcannon as
-much as the servers.
-Memory is the container's, socket buffers included, and inflated by the VM's
-transparent huge pages, so it compares containers on this VM only. The latency-1m p99
-moved by up to 15 times between runs on WSL2, so it ranks the servers only roughly.
-
-The Goose entry at `ac399a3`, in the package layout with Goose `fe6c543` and still the
-epoll loop, measured the same in a run of its own: 629K in baseline, 478K in
-limited-conn, 6.61M in pipelined, and 8.09 µs per request in latency-1m
-([httparena-2026-10-11-m1pro-docker-main](../bench/results/httparena-2026-10-11-m1pro-docker-main)).
-limited-conn moves between sessions: alternated twice each, `1fb0ef3` measured 480K and
-482K and `ac399a3` 474K and 480K.
+HttpArena `0720ee5` on the same VM used server `16528ea`, Goose `efe3155`, and the
+epoll entry: `bench/httparena.sh run`, 3 workers on CPUs 0-2, gcannon `11c802b` with
+4 threads on CPUs 3-9, best of 3 runs of 5 s; latency-1m offered 200,000 requests per
+second. Every entry passed validation.
+[Profile records](../bench/results/httparena-2026-10-11-m1pro-docker).
+The clients also constrained these profiles. Memory includes socket buffers and
+transparent huge pages, so it compares containers on this VM only.
 
 ## M1 Pro, macOS native
 
-The kqueue build on the same MacBook Pro, natively, against the Rust servers that build on
-macOS, with `bench/run-macos.sh` on 2026-10-11: 4 workers per server and wrk 4.2.0 with
-4 threads, on the same machine with nothing pinned; plaintext pipelined 16 deep and JSON,
-with TechEmpower's headers; 3 interleaved runs of 10 s after 3 s of warm-up; on AC
-power, under `caffeinate -i`, with `kern.ipc.somaxconn` at its default of 128. Medians,
-from [2026-10-11-m1pro-native](../bench/results/2026-10-11-m1pro-native/runs.tsv):
+`bench/run-macos.sh` on 2026-10-11 used server `9623c6a` on the same M1 Pro host,
+macOS 26.3.1, Darwin 25.3.0: 4 workers per server,
+wrk 4.2.0 with 4 threads, 256 and 1,024 plaintext connections pipelined 16 deep,
+256 JSON connections, 3 runs of 10 s after 3 s of warm-up. Nothing was pinned;
+the machine was on AC power under `caffeinate -i`, with listen backlog cap 128.
+[Raw runs](../bench/results/2026-10-11-m1pro-native/runs.tsv).
 
-| | Goose | hyper | tokio | may-minihttp |
-|---|---:|---:|---:|---:|
-| plaintext, 256 conns, req/s | 558 K | 560 K | 587 K | 538 K |
-| plaintext, 1,024 conns, req/s | 537 K | 536 K | 554 K | 513 K |
-| JSON, 256 conns, req/s | 35.9 K | 35.8 K | 37.2 K | 35.0 K |
-| peak RSS, any cell | 1.9 MB | 7-23 MB | 15-56 MB | 56-194 MB |
+All servers were near the same loopback round-trip limit. Adding workers did not
+raise JSON throughput; two independent server/client pairs shared the same total
+capacity. These runs show native operation and memory use, not a reliable ranking
+of server implementations. Task 012 records the profile and shared-listener work.
 
-These numbers rank the kernel, not the servers. Every server lands within 5% of Goose,
-and the limit is one exchange per round trip that macOS's loopback carries, about
-35,000-40,000 a second:
+## Windows, IOCP
 
-- Goose with 1 worker serves JSON at the same 36 K as with 4. wrk, h2load, and oha all
-  reach 35-38 K, and 16 connections reach 40 K.
-- Two independent pairs, two Goose servers each loaded by its own wrk, ran 36.0 K alone
-  and 17.9 K each together.
-- Under load the machine is 70% idle: Goose's 4 workers take one core between them, wrk
-  one, and `kernel_task` one.
-- Plaintext reaches 550 K because wrk sends 16 requests per write: about 34,000 writes a
-  second, as in JSON.
-
-tokio leads by 3-5%, with its `SO_REUSEPORT` listeners, which macOS doesn't balance:
-the last one bound takes every connection (task 006); under load, one of its 4 threads
-used CPU and the other three none.
-With the kernel as the limit, fewer threads waking is an advantage. Goose's rank here
-says nothing about its code; task 012 has the profile.
+Task 017's baseline records `bench/oha.sh` on both Windows and WSL2 at `fcfd80d`,
+Goose `5c83a5a`, desktop kernel 6.18.40.1: oha 1.16.0, 2 million plaintext requests,
+256 connections, 1 and 4 workers, 3 runs, with no CPU pinning. The client shares CPUs
+with the server, so the comparison does not isolate server capacity.
+[IOCP runs](../bench/results/2026-10-12-iocp-plaintext) and
+[io_uring runs](../bench/results/2026-10-12-uring-plaintext-oha).
+The kernel trace analysis and candidate evaluation remain open in task 017.

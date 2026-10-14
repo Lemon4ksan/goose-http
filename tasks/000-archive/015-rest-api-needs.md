@@ -402,7 +402,7 @@ xitca-http that `bench/` doesn't build.
   `SameSite` other than `Strict`, `Lax`, or `None`) is dropped, as `field` drops a field.
   odin-http writes any cookie, escaping LF only. `each_cookie` reads the fields with its
   own loops because of a checker limit
-  ([findings](../../docs/goose-findings.md#a-closure-that-keeps-a-slice-through-two-nested-blocks-doesnt-settle)).
+  ([historical finding](https://github.com/kaitk/goose-http/blob/9a6afc695ff5d6b6791a40771aa0ded7d5c00fe6/docs/goose-findings.md#a-closure-that-keeps-a-slice-through-two-nested-blocks-doesnt-settle)).
 - `Authorization` (`auth.goose`). No competitor in `bench/` reads `Authorization` or
   answers 401: odin-http names the field only to keep it out of trailers
   (`http.odin`), and xitca-web and its dependencies have no base64. Here,
@@ -440,7 +440,7 @@ xitca-http that `bench/` doesn't build.
   a buffer for the stdlib's `json::format_*` writers, then answers with that body and
   `application/json`. The stdlib's parser and reader take only a whole text, so a body
   that comes in `BODY` pieces must be joined first
-  ([findings](../../docs/goose-findings.md#the-stdlibs-json-parser-and-reader-take-only-a-whole-text)).
+  ([historical finding](https://github.com/kaitk/goose-http/blob/97e61d2/docs/goose-findings.md#the-stdlibs-json-parser-and-reader-take-only-a-whole-text)).
 - Limits (`Config.max_requests` and `body_within`, `http.goose`). None of hyper 1.12.0,
   xitca-http 0.8.2, may-minihttp, or odin-http caps a connection's requests. For a
   route's body, odin-http's `body` takes a maximum from the handler, checks

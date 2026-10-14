@@ -9,9 +9,9 @@ its own: `bench/rest.sh`, `bench/run.sh`, and `bench/files.sh` each start and st
 servers, wait for a port, read a server's CPU ticks from `/proc`, run wrk, and write
 `env.txt` and a summary, with small differences between them.
 
-Order (asked for 2026-10-14): this goes after task 027's API work and the merges that
-wait on the overnight benchmarks (task 027, "Pending"), and before goose-rest's first
-run, which comes once the HTTP changes are on `main`.
+Order (asked for 2026-10-14): this follows the HTTP changes already on `main` and comes
+before goose-rest's first benchmark run. Task 027 retains its pending measurement
+recheck; there are no HTTP branches waiting to merge for this task.
 
 ## Acceptance criteria
 

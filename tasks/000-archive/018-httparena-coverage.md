@@ -1,6 +1,10 @@
 # 018: HttpArena's profiles beyond the four we run
 
-Status: in-progress
+Status: done (final json-comp criterion completed 2026-10-14)
+
+This file records HttpArena coverage and validation at completion. Current compression
+behavior is described in the API reference; current measurements are in the benchmark
+summary. Historical validation details below refer to the builds they name.
 
 HttpArena (`MDA2AV/HttpArena`, at `0720ee5`, the commit `bench/httparena.sh` pins) has
 27 profiles. This task records which of them HTTP/1.1 without TLS covers, what the
@@ -15,7 +19,7 @@ package lacks for the rest, and enters the ones it already serves (2026-10-12).
 | latency-500k-8cpu | latency-1m's endpoint on 8 CPUs | left out: `bench/httparena.sh` puts every profile on `SERVER_CPUS`, so it would repeat latency-1m |
 | async | `GET /delay/{ms}`, 32,000 connections each waiting 10 ms | entered here |
 | json-comp | gzip responses by `Accept-Encoding` | entered (task 022) |
-| static-tls, static-h2, static-h3 | files, with precompressed gzip variants | missing: TLS, HTTP/2 and 3; compression for the variants |
+| static-tls, static-h2, static-h3 | files, with precompressed gzip variants | missing: TLS, HTTP/2 and 3; precompressed variants are implemented |
 | json-tls, 8gbit | TLS | task 014 |
 | baseline-h2, baseline-h2c, json-h2c, baseline-h3 | HTTP/2, HTTP/3 | task 014; HTTP/3 out of scope |
 | fortunes, async-db, production-stack | a database | out of scope |
@@ -28,9 +32,8 @@ a bad `Content-Length`, a huge header, binary), which `validate.sh` sends. The p
 refuses each kind in `scripts/http_client.py hostile`; HttpArena's own validation of
 them hasn't run yet.
 
-So for HTTP/1.1 without TLS, compression is the one feature missing, and it is the
-next HTTP/1.1 work, in task 022. Serving a precompressed `.gz` next to a static
-file, chosen by `Accept-Encoding`, is the cheap half of it.
+Compression was the remaining feature for HTTP/1.1 without TLS. Task 022 added
+precompressed files and dynamic compression; json-comp is entered and measured.
 
 ## async
 
@@ -66,7 +69,7 @@ request against tokio's 30.6 µs and vanilla-epoll's 30.0 µs.
 - [x] `/delay/{ms}` in the benchmark server, passing `validate.sh`'s checks by hand
 - [x] async and latency-10k in the entry's `meta.json` and `bench/httparena.sh`
 - [x] `bench/httparena.sh validate` and `run` with them on the desktop (2026-10-12,
-      [results](../docs/results.md#httparenas-profiles))
+      [results](../../docs/results.md#httparenas-profiles))
 - [x] Compression (task 022), then json-comp: in the entry, `validate` passing and
       `run` on the desktop (2026-10-14,
-      [022.03](022-compression/03-http-compress.md#httparenas-json-comp))
+      [022.03](../022-compression/03-http-compress.md#httparenas-json-comp))

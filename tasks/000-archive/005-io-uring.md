@@ -96,7 +96,7 @@ The runs are in `bench/results/2026-10-11-uring-matrix/`.
 ### Rechecked (2026-10-11, task 011)
 
 `goose build` at the pin never recompiles a sidecar's C once a checkout has built it
-([findings](../../docs/goose-findings.md#goose-build-on-linux-never-sees-a-sidecars-c-change)),
+([historical finding](https://github.com/kaitk/goose-http/blob/9a6afc695ff5d6b6791a40771aa0ded7d5c00fe6/docs/goose-findings.md#goose-build-on-linux-never-sees-a-sidecars-c-change)),
 so the runs above may have linked a shim from before a change, such as the provided
 buffers' count at `9291dd6`. Task 011 ran both again with every shim compiled afresh, on
 the same machine, and both held:

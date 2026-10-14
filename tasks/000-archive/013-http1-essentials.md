@@ -1,6 +1,10 @@
 # 013: HTTP/1.1 essentials
 
-Status: in-progress (asked for 2026-10-11; design with task 011)
+Status: done (acceptance criteria completed 2026-10-12; reconciled 2026-10-14)
+
+This file records the original requirements, design, and validation at completion.
+The plan and progress sections below are historical. Current behavior is documented
+in the API reference and architecture; later file-send work is task 020.
 
 The server parses and frames HTTP/1.1 well enough to pass the smuggling, limit, and
 keep-alive checks the competitors fail (`bench/README.md`), but it only serves its own

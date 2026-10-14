@@ -121,71 +121,15 @@ The API by topic, with the examples that show it: [examples/](examples/README.md
 
 ## Benchmarks
 
-Ryzen 7 5800X3D, WSL2, 4 workers against the same worker count, Goose at `e4f7b55` with
-compiler `0bdbd18` unless a row says otherwise. Every table, the method,
-and every loss: [docs/benchmarks.md](docs/benchmarks.md).
+The [current benchmarks](docs/benchmarks.md) compare plaintext, JSON, REST APIs,
+uploads, static files, compression, and memory. Each workload names its measured
+build, method, and limitations; benchmarks lag the current compiler pin.
 
-| Workload | Goose | Best other | Where Goose stands |
-|---|---:|---:|---|
-| [Plaintext](docs/benchmarks.md#plaintext-and-json)†, pipelined, 256 connections | 6.90 M/s | vanilla-io_uring 8.12 M/s\* | Fastest of the servers that parse the request |
-| [JSON](docs/benchmarks.md#plaintext-and-json)†, 1,024 connections | 489 K/s | zix 614 K/s | Third of 8 |
-| [REST tiers](#rest-apis) A / B / C | 588 K / 278 K / 52.3 K/s | xitca-web 407 K / 235 K / 38.2 K/s | Fastest on every tier |
-| [Static files](docs/benchmarks.md#static-files), 1 MB (`fcfd80d`) | 31.3 GB/s | nginx 28.5 GB/s | On a par with nginx: ahead at 4 KB and 1 MB, behind at 64 KB |
-| [Compressed JSON](docs/benchmarks.md#compression), json-comp (`6f584e2`) | 66.1 K/s | actix 62.6 K/s | Fastest of the servers that compress each response |
-| [Peak RSS](docs/benchmarks.md#plaintext-and-json), plaintext and JSON | 4.8-13 MB | zix 39 MB | Lowest |
-
-\* Answers without parsing the request.  
-† Tiny fixed responses, which measure the loop and the parser and little else. The
-[REST tiers](#rest-apis) are more representative of a real program.
-
-### REST APIs
-
-The workloads closest to a real program: three APIs and uploads, against servers that
-serve the same routes without a framework. Each server loads its records at startup,
-computes every response per request, and passes a checker before each run.
-
-- **A**: HttpArena's `production-stack` API, items of 0.2 KB.
-- **B**: a time tracker's hot path, 0.3-13 KB of JSON, with a session cookie.
-- **C**: a clinic's schedule and records, responses up to 728 KB.
-- **Uploads**: chunked CSVs of 2-8 MB and multipart files up to 1 MB.
-
-"Templates" prebuilds each record's JSON at startup and splices in the per-request
-values. "Reads p99" is tier C's reads at a fixed 16,000 a second while uploads stream
-in. 4 workers, 3 runs of 15 s, medians; bold is the column's best.
-
-| Server | A | B | C | C, templates | Uploads | Reads p99 |
-|---|---:|---:|---:|---:|---:|---:|
-| **Goose io_uring** | **588 K/s** | **278 K/s** | **52.3 K/s** | **142 K/s** | 1,154/s | 7.8-10.6 ms |
-| **Goose epoll** | 448 K/s | 222 K/s | 51.3 K/s | 136 K/s | **1,166/s** | **1.0-2.0 ms** |
-| xitca-web (Rust) | 407 K/s | 235 K/s | 38.2 K/s | 113 K/s | 1,016/s | 2.4-4.6 ms |
-| dusty (Zig)\* | 343 K/s | 162 K/s | 24.6 K/s | 125 K/s | 1,125/s | 6.7-42 ms |
-| hyper (Rust) | 271 K/s | 151 K/s | 32.1 K/s | 120 K/s | 1,107/s | 11-29 ms |
-| tokio (Rust) | 393 K/s | 183 K/s | 31.6 K/s | 100 K/s | 1,034/s | 1.1-5.8 s† |
-
-\* A framework: its peer is [goose-rest](https://github.com/kaitk/goose-rest), the REST
-framework built on this package.  
-† Fell behind the fixed rate, so the reads queued.
-
-**Memory.** Each Goose worker holds its own copy of the records, because Goose threads
-share no memory; hyper's threads share one copy. The prebuilt JSON of the templated
-tiers is the exception: it sits once per process in a store every worker reads
-(`store.goose`). With one worker Goose holds less than hyper on every tier, and each
-added worker adds a copy of the records: 0.8 MB on tier A, 4.1 MB on B, 10 MB on C, and
-1.9 MB on C with templates. With 4 workers, Goose idle at `1818526` and serving
-at `effcd47`, the same REST server:
-
-| Tier | Goose, records loaded | Goose, serving | hyper, records loaded | hyper, serving |
-|---|---:|---:|---:|---:|
-| A | 6.4 MB | 12 MB | 7.5 MB | 13 MB |
-| B | 20 MB | 30 MB | 17 MB | 29 MB |
-| C | 44 MB | 71 MB | 24 MB | 37 MB |
-| C, templates | 27 MB | 58 MB | 62 MB | 74 MB |
-
-"Records loaded" is idle RSS after startup, Goose's on the epoll loop; "serving" is peak
-RSS at saturation, Goose's on the io_uring loop. hyper has the lowest peak of the other
-servers on B and C; tokio and xitca-web reach 307-512 MB on tier C. By worker count,
-every server's peak, tier D beside forms, and the losses:
-[docs/benchmarks.md](docs/benchmarks.md#rest-apis).
+Goose leads the measured REST throughput comparisons. The epoll loop uses less memory
+and has lower read latency beside uploads; io_uring leads the small-response throughput
+tests. Goose still trails nginx at 64 KB files and some competitors in JSON. Fixed
+plaintext responses measure the loop and parser; the REST tiers exercise more of an
+application. Platform and load-generator limits constrain some comparisons.
 
 ## What isn't Goose, and why
 

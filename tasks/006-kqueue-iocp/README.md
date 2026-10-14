@@ -1,6 +1,10 @@
 # 006: kqueue on macOS and BSD, IOCP on Windows
 
-Status: done, but for the stretch goal (asked for 2026-10-10)
+Status: in-progress (platform subtasks done; stretch goal unresolved, 2026-10-14)
+
+macOS and Windows ports are complete. The optional conditional-compilation goal below
+has not been completed or cancelled, so the parent remains open. It is separate from
+platform support and requires a Goose feature, not a change to this package.
 
 Run the server on macOS and the BSDs through kqueue, and on Windows through I/O
 completion ports. Linux stays the benchmark platform (`docs/architecture/README.md`), so
@@ -15,7 +19,7 @@ task 005's loop, through `shim/iocp.c` over Winsock.
 Errors keep one set of codes on every platform, as libuv does. libuv's `UV_EAGAIN`
 and the other codes are the negated errno on Unix, and its Windows layer
 (`uv_translate_sys_error`) maps Winsock and Win32 errors onto the same codes. Here the
-constants in `src/sys.goose` become the project's own codes, keeping their Linux values.
+constants in `sys.goose` are the project's own codes, keeping their Linux values.
 Each shim returns them: `shim/net.c` passes errno through (its `_Static_assert`s pin the
 values), and `shim/kqueue.c` and `shim/iocp.c` translate (macOS's `EAGAIN` is 35, and
 Winsock's is `WSAEWOULDBLOCK`). Goose code never sees a platform's own numbers.

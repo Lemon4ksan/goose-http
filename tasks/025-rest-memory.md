@@ -1,6 +1,11 @@
 # 025: The REST server's memory per worker
 
-Status: in progress (asked for 2026-10-13)
+Status: in-progress (asked for 2026-10-13)
+
+The memory reductions are implemented and measured. Remaining work is the per-worker
+source accounting and the sharing question's report and answer. Reporting still waits
+for authorization, as the acceptance criteria state. The initial diagnosis below
+describes the earlier build.
 
 On the REST tiers, Goose holds 2 to 5 times hyper's peak RSS, more than its 1.2 to 2.1
 times the speed: tier C 129-140 MB serialized and 376-387 MB templated with 4 workers,

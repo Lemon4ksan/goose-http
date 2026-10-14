@@ -1,9 +1,9 @@
 # Benchmarks
 
 Where Goose stands now, one section per workload. Each section holds the latest
-accepted run and is replaced, not appended to, when a newer one supersedes it. Every
-run, earlier ones included, is recorded in [results.md](results.md), which each section
-links to.
+accepted run and is replaced, not appended to, when a newer one supersedes it. The
+[measurement records](results.md) link to the raw runs and retain limitations needed
+to interpret them. Superseded analysis can be recovered from git.
 
 ## How these are measured
 
@@ -21,7 +21,9 @@ The method, each load generator, and the servers' pins and builds:
 | Workload | Goose server | Goose compiler | Kernel | Date | Command |
 |---|---|---|---|---|---|
 | Plaintext and JSON | `e4f7b55` | `0bdbd18` | 6.18.54.1 | 2026-10-14 | `bench/run.sh` |
-| REST APIs | `e4f7b55` | `0bdbd18` | 6.18.54.1 | 2026-10-14 | `bench/rest.sh run` |
+| REST rates and latency | `e4f7b55` | `0bdbd18` | 6.18.54.1 | 2026-10-14 | `bench/rest.sh run` |
+| REST memory, io_uring | `effcd47` | `46356c2` | 6.18.54.1 | 2026-10-14 | `bench/rest.sh run`, variant `goose-uring-27s` |
+| REST memory, idle | `1818526` | `46356c2` | 6.18.54.1 | 2026-10-14 | VmRSS 3 s after listening; task 025 |
 | Static files | `fcfd80d` | `5c83a5a` | 6.18.40.1 | 2026-10-12 | `bench/files.sh` |
 | Compression | `6f584e2`, goose-compress `4bed2d2` | `0bdbd18` | 6.18.54.1 | 2026-10-14 | `bench/httparena.sh run` |
 
@@ -60,7 +62,9 @@ are from 2026-10-12, on kernel 6.18.40.1 ([the full field](results.md#the-full-f
 
 Three API workloads and one of uploads, against servers that serve the same routes
 without a framework. Responses are computed per request from records loaded at startup,
-and checked before each run. 3 runs of 15 s, medians.
+and checked before each run. At saturation, wrk 4.1.0 uses 8 threads and 256
+connections; uploads alone use 1 thread and 32 connections. Each cell has a fresh
+server, 5 s of warm-up, and 3 runs of 15 s, medians.
 
 - **A**: HttpArena's `production-stack` API, items of 0.2 KB.
 - **B**: a time tracker's hot path, 0.3-13 KB of JSON.
@@ -86,25 +90,27 @@ rows go by average rank.
 [goose-rest](https://github.com/kaitk/goose-rest), the REST framework built on this
 package.
 
-Peak RSS of the same runs, at saturation for A to C and for uploads alone. Every server
-keeps its records in memory. Bold is the column's lowest.
+Peak RSS at saturation, in MB. Goose io_uring is the later task 025 run at
+`effcd47`, built with Goose `46356c2`, on the same machine and kernel: 4 workers,
+the load settings above, and 3 runs of 15 s
+([summary](../bench/results/2026-10-14-rest-027-025/summary.md)). Its saturation rates
+overlap the preceding build's ranges. Other rows are the `e4f7b55` field run above;
+the epoll loop has not been remeasured after the final memory changes. Bold is the
+column's lowest among these recorded runs.
 
 | Server | A | B | C | C, templates | Uploads |
 |---|---:|---:|---:|---:|---:|
-| Goose io_uring | 15 MB | 47 MB | 104 MB | 177 MB | 103 MB |
-| Goose epoll | **9 MB** | 46 MB | 102 MB | 176 MB | 103 MB |
+| Goose io_uring | 12 MB | 30 MB | 71 MB | **58 MB** | 70 MB |
+| Goose epoll, before final memory changes | **9 MB** | 46 MB | 102 MB | 176 MB | 103 MB |
 | xitca-web (Rust) | 32 MB | 68 MB | 490 MB | 512 MB | 56 MB |
 | dusty (Zig)§ | 16 MB | 42 MB | 216 MB | 241 MB | **31 MB** |
-| hyper (Rust) | 13 MB | **29 MB** | **37 MB** | **74 MB** | 72 MB |
+| hyper (Rust) | 13 MB | **29 MB** | **37 MB** | 74 MB | 72 MB |
 | tokio (Rust) | 16 MB | 30 MB | 307 MB | 365 MB | 412 MB |
 
-Task 025 cut Goose's peak on tier C templated from 387 MB to 177 in this run, and since
-then to 58: workers take their records over queues, holding one copy where they held
-two, and the templated tiers' prebuilt JSON sits once per process in a shared store.
-Goose io_uring's peaks are now 12, 30, 71, and 58 MB on A to C templated, and 70 MB
-on uploads alone, its rates within the rounds' spread of before (`goose-uring-27s` at
-`effcd47`, 2026-10-14,
-[summary](../bench/results/2026-10-14-rest-027-025/summary.md)).
+Workers now receive their records over queues, and prebuilt JSON is held once per
+process in the shared store. Task 025 records the before/after comparisons and the
+mixed-upload results; the later memory run does not replace the field run's latency
+measurements.
 
 Idle with the records loaded, by worker count: Goose on the epoll loop at `1818526`
 (2026-10-14, VmRSS 3 s after it listened,
@@ -119,13 +125,13 @@ whose memory stays flat with workers: 23 MB on tier C at 1, 2, and 4.
 | C | 14 MB | 44 MB | +10 MB | 24 MB |
 | C, templates | 21 MB | 27 MB | +1.9 MB | 62 MB |
 
-Goose threads share no memory, so each worker holds its own copy of the records, where
-the other servers share one; only the templates' JSON is shared, through the store. With
+Goose copies the records into each worker, where the other servers share one copy;
+the templates' JSON is shared through the store. With
 one worker Goose holds less than hyper on every tier; each added worker adds a copy of
 the records.
 
-The run behind these tables, with tier D beside forms and every route's latency
-([results](results.md#rest-apis) and
+The field run, with tier D beside forms and every route's latency
+([measurement record](results.md#2026-10-14-main-after-tasks-02203-025-and-027) and
 [summary](../bench/results/2026-10-14-rest-field/summary.md)). may-minihttp, Tina, and
 odin-http are from 2026-10-13, on kernel 6.18.40.1 ([REST APIs](results.md#rest-apis-1)).
 
@@ -187,8 +193,10 @@ From the runs in this file:
   without parsing the request.
 - **JSON**, to zix by 11-20% and to libreactorng by 8-20%, on the io_uring loop. The
   epoll loop also trails xitca-web, by 4-10%.
-- **REST memory**: 2.4-2.8 times hyper's peak RSS on tier C, from one copy of the records
-  per worker (task 025).
+- **REST memory**: the latest Goose io_uring measurement holds 71 MB on tier C
+  serialized against hyper's 37 MB in the field run. The templated path holds 58 MB,
+  below hyper's 74 MB. Records still cost a copy per worker (task 025); these are
+  separate runs, as the memory tables specify.
 - **REST reads beside uploads on the io_uring loop**: p99 7.8-10.6 ms against the epoll
   loop's 1.0-2.0 ms and xitca-web's 2.4-4.6 ms.
 - **Uploads beside the forms role** (tier D), to tokio: 252-279 uploads a second against
@@ -198,5 +206,5 @@ From the runs in this file:
 - **Static files of 64 KB**, to nginx: by 3-9% on the epoll loop and 10-21% on io_uring.
 - **Windows**, where IOCP serves well under io_uring's rate (above).
 
-The earlier list, with profiles and HttpArena's other profiles:
-[results](results.md#where-goose-loses).
+Other HttpArena profiles and their measurement limits:
+[measurement records](results.md#httparenas-profiles).

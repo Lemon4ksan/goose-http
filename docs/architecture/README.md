@@ -1,420 +1,215 @@
 # Architecture
 
-Decisions for the server. Each says when it was decided. A proposed decision stands
-until the task named beside it confirms or replaces it.
+Current design, the decisions behind it, and the trade-offs that still matter.
+The [API and examples](../../examples/README.md) describe how to use the package;
+[benchmarks](../benchmarks.md) describe its measured costs.
 
-## Settled
+<a id="settled"></a>
+## Package boundaries
 
-- **A Goose program, not a Goose feature.** This repository uses Goose as the pinned
-  checkout ships it. Gaps go to `docs/goose-findings.md` (2026-10-10).
-- **The API isn't frozen.** Work until 2026-10-13 aimed at correctness and speed, not
-  idiom, and was written before parts of Goose existed (its `exception` module came on
-  2026-10-11). A change that makes the API more idiomatic Goose, breaking or not, is
-  welcome when the benchmarks show speed and memory hold (2026-10-13, task 027).
-- **Simple first, then io_uring.** The first server is an epoll loop per core; io_uring
-  follows once epoll is measured (2026-10-10).
-- **Linux is the benchmark platform.** The fast paths (`SO_REUSEPORT`, epoll, io_uring)
-  are Linux APIs, and that is where the competing servers are compared. Development runs
-  on WSL2 Ubuntu.
-- **C behind a thin shim.** Goose calls C directly through `extern fn`, but C can't call
-  Goose back at runtime: there are no runtime function pointers (§7.5), and `export fn`
-  calls must stay on the thread that called `goose_init` (§7.11). So `shim/net.c` only
-  wraps calls that return, and returns `-errno` instead of `-1` and `errno`. It covers
-  sockets, epoll, coarse clocks, and `strerror`; `shim/uring.c` covers io_uring
-  ([below](#the-io_uring-loop-task-005)), and `shim/kqueue.c` is `shim/net.c` for macOS,
-  returning the same Linux codes ([below](#the-platform-and-its-error-codes-task-006)).
-  On Windows, `shim/net_win.c` is `shim/net.c` over Winsock, and `shim/iocp.c` is
-  `shim/uring.c` over a completion port. `shim/iocp.c` is the one shim that isn't thin:
-  it emulates io_uring's multishot requests with reference-counted records, and a
-  callback on a system wait thread hands accepts to each worker's port. The callback is
-  C calling C, so Goose still never runs on a thread it didn't start. `shim/mail.c`,
-  the mailboxes, is shared by every platform, over each shim's waker (answers that
-  wait, below).
-  Anything that needs a callback, such as llhttp, libuv, or a C HTTP server, is out
-  (confirmed by task 002, 2026-10-10). Details:
-  - `goose build` compiles the shim as C files of their own, which the package's
-    sidecar names (`http.build`), and links them (task 010, 2026-10-11; a package's
-    sidecar since task 011). The C sees
-    none of the generated C, so it spells out the layouts it shares with Goose. Headers
-    spliced in with `--include` were dropped: they needed `-D_GNU_SOURCE` from the
-    command line and an `-o` with a directory, two compiler findings. A sidecar's
-    `c_sources_linux`, `_macos`, and `_windows` keys pick each platform's shim with no
-    conditional compilation in Goose.
-  - The shim owns the kernel structures whose layout varies by architecture.
-    `epoll_wait` fills a local `struct epoll_event` array, which is packed on x86-64 and
-    padded on arm64, and copies it into `http::PollEvent`, a struct of the package's own.
-  - `send` passes `MSG_NOSIGNAL`, so a write to a closed connection is `-EPIPE`, not a
-    `SIGPIPE` that ends the process. There is no signal handler to install. Windows has
-    no `SIGPIPE`, and such a write is `-ECONNRESET` there.
-  - There is no `writev`: spec §7.10 doesn't let a list of slices cross to C. Responses
-    are built into one buffer and sent with one `send`.
+The package uses the pinned Goose checkout without modifying it. Compiler and stdlib
+gaps that meet the reporting bar go to [Goose findings](../goose-findings.md)
+(2026-10-10). The API may change when an idiom improves clarity without costing speed
+or memory beyond the benchmark runs' spread (2026-10-13, task 027).
 
-- **One event loop per core, nothing shared.** Goose workers share no memory: a
-  `thread_fn` is compiled as its own program, takes flat arguments, and copies the
-  globals it uses (spec §11.2). The fastest Rust plaintext servers use the same shape
-  (proposed for task 003, confirmed by it, 2026-10-10):
-  - The program spawns `http::worker_count(cfg)` workers, `Config.workers` or by default
-    one per `hardware_threads()`, and passes each a copy of the settings, one flat
-    struct (`Config`, 2026-10-11); the benchmark server sets `Config.workers` from
-    `WORKERS`. On macOS the default is one worker per performance core, and each loop
-    gives its worker the user-interactive QoS class, which keeps it on those cores:
-    Apple Silicon has no CPU affinity (2026-10-11).
-  - Each worker opens its own listener with `SO_REUSEPORT`, so the kernel spreads
-    connections across workers, and runs its own edge-triggered epoll loop. On macOS and
-    Windows the workers share one listener instead
-    ([below](#the-platform-and-its-error-codes-task-006)).
-  - A connection belongs to one worker for its life, in a slot of that worker's
-    `reusable` pool; its epoll tag is the slot. A table indexed by fd was rejected: fds
-    are numbered across the process, so every worker's table would grow to the highest
-    fd of all of them.
-  - At each event, the loop reads a connection until the socket is empty or it has
-    read `Config.max_read` bytes, 16 KB by default. Past the limit, the connection
-    goes on a list that gets one more turn each after the next pass's events, since
-    an edge-triggered socket left unread raises no new event while its sender waits
-    (2026-10-12, task 021). Reading to `EAGAIN` alone let an upload that arrived as
-    fast as the worker read it take the worker for the whole body, up to 8 MB: beside
-    tier D's uploads, tier C's reads waited seconds. With 16 KB they kept a p99 of
-    1.4-4 ms, and the uploads alone lost 2-3% of their rate. libuv stops a stream
-    after 32 reads per event for the same reason, on a level-triggered epoll that
-    reports the socket again.
-  - The buffers belong to the worker, not the connection: an 8 KB read buffer, which
-    holds the longest request head whole, and a write buffer that takes 8 KB of
-    responses before the server sends them, a read's worth of pipelined requests (16
-    TechEmpower responses are about 2 KB). The write buffer is a growable array, so a
-    response of any size goes into it whole, and what the socket doesn't take goes to
-    the spill pool, as any response does (2026-10-11). A response sent in pieces
-    (`http::begin`, task 013) is asked for its next piece only while the connection's
-    queued output is under the write buffer's size, or under `Config.max_queued` in
-    the io_uring loop, so it never sits whole in memory (2026-10-12). The connection being driven
-    uses them. Nothing grows per request in the benchmarks: the parser returns slices
-    of the read buffer, and the JSON body is built in a fixed array on the native
-    stack. The write buffer keeps the pages its largest response touched.
-  - Between events, a slot holds about 50 bytes and two slices into the worker's
-    `reusable[]` spill pool: the start of a request not yet whole, and responses the
-    socket didn't take, both empty almost always (task 009, 2026-10-10). Slots of 16 KB
-    with the buffers inline were rejected: every slot was written whole, so 4,096
-    connections held 66 MB, against 2.5 MB now and 55 MB for vanilla-epoll, which
-    allocates its buffers per connection and writes only what it uses.
-  - A worker holds at most 16,384 connections, so one worker can take TechEmpower's
-    largest run alone. At the
-    limit, and when `accept` fails with `EMFILE` or `ENFILE`, the worker stops accepting
-    and retries after each close and once a second. Waiting clients keep their place in
-    the listen backlog rather than being refused, and `EMFILE` is logged once per pause.
-- **HTTP/1.1, the parts benchmarks use** (proposed for task 003, confirmed by it,
-  2026-10-10):
-  - Keep-alive by default, `Connection: close` honored, and HTTP/1.0 kept alive only
-    when it asks.
-  - Pipelining: every complete request in the read buffer is answered, and the responses
-    go out in one `send`. Past 8 KB of responses, the server sends them and answers
-    the rest.
-  - A request body that fits in the 8 KB read buffer with its head is answered once
-    it's whole, and the handler gets it (task 011, 2026-10-11). A longer one goes to
-    the handler of `serve(cfg, fresh)` in pieces as it arrives, chunked bodies
-    decoded in the read buffer; the handler of `serve(cfg)` gets an empty body, and
-    the rest is dropped, and a chunked one gets 413 (task 013, 2026-10-12). A body a
-    response came before is dropped up to `Config.max_drain`, and the connection
-    closes past it. Chunked bodies are accepted in HTTP/1.1 (task 009, for HttpArena's
-    `baseline` profile, 2026-10-10). Another coding before chunked gets 501.
-    A `Transfer-Encoding` whose last coding isn't chunked, as RFC 9112 §6.3 requires, or
-    that's malformed, with `Content-Length`, or in HTTP/1.0, gets 400 (2026-10-11).
-  - Routes: `/plaintext` and `/json` for TechEmpower's tests, `/baseline11` and
-    `/pipeline` for HttpArena's (`bench/httparena/goose`), and for the tests,
-    `/bytes?n=N` and `/stream?n=N`, N bytes with a `Content-Length` or chunked, sent
-    in pieces, and `/upload` and `/echo`, which take a body of any size in pieces
-    (task 013).
-  - Lines end in CRLF only; a bare LF is 400. HTTP/1.1 needs one `Host`.
-  - Limits: an 8,000-byte request line (414), an 8 KB head or 100 fields (431), and a
-    1 MB body (413). They, the timeouts, and the buffer sizes are settings (`Config`,
-    task 013, 2026-10-12); the method's 16 bytes is a constant in `message.goose`.
-  - A refused request closes the connection after the response. The server shuts down
-    its side and drops what the client still sends for up to 2 s, so the refusal isn't
-    lost to a reset.
-    The sweep's 408 goes the same way, so no loop closes a socket with that send in
-    flight: Windows' `closesocket` aborts it.
-  - Timeouts, against slow clients: a request head has 10 s from its first byte to
-    arrive whole (else 408), a body in pieces 10 s between them (else 408, unless the
-    handler answered), a response 10 s without progress to leave, and an idle
-    connection 60 s, each its own setting (2026-10-12). A sweep once a second enforces
-    them.
-  - The `Date` header is rendered when the second changes, at most once a second per
-    worker, after the worker's `epoll_wait` returns, together with the `Server` field
-    (`Config.server`, `goose` by default, or none when empty; 2026-10-12). Responses
-    are literals around those fields and the length.
-- **A handler called again, with state in the slot** (task 013, 2026-10-12). A Goose
-  handler can't be suspended or stored (spec §7.6), so bodies and responses of any
-  size come from calling it again, as h2o calls its generators and body callbacks,
-  with the request's state, a flat value of the program's type, kept in the
-  connection's slot (`http::Exchange`). Task 013's file records how the servers
-  read for it shape the same thing.
-  - `http::serve(cfg, fresh)` and `http::serve_epoll(cfg, fresh)` call the handler
-    with an `http::Event`: `REQUEST`, `BODY`, `END`, and `MORE`, and `DONE` with
-    `Config.log`. `serve(cfg)` is a
-    wrapper that answers `REQUEST` alone. A body that fits in the read buffer with
-    its head comes whole at `REQUEST`, which keeps the benchmarks' path one call per
-    request.
-  - A longer body comes in pieces as each read brings it, decoded in the read buffer
-    by `http::read_body`, whose place and remaining length are the slot's. A response
-    begun with `http::begin` is asked for more (`MORE`) only while the connection's
-    queued output is under the write buffer's size, or under `max_queued` in the
-    io_uring loop: the loops' own backpressure on pipelined requests is the
-    streams' too, and no response sits whole in memory.
-  - A response finished before its body arrived drops the rest, up to
-    `Config.max_drain`, and closes past it. Under `Expect: 100-continue`, a body that
-    fits in the read buffer gets `100 Continue` at once, and a longer one only once
-    the handler has seen the head and not answered, as hyper sends it.
-    `http::upgrade` uses the same machinery: after 101, every byte is a `BODY`, and
-    `send` writes bytes as they are.
-  - The cost, measured with `bench/instructions.sh`: 60-80 more user instructions per
-    request than before it, of about 1,460, and 1-2% more cycles; in
-    `bench/run.sh`'s cells, 0-3% fewer requests per second, the most with 4 workers
-    on plaintext. Task 013 records the measurements.
-- **Files read in pieces, and a call for an exchange cut short** (task 013, 2026-10-12).
-  `http::send_file` reads a file with `pread`, 64 KB at a time, into the response at
-  each `MORE`, as h2o's file handler reads by default: one path for every loop, where
-  the io_uring and IOCP loops have no `sendfile` and h2o reaches it on io_uring only
-  through a pipe. The handler keeps the file in its state, so the loops call it with
-  `CLOSED` when a connection closes, or a stop ends the loop, while the handler is owed a
-  call, as h2o disposes of a generator; without it, a client that left mid-file would
-  leave the file open.
-  - On the epoll loop on Linux and macOS, `send_file` gives the loop the file and the rest of a
-    `Content-Length` response at once (`Stream.direct`), and the loop sends it with
-    `sendfile` after the head, answers nothing after it until it's sent, and closes the
-    file, also when the connection closes first (2026-10-12). It saved `pread`'s copy,
-    the write buffer's, and `send`'s, which with page clearing took about a quarter of
-    the worker's CPU: a 1 MB file went from 2.4 to 6.5-7.0 GB/s (task 013). Worker
-    threads block `SIGPIPE`, since `sendfile` has no `MSG_NOSIGNAL`. macOS's
-    `sendfile` takes the file first and returns its count through a pointer, also
-    with `EAGAIN` after a partial send, which `shim/kqueue.c` reports as a send; it's
-    used since 2026-10-12. Chunked responses and the completion loops still read in
-    pieces.
-- **The client's address on demand, and the access log as an event** (task 015,
-  2026-10-12). `Reply.fd` carries the connection's socket, and `http::peer` calls
-  `getpeername` only when a handler asks, since the io_uring loop's multishot accept
-  passes no address; a client behind a proxy comes from `Forwarded` or
-  `X-Forwarded-For` only when the peer is in the program's trusted networks. With
-  `Config.log`, the loops call the handler with `DONE` once a response is whole in the
-  write buffer, with its status, its bytes, and the milliseconds of the loop's clock
-  since the read that brought the head's first byte, rather than take a second
-  function: the handler's state still holds what it kept of the request. It ends at
-  the write buffer, not at the client's last byte, which the loops don't track per
-  response.
-- **Graceful shutdown by a counter, and a wakeup** (task 013, 2026-10-12; the wakeup
-  task 015, 2026-10-12). `http::stop()`, and `SIGTERM` or `SIGINT` once a program calls
-  `http::stop_on_signals()` (Ctrl+C and Ctrl+Break on Windows), add one to a counter
-  in the shim. Each loop reads it at its start and after each wait, and once it moves
-  on: closes its listener and its connections between requests, answers the next
-  request on each other connection with `Connection: close`, and returns an `Error`
-  with code 0 once they have closed, or after `Config.grace_ms` (10 s). A counter, and
-  not a flag, lets a loop started after a stop run.
-  - Each loop's waker, which answers that wait need anyway (below), is on a list in `shim/mail.c` that `net_stop` walks, so a stop ends every wait at
-    once instead of within a second. The list is a fixed array changed and read with
-    atomics only, since `net_stop` runs in a signal handler; a loop takes its waker off
-    it, and waits out a wake in flight, before freeing it. Task 013 had left the wakeup
-    out because the registry was its only use.
-  - The io_uring loop tears its ring down on the way out (`ring_destroy`). On
-    Windows the completion port and its buffers stay allocated: closing the sockets
-    cancels their requests, and Windows completes the cancels later, into them.
-  - On macOS, the table of shared listeners holds an fd of its own for each, and
-    each worker a dup it gives back in `net_close`; the last one back closes the
-    listener, so a loop started again opens a new one.
+HTTP parsing, routing, response building, loop state machines, mailbox messages,
+timers, and JSON are Goose. C in `shim/` wraps syscalls and kernel structures that
+Goose cannot reach. The package sidecar, `http.build`, selects and compiles each
+platform's C files; Goose code needs no conditional compilation (tasks 010 and 011,
+2026-10-11).
 
-- **Answers that wait: mailboxes, a timer table, and handles** (task 015, 2026-10-12).
-  Three pieces that import nothing of HTTP, so that they can move to a package of their
-  own: a mailbox (`mail.goose` over `shim/mail.c`), bounded at open, whose lock-free send
-  returns `SENT`, `FULL`, `TOO_LONG`, or `STALE` at once (task 028 split `TOO_LONG`
-  from `FULL`, 2026-10-14); a fixed-capacity timer table
-  (`timers.goose`); and generation-checked handles (`handle.goose`). The queue is C
-  because Goose has no atomics and no wait another thread can end; one ring per box, any
-  thread adding to it, and a wakeup only on the pending count's 0 to 1. Goose's typed
-  queues weren't used: any thread takes from them, they have no bound, and they can't
-  wake a loop. A loop opens a box and timer table only when `Config.mail_slots` and
-  `Config.max_waiting` are above 0. `http::later` returns the exchange's address, whose
-  key holds the connection's slot, 24 bits of its generation, and 20 of the exchange's
-  number, and a message whose key no waiting exchange holds is dropped. The design and
-  what the competitors do are in task 015, "Answers that wait: a proposal".
-- **A shared store for data every thread reads** (task 025, 2026-10-14). Goose shares
-  only static data between threads (spec §11.2) and copies every other global a worker
-  uses when it's spawned, so data built at startup costs a copy per worker. The store
-  (`store.goose` over `shim/store.c`) holds byte blobs that one thread puts and then
-  freezes before any other reads them; it hands the blobs' ids on through a queue,
-  `thread_spawn`, or `thread_wait`, which order the writes before the reads. Reads copy
-  a range into a Goose array, since an `extern fn` can't return a view of C's memory
-  (spec §7.10). It holds bytes only: what they mean, and the responses built around
-  them, stay Goose. It imports nothing of HTTP, and a program reaches it only by
-  `import http.store`. Rejected: loading the data from disk per request, which would
-  move the memory to the page cache, out of RSS, and add a syscall per response.
+Each C file is a separate translation unit and declares the layouts it shares with
+Goose. The shim converts architecture-dependent kernel structures into the package's
+own structs. The [C interop guide](../c-interop.md) describes layouts and calling rules.
 
-## Proposed
+Goose has no runtime function pointers (§7.5), and `export fn` calls must stay on the
+thread that called `goose_init` (§7.11). Libraries requiring callbacks into Goose do
+not fit the loop. IOCP's wait callback is C calling C; Goose runs only on threads it
+started. A list of slices cannot cross `extern fn` (§7.10), so responses are batched
+in one buffer rather than passed as an `iovec` list to `writev`.
 
-### The io_uring loop (task 005)
+## Workers and connection ownership
 
-The io_uring loop (`http::serve`, `uring.goose`) is the default on Linux, and the epoll
-loop (`http::serve_epoll`, `epoll.goose`) stays buildable and tested as `LOOP=epoll`
-(decided 2026-10-11); `http.goose` holds what both share. Task 005's matrix on the x86 machine of `docs/results.md` had the
-io_uring loop 11% to 21% ahead in every cell, with the server's CPUs saturated, and
-task 011 found 9% to 24% with every shim compiled afresh (2026-10-11). Against
-it:
+The program spawns workers and passes each a flat `Config`. A `thread_fn` is compiled
+as its own program and copies the non-static globals it uses (§11.2). Spawning stays
+in the program because `thread_spawn` cannot take a `thread_fn` passed through a
+package function. Each worker runs one loop and owns its connections for their
+lifetime (task 003, 2026-10-10).
 
-- In Docker Desktop's VM on an M1 Pro (task 012), the epoll loop led by 4% to 8% in
-  plaintext and tied in JSON, in cells where wrk, not the server, used its CPUs up.
-- Docker's default seccomp profile blocks io_uring, so the HttpArena image builds the
-  epoll loop, and `bench/build.sh` builds both, as `goose` and `goose-uring`. The
-  io_uring loop runs there too since task 011, over the emulation below, but that's
-  the epoll loop with copies added.
-- Its peak RSS is 4 to 5 times the epoll loop's, about 10 MB against 2.4 MB with 4
-  workers.
+`http::worker_count(cfg)` uses `Config.workers`, or the hardware thread count by
+default. On macOS it defaults to the performance-core count, and the loop sets
+user-interactive QoS; Apple Silicon has no CPU affinity. Linux workers bind separate
+listeners with `SO_REUSEPORT`. macOS and Windows workers share a listener.
 
-Going back is one line of `scripts/build.sh`, if a server-bound run on another machine
-puts the epoll loop ahead. On Windows the io_uring loop is the only one, over
-`shim/iocp.c` ([below](#the-platform-and-its-error-codes-task-006)):
+Connections live in a worker's `reusable` pool. A slot as the event tag avoids an
+fd-indexed table growing to the highest fd across all workers. Read and write buffers
+belong to the worker; incomplete requests and output that could not be sent go to a
+spill pool. Full buffers in every slot were rejected for their memory cost
+(task 009, 2026-10-10).
 
-- `shim/uring.c` wraps liburing 2.14, whose helpers are static inline functions that
-  `extern fn` can't bind, and needs Linux 6.1. Each worker owns a ring, created with
-  `IORING_SETUP_SINGLE_ISSUER` and `IORING_SETUP_DEFER_TASKRUN`: the kernel completes
-  requests only while the worker waits, and each wait submits everything queued since
-  the last one.
-- A multishot accept takes the listener's connections, and a multishot receive per
-  connection fills the ring's provided buffers, 256 of 4 KB per worker, as many as a
-  wait's batch of completions, which served as fast as 1,024 with half the peak RSS
-  (task 005, and again in task 011 with the shim compiled afresh). A receive
-  that finds no buffer left ends, and the loop queues it again.
-- The ring owns every buffer the kernel touches after a call returns. The kernel reads a
-  send's bytes and writes a receive's after the call that queued them, and spec §7.10
-  forbids C to keep a Goose argument past a call. So the loop copies each receive out of
-  a provided buffer into its read buffer, and the shim copies each send's bytes into a
-  buffer of its own. The epoll loop makes neither copy; the kernel's own copy into and
-  out of the socket is the same in both. A send of 64 KB or more that finds nothing
-  queued on its socket goes out with `send(2)` inside `ur_send`, which keeps no Goose
-  argument past the call, and the shim copies only what the socket didn't take; it
-  reports a send that went out whole at the next wait (2026-10-12, task 021). The copy
-  had held tier C's responses of up to 728 KB to 80% of the epoll loop's rate, and 72%
-  with templates; the inline send closed both gaps. Below 64 KB, the syscall per
-  response cost tier B 6-10% of its rate. The shims reuse those buffers, the big ones up
-  to 4 MB a ring (2026-10-12): freed, a big one went back to the kernel, and faulting
-  the next one's pages in held large responses on io_uring to 1 GB/s (task 013). Those
-  of 8 KB or less come in six power-of-two sizes from 256 bytes, so a small response's
-  send in flight holds 256 bytes, not 8 KB (2026-10-12, task 016).
-- A connection has one send in flight, which keeps its responses in order. The shim
-  queues the sends behind it per fd, as `shim/ring_epoll.c` always did, and a send
-  that waits takes the next ones into its own buffer while it has room, so the loop
-  hands each response's bytes over once and pipelined responses still go out
-  together (2026-10-12, task 013). The loop had kept them in the spill pool behind the
-  send in flight, then copied them to the shim: that copy and the pool's bookkeeping
-  took 47% of the worker's CPU on 1 MB responses. Each send reports once, with its
-  bytes, and the loop counts what it gave and what came back. Past `max_queued`
-  (64 KB) not yet sent, counting the send in flight, the loop cancels the
-  connection's receive and holds what still arrives until the client reads, as the
-  epoll loop stops reading when a send would block. `ring_close` drops the sends not
-  yet started.
-- A request's tag is the connection's slot and a generation, so a completion that
-  arrives after its connection closed isn't taken for the slot's next connection.
-  The shim queues the rest of a short send itself, so it keeps a generation per fd as
-  well, which `ur_close` advances: a rest left over from a closed connection is
-  reported cancelled, never sent to a later connection that got the same fd.
-- Closing a connection queues a cancel of its requests and, linked after it, the close.
-  A queued request holds a reference to the socket, so a `close` alone would leave the
-  connection open.
-- Where `io_uring_setup` fails, `ur_create` returns `shim/ring_epoll.c`'s emulation of
-  the ring instead (task 011, 2026-10-11), as libuv falls back from io_uring to epoll:
-  under Docker's default seccomp profile, with `io_uring_disabled` set, or on a kernel
-  before 6.1. The emulation is written against the shim's own `net_epoll_*` calls, so
-  on macOS the same file, over `shim/kqueue.c`, is `http::serve`'s ring. Its multishot
-  accept and receive accept and read until `EAGAIN` at each edge-triggered event, into
-  the same provided buffers; a send's bytes are copied and sent in the next wait, and
-  the rest waits for the socket's writable edge, watched only then; completions that
-  don't fit in a wait's batch wait for the next. The listener is watched only while an
-  accept goes on: on macOS it's level-triggered, and would end every wait at once
-  while the worker isn't accepting. Its handle is its address with the low bit set, and
-  each `ur_*` call in `shim/uring.c` passes such a handle on. `Config.emulate_ring`
-  asks for it where io_uring works, which is how the tests run it. The package writes
-  nothing about the fallback itself; `http::ring_probe()` returns why there's no
-  io_uring, and the benchmark server's startup line says "on an emulated ring" with
-  that reason.
-- At 16,384 connections the worker cancels its accept, and closes any connection
-  accepted before the cancel lands. After `EMFILE` or `ENFILE` it queues the accept
-  again after a close or at the next sweep, so waiting clients keep their place in the
-  backlog, as with epoll.
+The epoll loop reads at most `Config.max_read` bytes from one connection per turn,
+16 KB by default. A connection left readable goes on a deferred list because an
+edge-triggered socket may raise no new event while its sender waits. This prevents
+a sustained upload taking a worker for the entire body (task 021, 2026-10-12).
+Completion-loop latency beside uploads remains open in task 026.
 
-### The platform and its error codes (task 006)
+At `Config.max_conns`, or after `EMFILE` or `ENFILE`, a worker pauses accepting and
+retries after a close or at the next sweep. Waiting clients remain in the backlog.
 
-The package's sidecar, `http.build`, chooses the platform's shim, because the spec has
-no conditional compilation, and the program chooses the loop by calling it (2026-10-11):
+<a id="the-io_uring-loop-task-005"></a>
+## Completion loop
 
-| Platform | `http::serve` | `http::serve_epoll` | Shim |
+`http::serve` is the default on Linux. `http::serve_epoll` remains buildable and tested
+as a lower-memory alternative (task 005, 2026-10-11). Linux is the benchmark platform;
+the [current comparisons](../benchmarks.md) record both wins and losses.
+
+Each Linux worker owns an io_uring ring, through liburing, on kernel 6.1 or later.
+`IORING_SETUP_SINGLE_ISSUER` and `IORING_SETUP_DEFER_TASKRUN` keep completion work on
+the worker when it waits; a wait submits queued operations. Multishot accept takes
+connections, and multishot receive fills provided buffers. A receive that runs out
+of buffers ends and is queued again.
+
+The ring owns memory the kernel touches after a call returns. The shim copies sends
+into its own buffers, and the loop copies receives out of provided buffers, because
+an `extern fn` cannot retain a Goose argument (§7.10). A send of at least 64 KB with
+nothing queued on its socket first tries synchronous `send(2)`; only unsent bytes
+need a retained copy. Smaller sends stay asynchronous because a syscall per response
+cost small REST responses throughput (task 021, 2026-10-12).
+
+The shim reuses send buffers, with small size classes and a bounded cache for large
+buffers. A connection has one send in flight; later sends queue behind it to preserve
+order and batch pipelined responses. The loop counts bytes handed over and completed.
+Past `Config.max_queued`, it cancels receive and holds bytes already delivered until
+the client reads. `ring_close` drops sends not yet started.
+
+A completion tag carries the connection slot and generation. The shim also tracks
+the fd's generation, so a short send from a closed connection is never sent to a new
+connection reusing the fd. Closing queues cancellation followed by close: a kernel
+request can otherwise keep the socket alive.
+
+Where `io_uring_setup` fails, the ring falls back to `shim/ring_epoll.c`: Docker's
+default seccomp profile, disabled io_uring, or an older kernel. The same emulation
+runs over kqueue on macOS. `Config.emulate_ring` selects it for tests;
+`http::ring_probe()` reports why native io_uring is unavailable. The package does not
+log the fallback; the benchmark server does (task 011, 2026-10-11).
+
+## HTTP exchanges and backpressure
+
+The parser enforces CRLF, HTTP/1.1's single `Host`, framing rules, and configurable
+head, body, and field limits. HTTP/1.1 keeps connections alive by default; HTTP/1.0
+does so only when requested. Complete pipelined requests are answered in order and
+responses batched. `Server` and `Date` are rendered once a second per worker.
+
+A handler with state is called again for each part of an exchange, with a flat value
+of the program's type kept in the connection slot. Goose cannot suspend or store a
+handler (§7.6), so this is how bodies, streamed responses, upgrades, and waiting
+answers resume (task 013, 2026-10-12). The
+[event table](../../examples/README.md#streaming) defines each call and its lifetime.
+
+A whole-request handler receives a body that fits with its head in the read buffer.
+A longer body needs a handler with state, optionally through `http::gather` to copy
+it whole up to a limit. Streaming responses request `MORE` only while queued output
+is below the write-buffer size on epoll, or `Config.max_queued` on the completion
+loop. Backpressure bounds queued output; a whole response still occupies the worker's
+write buffer, which retains the pages its largest response touched.
+
+A response before its request body ends drains the rest up to `Config.max_drain`,
+then closes. Under `Expect: 100-continue`, a body that fits gets the interim response
+at once; for a longer body, the handler may refuse it first. Refusals and timeouts send
+their response before shutdown and bounded draining, avoiding a reset that discards
+the response. Head, body, write, and idle timeouts are separate, enforced by a sweep.
+
+## Files and compression
+
+`http::send_file` hands a file to the loop when the remaining `Content-Length`
+response is at least 64 KB: `sendfile` on epoll and the emulated ring, splice through
+a pipe on io_uring, and `TransmitFile` on IOCP (task 020, 2026-10-12). Smaller files
+and chunked responses use `pread` in pieces. The threshold avoids direct-send
+overhead for small files; its [measurement](../results.md#static-files) and the
+remaining 64 KB gap to nginx are recorded in task 024.
+
+The loop closes a file handed to it, including when the connection closes first.
+A handler retaining a file releases it at `CLOSED`, sent when an exchange ends while
+the handler was owed another call. Epoll workers block `SIGPIPE` for `sendfile`;
+ordinary sends use `MSG_NOSIGNAL`.
+
+Precompressed files need no codec. Dynamic compression is implemented in the optional
+`http.compression` module using goose-compress's pure-Goose gzip, deflate, and zstd
+encoders. Negotiation and response framing stay in `http`; codecs import nothing of
+HTTP. Programs without the module need no codec dependency. Compression remains part
+of measuring Goose; TLS crypto is outside this project's scope. Task 022 retains the
+split's unrecorded approval and remaining validation.
+
+## Waiting answers, logging, and shutdown
+
+Waiting uses bounded mailboxes, a fixed-capacity timer table, and generation-checked
+handles, each independent of HTTP (task 015, 2026-10-12). Mailboxes are C because Goose
+has neither atomics nor a wait another thread can end. Goose's typed queues have no
+bound, allow any thread to receive, and cannot wake an event loop.
+
+A loop allocates a box and timer table only when `Config.mail_slots` and
+`Config.max_waiting` are positive. `http::later` requires a time limit and returns an
+exchange address. Messages for ended exchanges or closed connections are dropped.
+Send returns `SENT`, `FULL`, `TOO_LONG`, or `STALE` without blocking; senders can query
+the slot size (task 028, 2026-10-14).
+
+`http::peer` asks for the socket address on demand. Forwarded addresses are used only
+when the peer is in the program's trusted networks. With `Config.log`, `DONE` reports
+status, bytes, and elapsed loop time. It measures completion in the write buffer, not
+delivery to the client, which the loop does not track per response (task 015,
+2026-10-12).
+
+`http::stop`, or signals installed by `http::stop_on_signals`, advances a shim counter
+and wakes every loop. A counter lets a loop started after a stop run normally. The
+waker registry uses atomics because stop may run in a signal handler. Loops close
+listeners and idle connections, add `Connection: close` to the next response on other
+connections, and return when drained or after `Config.grace_ms`. On Windows the port
+and buffers remain allocated on teardown because cancels can complete into them later.
+
+## Shared read-only blobs
+
+The store (`store.goose` over `shim/store.c`) holds byte blobs populated by one thread
+and frozen before others read (task 025, 2026-10-14). Queues, `thread_spawn`, or
+`thread_wait` order writes before reads. Reads copy ranges into Goose arrays because
+an `extern fn` cannot return a view of C memory (§7.10). The data's meaning and
+response construction remain Goose. The store imports nothing of HTTP and is reached
+through `import http.store`.
+
+This avoids a copy per worker for JSON built at startup. Loading it from disk per
+request was rejected: it would move memory out of RSS into the page cache and add a
+syscall per response. Other REST records still cost a copy per worker.
+
+<a id="the-platform-and-its-error-codes-task-006"></a>
+## Platform shims and error codes
+
+| Platform | `http::serve` | `http::serve_epoll` | Networking shim |
 |---|---|---|---|
 | Linux | io_uring, or emulated over epoll | epoll | `shim/net.c`, `shim/uring.c`, `shim/ring_epoll.c` |
 | macOS | emulated over kqueue | kqueue | `shim/kqueue.c`, `shim/ring_epoll.c` |
 | Windows | IOCP | fails with `ENOSYS` | `shim/net_win.c`, `shim/iocp.c` |
 
-Each loop runs unchanged on every platform it builds for. The benchmark server links
-both, and `LOOP` picks one: at run time, or at build time for its default, where
-`scripts/build.sh` builds `server/server.goose` (uring) or `server/server_epoll.goose`
-(epoll), and refuses `LOOP=uring` and `LOOP=epoll` on Windows, and `LOOP=iocp` off
-Windows.
+The program chooses a loop by calling it; an unused generic loop is not compiled in.
+The benchmark server links both, and `LOOP` selects one at run time. Its build script
+defaults to uring on Linux, epoll on macOS, and iocp on Windows.
 
-On macOS:
+On macOS, kqueue filters become poll flags. Events for one fd are merged within a
+batch so a second event cannot drive a slot freed by the first. Workers share a
+listener because separate `SO_REUSEPORT` listeners did not distribute connections.
+An accept counter limits an already-ahead worker; a level-triggered listener keeps
+declined connections available to others. Near the fd limit, a locked free-fd check
+avoids macOS dropping a connection on `EMFILE`. Writability is watched only while
+output waits for room (task 012, 2026-10-11).
 
-- `shim/kqueue.c` defines the same C functions as `shim/net.c`, so `sys.goose` binds
-  either. `IN` and `OUT` become `EVFILT_READ` and `EVFILT_WRITE`, `ET` becomes
-  `EV_CLEAR`, and `EV_EOF` is reported as `RDHUP` on the read filter and `HUP` on the
-  write filter. The events are copied into `http::PollEvent`, as on Linux, because `struct
-  kevent` is 32 bytes on arm64.
-- The shim merges the events of one fd within a wait into one `http::PollEvent`, as epoll
-  reports them. kqueue reports each filter apart, and the loop frees a connection's slot on
-  the event that closes it, so a second event for it in the same batch would drive the
-  freed slot. Without the merge, 3,000 connections at once hung.
-- The workers share one listener per port: macOS's `SO_REUSEPORT` gave every connection
-  to the last listener bound. Each worker gets its own fd for the listener and watches it
-  in its own kqueue. Left to the kernel, the worker already awake took most connections,
-  with the listener edge- or level-triggered, and capping accepts per pass didn't change
-  that. So the shim counts each worker's accepts, a worker declines with `EAGAIN` while it
-  has taken more than one past the average, and the listener is level-triggered, so a
-  declined connection stays reported until another worker takes it (2026-10-11, task
-  012 has the measurements).
-- macOS drops a connection whose `accept` fails with `EMFILE`, so near the fd limit the
-  shim checks for a free fd first and leaves the client in the backlog when there's
-  none, as Linux does. The check and the `accept` hold a lock across workers, so two
-  can't both pass the check for the last free fd; far from the limit there's no check
-  (2026-10-11).
-- A connection's writability is watched only while a send waits for room, as libuv
-  does: kqueue reports `EV_CLEAR`'s write filter as each ACK frees buffer space, a
-  wake-up per response. The epoll loop and the ring's emulation register `OUT` after a
-  send returns `EAGAIN` and drop it once the bytes are out, on Linux too (2026-10-11,
-  task 012).
+On Windows, repeated `AcceptEx` and `WSARecv` operations emulate multishot requests.
+Receives use provided buffers while more than half are free, then zero-byte receives
+followed by `recv`, so idle connections cannot exhaust buffers. Operations completing
+immediately bypass the port. A shared listener belongs to no port; C wait callbacks
+dispatch accepts to each worker's port. Pending operations hold socket references,
+so a late completion cannot touch a reused handle. Last-posted-first accepts can
+imbalance workers; task 017 tracks performance work. Loopback is the default to avoid
+a firewall prompt; explicit IPv4 and IPv6 addresses work. `SO_EXCLUSIVEADDRUSE`
+prevents a second server taking the port, and `SOMAXCONN_HINT` avoids the backlog cap.
 
-On Windows ([task 006.02](../../tasks/006-kqueue-iocp/02-iocp-windows.md) has the
-details):
-
-- `shim/iocp.c` implements `ring.goose` over a completion port. IOCP completes one
-  operation per request, so a multishot accept is an `AcceptEx` posted again after each
-  completion, and a multishot receive is a `WSARecv` kept posted. While more than half
-  the ring's buffers are free, it reads into one of them. Otherwise it's a zero-byte
-  `WSARecv`, whose completion the shim follows with one non-blocking `recv` into a free
-  buffer, so past half the buffers an idle connection holds none, as with io_uring's
-  provided buffers; a buffer posted per connection deadlocked 10,000 connections.
-- Accepted sockets skip the completion port when a request completes at once
-  (`FILE_SKIP_COMPLETION_PORT_ON_SUCCESS`), as most sends do: the shim reports it from
-  its own list. With the buffered receive, that served 7-9% more requests a second
-  (2026-10-11, [development](../development.md#against-wsl)). Nearly all of a request's
-  time is the kernel's, about 11 µs on loopback, against 0.8 µs in user code.
-- The workers share one listener, which belongs to no completion port, because a
-  socket can belong to only one. Each ring's `AcceptEx` signals an event, and a wait
-  registered on it posts the completion to that ring's port, as libuv does. Windows
-  serves the most recently posted `AcceptEx` first, so one worker takes most
-  connections. That costs throughput, not correctness.
-- `closesocket` ends every request on the socket and aborts a send still pending. Each
-  pending request holds a reference to its socket's record, so a late completion never
-  touches a reused handle.
-- The server listens on 127.0.0.1 only, because Windows Defender Firewall prompts for
-  any other address, with `SO_EXCLUSIVEADDRUSE`, so a second server gets `EADDRINUSE`,
-  and `SOMAXCONN_HINT`, because a plain backlog stops at 200.
-
-The constants in `sys.goose` are the project's own error codes, Linux's errno values
-on every platform, as libuv's are the negated errno on Unix. `shim/net.c` passes errno
-through, and its `_Static_assert`s pin the values. `shim/kqueue.c` translates: codes 1 to
-34 are equal on both systems, a table maps macOS's codes from 35 up to Linux's (`EAGAIN`
-35 to 11, `ECONNABORTED` 53 to 103), and a code with no Linux counterpart becomes 1000
-plus its own. `net_strerror` translates back, for the platform's text. Goose code never
-sees a platform's own numbers. `shim/net_win.c` maps Winsock's and Win32's errors onto
-the same codes (`net_win_err`), as libuv's `uv_translate_sys_error` does, with 1000
-plus the Windows code for any it doesn't map; `shim/iocp.c` uses the same mapping.
+Goose sees Linux errno values on every platform. Linux passes them through, macOS and
+Windows translate, and `net_strerror` supplies platform text. An unmapped code becomes
+1000 plus the platform code. The C shims own this mapping (task 006, 2026-10-11).

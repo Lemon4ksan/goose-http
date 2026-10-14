@@ -39,41 +39,34 @@ When a task is done and nothing still builds on its file, move it to `000-archiv
 unique across both folders: pick the next number after the highest in either. Refer to
 tasks by number ("task 008"), not by path, so a move breaks no reference.
 
+Archived tasks describe the implementation and validation at completion. Use the
+README, API reference, and architecture for current behavior, and the benchmark summary
+for the latest accepted measurements. A pending measurement remains explicit even when
+its implementation is already on `main`.
+
 ## Order
 
-Tasks 001–004 build and measure the epoll server, and task 008 moved the pin upstream and
-kept gcc over clang and `simd`. Task 005 adds io_uring beside the epoll loop and compares
-the two. Task 006 ports the loops to macOS, the BSDs, and Windows, after
-task 004. Task 007 gathers the tests into one command and can start at any point. Task
-009 adds HttpArena's strongest epoll-era servers to the benchmark, and can start after
-task 008. Task 010 moves the build to `goose build` and the shim to C files of their own,
-before task 006 adds a platform's shim. Task 011 makes the repository a Goose package that
-programs import, after task 010. Task 012 benchmarks the Mac, natively and
-in Docker. Task 013 lists the HTTP/1.1 features a program needs from the package, and is
-designed with task 011. Task 014 plans HTTP/2 and TLS, after tasks 011 and 013. Task
-015 lists what a REST and JSON API still needs. It starts once task 013's macOS tests
-and streaming cost are done (2026-10-12); task 013's large-response items can wait, as an
-API's responses are small. Task 015's answers that wait are designed with task 014's
-HTTP/2. Task 016 accounts for each worker's committed memory, and can start at any
-point. Task 017 narrows the IOCP loop's gap to io_uring, on the benchmark desktop. Task
-019 adds Tina to the benchmark, and can start at any point. Task 020 sends files on
-io_uring and IOCP without copying them, as the epoll loop does. Task 021 is the REST
-benchmark, in three tiers taken from HttpArena, snowtime, and a clinic booking app, and
-one of uploads; done, measured against six competitors (2026-10-13), and kept here because
-goose-rest, a framework on this package planned in its own repository, is measured on
-its tiers. Task 024 looks for why nginx beats Goose at 64 KB files, where Goose's emulated
-ring doesn't lose, and can start at any point. Task 025 shrinks the REST server's
-memory, a copy of the records per worker. Task 026 brings the io_uring loop's reads
-beside uploads to the epoll loop's latency. Task 027 makes the API more idiomatic Goose
-where the benchmarks show speed holds, then rewrites the examples and the API reference.
-It comes next, since breaking changes cost least before programs such as goose-rest use
-the API. Task 028 tells a full mailbox from a message longer than a slot, and gives a
-sender the slot size, for goose-rest's replies in pieces; it can start at any point.
-Task 029 builds for embedded Linux on aarch64, with a device example, and waits on a
-board to finish. Task 030 ports to 32-bit ARM, after task 029's guide. Task 031 moves the
-REST server's records, loaders, and writers into a module that goose-rest imports; task
-025's changes to that server are on `main` (2026-10-14). Task 032 gives the bench
-scripts one shared harness that goose-rest can reuse.
+Next, in the order requested on 2026-10-14: task 032's shared benchmark harness, then
+goose-rest's first benchmark run on the desktop. The HTTP changes it needs are on
+`main`. Task 031's shared REST application module is separate open work.
 
-Next, in this order (asked for 2026-10-14): task 032, and goose-rest's first benchmark
-run on the benchmark desktop; the HTTP changes it waits on are on `main` (2026-10-14).
+| Open work | Remaining outcome or dependency |
+|---|---|
+| 006: platform ports | Platform subtasks are done; the optional conditional-compilation goal remains unresolved. |
+| 012: macOS benchmarks | Complete the Docker matrix; retain the platform and client limits. |
+| 014: HTTP/2 and TLS | Agree the split, then implement and measure the planned protocol work. |
+| 016: worker memory | Finish source accounting, reductions, and the Goose-side question. |
+| 017: IOCP speed | Read the kernel trace and evaluate candidates against the recorded baseline. |
+| 022: compression | Record approval of the implemented boundary and finish outstanding platform validation. |
+| 024: 64 KB files | Explain and measure the gap to nginx; recheck the threshold if paths change. |
+| 025: REST memory | Finish source accounting and the sharing question; reporting awaits authorization. Reductions are on `main`. |
+| 026: reads beside uploads | Measure and reduce completion-loop read latency without losing upload throughput. |
+| 027: idiomatic API | Record the pending tier C templated benchmark recheck; API and examples are on `main`. |
+| 029: embedded aarch64 | Validate on a board; emulated tests do not settle it. |
+| 030: 32-bit ARM | Unblock execution after the two recorded Goose bugs are fixed. |
+| 031: shared REST application | Split reusable application code from HTTP routes without changing behavior or memory. |
+| 032: shared benchmark harness | Reuse one harness across scripts and document external server integration. |
+
+Tasks 013 and 018 have completed acceptance criteria and are archived with the other
+completed work. Compression subtasks stay with their open parent. Completed platform
+subtasks stay with task 006 until its remaining goal is resolved.

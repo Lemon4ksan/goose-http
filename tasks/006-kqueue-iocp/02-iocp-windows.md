@@ -109,5 +109,3 @@ counts a client thread that raises as a failure. After them, 10 runs of 10 passe
   them, if Windows ever matters for speed. With one worker taking nearly every
   connection, the 16,384-connection limit acts almost per process.
 - No test reaches the path where a worker at its connection limit cancels its accept.
-- The process can crash at exit when several workers fail at once
-  ([findings](../../docs/goose-findings.md#two-threads-that-exit-at-once-crash-on-windows)).

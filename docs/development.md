@@ -2,8 +2,9 @@
 
 Benchmarking runs on Linux (WSL2 Ubuntu), and so do building and testing by default.
 macOS builds both loops over kqueue ([below](#macos)), and Windows builds the
-io_uring loop over I/O completion ports ([below](#windows)). Both pass the tests, and
-neither is for benchmarks.
+io_uring loop over I/O completion ports ([below](#windows)). Platform test coverage is
+recorded in the tasks; performance comparisons use
+Linux unless a measurement explicitly names another platform.
 
 ## Toolchain
 
@@ -151,13 +152,6 @@ A pin move doesn't wait for benchmarks. They're costly to run, so they run in ba
 overnight, after a stretch of work (2026-10-13). Until then the results
 stand at the commits they name, and the README's Pins table says which ones.
 
-A checkout from before `6fcb753`, where TinyCC was a submodule, can't check out a later
-commit over the submodule's directory. Release it first:
-`git -C ../goose submodule deinit -f third_party/tinycc` and
-`rm -rf ../goose/third_party/tinycc`. The old configure options `GOOSE_GFX`,
-`GOOSE_AUDIO`, `GOOSE_PHYSICS`, and `GOOSE_UI` are gone; CMake warns about them in an old
-build directory and ignores them.
-
 ## Build and run
 
 Run these in WSL, or on macOS ([below](#macos)). They work from any directory.
@@ -174,7 +168,7 @@ Run these in WSL, or on macOS ([below](#macos)). They work from any directory.
 
 `build.sh` runs `goose build --cc gcc --standalone`. gcc builds a faster server than
 clang (task 008); `CC` picks another. `--standalone` puts the runtime in the program's C
-file, so gcc can inline the runtime's functions into the server, as before task 010. The
+file, so gcc can inline the runtime's functions into the server. The
 server imports the package from `../`, whose sidecar, `http.build`, names the C in
 `shim/` to compile and link for each platform (`shim/net.c` and `shim/uring.c` on Linux,
 `shim/kqueue.c` on macOS), and liburing on Linux, for the io_uring loop, which needs
@@ -184,9 +178,9 @@ under `~/.goose/build/pkg/local/`; `goose build -v` prints the commands with the
 paths.
 
 TinyCC can't place thread-local storage, so it refuses to run any program that can reach
-`thread_spawn`, even when the spawn isn't taken. The server's root files are such
-programs, so the server runs only through `build.sh`. The unit tests are root files of their own, which TinyCC
-runs.
+`thread_spawn`, even when the spawn isn't taken. Build the server with `goose build`,
+as `scripts/build.sh` does. Unit tests without a reachable spawn can run through TinyCC;
+the unit-test script builds those that need threads.
 
 The program takes a mode and a port (default 8080):
 
@@ -203,7 +197,8 @@ build/server echo-epoll 8080      # one edge-triggered epoll loop
 `scripts/test.sh` runs the whole suite, and stops at the first failure:
 
 1. `goose --check` of each root file: `server/server.goose`, `server/server_epoll.goose`,
-   and each `test/test_*.goose` and `server/test_*.goose`.
+   each `test/test_*.goose` and `server/test_*.goose`, and the examples listed in
+   `scripts/test.sh`.
 2. `scripts/test-unit.sh`: each unit test through TinyCC, except one with a `thread_fn`,
    such as `test/test_mail.goose`, which TinyCC can't run: that one is built with
    `goose build` into `build/` and run from there.
@@ -211,6 +206,8 @@ build/server echo-epoll 8080      # one edge-triggered epoll loop
    Linux and macOS, with `LOOP=uring-epoll` against the uring build on Linux too, and
    iocp on Windows.
 4. `scripts/test-echo.sh`, against the last build.
+5. `scripts/test-examples.sh`: builds the examples and requests their routes on port 8080,
+   including the device example with simulated hardware. ARM builds are checked separately.
 
 ```sh
 GOOSE=../goose/build-linux/goose scripts/test.sh
@@ -219,8 +216,7 @@ GOOSE=../goose/build-linux/goose scripts/test.sh
 `GOOSE`, `CC`, `PORT`, and `WORKERS` pass through to the scripts it runs. On macOS it
 waits for `TIME_WAIT` to drain before each run ([below](#macos)). On Windows, in Git
 Bash, its first step is the Windows typecheck that [Edit on Windows](#edit-on-windows)
-describes. It took 2 min 48 s on the Mac of [macOS](#macos), 1 min 37 s in WSL2, and 34 s
-in Git Bash, where the load runs are left out (2026-10-11).
+describes. Git Bash leaves out the load runs and the fd-limit check.
 
 ### Test the HTTP server
 
@@ -235,65 +231,15 @@ the first error. It tests whichever loop `build/server` has, so build each loop 
 once per loop. It needs curl, wrk, h2load, oha, `nc`, and `python3`
 ([toolchain](#toolchain)). Against the server it runs:
 
-- curl on `/plaintext`, `/json`, and a 404, and two requests on one connection.
-- `scripts/http_client.py`, in these modes:
-  - `tfb`: the checks TechEmpower's verifier makes of both tests, with its request
-    headers: status, `Server`, `Date` as an IMF-fixdate within 2 s of the clock,
-    `Content-Type`, `Content-Length` against the body, the body, and a `Date` that moves
-    on after a second.
-  - `pipeline`: 16 requests in one write, answered in order; a request sent a byte at a
-    time; 5-byte and 512 KB bodies dropped between pipelined requests; and 500
-    pipelined requests, more than the write buffer holds.
-  - `large`: responses of 5 KB to 300 KB from `/bytes`, alone and pipelined between
-    small ones, and 4 MB to a client that reads only after the server's send has
-    blocked.
-  - `stream`: bodies and responses in pieces (task 013): 100 MB uploads with a
-    `Content-Length` and chunked, bodies the handler doesn't read below and past
-    `max_drain`, `Expect: 100-continue`, 10 MB echoed with each framing, 10 MB and
-    100 MB downloads, a body to HTTP/1.0 that ends at the close, and an `Upgrade` to
-    an echo. After it, on Linux and Windows, the server's peak RSS must be under 64 MB:
-    `VmHWM` on Linux, the peak working set on Windows.
-  - `files`: `/files/`, from a temporary directory the script names in `FILES`: a
-    file whole, by `HEAD`, by `If-None-Match` and `If-Modified-Since`, one range, a
-    suffix range, and one past the end; 404 for a missing file, a directory, `..`, and
-    a NUL; a 5 MB file twice pipelined; and four clients that leave halfway. After
-    it, the server must hold no file of that directory open: the script reads
-    `/proc/PID/fd` on Linux, asks `lsof` on macOS, and on Windows opens each file
-    sharing nothing, which fails while the server holds it.
-  - `chunked`: chunked bodies, with an extension and a trailer field, dropped between
-    pipelined requests and sent a byte at a time, and HttpArena's `/baseline11` with no
-    body, a `Content-Length` body, and a chunked one.
-  - `keepalive`: HTTP/1.0 with and without `Connection: keep-alive`, `Connection: close`
-    in a pipeline, and `HEAD`.
-  - `client`: `/client`'s peer address and port against the client socket's own, and
-    the client a loopback proxy forwarded for, from `X-Forwarded-For` and `Forwarded`.
-  - `log`: the access log, against a server started with `ACCESS_LOG`, read from its
-    output: status, bytes, target, and time per response.
-  - `hostile`: 23 malformed or oversized requests, each refused with its status (400,
-    413, 414, 431, 501, or 505) and the connection closed, and a refusal after a good
-    request in a pipeline.
-  - `many 10000`: 10,000 connections open at once, each pipelining 4 requests.
-  - `slow`: against a server started again with a 4 s request timeout, 3 s body
-    timeout, and 5 s write timeout (`REQUEST_MS`, `BODY_MS`, and `WRITE_MS`, which the
-    client reads too), at once: a client that trickles a request head (408 after the
-    request timeout), one that sends nothing (closed after it), one whose body stops
-    (408 after the body timeout), one that finishes a request every 3 s (never cut
-    off), and one that pipelines without reading (closed after the write timeout,
-    once the server's buffers fill), while another client is served.
-  - `requests`: against a server started again with a cap of 3 requests a connection
-    (`MAX_REQUESTS=3`), 5 pipelined requests get 3 responses, the third with
-    `Connection: close`, and the connection closes; so does an HTTP/1.0 keep-alive
-    connection after its third.
-- wrk for 3 s on `/plaintext` with 16-deep pipelining (`scripts/pipeline.lua`) and on
-  `/json`, h2load `--h1` for 200,000 requests 16 deep, and oha for 500,000 requests. Each
-  must see only 200s and no errors.
-- A graceful stop (`stop`): `SIGTERM` with an idle connection, one partway through a
-  request head, and one partway through a 20 MB response; and then, with `SERVER_RUNS=2`, a
-  stop after which the server's loops start again and serve. On Windows, the same
-  checks by Ctrl+Break (`stop-break`), of a server the client starts in a process group
-  of its own, since Ctrl+Break reaches only a console process group.
-- Then one worker under `ulimit -n 40` and 60 clients (`emfile`): the clients past the fd
-  limit wait in the listen backlog, and are served once earlier ones close.
+- Response bytes, keep-alive, pipelining, request framing, and hostile requests.
+- Bodies and responses in pieces, upgrades, waiting answers, files, compression,
+  client addresses, and the access log.
+- Limits, timeouts, many connections, and graceful stop and restart.
+- Load checks and fd exhaustion on platforms that support them.
+
+The script and `scripts/http_client.py` define the individual modes and requests;
+use them for the exact coverage. File checks verify that interrupted downloads leave
+no file open, and streaming checks bound peak memory on Linux and Windows.
 
 `LOOP=uring-epoll scripts/test-http.sh`, against the `LOOP=uring` build, tests the
 io_uring loop over its emulation on epoll, which it falls back to where io_uring is
@@ -409,403 +355,140 @@ The build took 1 min 54 s under Docker Desktop's x86-64 emulation on the Mac
 
 ### Benchmark
 
-`bench/build.sh` builds the seven servers into `build/bench/`, and `bench/run.sh` runs
-the matrix of task 004 against them. [`bench/README.md`](../bench/README.md) has the
-method, the pins, and each server's configuration. Both scripts need `GOOSE` and
-`$HOME/.cargo/bin` on `PATH`, as above. A full run takes about 20 minutes per server,
-140 minutes for all seven, and nothing else should run on the machine meanwhile.
+[bench/README.md](../bench/README.md) owns the scripts, server configurations, and
+measurement method. [benchmarks.md](benchmarks.md) owns the current comparisons;
+[results.md](results.md) links their evidence. Script headers list the settings.
+Set `GOOSE` and put `$HOME/.cargo/bin` on `PATH`. Run a benchmark with no competing
+work on the machine, and compare only compatible machines, kernels, and settings.
 
-`bench/httparena.sh` runs [HttpArena](https://github.com/MDA2AV/HttpArena)'s own
-harness, in Docker, with the Goose server as an entry: `validate` runs its
-`scripts/validate.sh`, and `run` its `baseline`, `limited-conn`, `latency-1m`, and
-`pipelined` profiles for Goose and HttpArena's tokio, dusty, and vanilla-epoll entries
-(task 009). The comment at its top lists what it changes in the checkout.
+`bench/codegen.sh REV...` compares generated code without serving traffic. It keeps
+generated C under `~/goose-http-codegen/` and reports function-family sizes and hot
+function instruction counts. Specialization numbers change between builds, so compare
+families. Static counts include cold branches; `bench/count.sh` measures executed
+user instructions over a fixed request count. Neither substitutes for rate and
+memory measurements.
 
-`bench/rest.sh build` writes task 021's datasets into `build/rest/`, builds the Goose
-REST server and hyper's, and fetches zrk 2.3.0. `bench/rest.sh run` checks each server
-with `bench/rest/check.py` and then measures every tier: about 10 minutes of checks and
-65 of runs. Its header lists the steps and settings.
+Operational constraints:
 
-`bench/compilers.sh` adds Goose builds to `build/bench/`: `goose-gcc`, `goose-clang`,
-and `goose-gcc-native` (`-march=native`). `bench/run.sh` runs any server whose name
-starts with `goose` as a Goose build, so `SERVERS="goose-gcc goose-clang"` compares
-them. `bench/instructions.sh`, as root, counts instructions per request with
-`perf stat`, and `bench/parse.sh` times `http::parse` alone on the requests in
-`bench/parse/` (task 008). `bench/count.sh`, as root, counts the user instructions
-a server spends on exactly 10 million requests from h2load. The count repeats to
-within 0.1 instruction per request, where `bench/instructions.sh`'s spreads by about
-15, so it shows a change of 2 or 3 instructions in one run (task 013). Compare builds
-with it, not servers: h2load brings fewer requests per read than wrk, which puts its
-totals about 300 higher.
-
-`bench/codegen.sh REV...` compares the code revisions generate, without running it,
-so it's safe while a benchmark runs elsewhere: it builds the benchmark server and
-`bench/rest`'s server at each revision (`work` for the working tree), keeps their
-generated C under `~/goose-http-codegen/`, and prints `.text`, each function family's
-bytes summed over its specializations, and the loops' hot functions' instruction
-counts. Goose numbers specializations anew per build, so compare families, not
-names. A static count covers a function's cold branches too: it flags what to look
-at, and `bench/count.sh` says what a request costs (2026-10-13, task 027).
-
-What the benchmark has to work around on this machine:
-
-- Windows Update updates WSL on its own, and the install stops every distro, ending
-  whatever runs in them; while it runs, `wsl.exe` fails with "The file cannot be
-  accessed by the system". An update can move the kernel, and runs compare only on the
-  same kernel, which each run's `env.txt` names.
-- After that update (2026-10-13), Docker Desktop kept running without its engine: WSL
-  had no `docker` ("could not be found in this WSL 2 distro"), `docker info` from
-  Windows said "Docker Desktop is unable to start", and `bench/httparena.sh` failed at
-  once. `docker desktop restart`, from Windows, brought it back. Check `docker version`
-  in WSL before an unattended HttpArena run.
-
-- WSL2 steps the wall clock back by 0.4 to 2.6 ms every 30 s (measured with
-  `bench/clockstep.py`, 2026-10-10). wrk 4.1.0 counts each request in flight across a
-  step as a timeout: 106 and 154 in two 100 s runs at 64 connections. Preloaded with
-  `bench/wrk-monotonic.so`, which answers `gettimeofday` from `CLOCK_MONOTONIC`, it
-  counted none over the same kind of steps, at the same rate.
-- wrk's latency percentiles are wrong under pipelining. wrk 4.1.0 always corrects for
-  coordinated omission against each connection's mean request interval, about 13 µs at
-  16 deep, and adds synthetic samples below the histogram's minimum, where
-  `stats_percentile` doesn't look. p99 then reads `0.00us` whenever a run has an
-  outlier. `bench/run.sh` takes latency from h2load's per-request log instead, which it
-  times on a monotonic clock, summarized by `bench/latency.c` through a FIFO.
-- `mkfifo` fails on `/mnt/c` ("File exists"), so the FIFO goes in a Linux temporary
-  directory.
-- A killed io_uring server's listener can outlive its process: odin-http's and Tina's
-  accept connections for up to 50 ms after `wait` returns, while the kernel releases
-  their rings' files, and odin-http's port stays bound a while after that: the next
-  start's `bind` failed with `EADDRINUSE` though nothing accepted (2026-10-13). A script
-  that starts the next server on the same port waits until it can bind the port, as
-  `bench/rest.sh` does.
-- `bench/run.sh` writes the host name into `env.txt` unless `MACHINE` is set, and
-  results name no machines, so a run on WSL sets `MACHINE=wsl2-5800x3d`.
-- The load generator needs more CPU than the server. wrk spends about 1.4 times the
-  server's CPU time per pipelined request, and h2load more: 6.4 CPUs of system time and
-  2.4 of user time at 3.1 million requests per second. With 8 CPUs each, wrk was the bottleneck at 8 workers,
-  so `bench/run.sh` gives the server CPUs 0 to 3 and the clients CPUs 4 to 15.
-- wrk gives each thread `connections / threads` connections, rounded down, so the thread
-  count must divide every connection count. `bench/run.sh` uses 8 threads.
-- wrk 4.1.0 drops a `-H` header without a space after its colon: `-H Host:tfb-server`
-  sends wrk's own `Host: 127.0.0.1:PORT`, and `-H Connection:keep-alive` sends nothing.
-  h2load accepts both spellings and adds `user-agent: h2load nghttp2/1.68.0`. Task 004's
-  runs sent only `Host` and `Accept` this way (found in task 008, by tracing the
-  server's `recvfrom`); write `-H "Host: tfb-server"`.
-- Cargo under `/mnt/c/Users/<user>` reads the Windows `~/.cargo/config`, which sets
-  `-C target-cpu=native` for every build (see [below](#from-a-windows-shell)).
-  `bench/build.sh` runs cargo from its cache directory on the Linux file system, and sets
-  the flags it wants itself.
-- Docker here is Docker Desktop, whose containers run in its own VM namespace. A
-  `--network host` container shares that VM's network with other such containers, but
-  WSL can't reach it on `localhost`, and its cgroup isn't under WSL's `/sys/fs/cgroup`.
-  `bench/httparena.sh` runs HttpArena's readiness probe and cgroup CPU reads in helper
-  containers for that (`bench/httparena/docker-desktop.sh`). `-p 8080:8080` publishing,
-  which `validate.sh` uses, does reach WSL.
-- HttpArena's `validate.sh` starts a watchdog that sleeps `VALIDATE_TIMEOUT` (800 s), and
-  leaves it running when the checks pass. The watchdog keeps the output open, so
-  `bench/httparena.sh validate | tail` waits the full 800 s. Read the output as it
-  comes instead.
-- gcannon, HttpArena's load generator, peaks at 4 threads on CPUs 4-15 against a
-  4-worker server: 466K requests per second on `baseline` for Goose, 248K at 2 threads,
-  386K at 6, and 267K at 12 (2026-10-10). More threads lose throughput, one per core
-  included, so a thread count from another machine doesn't carry over.
-- Zig 0.16 fetches a package's dependencies into `zig-pkg/` beside its `build.zig.zon`,
-  and renaming into a `.zig-cache` on `/mnt/c` fails with `AccessDenied`.
-  `bench/build.sh` copies `bench/dusty` into the Linux cache and builds it there.
-- perf runs on the WSL2 kernel, hardware counters included (`cycles`, `instructions`),
-  as root. It can't read `/proc/schedstat`, which `perf record` mentions and survives.
-- vanilla-epoll leaks in JSON (`-gc none`): 6-15 GB of RSS per 15 s cell, in a WSL VM
-  of 16 GB. A full `bench/run.sh` survived it once, and once (2026-10-11) the host ran
-  short of memory in vanilla-epoll's last JSON cell of round 2, and Claude Code stopped
-  its background tasks, the run among them. Start a full matrix from a terminal, or
-  leave vanilla-epoll's JSON cells out of an unattended one.
+- Windows Update can stop WSL distributions and change the kernel. Check each run's
+  `env.txt`; do not compare across a kernel change as if only the server changed.
+  If Docker Desktop loses its WSL engine, restore WSL integration before running
+  HttpArena.
+- Run cargo and Zig dependency builds from a Linux filesystem cache. Cargo under
+  `/mnt/c` can inherit Windows configuration; Zig package renames there can fail
+  with `AccessDenied`. `bench/build.sh` uses its Linux cache.
+- wrk rounds connections down to a multiple of its thread count. Give it a thread
+  count dividing each cell's connection count. wrk 4.1.0 also needs a space after
+  the colon in `-H "Host: tfb-server"`.
+- wrk's wall clock can step backward in WSL. The benchmark preloads
+  `wrk-monotonic.so`; HTTP load checks rely on monotonic-clock h2load and oha for
+  timeouts. With oha, a request count avoids deadline-aborted requests from `-z`.
+- Docker Desktop's host network is the Docker VM's, not WSL's loopback. HttpArena's
+  readiness probes and cgroup reads use helper containers; published ports reach WSL.
+- HttpArena validation can leave its watchdog holding output open until
+  `VALIDATE_TIMEOUT` expires. Read output as it arrives instead of piping it to
+  `tail`.
+- vanilla-epoll's JSON build with `-gc none` leaks enough memory to exhaust the VM.
+  Leave those cells out of unattended matrices or isolate them in their own run.
+- perf uses the WSL kernel and needs elevated access to hardware counters. A warning
+  about `/proc/schedstat` does not by itself mean the recording failed.
 
 ### From a Windows shell
 
-The repository lives on the Windows drive, so WSL sees it under `/mnt/c`, for example
-at `/mnt/c/<path>/goose-http`. These things break commands passed to WSL
-from Windows:
+Name the WSL distribution explicitly: `wsl.exe -d Ubuntu`. Docker Desktop can change
+the default to a distribution with no bash. For commands containing shell variables,
+put them in a script and run `wsl.exe -d Ubuntu -- bash /mnt/c/.../script.sh`; the
+intermediate shell can otherwise expand variables before bash sees them.
 
-- Docker Desktop can make its own `docker-desktop` distribution WSL's default, and a
-  bare `wsl.exe -e bash` then fails with `execvpe(bash) failed` (2026-10-14). Name the
-  distribution: `wsl.exe -d Ubuntu`.
-- `wsl.exe` hands its arguments to a shell that expands `$VARS` before `bash -c` sees
-  them, so a variable set inside the command is empty. Put any command that uses
-  variables in a script file and run `wsl.exe -d Ubuntu -- bash /mnt/c/.../script.sh`.
-- Git Bash rewrites arguments that look like POSIX paths, so `/mnt/c/...` turns into
-  `C:/Program Files/Git/mnt/c/...`. Set `MSYS_NO_PATHCONV=1` for the `wsl.exe` call.
-  PowerShell doesn't rewrite paths.
-- `bash script.sh` doesn't read the WSL profile, so a `GOOSE` set there doesn't reach
-  it. A script that calls `scripts/build.sh` or `scripts/test-unit.sh` exports it first:
-  `export GOOSE=/mnt/c/<path>/goose/build-linux/goose`. The
-  same goes for `PATH`, which needs `$HOME/.cargo/bin` for oha.
-- A server started in the background survives when its `wsl.exe` call ends early, for
-  example when the output is piped into `head`. It keeps its port, and the next run fails
-  to bind. Check with `ps aux | grep build/server` before rerunning.
-- A whole `bench/rest.sh run` started with `nohup setsid ... &` from a `wsl.exe` call
-  stopped when the call returned, before writing `env.txt` (2026-10-13). Run a long
-  benchmark in the foreground of a `wsl.exe` call that stays open, such as a background
-  task of the agent's shell.
-- `wsl.exe` starts in the Windows working directory, under `/mnt/c/Users/<user>`, and
-  cargo reads the config files of every directory above its own. It then picks up the
-  Windows `C:\Users\<user>\.cargo\config`. Run cargo with `wsl.exe --cd /root`, or `cd ~` first.
-- `pkill -f PATTERN` inside `wsl.exe -- bash -c '...'` matches that `bash -c` too, whose
-  command line holds the pattern, and kills it. Kill by PID instead.
-- Killing `strace` doesn't stop the server it started; kill the server's PID.
-- WSL's git rereads every file of the checkout the first time it runs after Windows'
-  git, because the two record file stats differently. `bench/run.sh` and `bench/rest.sh`
-  call `git diff --quiet` for `env.txt`, which then takes a few minutes before the first
-  cell.
-- Git for Windows 2.45 writes a worktree's `.git` file with a Windows path, which WSL's
-  git can't follow, so `bench/run.sh` can't record the commit there. It has no
-  `--relative-paths`; write the file by hand, for example
-  `gitdir: ../goose-http/.git/worktrees/<name>`. Both gits read that.
+- Git Bash rewrites POSIX-looking arguments. Set `MSYS_NO_PATHCONV=1` for a WSL call;
+  PowerShell does not rewrite paths.
+- A non-login script does not read the WSL profile. Export `GOOSE` and the oha path
+  inside it.
+- Run cargo with `cd ~` first, or use WSL's `--cd` option, to avoid inheriting
+  configuration from parent directories on the Windows filesystem.
+- Keep a long benchmark's foreground WSL call open. A detached run may end when the
+  call returns; a background server may instead survive and retain its port.
+- Kill by PID. `pkill -f` inside `bash -c` can match and kill that shell, and killing
+  strace does not kill the server it started.
+- Windows and WSL git record different file stats. The first WSL diff after Windows
+  git can reread the whole checkout, delaying benchmark startup.
+- Git for Windows 2.45 writes absolute Windows paths in worktree `.git` files that
+  WSL git cannot follow. A relative `gitdir: ../goose-http/.git/worktrees/<name>`
+  works for both.
 
-The agent's Bash tool turns `\\` into `\` before the shell sees it, even inside a quoted
-heredoc, so `'\\n'` written through it reaches the file as a line break. Edit files with
-the file tools, or check the result, when the text has backslashes.
-
-Windows `python`, called from Git Bash, writes text files with CRLF line endings and in
-cp1252, so a `§` it writes becomes the byte `0xA7`, which isn't UTF-8. A script that
-rewrites files here opens them with `encoding="utf-8", newline="\n"`.
-`.gitattributes` keeps `*.sh` and `*.py` at LF in the index, but WSL runs the working
-copy, so a CRLF script fails there before Git would fix it.
+Use the file editing tools for repository changes. Windows Python defaults can write
+cp1252 and CRLF; shell heredocs add another escaping layer. See
+[line endings on Windows](#line-endings-on-windows).
 
 ## macOS
 
-The epoll loop runs on macOS through `shim/kqueue.c`, which `http.build` lists under
-`c_sources_macos`
-([architecture](architecture/README.md#the-platform-and-its-error-codes-task-006)), and
-`scripts/test-unit.sh`, `scripts/test-http.sh`, and `scripts/test-echo.sh` pass there.
-`LOOP=uring scripts/build.sh` builds `http::serve` over `shim/ring_epoll.c`, the
-io_uring loop's emulation, on kqueue; both builds hold both loops, and `LOOP` at run
-time picks one. Both loops pass the three scripts there, and the emulation holds at the fd
-limit without spinning (task 011, 2026-10-11). Both loops pass `scripts/test.sh` with
-the graceful stop, the restart, and files too (task 013, 2026-10-12, Goose `5c83a5a`).
+`scripts/build.sh` defaults to the epoll loop over kqueue. `LOOP=uring` builds the
+completion loop over its kqueue emulation; the benchmark server includes both loops.
+The platform mapping is in [architecture](architecture/README.md#platform-shims-and-error-codes).
 
-| Tool | Where | Version used (2026-10-11) |
-|---|---|---|
-| macOS | MacBook Pro `MacBookPro18,3`, Apple M1 Pro (8 performance and 2 efficiency cores) | 26.3.1, Darwin 25.3.0 |
-| C compiler | Xcode | Apple clang 21.0.0 (`clang-2100.0.123.102`) |
-| CMake | Homebrew | 4.4.4 |
-| Python | Homebrew | 3.14.8 |
-| curl, nc | macOS | curl 8.7.1, Apple's nc |
-| wrk | Homebrew | 4.2.0, built on kqueue |
-| h2load | Homebrew `nghttp2` | 1.70.0 |
-| oha | Homebrew | 1.16.0 |
+| Tool | Version used (2026-10-11) |
+|---|---|
+| macOS | 26.3.1, Darwin 25.3.0 |
+| C compiler | Xcode Apple clang 21.0.0 (`clang-2100.0.123.102`) |
+| CMake | Homebrew 4.4.4 |
+| Python | Homebrew 3.14.8 |
+| curl, nc | macOS curl 8.7.1, Apple's nc |
+| wrk | Homebrew 4.2.0 |
+| h2load | Homebrew nghttp2 1.70.0 |
+| oha | Homebrew 1.16.0 |
 
 ```sh
 brew install cmake wrk nghttp2 oha
-```
-
-Build the compiler as on Linux, with the Makefile generator CMake picks by default. The
-TinyCC backend finds the SDK's headers through `xcrun --show-sdk-path`, which needs Xcode
-or the Command Line Tools. `goose build --cc gcc` works unchanged, because macOS's `gcc`
-is Apple clang:
-
-```sh
 cmake -S ../goose -B ../goose/build-macos -DCMAKE_BUILD_TYPE=Release
 cmake --build ../goose/build-macos -j
 export GOOSE=$PWD/../goose/build-macos/goose
 ```
 
-Then `scripts/build.sh` and the test scripts run as on Linux.
+TinyCC finds SDK headers through `xcrun --show-sdk-path`, requiring Xcode or the
+Command Line Tools. `goose build --cc gcc` works because macOS's gcc is Apple clang.
 
-What differs from Linux:
-
-- macOS has 16,384 ephemeral ports (`net.inet.ip.portrange.first` 49152 to `last`
-  65535), against Linux's 28,232, and a closed client socket holds its port in
-  `TIME_WAIT` for 30 s (twice `net.inet.tcp.msl`, 15,000 ms). `test-echo.sh` leaves
-  12,000 such sockets, and `test-http.sh` started within 30 s of it fails its
-  10,000-connection run with `EADDRNOTAVAIL` ("Can't assign requested address"). Wait
-  30 s between them; `netstat -an -p tcp | grep -c TIME_WAIT` counts what's left.
-- `kern.ipc.somaxconn` is 128, and `listen` cuts the server's backlog of 4,096 to it
-  without an error. The tests pass at 128: clients past the backlog retry their `SYN`.
-  `sudo sysctl kern.ipc.somaxconn=4096` raises it until the next boot.
-- `/var` and `/tmp` are links into `/private`, and `lsof` prints the resolved path: a
-  file under `mktemp -d`'s `/var/folders/...` shows as `/private/var/folders/...`.
-  Match such paths as substrings, as `test-http.sh` does, not from the line's start.
-- The fd limit's hard maximum is unlimited and `kern.maxfilesperproc` is 122,880, so the
-  scripts' `ulimit -n 65536` works without changing a setting.
-- Apple's `nc -N` sets a count of keepalive probes, where OpenBSD's shuts down the socket
-  after the input ends. `test-echo.sh` passes `-N` only to an `nc` whose help describes
-  the shutdown, and relies on `-w 2` otherwise, which makes each echo check 2 s longer.
-- Without `WORKERS`, `build/server http` starts one worker per performance core
-  (`hw.perflevel0.logicalcpu`, 8 on an M1 Pro), where `hardware_threads()` would count
-  the efficiency cores too.
-
-One wrk run of the kqueue build, at commit `ac64ce9`, 2026-10-11, on the machine above:
-563,173 requests per second on `/plaintext`, 0.97 ms mean latency, and no errors.
-
-```sh
-WORKERS=4 build/server http 29084
-wrk -t 4 -c 64 -d 10 -s scripts/pipeline.lua http://127.0.0.1:29084/plaintext -- 16
-```
-
-That's 4 server workers and 4 wrk threads, 64 connections pipelining 16 deep, and one
-10 s run, with wrk on the same machine and no CPU pinning, at a load average of 2.7.
-The number shows that the build carries load, and nothing more: macOS isn't a benchmark
-platform (`AGENTS.md`).
-
-`bench/run-macos.sh` runs a short native matrix against the Rust servers that build on
-macOS (task 012). Traps found running it, 2026-10-11:
-
-- macOS's loopback carries about 35,000-40,000 request-response exchanges a second in
-  all, whatever the server and the client: two independent server and wrk pairs ran at
-  36 K alone and 18 K each together, while the machine sat 70% idle and `kernel_task`
-  took one core. Every server measures the same there.
-- `SO_REUSEPORT` listeners don't spread on macOS, so a competitor that binds one per
-  worker, such as the tokio entry, runs on one thread: under load, one of its 4 threads
-  used CPU.
-- xitca-web enables `io-uring` in `bench/xitca-web/Cargo.toml` and doesn't build on
-  macOS; Odin and V aren't installed on the Mac, and Homebrew's Zig is 0.17.0, not the
-  0.16.0 `bench/build.sh` requires.
-- Other projects' benchmarks and macOS's own indexing (`mediaanalysisd`, `mdworker`)
-  share the machine: the load average was 4-10 through the session. `env.txt` records
-  it before and after.
-- `sample PID 5` profiles a running server without `sudo`. Its counts include time
-  blocked in `kevent`; read the rest for where a request's time goes.
-- macOS has no `perf`, but `/usr/bin/time -l` prints a process's "instructions retired"
-  and "cycles elapsed" when it exits, the kernel's included. Run the server under it,
-  send a fixed number of requests with h2load, and stop it with `SIGTERM` to count
-  instructions per request without `sudo` (task 015). The count spreads by about 30
-  per request between runs, so it can't tell apart builds a few instructions apart.
+- macOS holds closed client ports in `TIME_WAIT` for 30 s. Wait between large client
+  runs; `scripts/test.sh` drains between stages. Count remaining sockets with
+  `netstat -an -p tcp | grep -c TIME_WAIT`.
+- `kern.ipc.somaxconn` defaults to 128, limiting the listen backlog. The tests pass
+  there; `sudo sysctl kern.ipc.somaxconn=4096` raises it until reboot.
+- `lsof` resolves `/var` and `/tmp` through `/private`. Match resolved paths when
+  checking open files.
+- The scripts' `ulimit -n 65536` fits the tested per-process fd limit.
+- Apple's `nc -N` means keepalive probes, not OpenBSD's shutdown-after-input.
+  The echo test checks nc's help and uses `-w 2` otherwise.
+- Native loopback comparisons are kernel-limited; see
+  [measurement limits](results.md#m1-pro-macos-native). Separate `SO_REUSEPORT`
+  listeners can also leave a competing server using only one worker.
+- `sample PID 5` profiles without sudo, but includes time blocked in `kevent`.
+  `/usr/bin/time -l` reports retired instructions and elapsed cycles, including
+  kernel work, after the process exits. It is less precise than fixed-count perf
+  comparisons for changes of only a few instructions.
 
 ### Linux in Docker on macOS
 
-Docker Desktop on macOS runs the Linux build and its tests in an arm64 Linux VM, and both
-loops pass there as on WSL. Measured 2026-10-11 on the Mac above, Docker Desktop 29.8.2,
-kernel 7.0.14-linuxkit, 10 CPUs and 8 GB for the VM, in `ubuntu:26.04` with gcc 15.2.0,
-wrk 4.1.0, h2load 1.68.0, and oha 1.16.0 (its `oha-linux-arm64` release binary). The
-image installs what the toolchain table lists for WSL and builds the compiler at the pin:
+Use an arm64 Linux image with the Linux toolchain and test tools. Build the Goose
+compiler at the [current pin](../README.md#pins), rather than reusing a named image
+from a previous session. Test tools include liburing, curl, wrk, nghttp2-client,
+netcat-openbsd, python3, and oha. Benchmark builds additionally need the Rust, Zig,
+Odin, and autotools versions above, plus util-linux and procps.
 
-```dockerfile
-FROM ubuntu:26.04
-RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
-    ca-certificates git cmake ninja-build gcc g++ liburing-dev curl wrk nghttp2-client \
-    netcat-openbsd python3
-RUN curl -sSLf -o /usr/local/bin/oha \
-        https://github.com/hatoo/oha/releases/download/v1.16.0/oha-linux-arm64 && \
-    chmod +x /usr/local/bin/oha
-RUN git init -q /goose && cd /goose && \
-    git fetch -q --depth 1 https://github.com/aardappel/goose.git efe31554dcce698c0749daec36cd5318d28135fb && \
-    git checkout -q FETCH_HEAD && \
-    cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build-linux
-ENV GOOSE=/goose/build-linux/goose
-```
-
-Run it on an export of the commit, so the container's `build/` doesn't land in the
-working tree:
-
-```sh
-git archive HEAD | tar -x -C /tmp/work
-docker run --rm --security-opt seccomp=unconfined --ulimit nofile=1048576:1048576 \
-    -v /tmp/work:/work -w /work goose-http-linux \
-    sh -c 'LOOP=uring scripts/build.sh && scripts/test-http.sh'
-```
-
-- Docker's default seccomp profile blocks io_uring: the uring server exited with
-  "io_uring: Operation not permitted" before task 011, and runs over an emulation on
-  epoll since. `--security-opt seccomp=unconfined` lets it use io_uring.
-- `scripts/test-unit.sh`, and `scripts/test-echo.sh` and `scripts/test-http.sh` against
-  each loop, passed at commit `090b2e2`, in one full run.
-- Before that commit, `test-echo.sh` failed 2 of 10 runs there with "echo-blocking never
-  saw EPIPE": the loopback is fast enough that the echo often reaches a cut client
-  before its close, which then resets the connection, and the server's send fails with
-  `ECONNRESET` instead. The script now repeats the cut rounds until an `EPIPE`, and passed
-  10 of 10, 3 of them needing a second or third round.
-- `test-http.sh` and `test-unit.sh` weren't executable in Git, which WSL's `/mnt/c`
-  hides by showing every file as executable. Commit `e22a9b8` made them executable,
-  with `bench/build.sh` and `bench/run.sh`.
-- The VM is no benchmark machine: its CPUs are shared with macOS, and the load runs share
-  them with the server.
-- The VM exposes no hardware counters: `perf stat -e instructions:u`, from apt
-  `linux-perf` in a `--privileged` container, finds no supported events, so
-  `bench/count.sh` and `bench/instructions.sh` can't run there (2026-10-12).
-
-To run `bench/run.sh` there (task 012), the image also needs Rust, Zig 0.16.0, and Odin
-`dev-2026-10` for the servers, the tools libreactorng's build uses, `util-linux` and
-`procps` for `taskset`, `lscpu`, and `/proc`, and oha for `test-http.sh`. On 2026-10-11:
-
-```dockerfile
-FROM ubuntu:26.04
-RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
-    ca-certificates git cmake ninja-build gcc g++ liburing-dev curl wrk nghttp2-client \
-    netcat-openbsd python3 util-linux procps pkg-config make xz-utils \
-    autoconf automake libtool libltdl-dev clang lld llvm
-RUN curl -sSLf -o /usr/local/bin/oha \
-        https://github.com/hatoo/oha/releases/download/v1.16.0/oha-linux-arm64 && \
-    chmod +x /usr/local/bin/oha
-RUN curl -sSf https://sh.rustup.rs | sh -s -- -y -q --profile minimal --default-toolchain 1.99.0
-ENV PATH=/root/.cargo/bin:/opt/zig:/opt/odin:$PATH
-RUN mkdir -p /opt/zig && curl -sSLf https://ziglang.org/download/0.16.0/zig-aarch64-linux-0.16.0.tar.xz | \
-    tar -xJ -C /opt/zig --strip-components 1
-RUN mkdir -p /opt/odin && \
-    curl -sSLf https://github.com/odin-lang/Odin/releases/download/dev-2026-10/odin-linux-arm64-dev-2026-10.tar.gz | \
-    tar -xz -C /opt/odin --strip-components 1
-RUN git init -q /goose && cd /goose && \
-    git fetch -q --depth 1 https://github.com/aardappel/goose.git efe31554dcce698c0749daec36cd5318d28135fb && \
-    git checkout -q FETCH_HEAD && \
-    cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build-linux
-ENV GOOSE=/goose/build-linux/goose
-```
-
-Odin's linux-arm64 release links with clang. In the container, `CACHE=/cache
-bench/build.sh` builds the whole field for arm64, with a Docker volume at `/cache` so the
-next container reuses cargo's target directories, V, and the checkouts; `bench/README.md`
-lists what differs from the x86-64 builds. Then, with the layout of task 012's runs:
-
-```sh
-MACHINE=m1pro-docker SERVERS="goose goose-uring tokio vanilla-epoll vanilla-io_uring \
-    may-minihttp hyper xitca-web odin-http dusty zix zeemo libreactorng" \
-    WORKER_COUNTS=3 SERVER_CPUS=0-2 CLIENT_CPUS=3-9 CLIENT_THREADS=8 CACHE=/cache bench/run.sh
-```
-
-- Mount the working tree to write results into `bench/results/`, and run from a copy of
-  its tracked files in the container. `env.txt` then shows the commit as "(modified)":
-  record it by hand.
-- The VM runs transparent huge pages set to `always`. An idle Goose server with 4 workers
-  holds 22 MB, 20 MB of it in `AnonHugePages`, so peak RSS there doesn't compare with
-  WSL2's. The huge pages backed the workers' data stacks and malloc arenas, 2 MB each,
-  at Goose `5c83a5a`; since `0bdbd18` the runtime keeps them off the first 2 MB of each
-  data stack. Run a server under `prctl(PR_SET_THP_DISABLE)` to measure it with 4 KB
-  pages.
-- `docker run --security-opt seccomp=unconfined` lets the server use io_uring in the VM,
-  and `scripts/test.sh` then passes there for all three Linux loops (2026-10-12). Its
-  image needs `wrk`, `nghttp2-client` for `h2load`, `netcat-openbsd`, `python3`, and `oha`
-  at `/root/.cargo/bin/oha` (the release's `oha-linux-arm64` binary works).
-- With 4 workers and wrk on 6 of the 10 CPUs, wrk used 51-58 of its 60 CPU seconds per
-  10 s run in the fastest servers' cells. With 3 workers and wrk on 7 CPUs, wrk used
-  60-65 of 70 in plaintext and 49-53 in JSON, where the servers used all of theirs.
-- The VM hides the CPU's part number (`CPU part : 0x000` in `/proc/cpuinfo`), so Zig's
-  `-Dcpu=native` builds for generic arm64; `bench/build.sh` names `apple_m1` instead.
-- vanilla-epoll's JSON cells grow its memory by 6-15 GB each, past the VM's 8 GB: run
-  JSON without it, in its own result directory.
-- The image `goose-http-dev3` has the compiler at `/goose/build/goose`, at `5c83a5a`
-  (2026-10-12), and sets no `GOOSE`: pass `-e GOOSE=/goose/build/goose`.
-- `bench/rest/hyper` builds in `goose-http-bench2` (`RUSTFLAGS="-C target-cpu=native"
-  cargo build --release`, with a volume such as `-v rest-cargo:/root/.cargo/registry`
-  for the crates), and the binary runs unchanged in `goose-http-dev3`, which has the
-  checker's `python3` and wrk (2026-10-12).
-- The other REST competitors build in `goose-http-bench2` too (2026-10-12). Of the
-  images, only it has Odin: `/opt/odin/odin`, `dev-2026-10-nightly:84bc3fc`, the version
-  `bench/build.sh` requires, with cargo 1.99.0 and Zig at `/opt/zig`. `goose-http-dev3`
-  has neither Rust nor Odin. The Rust servers (`bench/rest/tokio`, `may-minihttp`,
-  `xitca-web`) build as hyper's does, with a separate `CARGO_TARGET_DIR` per server, since
-  each path-depends on `bench/rest/rust`; xitca-web adds `--cfg tokio_unstable` to
-  `RUSTFLAGS`, as `bench/build.sh` does. The Odin servers build with `odin build
-  bench/rest/odin-http -collection:deps=DIR` and the flags `bench/build.sh` gives each,
-  where `DIR` holds odin-http at `fac113f` and Tina at `a2e8d4d`; Tina adds
-  `-define:HTTP_EGRESS_BUFFER_SIZE=63488` (`bench/rest/tina/main.odin` says why). The
-  volume `goose-http-cargo` holds odin-http at its pin under `deps/`, but not Tina.
-- Tina needs `--security-opt seccomp=unconfined` to start in the VM: without it, a shard
-  fails to map its memory (`[FATAL] Shard 0 failed to hydrate memory: Out_Of_Memory`).
-  It logs its own crashes as lines that start with `[`, such as `[FATAL] Shard 0 caught
-  sig=11`, so don't filter those out of a server log.
-- To test uncommitted changes, export the working tree with one `tar`: `git ls-files
-  -co --exclude-standard -z | tar --null -T - -cf - | tar -xf - -C /tmp/work`. Through
-  `xargs`, a long list runs several `tar`s, and the extracting one stops at the end of
-  the first archive, without an error.
+- Docker's default seccomp profile blocks native io_uring. Use
+  `--security-opt seccomp=unconfined` to test native io_uring; without it, the server
+  tests the emulated ring.
+- Mount the working tree read-only for builds into a separate output directory, or
+  run from an export. Mount results separately when recording benchmark output.
+  An exported tree has no git metadata: record the source commit in the run.
+- Export uncommitted tracked and untracked files as one archive:
+  `git ls-files -co --exclude-standard -z | tar --null -T - -cf - | tar -xf - -C /tmp/work`.
+  Passing file lists through xargs can produce several archives; extraction stops
+  after the first.
+- Transparent huge pages can inflate RSS relative to WSL. Record their setting;
+  disabling them with `prctl(PR_SET_THP_DISABLE)` gives measurements with 4 KB pages.
+- The VM can hide the CPU part number. `bench/build.sh` selects Zig's `apple_m1`
+  rather than a generic arm64 target for this host.
+- Tina can require `--security-opt seccomp=unconfined` to map its shard memory.
+  Keep its `[FATAL]` lines when inspecting logs.
 
 ### Checking the Windows shims compile
 
@@ -907,8 +590,8 @@ Traps in Git Bash:
   in `TIME_WAIT`, which Windows keeps for 240 s. A run started before they drain fails
   at random with client connect timeouts (`TimeoutError`, `WinError 121`, or
   `WinError 52`), anywhere from `keepalive` to `many` (2026-10-12). Wait until
-  `(Get-NetTCPConnection -State TimeWait | Measure-Object).Count` is low again, or set
-  another `PORT`.
+  `(Get-NetTCPConnection -State TimeWait | Measure-Object).Count` is low again. Windows
+  has 16,384 ephemeral ports; changing the server's `PORT` does not replenish them.
 
 - <a id="line-endings-on-windows"></a>Line endings on Windows: with
   `core.autocrlf=true`, `.c`, `.goose`, and `.md` files are CRLF on disk and LF in git,
@@ -928,19 +611,14 @@ Traps in Git Bash:
 - MSYS rewrites arguments that look like paths, so `cmd /c` becomes `cmd C:/`. Run it
   with `MSYS2_ARG_CONV_EXCL='*'`. Writing `//c` with path conversion turned off
   (`MSYS_NO_PATHCONV=1`) passes `//c` through, and leaves `cmd` waiting for input.
-- The server listens on 127.0.0.1 only. Any other address raises a Windows Defender
-  Firewall prompt.
+- The default listener is 127.0.0.1. Explicit IPv4 and IPv6 addresses are supported;
+  listening elsewhere can raise a Windows Defender Firewall prompt.
 - A connection to a port nothing listens on is refused only after Windows retries for
   about 2 s, so a client with a shorter timeout sees a timeout, not a refusal.
 - Python's `os.kill(pid, signal.SIGTERM)` ends a process at once, as `TerminateProcess`
   does. For a graceful stop, start the server with `CREATE_NEW_PROCESS_GROUP` and send
   `signal.CTRL_BREAK_EVENT` to its PID; a path for `subprocess` must be absolute
   (`cygpath -m "$PWD/build/server.exe"`).
-- Windows has 16,384 ephemeral ports (49152 to 65535), and `test-http.sh` leaves about
-  11,000 client sockets in `TIME_WAIT`. A second run started within a couple of minutes
-  fails in `many 10000` with `OSError: [WinError 52] You were not connected because a
-  duplicate name exists on the network`, which is running out of ports (2026-10-11).
-  Wait until `netstat -an | grep -c TIME_WAIT` is down to a few thousand.
 - Git Bash's `tar` reads an archive path that starts with a drive letter, such as
   `C:\Users\...\tree.tar` from `$TEMP`, as a remote host, fails with "Cannot connect
   to C: resolve failed", and extracts nothing. Pass `--force-local`, or a `/c/...`
@@ -957,70 +635,6 @@ Traps in Git Bash:
 - `cd dir && build/server.exe ... &` puts the whole list in a background subshell, so
   `$!` and its `/proc/$!/winpid` name the subshell, and `taskkill` on that PID leaves the
   server running. Start the server alone with `&`, after the `cd`.
-
-### Against WSL
-
-A speed check, not a benchmark (2026-10-11): is the IOCP build in the ballpark of the
-same loop on io_uring in WSL2, on the same machine? It is, about 2.2 to 2.8 times
-slower, not an order of magnitude.
-
-- Both sides ran the code of `2d61b55`: the Windows build by MSVC 19.51
-  (`scripts/build.sh`), and the WSL2 build `goose-uring` by gcc 15.2.0
-  (`bench/build.sh`), WSL2 kernel 6.18.40.1.
-- The load generator was oha 1.16.0 on both: its `oha-windows-amd64.exe` release on
-  Windows, and `cargo install oha` in WSL2. `oha -n 2000000 -c 256 --no-tui
-  http://127.0.0.1:29380/plaintext`: 256 connections, 2,000,000 requests, not pipelined,
-  since oha can't pipeline. Nothing was pinned to CPUs, and nothing else ran.
-- `WORKERS=4 build/server.exe http 29380` on Windows, and `LOOP=uring WORKERS=4
-  build/bench/goose-uring http 29380` in WSL2.
-
-| Server | Workers | Runs | Requests per second |
-|---|---:|---:|---:|
-| Windows, IOCP | 4 | 3 | 217,526-231,707 |
-| WSL2, io_uring | 4 | 3 | 629,992-646,977 |
-| WSL2, epoll (`LOOP=epoll`) | 4 | 3 | 543,578-550,226 |
-| Windows, IOCP | 1 | 2 | 78,065-78,079 |
-| WSL2, io_uring | 1 | 2 | 174,910-176,395 |
-
-Every request succeeded. Windows trails by 2.2 times with 1 worker and 2.8 times with
-4. The client shares the CPUs with the server on both sides, so the numbers bound the
-server only loosely.
-
-#### After the IOCP changes
-
-`82d2939` (2026-10-11) skips the completion port when a request completes at once, and
-receives into the ring's buffers while more than half are free
-([architecture](architecture/README.md#the-platform-and-its-error-codes-task-006)).
-Both sides at `82d2939`, as above, except that the WSL2 build is `LOOP=uring
-scripts/build.sh`'s. The CPU columns are the server's busy threads, from
-`Get-Process`'s `UserProcessorTime` and `PrivilegedProcessorTime` read as oha ends:
-
-| Server | Workers | Runs | Requests per second | CPU per request, user/kernel |
-|---|---:|---:|---:|---|
-| Windows, IOCP, `5778aaa` | 1 | 4 | 78,071-78,348 | 0.8/12.0 µs |
-| Windows, IOCP | 1 | 2 | 83,106-84,435 | 0.8-0.9/11.0-11.2 µs |
-| WSL2, io_uring | 1 | 2 | 171,837-172,415 | |
-| Windows, IOCP, `5778aaa` | 4 | 3 | 229,124-234,017 | |
-| Windows, IOCP | 4 | 3 | 247,647-253,850 | |
-| Windows, IOCP, pinned | 4 | 3 | 255,762-263,177 | |
-| WSL2, io_uring | 4 | 3 | 614,953-634,554 | |
-| WSL2, epoll | 4 | 3 | 537,191-546,550 | |
-| Windows, tokio | 1 | 2 | 61,292-62,362 | 1.6-1.7/14.3-14.5 µs |
-
-- Windows now trails by 2.0 times with 1 worker and 2.5 times with 4, from 2.2 and 2.8.
-  The changes gained 7% and 9% over `5778aaa`, the commit before them; skipping the
-  port was most of it (7% and 5% alone).
-- Nearly all of a request's time on Windows is the kernel's. Receiving into a buffer
-  saves a `recv` per request and gained 0-2%, so the system calls aren't the cost: the
-  loopback TCP path is. A kernel profile, which takes an elevated shell for WPR, would
-  say where it goes.
-- HttpArena's tokio entry, built with Rust 1.90.0 for Windows and bound to 127.0.0.1
-  without `SO_REUSEPORT`, which Windows lacks, serves 26% less than Goose with 1 worker,
-  at more kernel time per request. It can't run 4 workers there: its second bind fails.
-- With 4 workers, every worker was busy for the whole run, at 7.1-7.5 s of kernel time
-  each, so connections spread; the 4 workers serve 3.0 times what 1 does, against 3.6
-  times in WSL2. Pinning the server to CPUs 0, 2, 4, and 6 and oha to 8-15
-  (`ProcessorAffinity` 0x55 and 0xFF00) gained 3%.
 
 ## Edit on Windows
 
@@ -1043,5 +657,5 @@ code --install-extension ..\goose\vscode\goose-language.vsix
 
 It needs VS Code 1.85 or later. If `code` on PATH belongs to an older install, call the
 newer install's `bin\code.cmd` directly. `.vscode/settings.json` points it at the Windows compiler
-and stdlib in `../goose` and sets `src/main.goose` as the entry file, so a check of any
+and stdlib in `../goose` and sets `server/server.goose` as the entry file, so a check of any
 file covers the whole program.

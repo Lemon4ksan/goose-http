@@ -156,7 +156,7 @@ Measured on the machine of `docs/results.md`: Ryzen 7 5800X3D, WSL2 kernel
 6.18.40.1-microsoft-standard-WSL2, Ubuntu 26.04.1, gcc 15.2.0, Goose `fe6c543`. Every
 Goose binary was built after deleting `~/.goose/build/prog/*/native` and
 `~/.goose/build/pkg/local/*/*/stamp`, so none links a shim compiled before a change
-([findings](../../docs/goose-findings.md#goose-build-on-linux-never-sees-a-sidecars-c-change)).
+([historical finding](https://github.com/kaitk/goose-http/blob/9a6afc695ff5d6b6791a40771aa0ded7d5c00fe6/docs/goose-findings.md#goose-build-on-linux-never-sees-a-sidecars-c-change)).
 The comparison builds are `1bea5a0`, the last commit before this task, built in a
 copy of its tree at its own path: `goose-pre011` (`LOOP=epoll`) and `goose-pre011-uring`.
 

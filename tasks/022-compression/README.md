@@ -1,69 +1,56 @@
 # 022: Compression
 
-Status: in progress (asked for 2026-10-12; the split below is a proposal, not a
-decision, but for the package's name)
+Status: in-progress (implemented; approval record and validation remain open)
 
-Compress responses by `Accept-Encoding`. It is the one HTTP/1.1 feature HttpArena's
-plaintext profiles still need (task 018): json-comp sends `Accept-Encoding: gzip, br`
-and passes on `Content-Encoding` gzip or br, and fails on any `Content-Encoding` when
-the request had no `Accept-Encoding`. The static profiles send
-`br;q=1, gzip;q=0.8` and check only that each body decompresses to the file's size
-(HttpArena `0720ee5`, `scripts/validate.sh`).
+Responses use precompressed files or the optional `http.compression` module for
+dynamic gzip, deflate, and zstd. HttpArena's json-comp entry is validated and measured
+(task 022.03, 2026-10-14). The [architecture](../../docs/architecture/README.md#files-and-compression)
+describes the implemented boundary. Its approval has not been recorded as a settled
+decision; implementation alone does not complete that criterion.
 
-## Encodings
+## Encoding choices
 
-| Encoding | On the fly | Precompressed file | Plan |
+| Encoding | On the fly | Precompressed file | Reason |
 |---|---|---|---|
-| gzip | yes | `.gz` | First. Every client takes it, and it stays the fallback for any other. |
-| deflate | yes | none | The same DEFLATE stream in the zlib wrapper: a 2-byte header and Adler-32 in place of gzip's header and CRC-32. Offered, never preferred over gzip. |
-| zstd | yes | `.zst` | Faster and smaller than gzip at low levels. Adds to gzip instead of replacing it, since not every client takes it (below). RFC 9659 caps its window at 8 MB for HTTP. |
-| br | no | `.br` | Brotli pays off at quality 11, too slow per request; its fast qualities are a large encoder for little over gzip. Precompressed `.br` needs no brotli code. |
+| gzip | yes | `.gz` | Broad client support; fallback when a client does not take zstd. |
+| deflate | yes | none | DEFLATE in a zlib wrapper; offered, not preferred over gzip at equal weights. |
+| zstd | yes | `.zst` | Faster and smaller at low levels; offered alongside gzip. RFC 9659 caps its HTTP window at 8 MB. |
+| br | no | `.br` | High-quality compression suits prebuilt files; a dynamic encoder remains out of scope. |
 
-Chrome, Edge, and Firefox take zstd. Safari asks for it from 26.3 (released
-2026-02-11) on iOS, iPadOS, and visionOS 26.3, and on macOS Tahoe 26.3 or later, but
-not on older macOS, because it decodes zstd in the system's networking stack; 26.0 to
-26.2 decode it without asking (WebKit's "WebKit features for Safari 26.3" and
-caniuse's `zstd.json`, read 2026-10-12). So the clients that take br on the fly and
-not zstd are Safari on macOS before Tahoe and iOS before 26.3. They get gzip, and br
-for precompressed files, which is why brotli stays out. Revisit it if a deployment
-serves large dynamic text to many of them.
+Brotli's high-quality output is too costly per request, while its fast qualities add a
+large encoder for little benefit over gzip. Clients without zstd get gzip for dynamic
+responses and may get brotli for files. Revisit dynamic brotli if a deployment serves
+large dynamic text to many clients that cannot use zstd (2026-10-12).
 
-## Proposed split
+## Implemented boundary
 
-- The codecs go in a package of their own, `goose-compress` (named 2026-10-12, over
-  `goose-deflate`, so that zstd joins it without a rename), that imports nothing of
-  HTTP: CRC-32, Adler-32, a DEFLATE encoder, the gzip and zlib wrappers, and later
-  zstd. Its API takes bytes in and gives bytes out, with a flush that ends a chunk on a
-  byte boundary, so a streamed response or SSE event goes out whole.
-- The package is Goose, not bindings to zlib-ng or libdeflate. Compression is hashing,
-  bit-packing, and Huffman tables, the byte work that measuring Goose is about
-  (`AGENTS.md`); TLS goes to a C library because writing its crypto is out of scope
-  (task 014), and no such reason holds here.
-- `http` uses it only from a module of its own, `http.compress`, so only a program that
-  imports that module declares the package, as task 014 proposes for `http.tls`.
-- Negotiation, `Vary`, and choosing what to compress stay in `http`. Precompressed
-  files need no codec and come first.
-- Decoding request bodies sent with `Content-Encoding: gzip` is out of scope for now:
-  few clients send them, and accepting them needs limits against decompression bombs.
+The codecs live in `goose-compress`, which imports nothing of HTTP. The encoders are
+Goose: compression is the byte work this project measures. Negotiation, `Vary`, and
+choosing what to compress remain in `http`. Only programs importing
+`http.compression` declare the codec dependency. Precompressed files need no codec.
+
+Streaming encoders flush on byte boundaries so each response chunk or SSE event can
+be decoded on arrival. Decoding compressed request bodies remains out of scope:
+accepting them would require decompression limits.
 
 ## Subtasks
 
-1. [Precompressed files](01-precompressed-files.md)
-2. [gzip in `goose-compress`](02-gzip.md), in steps that each give valid output
-3. [Compressing responses in `http`](03-http-compress.md), then json-comp
+1. [Precompressed files](01-precompressed-files.md): implemented; Linux and Windows
+   validation is still unrecorded in this subtask.
+2. [gzip in goose-compress](02-gzip.md): done in the codec package.
+3. [Dynamic compression](03-http-compress.md): implemented and measured; macOS has not
+   been run for this change. zstd joins gzip and deflate.
 
-zstd was to follow once gzip was measured. goose-compress has measured gzip and added
-zstd at levels 1 and 3 (its tasks 001 and 004), so subtask 03 offers it beside gzip and
-deflate.
+## Open question
 
-## Open questions
-
-- Whether a C-backed encoder is kept beside the Goose one for comparison, or
-  libdeflate and zlib-ng are only measured against it.
+Whether to retain a C-backed encoder for comparison, or only benchmark libdeflate and
+zlib-ng against the Goose implementation.
 
 ## Acceptance criteria
 
-- [ ] The split agreed, and recorded in `docs/architecture/README.md`
-- [ ] Subtasks 01 to 03 done
-- [ ] json-comp in the HttpArena entry, passing `bench/httparena.sh validate`
-- [ ] The README's Compression row updated
+- [ ] Approval of the package split recorded; the implemented boundary is described in
+      architecture, but its earlier proposal has no recorded approval
+- [ ] Subtasks 01 to 03 complete their required validation
+- [x] json-comp in the HttpArena entry, passing `bench/httparena.sh validate`
+      (task 022.03, 2026-10-14)
+- [x] The README's Compression row updated

@@ -420,7 +420,7 @@ fits its remaining 4 ms, and isn't measured.
 On the desktop (2026-10-12), `bench/rest.sh run` ran every tier: at saturation with wrk,
 tier D's two roles, at a fixed rate with zrk 2.3.0 per route (`bench/rest/rate.py`), and
 the mixed run, 3 rounds of 15 s, Goose `73dd28c` with Goose `6448f3f`
-([results](../docs/results.md#rest-apis)). What it settles from the runs above:
+([results](../../docs/results.md#rest-apis)). What it settles from the runs above:
 
 - Tier C's io_uring loss is gone here: io_uring serves 3% more than epoll serialized
   (52.5K against 51.1K) and 5% more templated (146K against 139K). On tiers A and B
@@ -437,7 +437,7 @@ and which compares the whole delimiter at every byte (`docs/goose-findings.md`).
 ran 43.3 M user instructions per upload to hyper's 33.4 M. `http::find_bytes` compares
 only where the delimiter's first byte is: uploads alone rose 13-14% on both loops, to
 1,108-1,153 a second against hyper's 1,084-1,095 in the same session
-([results](../docs/results.md#rest-apis)).
+([results](../../docs/results.md#rest-apis)).
 
 A smaller completion batch doesn't help io_uring's reads beside uploads (2026-10-13, the
 desktop, `STEPS=4`, 2 rounds, then `bench/run.sh` with 4 workers, 3 runs). Its p50 and
@@ -457,8 +457,8 @@ Past 16 KB in a pass, the loop held a connection's bytes and answered 16 KB of t
 later pass, after the other completions. It canceled the multishot receive while a
 connection held 8 KB, rbuf's size, and queued it again once drained. `STEPS="1 2 4"`,
 3 rounds, before and after in one session
-([before](../bench/results/2026-10-13-uring-turns-before/summary.md),
-[after](../bench/results/2026-10-13-uring-turns-after/summary.md); both `env.txt` say
+([before](../../bench/results/2026-10-13-uring-turns-before/summary.md),
+[after](../../bench/results/2026-10-13-uring-turns-after/summary.md); both `env.txt` say
 "(modified)" for the change in the tree, and `binaries.txt` tells the builds apart):
 
 | io_uring | Before | With the budget |
@@ -593,9 +593,9 @@ On the desktop (2026-10-13). Decided while running the list unattended:
 - No server needed a second start in either run, and Tina logged no `[FATAL]` line.
   odin-http counted one read error in each of two tier A fixed-rate runs.
 
-The results are in [docs/results.md](../docs/results.md#rest-apis) and the README's REST
-table, and the run's timing, with what would shorten it, in
-[bench/README.md](../bench/README.md#how-long-benchrestsh-run-takes). In short:
+The results are in [measurement records](../../docs/results.md#rest-apis) and the
+benchmark summary's REST table, and the run's timing, with what would shorten it, in
+[bench/README.md](../../bench/README.md#how-long-benchrestsh-run-takes). In short:
 
 - Goose's io_uring loop leads every saturation column but C serialized, where the two
   loops tie; the closest are xitca-web on A, B, and C serialized and Tina and hyper with
@@ -650,7 +650,7 @@ Next on the desktop, when it is otherwise idle:
    yet", and keep the footnote that it is a framework.
 
 Done on 2026-10-13, in one run with task 027's Goose builds
-([2026-10-13-rest-027](../bench/results/2026-10-13-rest-027/summary.md)). hyper ran
+([2026-10-13-rest-027](../../bench/results/2026-10-13-rest-027/summary.md)). hyper ran
 1.6-6.4% over its earlier saturation cells, tier A templated the most, and Goose's
 `2afc12f` 2.3-3.7% over `23aa531`: the whole session ran faster, within the 5% that
 sessions drift by, and tier D held. So dusty's rows sit beside the tables, with
@@ -659,7 +659,7 @@ says which run they come from.
 
 dusty's memory rows split its peak RSS from that run by its idle RSS, read later the
 same day with the same binary
-([idle-rss.txt](../bench/results/2026-10-13-rest-027/idle-rss.txt)).
+([idle-rss.txt](../../bench/results/2026-10-13-rest-027/idle-rss.txt)).
 
 ## Acceptance criteria
 

@@ -1,6 +1,6 @@
 # 027: A more idiomatic API
 
-Status: in progress (asked for 2026-10-13). The maintainer decided what stays
+Status: in-progress (asked for 2026-10-13). The maintainer decided what stays
 (2026-10-13, "Decisions" below). p1 is reverted, and p7 dropped. p2 to p6 are on
 `main`, tested and benchmarked at Goose `0bdbd18` (2026-10-14, "The series at Goose
 `0bdbd18`" below). The four new examples are on `main`, built and run by
@@ -42,14 +42,17 @@ this package would use if Goose made it free.
 7. Benchmark the rebased series against `2afc12f`: the numbers below for p2 on were
    measured on top of p1.
 
-Done: step 1 (`c16cca6`), step 3 for what is kept, and step 4. p3 waits on
-`task-027-p3`, cut from `main` after p6, with p5's `Framing.Raw` test carried onto
-`BodyReader.Raw`.
+Steps 1 to 7 were resolved on 2026-10-14; p3 was kept and merged. The numbered
+instructions above record the original decisions, not branches still waiting to merge.
 
 ### Pending
 
-Nothing (2026-10-14). The last branches merged into `main` as `1818526`, in this order,
-each once its benchmarks held, and were deleted here and on GitHub:
+The implementation and examples are on `main`. The tier C templated rate, 3.3% below
+the baseline in the recorded comparison, still needs the next REST run's recheck.
+Keep this task open until that result is recorded; completed merges do not settle it.
+
+The last branches merged into `main` as `1818526`, in this order, each once its
+benchmarks held, and were deleted here and on GitHub:
 
 - `findings-46356c2-hot`: the workarounds on a request's path that Goose `46356c2`
   made unneeded (`http::whole` taking the handler, `INTERIM`, `pos += k` in `parse`,

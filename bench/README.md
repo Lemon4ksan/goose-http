@@ -1,8 +1,9 @@
 # Benchmark
 
-The servers tasks 004, 005, and 009 compare, the scripts that build and run them, and the
-raw results. The results tables and what they mean are in those tasks' files, and for the
-C compilers in task 008's.
+Build and run the competing servers, configure the workloads, and interpret the raw
+result files. The [benchmark summary](../docs/benchmarks.md) owns the current comparisons;
+[measurement records](../docs/results.md) link their provenance. Tasks retain evidence
+for implementation decisions and rejected changes.
 
 ```sh
 bench/build.sh         # the servers into build/bench/, in release mode
