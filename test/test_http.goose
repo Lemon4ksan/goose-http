@@ -823,6 +823,11 @@ fn test_reply() {
     http::respond(http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: nobody },
                   200, "text/plain", "ok");
     assert(!nobody.bodyless && find(out, "Content-Length: 2\r\n\r\nok") > 0);
+    // An empty content type writes none, as a 204 wants.
+    out.clear();
+    http::respond(http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: nobody },
+                  204, "", "");
+    same(out, "HTTP/1.1 204 No Content\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\n\r\n");
 
     // A handler clears keep_alive through its copy of the reply.
     keep = true;

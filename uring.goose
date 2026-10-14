@@ -39,7 +39,7 @@ struct RingConn<S> {
 // or stop ends it, and returns its error, with every socket it opened
 // closed.
 fn serve<H>(cfg: Config) -> Error {
-    return serve(cfg, false) { ev, st, out => if whole_only(ev, out) { H(ev.req, ev.data, out); } };
+    return serve(cfg, false) { ev, st, out => whole(ev, out, H); };
 }
 
 // serve(cfg), with a handler H that's called for each Event of a request,

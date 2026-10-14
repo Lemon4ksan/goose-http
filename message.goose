@@ -154,10 +154,10 @@ inline fn parse(buf: const u8[:], max_head: i64 = MAX_HEAD, max_body: i64 = MAX_
         let v0 = pos;
         // Values are most of a request's bytes, so find_any skips to the
         // first byte of VALUE_END. The guard on k is what lets the
-        // bounds-check analysis keep pos proven; pos += k alone would lose
-        // every check on pos in parse.
+        // bounds-check analysis keep pos proven; without it, the write
+        // would lose every check on pos in parse.
         let k = find_any(buf[pos..], VALUE_END);
-        if k > 0 && k <= buf.len - pos { pos = pos + k; }
+        if k > 0 && k <= buf.len - pos { pos += k; }
         while pos < buf.len && ((buf[pos] >= ' ' && buf[pos] != 0x7f) || buf[pos] == '\t') { pos++; }
         guard pos < buf.len else { return Request { .. }, short(buf, max_head); }
         guard buf[pos] == '\r' else { return Request { .. }, 400; }
@@ -857,10 +857,11 @@ inline fn finish(out: Reply, fields: const u8[:], body: const u8[:]) {
     }
 }
 
-// A whole response: status, a Content-Type, and body.
+// A whole response: status, a Content-Type unless content_type is empty, and
+// body.
 inline fn respond(out: Reply, status: i32, content_type: const u8[:], body: const u8[:]) {
     start(out, status);
-    field(out, "Content-Type", content_type);
+    if content_type.len > 0 { field(out, "Content-Type", content_type); }
     finish(out, NO_TYPE, body);
 }
 

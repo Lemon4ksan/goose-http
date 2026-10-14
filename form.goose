@@ -113,10 +113,10 @@ fn each_part<F>(m: Multipart&, piece: const u8[:]) -> bool {
     return read_parts(m, joined) { part => F(part); };
 }
 
-// The first i where sub starts in xs, -1 if none; sub isn't empty. The
-// stdlib's find compares all of sub at every offset, which took 19% of an
-// upload's time in a part's data; this compares only where sub's first byte
-// is (docs/goose-findings.md).
+// The first i where sub starts in xs, -1 if none; sub isn't empty. This
+// compares only where sub's first byte is. With the stdlib's find in its
+// place, tier D's forms ran 2-3% slower at Goose 46356c2, at the same
+// instructions a request.
 fn find_bytes(xs: const u8[:], sub: const u8[:]) -> i64 {
     let first = sub[0];
     let last = xs.len - sub.len;

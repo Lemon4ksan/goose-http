@@ -56,8 +56,7 @@ fn answer(req: const http::Request&,body: const u8[:], out: http::Reply, notes: 
         let i = index_of(http::param(r, "id"), notes);
         guard i >= 0 else { http::respond(out, 404, "text/plain", ""); return; }
         notes[i].live = false;
-        http::start(out, 204);
-        http::finish(out, "", "");
+        http::respond(out, 204, "", "");
     } else if http::on(r, "GET", "/visits") {
         // The visits so far, counted in a cookie.
         let v, has = http::cookie_of(req, "visits");

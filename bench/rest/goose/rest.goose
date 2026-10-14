@@ -261,9 +261,8 @@ fn valid_write(body: const u8[:]) -> bool {
 // change: a PATCH answers the entry with the description it was sent, and
 // timer start and stop answer as of now, as if the timer had started.
 
-// Functions, as a worker's globals must be flat and a literal is a slice.
-fn app_url() -> const u8[:] { "https://time.bench.example.com" }
-fn session_cookie() -> const u8[:] { "__Secure-better-auth.session_token" }
+let APP_URL = "https://time.bench.example.com";
+let SESSION_COOKIE = "__Secure-better-auth.session_token";
 
 let DAY: i64 = 86400000;
 let MINUTE: i64 = 60000;
@@ -840,7 +839,7 @@ fn session_open(out: u8[>..]&, p: Person) {
     out.append(",\"streak\":");
     format(out, f.streak);
     out.append("},\"invitationId\":null,\"appUrl\":\"");
-    out.append(app_url());
+    out.append(APP_URL);
     out.append("\"}");
 }
 
@@ -971,7 +970,7 @@ fn snow_stopped(out: u8[>..]&, i: i64, now: i64) {
 
 // The person the session cookie names, or -1.
 fn person_of(req: http::Request) -> i64 {
-    let v, has = http::cookie_of(req, session_cookie());
+    let v, has = http::cookie_of(req, SESSION_COOKIE);
     guard has && v.len > 65 && v[64] == '.' else { return -1; }
     let token = v[..64];
     let k = lower_bound(by_token) { compare(people[it].token, token) < 0 };
@@ -1229,7 +1228,7 @@ fn snow(req: http::Request, body: const u8[:], buf: u8[>..]&, out: http::Reply) 
     guard route > 0 else { error(out, 404, "{\"error\":{\"message\":\"No such call.\"}}"); return; }
     if req.method != "GET" && req.method != "HEAD" {
         let origin, has = http::field_of(req, "origin");
-        guard has && origin == app_url()
+        guard has && origin == APP_URL
             else { error(out, 403, "{\"error\":{\"message\":\"Cross-origin request refused.\"}}"); return; }
     }
     let u = person_of(req);
@@ -2715,7 +2714,7 @@ fn write_begin(ev: http::Event, st: Upload&, out: http::Reply) {
 inline fn handle_writes(ev: http::Event, st: Upload&, out: http::Reply) {
     if ev.kind == http::REQUEST {
         if starts_with(ev.req.target, "/api/v3/") { write_begin(ev, st, out); }
-        else if http::whole_only(ev, out) { handle(ev.req, ev.data, out); }
+        else { http::whole(ev, out, handle); }
     } else if st.route != NO_WRITE {
         if ev.kind == http::BODY {
             if http::body_within(st.taken, ev, out, write_limit(st.route)) { write_piece(st, ev.data); } else { release(st); }

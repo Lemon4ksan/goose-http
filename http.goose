@@ -350,8 +350,7 @@ fn abandon<H, C>(c: C&) {
 }
 
 // The interim response a client that sent Expect: 100-continue waits for.
-// A function: a thread_fn can't reach a global slice (spec §11.2).
-fn interim() -> const u8[:] { "HTTP/1.1 100 Continue\r\n\r\n" }
+let INTERIM = "HTTP/1.1 100 Continue\r\n\r\n";
 
 // Answers the requests in rbuf[..rlen] for connection c with the handler H,
 // into wbuf, and moves the rest of rbuf to its front. rbuf's length is the
@@ -568,7 +567,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
             if s == INCOMPLETE {
                 // The client may wait for this before it sends the body.
                 if req.expect && !x.continued {
-                    wbuf.append(interim());
+                    wbuf.append(INTERIM);
                     x.continued = true;
                 }
                 break;
@@ -641,7 +640,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
         x.head = req.method == "HEAD";
         x.minor = req.minor;
         if x.expect && !x.answered && !x.stream.open && !x.continued {
-            wbuf.append(interim());
+            wbuf.append(INTERIM);
             x.continued = true;
         }
         guard settle() else { break; }
@@ -674,23 +673,23 @@ fn idle(c) -> bool {
     return c.held.len == 0 && c.x.body == BodyReader.None && !c.x.stream.open && !c.x.stream.waiting;
 }
 
-// The handler of serve(cfg) and serve_epoll(cfg) on an Event, ahead of
-// their H: whether H answers it, with the body when it came whole and an
-// empty one otherwise, which is dropped as it arrives. H can't tell an empty
-// chunked body from one dropped, so a chunked body that doesn't come whole
-// is refused with 413. The loops call H themselves: Goose doesn't inline a
-// function that takes a function value (docs/goose-findings.md), and as a
-// call, gcc kept this one, and H with it, out of line, which cost 60-120
-// instructions per request.
-inline fn whole_only(ev: Event, out: Reply) -> bool {
-    if ev.kind != REQUEST { return false; }
+// The handler of serve(cfg) and serve_epoll(cfg) on an Event: calls H(req,
+// body, out) at REQUEST, with the body when it came whole and an empty one
+// otherwise, which is dropped as it arrives. H can't tell an empty chunked
+// body from one dropped, so a chunked body that doesn't come whole is
+// refused with 413. Inline: as a call, gcc kept it, and H with it, out of
+// line, which cost 60-120 instructions per request.
+//
+//   http::serve(cfg, fresh) { ev, st, out => http::whole(ev, out) { req, body, o => ... }; }
+inline fn whole<H>(ev: Event, out: Reply) {
+    if ev.kind != REQUEST { return; }
     if ev.req.chunked && !ev.whole {
         out.keep_alive = false;
         start(out, 413);
         finish(out, NO_TYPE, "");
-        return false;
+        return;
     }
-    return true;
+    H(ev.req, ev.data, out);
 }
 
 // A body limit for one route, below Config.max_body, for a handler that

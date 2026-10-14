@@ -57,7 +57,8 @@ Shown in `hello/` and `routes/`.
   with `http::gather` ([Helpers for APIs](#helpers-for-apis)) or take it in pieces
   ([Streaming](#streaming)).
 - **`out`**: an `http::Reply`. One whole response, any size.
-  - `http::respond(out, status, content_type, body)`, or
+  - `http::respond(out, status, content_type, body)`, with no `Content-Type` for an
+    empty `content_type`, as for a 204, or
   - `http::start(out, status)`, `http::field(out, name, value)`,
     `http::finish(out, fields, body)`. `fields` ends in `"Content-Length: "`, which
     `finish` follows with the body's length: `http::TEXT` and `http::JSON` add their
