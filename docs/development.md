@@ -350,6 +350,26 @@ It needs `nc` (`netcat-openbsd`) and `python3`. Against each server it runs:
 thousands of client sockets in `TIME_WAIT` on ports in the kernel's ephemeral range,
 and a server port among them fails to bind with `EADDRINUSE`.
 
+### Test on aarch64
+
+`scripts/test-aarch64.sh` cross-builds every example for aarch64 and runs
+`scripts/test-examples.sh` on the builds in an arm64 container, with each one's peak RSS
+([embedded Linux](embedded.md#without-the-board-emulated-arm64)). It needs Docker with
+arm64 emulation, which Docker Desktop has, and took 53 s in WSL2 (2026-10-14). Not part
+of `scripts/test.sh`.
+
+- `goose build --cc` takes the names `gcc`, `clang`, and `cc`, or a path, so a cross
+  compiler goes by its path: `--cc /usr/bin/aarch64-linux-gnu-gcc`. A bare
+  `aarch64-linux-gnu-gcc` fails with "unknown C compiler name".
+- The script runs the Linux build of the compiler inside an `ubuntu:26.04` container,
+  which works because WSL's Ubuntu is 26.04 too, with the same glibc (2.43).
+- Every Linux program needs `liburing.so.2` at run time, the epoll-only ones included,
+  since the package links liburing on Linux. The script's run image installs `liburing2`.
+- Docker's seccomp profile blocks io_uring, so `LOOP=uring` runs over the emulation in
+  both containers. Run `scripts/test-examples.sh` in WSL itself for real io_uring.
+- `kill %1` in a `sh -c` script does nothing, because a non-interactive `sh` has no job
+  control, and a `wait` after it waits forever. Kill by `$!`.
+
 ### Benchmark
 
 `bench/build.sh` builds the seven servers into `build/bench/`, and `bench/run.sh` runs
