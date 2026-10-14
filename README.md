@@ -175,8 +175,7 @@ less than hyper on every tier; each added worker adds a copy. Idle, records load
 | C, templates | 38 MB | 143 MB | +35 MB | 62 MB |
 
 Serving adds little on top: Goose's peak RSS at saturation is 15, 47, 104, and 177 MB
-on these four, where tokio's reaches 365 MB and xitca-web's 512 MB on tier C. Task 025
-cuts the per-worker copy: idle tier C templated went from 379 MB to 143 so far. Goose
+on these four, where tokio's reaches 365 MB and xitca-web's 512 MB on tier C. Goose
 idle on the epoll loop at `9408035` (2026-10-14); hyper idle on 2026-10-13, which stays
 flat with workers: 23 MB on tier C at 1, 2, and 4.
 

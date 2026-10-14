@@ -70,4 +70,10 @@ It comes next, since breaking changes cost least before programs such as goose-r
 the API. Task 028 tells a full mailbox from a message longer than a slot, and gives a
 sender the slot size, for goose-rest's replies in pieces; it can start at any point.
 Task 029 builds for embedded Linux on aarch64, with a device example, and waits on a
-board to finish. Task 030 ports to 32-bit ARM, after task 029's guide.
+board to finish. Task 030 ports to 32-bit ARM, after task 029's guide. Task 031 gives the
+bench scripts one shared harness that goose-rest can reuse.
+
+Next, in this order (asked for 2026-10-14): task 027's remaining API work, each step
+committed and pushed; the overnight benchmarks that the branches in task 027's "Pending"
+wait on, then their merges into `main`; task 031; and goose-rest's first benchmark run
+on the benchmark desktop, once the HTTP changes are on `main`.

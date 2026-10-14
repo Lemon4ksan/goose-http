@@ -53,8 +53,29 @@ passes.
   `find` in multipart, `each_cookie` over `each_field`, `bench/rest`'s string
   constants) and `respond` with no `Content-Type` for an empty one. `bench/codegen.sh
   main work`: the loops' `answer` 8 and 13 instructions larger, `parse`'s bounds
-  checks the same. Waits on the overnight batch against `main` at Goose `46356c2`:
-  `bench/count.sh`, plaintext and JSON from `bench/run.sh`, and REST tiers A-C.
+  checks the same. `scripts/test.sh` passes in WSL and Git Bash. Waits on the overnight
+  batch against `main` at Goose `46356c2`: `bench/count.sh`, plaintext and JSON from
+  `bench/run.sh`, and REST tiers A-C.
+- `task-025-worker-load` (task 025), on top of it: REST workers take their records over
+  the typed queues, so each holds one copy, not two. `bench/rest/check.py` passes all 16
+  cells. Its `extern fn mallopt` breaks every in-process test on Windows, since the
+  package links the externs of every `.goose` file under its root; the next branch fixes
+  that with `exclude = ["bench"]` in `http.build`, so the two merge together. Waits on
+  REST tiers A-C against `findings-46356c2-hot`.
+- `task-025-shared-templates` (task 025), on top of that: the REST server's prebuilt JSON
+  in a store in C that every worker reads (`bench/rest/goose/store.c`), one copy per
+  process. `scripts/test.sh` passes in WSL and Git Bash, and the checker all 16 cells.
+  The store is the REST server's own, not the package's: the subagent that built it
+  moved it there, against the plan of a package module goose-rest could share; which
+  one stays is open (2026-10-14). Its unit test,
+  `bench/rest/goose/test_store.goose`, isn't run by `scripts/test-unit.sh`, which scans
+  `test/` and `server/` only. Waits on REST tiers A-C against `task-025-worker-load`, as a
+  variant labeled as such in the results.
+
+They merge into `main` in that order, each once its benchmarks hold, and their branches
+are then deleted here and on GitHub. The README's REST memory paragraph is rewritten to
+the numbers then measured, as they stand, without task references (asked for
+2026-10-14).
 
 Before these, nothing was pending. `main` at `48f8e37` spent 8 user instructions per request more
 than the baseline ("The series at Goose `0bdbd18`"); at `e4f7b55`, with 022.03's routes
