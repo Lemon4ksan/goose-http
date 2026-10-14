@@ -60,9 +60,12 @@ passes.
 - `api-hot` (2026-10-14), on top of `main`: review item 3, `respond` checking only its
   content type. It costs 13.8 user instructions a plaintext request on epoll, which
   never calls `respond` ("The review items at Goose `46356c2`"), so it doesn't land
-  as it is. Its gain is in `bench/rest`'s server, which REST tiers A-C would weigh
-  against that. `findings-46356c2-hot` writes no `Content-Type` for an empty one too,
-  so whichever merges second drops that part.
+  as it is. Its gain is in `bench/rest`'s server: 7 KB less `.text` and 99 fewer
+  scans. Next: REST tiers A-C, `bench/rest.sh run` with `STEPS="1 2 4"`, `api-hot`
+  against `main`. Without a gain beyond the runs' spread, item 3 is dropped and
+  recorded with its cost; with one, the maintainer weighs it against the epoll cost
+  (asked for 2026-10-14). `findings-46356c2-hot` writes no `Content-Type` for an empty
+  one too, so whichever merges second drops that part.
 
 - `findings-46356c2-hot` (2026-10-14), on top of `main` at `c55ad10`: the workarounds on a request's
   path (`http::whole` taking the handler, `INTERIM`, `pos += k` in `parse`, std's
