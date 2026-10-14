@@ -113,6 +113,102 @@ Every rate holds within the rounds' spread or gains, by up to 3.1% on B serializ
 Step 2 alone (`goose-uring-25b` in the summary) ran tier C templated at 142.9K, 1.9%
 under; step 3 wins it back.
 
+## Workers take their records over queues (2026-10-14)
+
+On `task-025-worker-load`, cut from `findings-46356c2-hot`. A worker held what
+`thread_spawn` copies twice for its life: in the `malloc`ed packet the runtime copies
+the globals through, freed only when the worker returns, and on the worker's own data
+stacks
+([findings](../docs/goose-findings.md#a-worker-holds-its-globals-twice-and-its-spawner-keeps-a-third-copy)).
+`rest.goose` now hands the records over the typed queues instead:
+
+- The loader loads the records, puts one set of the 45 global arrays on the queues
+  (`hand_over`), and returns, which unmaps the files it read and parsed.
+- A distributor thread takes that set and puts one copy of it per worker, the next only
+  after the worker's `Taken`: arrays of one element type share a queue, so one thread
+  takes at a time, a whole set. `Flags` carries the two scalar globals with each set.
+- `main` spawns the distributor and each worker on its `Ready`. `main`'s record globals
+  are empty, so each spawn's packet is a few hundred bytes. Each worker takes its set
+  into its globals (`take_set`); the generated C copies each queued image onto the
+  global's data stack and frees the queue's node.
+- `main` sets glibc's `M_MMAP_THRESHOLD` to 128 KB. Left to adjust itself, glibc raises
+  the threshold to the first `mmap`ed block freed, so later sets came from an arena
+  that kept their pages: on tier C templated, 1, 2, and 4 workers held 20.8, 54.5, and
+  88.6 MB, against 20.7, 37.9, and 72.1 with the threshold fixed.
+
+The first version (`ce68db1`) put each array `count` times in a row, so a worker taking
+`text` and then `item_json`, both `u8[>..]`, got `text`'s second copy: the checker
+failed every cell. `2c2cb67` hands over one whole set per worker.
+
+Measured on the desktop: Ryzen 7 5800X3D, WSL2 kernel 6.18.54.1, gcc 15.2.0, Goose
+`46356c2`, the data of `bench/rest.sh build`, epoll loop, CPUs 0-3, no request sent,
+one run each. `bench/rest/check.py` passes every cell at `c6058cb`: tiers A to D,
+serialized and templated, on the epoll and io_uring loops, with 4 workers.
+
+Each added worker's VmRSS, from `bench/rest-memory.sh` (2 workers less 1, 3 s after
+listening; [before](../bench/results/2026-10-14-rest-memory-hot/memory.tsv),
+[after](../bench/results/2026-10-14-rest-memory-queues/memory.tsv)), beside what a
+worker's globals hold (the loader's `REST_LENS` lengths times the record sizes in the
+generated C):
+
+| Tier | `findings-46356c2-hot` | Queues | A worker's globals |
+|---|---:|---:|---:|
+| A, serialize | 1.5 MB | 0.7 MB | 0.7 MB |
+| A, template | 3.3 MB | 1.8 MB | 1.6 MB |
+| B, serialize | 8.1 MB | 4.2 MB | 4.0 MB |
+| B, template | 34.3 MB | 17.1 MB | 16.5 MB |
+| C, serialize | 20.1 MB | 10.2 MB | 9.8 MB |
+| C, template | 35.0 MB | 17.6 MB | 17.0 MB |
+
+A worker now costs one copy of its globals, where it cost two.
+
+With 4 workers, VmRSS and VmHWM 3 s after listening, each build from `git archive`:
+
+| Tier | VmRSS before | after | VmHWM before | after |
+|---|---:|---:|---:|---:|
+| B, serialize | 35.1 MB | 19.5 MB | 50.2 MB | 28.6 MB |
+| B, template | 136.0 MB | 70.0 MB | 163.6 MB | 109.0 MB |
+| C, serialize | 81.9 MB | 42.9 MB | 102.5 MB | 68.9 MB |
+| C, template | 139.6 MB | 71.8 MB | 176.2 MB | 107.5 MB |
+
+The peak sits above idle by the distributor's set and one queued copy, during startup.
+Before the distributor, with the loader handing out the sets while it still held its
+parse buffers, tier C templated peaked at 127.6 MB.
+
+No request runs changed code: the handlers and loops are as before, and
+`bench/codegen.sh findings-46356c2-hot task-025-worker-load` (at `9d4d36c`) found the
+request path's functions within 32 bytes.
+
+Rates, against `findings-46356c2-hot` with `main` merged (`e047040`, f) at `b10cf60`
+(w): `bench/rest.sh run` with `STEPS="1 2 4" RATE_C=16000`, uring, 4 workers on CPUs 0-3
+and the load on 4-15, 3 rounds of 15 s, on 2026-10-14 in the daytime with the machine
+not kept quiet, each server built from `git archive` of its commit
+([summary](../bench/results/2026-10-14-rest-027-025/summary.md); the batch is task
+027's "The pending branches at Goose `46356c2`"). Medians and the rounds' range:
+
+| Cell | f, req/s | peak RSS | w, req/s | peak RSS |
+|---|---:|---:|---:|---:|
+| A serialize | 580.5K (576.6-584.7K) | 15 MB | 579.2K (551.0-580.6K) | 12 MB |
+| A template | 593.0K (591.7-597.4K) | 23 MB | 576.8K (567.8-590.2K) | 16 MB |
+| B serialize | 274.2K (268.9-274.9K) | 51 MB | 269.3K (266.0-270.5K) | 30 MB |
+| B template | 380.4K (369.9-385.4K) | 165 MB | 374.8K (357.4-377.0K) | 111 MB |
+| C serialize | 49.9K (49.8-50.5K) | 104 MB | 49.5K (49.3-50.1K) | 70 MB |
+| C template | 143.5K (142.6-144.7K) | 177 MB | 143.0K (142.3-146.3K) | 112 MB |
+| Uploads alone, p50 | 16.4-16.9 ms | 103 MB | 16.2-16.7 ms | 70 MB |
+| Uploads beside forms | 145-151/s | 164 MB | 156-162/s | 125 MB |
+| Uploads beside tier C | 705-715/s | | 718-732/s | |
+
+Every range overlaps f's but A templated's, 2.7% under, where w's highest round,
+590.2K, is just below f's lowest, 591.7K. `main` read 585.9K (575.5-589.5K) there in
+the same batch, and w's range overlaps it; no request runs code w changes, so this
+reads as the rounds' spread. Peak RSS falls by 20-41% in every cell: on tier C
+templated from 177 to 112 MB.
+
+Not done: dropping the record arrays a templated worker never reads. Tier C's templated
+routes still select by the records (bookings, shifts, visits, clients, and
+`staffers.len`); only `notes` would go, read for its `kind` alone, and the dataset has
+at most about 5,100 notes, about 0.2 MB a worker.
+
 ## Acceptance criteria
 
 - [ ] Each worker's share split by source (records, templates, buffers, runtime), with

@@ -2759,13 +2759,25 @@ inline fn handle(req: http::Request, body: const u8[:], out: http::Reply) {
     }
 }
 
-thread_fn worker(cfg: http::Config) { stopped(http::serve(cfg, handle)); }
+thread_fn worker(cfg: http::Config) {
+    take_set();
+    stopped(http::serve(cfg, handle));
+}
 
-thread_fn worker_epoll(cfg: http::Config) { stopped(http::serve_epoll(cfg, handle)); }
+thread_fn worker_epoll(cfg: http::Config) {
+    take_set();
+    stopped(http::serve_epoll(cfg, handle));
+}
 
-thread_fn worker_writes(cfg: http::Config) { stopped(http::serve(cfg, Upload { .. }, handle_writes)); }
+thread_fn worker_writes(cfg: http::Config) {
+    take_set();
+    stopped(http::serve(cfg, Upload { .. }, handle_writes));
+}
 
-thread_fn worker_writes_epoll(cfg: http::Config) { stopped(http::serve_epoll(cfg, Upload { .. }, handle_writes)); }
+thread_fn worker_writes_epoll(cfg: http::Config) {
+    take_set();
+    stopped(http::serve_epoll(cfg, Upload { .. }, handle_writes));
+}
 
 fn stopped(e: http::Error) {
     guard e.code != 0 else { return; }
@@ -2773,11 +2785,6 @@ fn stopped(e: http::Error) {
     exit(1);
 }
 
-// Loads the records into this thread's globals, spawns the workers, which
-// copy them, and sends main each worker's id. The runtime never gives a data
-// stack's pages back while its thread runs, so main would hold the records,
-// the image each spawn copies them through, and the files they were read
-// from for the program's life; a thread's return unmaps all three.
 // The length of each global array a worker copies, one "lens: kind name
 // type length" line each, for bench/rest-memory.sh: kind is records or
 // templates, and type the element's.
@@ -2832,6 +2839,158 @@ fn print_lens() {
     line("templates", "note_body_at", "i64", note_body_at.len);
 }
 
+// A worker takes its records over the typed queues, not through
+// thread_spawn, which would hold them twice for the worker's life: in the
+// packet it copies the globals through, and on the worker's stacks
+// (docs/goose-findings.md). main spawns the workers, so the globals a spawn
+// copies are main's, which are empty. The loader puts one set of the arrays
+// and returns; the distributor takes it and puts one set per worker, which
+// the worker takes into its globals: the runtime copies each straight onto
+// its stack and frees the queue's copy. Arrays of one element type share a
+// queue, so one thread takes at a time, a whole set: the distributor puts
+// the next set only after a Taken. hand_over and take_all name the same
+// arrays in the same order. Ready tells main a set is on the queues, and
+// Flags carries the scalar globals with it.
+struct Flags { template: bool, version_epoch: i64 }
+
+// glibc's: with M_MMAP_THRESHOLD set, malloc keeps serving each queue copy
+// with its own mapping, which free unmaps. Left to adjust itself, glibc
+// raises the threshold to the first such block freed, so the next sets come
+// from an arena that keeps their pages: about one set more, 17 MB on tier C
+// templated, measured with 2 and 4 workers.
+extern fn mallopt(param: i32, value: i32) -> i32;
+let M_MMAP_THRESHOLD: i32 = -3;
+struct Ready { set: i64 }
+struct Taken { set: i64 }
+
+fn give<T>(a: T[>..]&) { qput(a); }
+
+fn take<T>(a: T[>..]&) { a = qget<T[>..]>(); }
+
+fn hand_over() {
+    give(text);
+    give(words);
+    give(items);
+    give(users);
+    give(orgs);
+    give(projects);
+    give(people);
+    give(entries);
+    give(by_token);
+    give(by_person_id);
+    give(by_entry_id);
+    give(staffers);
+    give(services);
+    give(clients);
+    give(visits);
+    give(notes);
+    give(bookings);
+    give(shifts);
+    give(past);
+    give(item_json);
+    give(item_at);
+    give(user_json);
+    give(user_at);
+    give(session_json);
+    give(session_at);
+    give(project_json);
+    give(project_at);
+    give(entry_json);
+    give(entry_at);
+    give(entry_desc);
+    give(entry_tail);
+    give(timer_json);
+    give(timer_at);
+    give(booking_json);
+    give(booking_at);
+    give(shift_json);
+    give(shift_at);
+    give(client_json);
+    give(client_at);
+    give(visit_json);
+    give(visit_at);
+    give(note_json);
+    give(note_at);
+    give(note_mid);
+    give(note_body_at);
+    qput(Flags { template: template, version_epoch: version_epoch });
+}
+
+fn take_all() {
+    take(text);
+    take(words);
+    take(items);
+    take(users);
+    take(orgs);
+    take(projects);
+    take(people);
+    take(entries);
+    take(by_token);
+    take(by_person_id);
+    take(by_entry_id);
+    take(staffers);
+    take(services);
+    take(clients);
+    take(visits);
+    take(notes);
+    take(bookings);
+    take(shifts);
+    take(past);
+    take(item_json);
+    take(item_at);
+    take(user_json);
+    take(user_at);
+    take(session_json);
+    take(session_at);
+    take(project_json);
+    take(project_at);
+    take(entry_json);
+    take(entry_at);
+    take(entry_desc);
+    take(entry_tail);
+    take(timer_json);
+    take(timer_at);
+    take(booking_json);
+    take(booking_at);
+    take(shift_json);
+    take(shift_at);
+    take(client_json);
+    take(client_at);
+    take(visit_json);
+    take(visit_at);
+    take(note_json);
+    take(note_at);
+    take(note_mid);
+    take(note_body_at);
+    let f = qget<Flags>();
+    template = f.template;
+    version_epoch = f.version_epoch;
+}
+
+// A worker's: takes its set, and tells the distributor it may put the next.
+fn take_set() {
+    take_all();
+    qput(Taken { set: 0 });
+}
+
+// Takes the set the loader put, and puts one copy of it for each worker main
+// spawns, the next only once the last is taken. The loader has returned by
+// then, so the files it read and parsed are unmapped, and startup's peak
+// holds this set, one copy on the queues, and the workers'.
+thread_fn distributor(count: i64) {
+    take_all();
+    for i in count {
+        hand_over();
+        qput(Ready { set: i });
+        qget<Taken>();
+    }
+}
+
+// Loads the records into this thread's globals and puts one set of them on
+// the queues for the distributor (hand_over). The runtime never gives a data
+// stack's pages back while its thread runs, so main would hold the records
+// and the files they were read from for the program's life; a thread's
+// return unmaps both.
 thread_fn loader(cfg: http::Config, tier: u8[..1], count: i64, epoll: bool) {
     var dir: u8[>..] = [];
     if !env("REST_DATA", dir) { dir.append("build/rest"); }
@@ -2851,7 +3010,6 @@ thread_fn loader(cfg: http::Config, tier: u8[..1], count: i64, epoll: bool) {
         load_heavy(dir);
         if template { prebuild_heavy(); }
     }
-    let writes = tier == "d";
     print("rest: tier ", tier, ", ", items.len + entries.len + bookings.len + visits.len, " records, ", count, " workers on port ", cfg.port,
           if epoll { ", epoll" } else { ", uring" }, if template { ", template" } else { ", serialize" });
     // Each worker copies only what's left. Once the JSON is built, tiers A
@@ -2865,12 +3023,7 @@ thread_fn loader(cfg: http::Config, tier: u8[..1], count: i64, epoll: bool) {
     }
     var lens: u8[>..] = [];
     if env("REST_LENS", lens) { print_lens(); }
-    for i in count {
-        qput(if writes && epoll { thread_spawn(worker_writes_epoll, cfg) }
-             else if writes { thread_spawn(worker_writes, cfg) }
-             else if epoll { thread_spawn(worker_epoll, cfg) }
-             else { thread_spawn(worker, cfg) });
-    }
+    hand_over();
 }
 
 fn main() {
@@ -2898,6 +3051,18 @@ fn main() {
     let cfg = http::Config { port: port, workers: n, max_body: if writes { IMPORT_LIMIT } else { http::MAX_BODY }, .. };
     http::exit_on_error(http::stop_on_signals());
     let count = http::worker_count(cfg);
-    thread_spawn(loader, cfg, tier, count, epoll);
-    for i in count { thread_wait(qget<i64>()); }
+    mallopt(M_MMAP_THRESHOLD, 131072);
+    // main's record globals stay empty, so each spawn copies nothing of them.
+    thread_wait(thread_spawn(loader, cfg, tier, count, epoll));
+    let giving = thread_spawn(distributor, count);
+    var ids: i64[>..] = [];
+    for i in count {
+        qget<Ready>();
+        ids.push(if writes && epoll { thread_spawn(worker_writes_epoll, cfg) }
+                 else if writes { thread_spawn(worker_writes, cfg) }
+                 else if epoll { thread_spawn(worker_epoll, cfg) }
+                 else { thread_spawn(worker, cfg) });
+    }
+    thread_wait(giving);
+    for id in ids { thread_wait(id); }
 }
