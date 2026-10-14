@@ -687,3 +687,93 @@ into its own arrays copies them again.
 
 Workaround: none for the copy itself. Task 025 works on keeping it to one per worker,
 without the second that `thread_spawn`'s packet keeps.
+
+## `thread_spawn` writes its packet's lengths through misaligned `int64_t` pointers
+
+Found on `46356c2`, task 030. Status: open (not reported)
+
+`thread_spawn` packs the thread's arguments, then each global the thread uses, into a
+packet on a data stack, each global behind its length as an `int64_t`. The generated C
+writes that length through a plain `int64_t *` at whatever offset the arguments end on,
+and the thread's start reads it back the same way:
+
+    int64_t *t1 = (int64_t *)t3;            /* t3 is 1 byte past the stack's top */
+    ...
+    *t1 = t3 - (uint8_t *)(t1 + 1);
+    ...
+    int64_t sz = *(int64_t *)p; p += 8;     /* in gs_tmain_worker_g */
+
+A misaligned access through an `int64_t *` is undefined in C. On 32-bit ARM, gcc 15.2
+compiles the store to `strd`, which requires word alignment, and the program dies
+with `SIGBUS` (`BUS_ADRALN`) on emulated armv7. x86-64 and aarch64 allow the
+misaligned access, so the bug doesn't show there. Spec C.2 says loads and stores may be
+unaligned, so the generated C must make them through `memcpy` or a packed type.
+Expected: the program prints 8.
+
+    fn seven() -> i64 { return 7; }
+    let G = seven();
+
+    thread_fn worker(b: u8) { print(G + b); }
+
+    fn main() {
+        let b: u8 = 1;
+        let id = thread_spawn(worker, b);
+        thread_wait(id);
+    }
+
+    $ goose build --cc /usr/bin/arm-linux-gnueabihf-gcc --standalone -o m1 m1.goose
+    $ ./m1    # in an arm/v7 container
+    goose runtime error: data stack overflow: a value on main's data stacks grew past
+    the 2 GB reserved for it; --stack-reserve or -DGS_STACK_RESERVE raises the
+    reservation, up to 256 TB
+
+The message is a second defect: the runtime's fault handler (`gs_fault_handler` in
+`src/runtime/runtime_impl.h`) reports any `SIGSEGV` or `SIGBUS` whose address falls in a
+data stack's region as an overflow, including an alignment fault in the region's usable
+part. Expected: a fault in the usable part, or any `SIGBUS` with `BUS_ADRALN`, left to
+the default action, or reported as what it is.
+
+Every goose-http program hits this at start: its workers use four `ByteSet` globals
+built at run time (293 bytes each), which follow the 353-byte `http::Config` in the
+packet. Found with qemu-arm 10.2.3 (Docker Desktop 29.8.2) running the armv7 build.
+qemu delivers the fault. A 32-bit ARM Linux kernel fixes up a user `ldrd` or `strd` by
+default instead, slowly, but not a misaligned VFP or NEON access, and an arm64 kernel
+running armhf programs fixes them up only with `CONFIG_COMPAT_ALIGNMENT_FIXUPS`. Not
+yet tried on a board.
+
+Workaround: none clean. Sizing the arguments and every copied global to multiples of 8
+would align the lengths only while the stack's top is aligned at the spawn, which
+nothing here controls.
+
+## Slices and references in a struct take 64-bit sizes on a 32-bit target
+
+Found on `46356c2`, task 030. Status: open (not reported)
+
+`CodeGen::FixedSize` (`src/codegen_types.h`) sizes every slice at 16 bytes and every
+reference at 8 (16 for one to a resizable), whatever the target. The C compiler lays out
+the same structs with its own pointer size: a slice is 12 bytes on armhf, and a
+reference 4. So on a 32-bit target, code that steps by the compiler's size and code that
+indexes with C's disagree. Below, `push` advances the stack's top by 24 bytes per `W`
+(`t24 += 24;`), and `ws[1]` reads `ws.data[1]`, 20 bytes in. Expected: 2, which x86-64
+and aarch64 print. armv7 prints 8589934592.
+
+    struct W { s: u8[:], n: i64 }
+
+    fn second(ws: W[:]) -> i64 { return ws[1].n; }
+
+    fn main() {
+        var text: u8[>..] = [];
+        text.append("ab");
+        var ws: W[>..] = [];
+        ws.push(W { s: text[0..1], n: 1 });
+        ws.push(W { s: text[1..2], n: 2 });
+        print(second(ws));
+    }
+
+The same program with `struct R { r: i64&, n: i64 }` advances by 16 per element and
+prints garbage too. goose-http's `http::RingConn` is pushed with a stride of 183 bytes,
+which `sizeof` contradicts on armhf. Expected: `FixedSize` taking the target's pointer
+size, or the generated C asserting `sizeof(void *) == 8` so a 32-bit build fails to
+compile instead of running wrong.
+
+Workaround: none here. The package keeps slices in its structs throughout.
