@@ -132,8 +132,7 @@ fn count_words(req: const http::Request&, body: const u8[:], out: http::Reply) {
 }
 
 fn main() {
-    let s = http::stop_on_signals();
-    guard s == 0 else { http::report(http::Error { call: "sigaction", code: -s }); exit(1); }
+    http::exit_on_error(http::stop_on_signals());
     let cfg = http::Config { port: 8080, max_body: LIMIT, .. };
     print("listening on port ", cfg.port);
     var ids: i64[>..] = [];

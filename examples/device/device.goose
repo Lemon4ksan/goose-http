@@ -39,20 +39,14 @@ extern fn board_gpio_get() -> i32;
 
 let PAGE = embed_file("index.html");
 
+// A loop that fails ends the process. One that a stop ended returns, and the
+// process ends once every worker has.
 thread_fn worker(cfg: http::Config, b: Board) {
-    stopped(http::serve(cfg, Watch { .. }) { ev, st, out => handle(ev, st, out, b); });
+    http::exit_on_error(http::serve(cfg, Watch { .. }) { ev, st, out => handle(ev, st, out, b); });
 }
 
 thread_fn worker_epoll(cfg: http::Config, b: Board) {
-    stopped(http::serve_epoll(cfg, Watch { .. }) { ev, st, out => handle(ev, st, out, b); });
-}
-
-// Reports why a loop failed, and ends the process. A loop that a stop ended
-// returns, and the process ends once every worker has.
-fn stopped(e: http::Error) {
-    guard e.code != 0 else { return; }
-    http::report(e);
-    exit(1);
+    http::exit_on_error(http::serve_epoll(cfg, Watch { .. }) { ev, st, out => handle(ev, st, out, b); });
 }
 
 fn handle(ev: http::Event, st: Watch&, out: http::Reply, b: const Board&) {
@@ -195,8 +189,7 @@ fn setting(name: const u8[:], to: u8[..128]&) {
 }
 
 fn main() {
-    let s = http::stop_on_signals();
-    guard s == 0 else { stopped(http::Error { call: "sigaction", code: -s }); }
+    http::exit_on_error(http::stop_on_signals());
     var b = Board { .. };
     setting("THERMAL", b.thermal);
     setting("LED", b.led);
@@ -215,7 +208,7 @@ fn main() {
             exit(2);
         }
         let e = board_gpio_open(line[..at], n as i32);
-        guard e == 0 else { stopped(http::Error { call: "GPIO", code: -e }); }
+        http::exit_on_error(http::Error { call: "GPIO", code: -e });
     }
 
     // A stream's timer needs waiting on, though no thread mails the workers.

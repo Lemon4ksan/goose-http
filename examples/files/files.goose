@@ -57,8 +57,7 @@ fn main() {
         dir.clear();
         dir.append(argv[1]);
     }
-    let s = http::stop_on_signals();
-    guard s == 0 else { http::report(http::Error { call: "sigaction", code: -s }); exit(1); }
+    http::exit_on_error(http::stop_on_signals());
     let cfg = http::Config { port: 8080, .. };
     print("serving ", dir, " on port ", cfg.port);
     var ids: i64[>..] = [];

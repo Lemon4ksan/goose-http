@@ -21,7 +21,7 @@ fn got(b: const u8[:]) -> i64 {
 }
 
 fn test_full_and_stale() {
-    let b, err = http::mail_open(4, 8);
+    let b, err = http::mail_open_code(4, 8);
     assert(err == 0);
     let to = http::address(b, 77);
     for i in 4 { assert(http::mail_send(to, i as i32, "12345678") == http::SENT); }
@@ -44,7 +44,7 @@ fn test_full_and_stale() {
     assert(http::mail_send(to, 0, "123456789") == http::STALE);
     assert(http::mail_slot_size(to) == -1);
     // A box opened in the closed one's place has a new generation.
-    let c, err2 = http::mail_open(4, 8);
+    let c, err2 = http::mail_open_code(4, 8);
     assert(err2 == 0 && c.handle.slot == b.handle.slot && c.handle.gen != b.handle.gen);
     assert(http::mail_send(to, 0, "") == http::STALE);
     assert(http::mail_send(http::address(c, 1), 0, "") == http::SENT);
@@ -52,10 +52,10 @@ fn test_full_and_stale() {
     assert(http::mail_slot_size(http::MailAddress { .. }) == -1);
     http::mail_close(c);
     // Waiting with nothing sent ends at the time limit.
-    let d, err3 = http::mail_open(2, 0);
+    let d, err3 = http::mail_open_code(2, 0);
     assert(err3 == 0 && !http::mail_wait(d, 20));
     http::mail_close(d);
-    let _, bad = http::mail_open(3, 8);
+    let _, bad = http::mail_open_code(3, 8);
     assert(bad < 0);
 }
 
@@ -75,7 +75,7 @@ thread_fn sender(to: http::MailAddress, id: i64) {
 // SENDERS threads into a box of 64 slots: every message arrives, each
 // sender's in order, and the owner never waits out its time limit.
 fn test_senders() {
-    let b, err = http::mail_open(64, 8);
+    let b, err = http::mail_open_code(64, 8);
     assert(err == 0);
     var ids: i64[>..] = [];
     for s in SENDERS { ids.push(thread_spawn(sender, http::address(b, 5), s)); }
@@ -103,7 +103,7 @@ fn test_senders() {
 // thread that put its own address there and then took one could take its
 // own back.
 thread_fn ponger(back: http::MailAddress, rounds: i64, pause_ms: i64) {
-    let b, err = http::mail_open(4, 8);
+    let b, err = http::mail_open_code(4, 8);
     assert(err == 0);
     qput(http::address(b, 0));
     var msg: u8[>..] = [];
@@ -128,7 +128,7 @@ thread_fn ponger(back: http::MailAddress, rounds: i64, pause_ms: i64) {
 // pause_ms, each side sleeps before it replies, so every wait outlasts the
 // spin and sleeps in the kernel.
 fn test_ping_pong(rounds: i64, pause_ms: i64) {
-    let b, err = http::mail_open(4, 8);
+    let b, err = http::mail_open_code(4, 8);
     assert(err == 0);
     let id = thread_spawn(ponger, http::address(b, 0), rounds, pause_ms);
     let to = qget<http::MailAddress>();

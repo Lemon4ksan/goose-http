@@ -283,8 +283,8 @@ else { http::respond(out, 503, "text/plain", "busy"); return; }
   stops once it's full.
 - A message to an exchange that has ended, or to a connection that closed, is
   dropped. At stop, a waiting exchange gets `Config.grace_ms`, then `CLOSED`.
-- A worker thread owns a box: `http::mail_open(slots, size)`, `http::mail_wait(box,
-  ms)`, `http::mail_take(box) { key, tag, bytes => }`. `http::mail_send(address, tag,
+- A worker thread owns a box: `http::mail_open(slots, size)`, which returns the box
+  and an `http::Error`, `http::mail_wait(box, ms)`, `http::mail_take(box) { key, tag, bytes => }`. `http::mail_send(address, tag,
   bytes)` returns `SENT`, `FULL` (no slot free), `TOO_LONG` (longer than a slot), or
   `STALE` at once, from any thread, and never blocks. `http::mail_slot_size(address)`
   gives a sender the box's slot size, or -1 for a `STALE` address.
@@ -317,7 +317,19 @@ A loop returns:
   Each other connection gets `Connection: close` on its next response. The loop returns
   when they close, or after `Config.grace_ms`.
 
-`http::stop_on_signals()` makes `SIGTERM` and `SIGINT` stop the loops.
+`http::stop_on_signals()` makes `SIGTERM` and `SIGINT` stop the loops, and returns an
+`http::Error` whose code is 0 when it can. `http::exit_on_error(e)` prints an error to
+stderr and ends the process with status 1, and does nothing for code 0:
+
+```goose
+fn main() {
+    http::exit_on_error(http::stop_on_signals());
+    let cfg = http::Config { port: 8080, .. };
+    var ids: i64[>..] = [];
+    for i in http::worker_count(cfg) { ids.push(thread_spawn(worker, cfg)); }
+    for id in ids { thread_wait(id); }
+}
+```
 
 ### Event loops
 

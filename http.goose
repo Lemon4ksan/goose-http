@@ -269,9 +269,13 @@ fn waits_for(c, key: u64) -> bool {
 fn open_waiting(cfg: const Config&, waker: i64) -> Box, Error {
     guard cfg.mail_slots > 0 && cfg.max_waiting > 0 else { return Box { .. }, Error { call: "", code: 0 }; }
     guard cfg.max_conns <= 1 << 20 else { return Box { .. }, Error { call: "max_conns", code: EINVAL }; }
-    let b, e = mail_open(cfg.mail_slots, cfg.mail_size, waker);
-    guard e == 0 else { return Box { .. }, Error { call: "mail_open", code: -e }; }
-    return b, Error { call: "", code: 0 };
+    return mail_open(cfg.mail_slots, cfg.mail_size, waker);
+}
+
+// mail_open_code (mail.goose), with its error as an Error.
+fn mail_open(slots: i32, size: i32, waker: i64 = 0) -> Box, Error {
+    let b, k = mail_open_code(slots, size, waker);
+    return b, Error { call: "mail_open", code: -k };
 }
 
 // Closes a loop's box, or its waker when it has none, after unlisting the

@@ -561,6 +561,12 @@ every request's path, which `bench/count.sh` checks before it lands.
 7. `stop_on_signals` returns an `i32` and `mail_open` a code, so each `main` builds its
    `http::Error` by hand. Return an `Error` instead, and add an `exit_on_error`.
    Breaking; cold.
+   Done on `api-cold` (2026-10-14): `http::stop_on_signals()` and `http::mail_open`
+   return an `http::Error`, and `http::exit_on_error(e)` reports one and exits with
+   status 1 unless its code is 0. mail.goose stays free of HTTP: its opener is
+   `http::mail_open_code`, which still returns a code, and http.goose's `mail_open`
+   wraps it. Every `main` in `examples/`, `server/`, and `bench/rest` uses it, and
+   `device/` and `server/` drop their own `stopped`. Tested in `test/test_http.goose`.
 8. `query_int` returns 0 for a missing value, a malformed one, and a real 0. Return
    `i64, bool` instead. Breaking; cold.
 9. A program's own check can't fail a `Multipart`, so `upload/` keeps a flag beside

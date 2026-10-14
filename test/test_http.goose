@@ -908,6 +908,18 @@ fn test_insert_field() {
     same(out, "HTTP/1.1 404 Not Found\r\nServer: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\nX-Frame-Options: DENY\r\nContent-Type: text/plain\r\nContent-Length: 0\r\n\r\n");
 }
 
+fn test_errors() {
+    let s = http::stop_on_signals();
+    assert(s.code == 0 && s.call == "sigaction");
+    http::exit_on_error(s);
+    let b, e = http::mail_open(4, 8);
+    assert(e.code == 0 && e.call == "mail_open");
+    http::exit_on_error(e);
+    http::mail_close(b);
+    let _, bad = http::mail_open(3, 8);
+    assert(bad.code == http::EINVAL && bad.call == "mail_open");
+}
+
 fn test_files() {
     assert(http::is_safe_path("a/b.txt") && http::is_safe_path("a..b/.c") && http::is_safe_path("x"));
     for p in ["../a", "a/..", "a/./b", ".", "a\\b", "c:x"] { assert(!http::is_safe_path(p)); }
@@ -1031,6 +1043,7 @@ fn main() {
     test_date();
     test_reply();
     test_insert_field();
+    test_errors();
     test_stream();
     test_router();
     test_upgrade();
