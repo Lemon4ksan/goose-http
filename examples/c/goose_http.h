@@ -10,6 +10,10 @@
 #include <stdint.h>
 #include <string.h>
 
+/* Goose packs what it shares with C, a slice included: a slice is 12 bytes on a
+ * 32-bit target and 16 on a 64-bit one. */
+#pragma pack(push, 1)
+
 /* A Goose u8[:]: data isn't NUL-terminated. */
 typedef struct {
     const uint8_t *data;
@@ -21,15 +25,17 @@ typedef struct {
     int64_t len;
 } gh_buffer;
 
-/* Goose structs are packed: this is app.goose's CResponse, field for field. */
-#pragma pack(push, 1)
+/* app.goose's CResponse, field for field. */
 typedef struct {
     int32_t status;             /* 200 unless the handler sets another */
     int32_t content_type_len;   /* 0 for no Content-Type */
     uint8_t content_type[64];
 } gh_response;
+
 #pragma pack(pop)
 
+_Static_assert(sizeof(gh_bytes) == sizeof(void *) + 8 && sizeof(gh_buffer) == sizeof(void *) + 8,
+               "a slice must be packed as Goose packs it");
 _Static_assert(sizeof(gh_response) == 72, "gh_response must match CResponse");
 
 /* Answers one request. method and target are as sent; fields are the header
