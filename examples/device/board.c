@@ -18,11 +18,15 @@
 #include <unistd.h>
 #endif
 
-/* A Goose const u8[:]: data isn't NUL-terminated. */
+/* A Goose const u8[:]: data isn't NUL-terminated. Packed as Goose packs it:
+   12 bytes on a 32-bit target and 16 on a 64-bit one. */
+#pragma pack(push, 1)
 typedef struct {
     const uint8_t *data;
     int64_t len;
 } board_bytes;
+#pragma pack(pop)
+_Static_assert(sizeof(board_bytes) == sizeof(void *) + 8, "board_bytes is not packed");
 
 static int line_fd = -1;
 static _Atomic int simulated;

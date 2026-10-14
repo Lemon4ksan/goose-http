@@ -29,6 +29,7 @@ neither is for benchmarks.
 | perf | WSL, apt `linux-perf` | 7.0.14 (package `7.0.0-38.38`) |
 | nginx | WSL, apt `nginx`, service disabled | 1.28.3, for `bench/files.sh` |
 | Caddy | fetched by `bench/build.sh` | 2.10.2, for `bench/files.sh` |
+| ARM cross compilers | `ubuntu:26.04` in Docker, apt (`scripts/test-arm.sh`) | `aarch64-linux-gnu-gcc` and `arm-linux-gnueabihf-gcc` 15.2.0 (`15.2.0-16ubuntu1`), with `liburing-dev` 2.14 for each (2026-10-14) |
 
 Install the test tools in WSL. Run `cargo` from a Linux directory
 ([below](#from-a-windows-shell)); oha lands in `~/.cargo/bin`.
@@ -350,13 +351,49 @@ It needs `nc` (`netcat-openbsd`) and `python3`. Against each server it runs:
 thousands of client sockets in `TIME_WAIT` on ports in the kernel's ephemeral range,
 and a server port among them fails to bind with `EADDRINUSE`.
 
-### Test on aarch64
+### Test on ARM
 
 `scripts/test-aarch64.sh` cross-builds every example for aarch64 and runs
 `scripts/test-examples.sh` on the builds in an arm64 container, with each one's peak RSS
-([embedded Linux](embedded.md#without-the-board-emulated-arm64)). It needs Docker with
-arm64 emulation, which Docker Desktop has, and took 53 s in WSL2 (2026-10-14). Not part
-of `scripts/test.sh`.
+([embedded Linux](embedded.md#without-the-board-emulated-arm64)).
+`scripts/test-armhf.sh` does the same for 32-bit ARM in an arm/v7 container. Both run
+`scripts/test-arm.sh`, which takes the architecture. They need Docker with ARM
+emulation, which Docker Desktop has. `test-aarch64.sh` took 53 s in WSL2 and 63 s on the
+Mac (2026-10-14). Neither is part of `scripts/test.sh`.
+
+On macOS, the scripts still need a Linux build of the compiler that runs in
+`ubuntu:26.04` on x86-64. Build one in Docker from the pinned checkout, mounted read-only,
+into this repository's ignored `build/`:
+
+```sh
+docker build -q --platform linux/amd64 -t goose-http-goose-build - <<'EOF'
+FROM ubuntu:26.04
+RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+    --no-install-recommends cmake ninja-build g++ >/dev/null
+EOF
+mkdir -p build/goose-linux
+docker run --rm --platform linux/amd64 --user "$(id -u):$(id -g)" \
+    -v "$PWD/../goose:/goose:ro" -v "$PWD/build/goose-linux:/out" goose-http-goose-build \
+    sh -c 'cmake -S /goose -B /out -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build /out'
+GOOSE=$PWD/build/goose-linux/goose GOOSE_STDLIB=$PWD/../goose/stdlib scripts/test-armhf.sh
+```
+
+The build took 1 min 54 s under Docker Desktop's x86-64 emulation on the Mac
+(2026-10-14). The compiler finds its stdlib only in the checkout it was built in, so
+`GOOSE_STDLIB` names it. Rebuild after moving the pin.
+
+- Docker Desktop on the Mac runs arm64 containers natively in its VM and arm/v7 ones
+  under qemu-arm 10.2.3 (Docker Desktop 29.8.2), since the M1 has no 32-bit mode. Its
+  arm64 RSS is no emulator's, and doesn't compare with task 029's WSL2 table.
+- qemu delivers an alignment fault to the program as `SIGBUS`, where a 32-bit ARM
+  kernel may fix up the access ([findings](goose-findings.md#thread_spawn-writes-its-packets-lengths-through-misaligned-int64_t-pointers)).
+  `QEMU_STRACE=1` in the container's environment makes qemu print each system call and
+  signal, with the fault's address; `QEMU_GDB=1234` makes it wait for `gdb` on that
+  port, in the same container.
+- Under Docker Desktop's file sharing, git in a container can see a mounted directory
+  as another user's and refuse it ("detected dubious ownership"), which stopped the
+  fetch of `examples/compress`'s package. `scripts/test-arm.sh` sets `safe.directory`
+  through git's environment.
 
 - `goose build --cc` takes the names `gcc`, `clang`, and `cc`, or a path, so a cross
   compiler goes by its path: `--cc /usr/bin/aarch64-linux-gnu-gcc`. A bare
