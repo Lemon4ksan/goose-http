@@ -51,7 +51,8 @@ Shown in `hello/` and `routes/`.
 - **`body`**: the whole body, if it fits in the read buffer with the head. Chunked is
   decoded. A longer body is dropped and `body` is empty; see [Streaming](#streaming).
 - **`out`**: an `http::Reply`. One whole response, any size.
-  - `http::respond(out, status, content_type, body)`, or
+  - `http::respond(out, status, content_type, body)`, with no `Content-Type` for an
+    empty `content_type`, as for a 204, or
   - `http::start(out, status)`, `http::field(out, name, value)`,
     `http::finish(out, fields, body)`.
   - `http::field` drops a field with CR, LF, or an invalid name, so request data can't

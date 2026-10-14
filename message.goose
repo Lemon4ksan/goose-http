@@ -811,10 +811,11 @@ inline fn finish(out: Reply, fields: const u8[:], body: const u8[:]) {
     }
 }
 
-// A whole response: status, a Content-Type, and body.
+// A whole response: status, a Content-Type unless content_type is empty, and
+// body.
 inline fn respond(out: Reply, status: i32, content_type: const u8[:], body: const u8[:]) {
     start(out, status);
-    field(out, "Content-Type", content_type);
+    if content_type.len > 0 { field(out, "Content-Type", content_type); }
     finish(out, "Content-Length: ", body);
 }
 
