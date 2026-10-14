@@ -234,8 +234,29 @@ Tier C templated now holds less than hyper's 62 MB idle up to about 24 workers: 
 with one, and 1.7 MB more for each added. `bench/codegen.sh 3ee50dd d7c9b91`: the benchmark server's code is the
 same; in this server, each template read is one of 43 calls to `store_append`, which
 gcc can't inline from its own file, and the template routes' functions shrink slightly
-(`.text` 13 KB smaller in all). Rates aren't measured yet: tiers A to C of
-`bench/rest.sh run` against `task-025-worker-load`.
+(`.text` 13 KB smaller in all).
+
+Rates, in the batch of the section above, at `effcd47` (s, with w merged) against
+`b10cf60` (w), as a variant labeled `goose-uring-27s`
+([summary](../bench/results/2026-10-14-rest-027-025/summary.md)):
+
+| Cell | w, req/s | peak RSS | s, req/s | peak RSS |
+|---|---:|---:|---:|---:|
+| A serialize | 579.2K (551.0-580.6K) | 12 MB | 580.6K (573.8-580.9K) | 12 MB |
+| A template | 576.8K (567.8-590.2K) | 16 MB | 588.7K (583.9-593.4K) | 12 MB |
+| B serialize | 269.3K (266.0-270.5K) | 30 MB | 271.7K (269.9-277.5K) | 30 MB |
+| B template | 374.8K (357.4-377.0K) | 111 MB | 380.7K (375.5-392.3K) | 50 MB |
+| C serialize | 49.5K (49.3-50.1K) | 70 MB | 49.7K (49.1-50.3K) | 71 MB |
+| C template | 143.0K (142.3-146.3K) | 112 MB | 144.8K (142.7-146.4K) | 58 MB |
+| Uploads alone, p50 | 16.2-16.7 ms | 70 MB | 16.4-17.1 ms | 70 MB |
+| Uploads beside forms | 156-162/s | 125 MB | 151-160/s | 125 MB |
+| Uploads beside tier C | 718-732/s | | 697-712/s | |
+
+s's medians are at or above w's at saturation, every range overlapping, so the copy
+through `store_append` costs no rate. Templated peaks fall from 111 to 50 MB on tier B
+and from 112 to 58 MB on tier C, under hyper's 74 MB serving. Uploads beside tier C read
+2-4% under w's, ranges apart; tier D's server serializes, so it runs none of the store's
+code, and f read 705-715 there in the same batch.
 
 ## Acceptance criteria
 
