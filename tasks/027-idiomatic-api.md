@@ -868,8 +868,19 @@ Item 12, found later the same day, is open.
     `later` on a live key and requests that never wait make no atomic write. The HTTP
     suite sends 5 bursts of 500 `/events` pieces back to back, retrying `FULL`, and
     the backend asserts every send is `SENT`; the old code failed it on macOS. Passes
-    `scripts/test.sh` on macOS (kqueue). Pending: the Linux and Windows suites, and a
-    paired request-path benchmark against `0c7b0e4`, since every handler call now
+    `scripts/test.sh` on macOS (kqueue).
+
+    Confirmed (2026-10-14, `faead67`, Goose `46356c2`): `scripts/test-unit.sh`
+    passes on Linux (gcc 15.2.0) and Windows in Git Bash (MSVC 19.51), including
+    `test_http`'s piece-by-piece `WAKE` liveness checks. Rebuilt servers also pass
+    `scripts/http_client.py PORT later`, with `WORKERS=4`, `MAIL_SLOTS=64`, and
+    `MAIL_CHECK_STALE=1`, on io_uring, epoll, the ring over epoll, and Windows IOCP.
+    This includes the five bursts of 500 pieces and the backend's stale-send
+    assertions after a disconnect and timeout. The Goose pin stays unchanged;
+    upstream's only newer commit is a logo change.
+
+    Pending: the full Linux and Windows `scripts/test.sh` suites at this fix, and
+    a paired request-path benchmark against `0c7b0e4`, since every handler call now
     checks `Stream.live`.
 
 ## Kept as they are
