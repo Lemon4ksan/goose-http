@@ -14,8 +14,9 @@
 set -eu
 
 case ${1:-} in
-aarch64) deb=arm64 gcc=aarch64-linux-gnu-gcc platform=linux/arm64 ;;
-armhf) deb=armhf gcc=arm-linux-gnueabihf-gcc platform=linux/arm/v7 ;;
+# The stack reservations docs/embedded.md tells a board build to use.
+aarch64) deb=arm64 gcc=aarch64-linux-gnu-gcc platform=linux/arm64 reserve=64M ;;
+armhf) deb=armhf gcc=arm-linux-gnueabihf-gcc platform=linux/arm/v7 reserve=16M ;;
 *) echo "usage: $0 aarch64|armhf" >&2; exit 2 ;;
 esac
 arch=$1
@@ -58,7 +59,7 @@ echo "cross-building the examples into $out/examples"
 docker run --rm --platform linux/amd64 --user "$(id -u):$(id -g)" \
     -v "$root:$root" -v "$(dirname "$goose"):$(dirname "$goose")" -v "$stdlib:$stdlib" -w "$root" \
     -e GOOSE="$goose" -e GOOSE_STDLIB="$stdlib" -e GOOSE_HOME="$out/goose-home" \
-    -e BIN="$out/examples" -e CC="/usr/bin/$gcc" -e ARCH="$arch" \
+    -e BIN="$out/examples" -e CC="/usr/bin/$gcc" -e ARCH="$arch" -e RESERVE="$reserve" \
     -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
     "goose-http-cross-$arch" sh -c '
 set -eu
@@ -66,7 +67,8 @@ for dir in examples/*/; do
     name=$(basename "$dir")
     src=$dir$name.goose
     [ -f "$src" ] || src=${dir}app.goose
-    "$GOOSE" build --cc "$CC" --standalone -o "$BIN/$name" "$src" >"$BIN/$name.log" 2>&1 ||
+    "$GOOSE" build --cc "$CC" --stack-reserve "$RESERVE" --standalone -o "$BIN/$name" "$src" \
+        >"$BIN/$name.log" 2>&1 ||
         { cat "$BIN/$name.log"; echo "FAIL: $name does not build for $ARCH"; exit 1; }
 done'
 

@@ -53,7 +53,7 @@ build:
 
 ```sh
 sudo apt-get install gcc-aarch64-linux-gnu liburing-dev:arm64
-goose build --cc /usr/bin/aarch64-linux-gnu-gcc -o build/device examples/device/device.goose
+goose build --cc /usr/bin/aarch64-linux-gnu-gcc --stack-reserve 64M -o build/device examples/device/device.goose
 file build/device   # ELF 64-bit LSB pie executable, ARM aarch64
 ```
 
@@ -73,7 +73,7 @@ cat > aarch64-cc <<EOF
 exec $CC "\$@"
 EOF
 chmod +x aarch64-cc
-goose build --cc "$PWD/aarch64-cc" -o build/device examples/device/device.goose
+goose build --cc "$PWD/aarch64-cc" --stack-reserve 64M -o build/device examples/device/device.goose
 ```
 
 `goose build` runs the wrapper with `--version` and finds gcc in its output, so it
@@ -124,13 +124,10 @@ epoll, at 2 to 5 times the peak RSS
   26.04 on kernel 6.18.54.1, with the x86-64 build at Goose `46356c2`: one run per loop,
   VmHWM a second after start, before any request. Measure on the board for its own
   numbers ([below](#check-on-the-board)).
-- Each data stack reserves 2 GB of address space and commits pages only as they're
-  touched. `examples/device` reserves about 14 GiB plus 28 GiB per worker: 126 GiB with 4
-  workers. A kernel with 39-bit virtual addresses (512 GiB per process) holds up to 17
-  workers. Where the kernel refuses a reservation, the runtime halves it and tries again.
-- Strict overcommit (`vm.overcommit_memory=2`) counts reservations as committed memory,
-  so the program may not start. Build with a smaller reservation per stack, such as
-  `--stack-reserve 64M`, which also caps the largest value a stack holds.
+- Build with `--stack-reserve 64M`, as the commands here do. By default Goose reserves
+  2 GB of address space for each of a program's data stacks, more than some board
+  kernels allow, and `goose build` sets that per program. It also caps the data a stack
+  holds: raise it if a handler needs more.
 - `examples/c` holds a 1 MB response buffer per worker (`MAX_RESPONSE` in `app.goose`).
   Lower it for a board with little memory.
 
@@ -176,7 +173,8 @@ and the script over, and run it there:
 # On the build machine: the examples into build/board/examples.
 for dir in examples/*/; do
     name=$(basename "$dir"); src=$dir$name.goose; [ -f "$src" ] || src=${dir}app.goose
-    goose build --cc "$PWD/aarch64-cc" --standalone -o "build/board/examples/$name" "$src"
+    goose build --cc "$PWD/aarch64-cc" --stack-reserve 64M --standalone \
+        -o "build/board/examples/$name" "$src"
 done
 mkdir -p build/board/scripts && cp scripts/test-examples.sh build/board/scripts/
 scp -r build/board root@board:/tmp/
@@ -214,7 +212,7 @@ On Debian or Ubuntu, from the ports archive as for arm64:
 
 ```sh
 sudo apt-get install gcc-arm-linux-gnueabihf liburing-dev:armhf
-goose build --cc /usr/bin/arm-linux-gnueabihf-gcc -o build/device examples/device/device.goose
+goose build --cc /usr/bin/arm-linux-gnueabihf-gcc --stack-reserve 16M -o build/device examples/device/device.goose
 file build/device   # ELF 32-bit LSB pie executable, ARM, EABI5
 ```
 
@@ -239,14 +237,5 @@ reads garbage.
 
 ### Address space
 
-A 32-bit process has about 3 GB of address space, where an aarch64 one has 256 TB or
-more. Each data stack reserves 2 GB by default, and the runtime halves a reservation
-until it fits: on emulated armv7 (2026-10-14), `hello` started with 512 MB per stack of
-main's and `device` with 128 MB. Each halving also halves the largest value a stack
-holds, and workers started later get whatever address space is left.
-
-Set the reservation at build time instead, so each worker gets the same: `device`
-reserves 7 stacks plus 14 per worker. With 4 workers that is 63 stacks, so
-`--stack-reserve 16M` reserves about 1 GB and leaves room for the libraries, the heap,
-and each thread's 8 MB native stack. Keep the worker count at the core count, and lower
-`examples/c`'s 1 MB `MAX_RESPONSE` if memory is short.
+A 32-bit process has about 3 GB of address space, too little for 64 MB per data stack:
+build with `--stack-reserve 16M`, as above.
