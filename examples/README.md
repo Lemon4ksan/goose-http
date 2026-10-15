@@ -2,10 +2,11 @@
 
 Small servers, each showing part of the package. The concepts come first in the
 [README](../README.md#concepts), [patterns](../docs/patterns.md) say which approach
-fits large bodies, long responses, and slow work, and the [API](../docs/api.md) covers
-each function with the example that shows it. For a step-by-step
-tutorial, with typed routes and middleware on top of this package, see
-[goose-rest's](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial.md).
+fits large bodies, long responses, slow work, and limits, and the [API](../docs/api.md)
+covers each function with the example that shows it. Each example shows one mechanism;
+[goose-rest's tutorial](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/README.md)
+builds an application from them, step by step, with typed routes and middleware on top
+of this package.
 
 Each example imports the package from this checkout (`"../../"`), not from GitHub. A
 program of your own imports it as the [Quick start](../README.md#quick-start) does.

@@ -47,7 +47,7 @@ Shown in `hello/` and `routes/`.
     for CORS, set it to the loop's fields followed by yours, whole lines each ending
     in `\r\n`:
 
-    ```goose
+    ```rust
     var common: u8[>..] = [];
     common.append(out.common);
     common.append("X-Frame-Options: DENY\r\n");
@@ -82,7 +82,7 @@ called from the block, as `api/` and `later/` do.
 
 Shown in `routes/`.
 
-```goose
+```rust
 var r = http::router(req);
 if http::on(r, "GET", "/users/:id") { show(http::param(r, "id"), out); }
 else if http::on(r, "PUT", "/users/:id") { update(http::param(r, "id"), body, out); }
@@ -171,7 +171,7 @@ read a body and write a response in pieces. When a route needs one:
 connection's slot. A handler that keeps none, but needs `WAKE` or `TIMEOUT`, passes
 `false`, as `later/` does.
 
-```goose
+```rust
 struct Upload { bytes: i64 = 0 }
 
 thread_fn worker(cfg: http::Config) {
@@ -255,7 +255,7 @@ answer later without blocking its worker. How to shape that work, with a diagram
 `Config.mail_slots` and `Config.max_waiting` turn waiting on; both are 0 by default, and
 then a loop opens no box and arms no timer.
 
-```goose
+```rust
 // At REQUEST: the reply's address, with a time limit the handler must give.
 let job = Job { reply: http::later(out, 5000), .. };
 guard http::mail_send_value(worker, JOB, job) == http::SENT
@@ -327,7 +327,7 @@ A loop returns:
 `http::Error` whose code is 0 when it can. `http::exit_on_error(e)` prints an error to
 stderr and ends the process with status 1, and does nothing for code 0:
 
-```goose
+```rust
 fn main() {
     http::exit_on_error(http::stop_on_signals());
     let cfg = http::Config { port: 8080, .. };

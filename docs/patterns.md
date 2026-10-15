@@ -1,9 +1,11 @@
 # Server patterns
 
-How to shape a server for large request bodies, long responses, slow work, and state
-that workers share. Each section gives the pattern first, then the example that shows
-it and the [API](api.md) that has the details. It builds on the README's
-[concepts](../README.md#concepts).
+How to shape a server for large request bodies, long responses, slow work, its limits,
+and state that workers share. Each section gives the pattern first, then the example
+that shows it and the [API](api.md) that has the details. It builds on the README's
+[concepts](../README.md#concepts). goose-rest's
+[tutorial](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/README.md) builds
+an application on these patterns, and each section names the page that does.
 
 One fact explains each of these patterns: a worker is a single thread that runs the
 handler for every connection it owns, thousands of them, one call at a time. Any time a
@@ -23,7 +25,7 @@ Pick by how large a route's bodies get:
   what it can hold for every connection gathering at once. Shown in
   [`upload/`'s `/words`](../examples/upload/upload.goose).
 
-  ```goose
+  ```rust
   struct Doc { body: http::Gather = http::Gather { .. } }
 
   let e = http::serve(cfg, Doc { .. }) { ev, st, out =>
@@ -41,7 +43,7 @@ Pick by how large a route's bodies get:
   pieces, and ends at `END`. Shown in
   [`upload/`'s `/upload` and `/form`](../examples/upload/upload.goose).
 
-  ```goose
+  ```rust
   struct Upload { bytes: i64 = 0 }
 
   let e = http::serve(cfg, Upload { .. }) { ev, st, out =>
@@ -61,6 +63,9 @@ server's limit, as the first snippet needs for its 4 MB. `http::gather`'s limit 
 
 In the plain handler, a body over 8 KB isn't an error: `body` is empty, and the rest of
 it is dropped. A route that can get one needs one of the other two.
+
+With goose-rest: [JSON bodies](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/04-json.md)
+and [large bodies](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/10-large-bodies.md).
 
 ## Long responses
 
@@ -97,6 +102,9 @@ sequenceDiagram
     H->>L: end(out)
 ```
 
+With goose-rest: a reply that a service sends in pieces,
+[two services, or a reply in pieces](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/14-two-services.md).
+
 ## Mail between threads
 
 Threads share no memory, so they send each other messages. A thread that takes messages
@@ -127,7 +135,8 @@ A worker waits for mail with `http::later`, which takes a time limit and returns
 address to reply to. How to shape the backend thread, and the work it takes:
 [slow work](#slow-work). With goose-rest, a route asks a service thread with
 `rest::ask`, and the service answers it:
-[goose-rest's waiting](https://github.com/kaitk/goose-rest/blob/main/docs/architecture/README.md#waiting-on-another-thread).
+[work that waits](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/13-waiting.md)
+and [two services](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/14-two-services.md).
 
 The design is [Tina](https://github.com/pmbanugo/tina)'s, a thread-per-core framework in
 Odin: boxes bounded when they open, work sent to a thread's address rather than to a
@@ -144,8 +153,8 @@ program's own, and the handler waits for it without blocking the worker:
 |---|---|---|
 | Microseconds: parse, look up, format | In the handler | `routes/`, `api/` |
 | Milliseconds to seconds | A thread of the program's; the handler waits with `http::later` | `later/` |
-| As long as it goes on, with results as they come | The same, with the response sent in pieces | `device/`, `server/`'s `/events` |
-| Minutes | A job: answer `202 Accepted` with its ID at once, and let the client ask for the result | No example yet |
+| As long as it goes on, with results as they come | The same, with the response sent in pieces | `device/`'s `/api/events` |
+| Minutes | A job: answer `202 Accepted` with its ID at once, and let the client ask for the result | goose-rest's [limits](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/15-limits.md#work-that-takes-minutes) |
 
 The handler sends the job by mail and gives a time limit. The worker serves its other
 connections until the reply or the time limit comes:
@@ -182,7 +191,33 @@ sequenceDiagram
   takes minutes is better as a job the client asks about.
 
 Waiting is off until `Config.mail_slots` and `Config.max_waiting` are set. The calls,
-and every limit: [API, answers that wait](api.md#answers-that-wait).
+and every limit: [API, answers that wait](api.md#answers-that-wait). With goose-rest:
+[work that waits](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/13-waiting.md).
+
+## Limits
+
+Every resource a worker holds is bounded by a `Config` field, and past each bound the
+loop answers or closes rather than grow:
+
+| Bound | Field, default | Past it |
+|---|---|---|
+| A request head | `max_head`, 8 KB; `max_line`, `max_fields` | 414 for a long request line, 431 for too many fields |
+| A body | `max_body`, 1 MB | 413 |
+| Time for a head to arrive, and between a body's pieces | `request_ms`, `body_ms`, 10 s each | 408, or the connection closes |
+| A client that stops taking its response | `write_ms`, 10 s | the connection closes |
+| Responses queued and not yet sent | `max_queued`, 64 KB | the loop stops reading from the connection until the client takes them |
+| Connections | `max_conns`, 16,384 per worker | new ones are refused |
+| Routes waiting at once | `max_waiting` | `later`'s exchange gets `TIMEOUT` at once |
+| Jobs waiting for a thread | the slots its box opened with | `FULL`: the handler answers, such as 503 |
+
+A slow client is the loop's to bound: `max_queued` and `MORE` keep a response it reads
+slowly from growing in the worker ([long responses](#long-responses)), and `write_ms`
+closes one that stops reading. A wait is the handler's: it gives each `later` a time
+limit, answers 503 when a box is `FULL`, and has its thread check `http::mail_live`
+before work nobody waits for ([slow work](#slow-work)).
+
+With goose-rest, each answered at its limit, and a job the client polls:
+[limits](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/15-limits.md).
 
 ## State that workers share
 
@@ -195,3 +230,5 @@ share no memory. In `api/`, a note written through one worker isn't there for an
   server, `bench/rest/goose/rest.goose`, uses it.
 - **Data that changes**, such as counters or sessions: give it one owner thread, and
   have workers ask it by [mail](#mail-between-threads).
+
+With goose-rest: [state](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/08-state.md).
