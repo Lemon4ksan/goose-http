@@ -17,6 +17,136 @@ WSL2 loopback runs through a VM; its kernel cost differs from bare metal. Runs t
 2026-10-12 use kernel 6.18.40.1-microsoft-standard-WSL2. The 2026-10-14 runs use
 6.18.54.1-microsoft-standard-WSL2. Each run's `env.txt` records the environment.
 
+## 2026-10-14: v0.3.1, Goose builds only
+
+goose-rest's `bench/all.sh` measured the Goose servers alone on the desktop, machine
+name Tiamat, in session `2026-10-14T2039`. The server is `de19e3b`, whose code is
+that of `v0.3.1` (`faead67`). The compiler is built from Goose `bc3c1f1`, which
+`env.txt` records as `46356c2`: the two commits differ only by a logo image. Kernel
+6.18.54.1-microsoft-standard-WSL2, gcc 15.2.0 at `-O2`. No competitor ran, so every
+comparison with one below uses the
+[2026-10-14 field run](#2026-10-14-main-after-tasks-02203-025-and-027) on the same
+machine and kernel, and sessions have drifted by up to 5%. The session failed before
+goose-rest's tiers F, R, and M on a checker bug; those ran on 2026-10-15 from the
+same binaries. The session's [steps](../bench/results/2026-10-14T2039-Tiamat/session-steps.txt),
+[environment](../bench/results/2026-10-14T2039-Tiamat/session-env.txt), and
+[last log lines](../bench/results/2026-10-14T2039-Tiamat/session-tail.txt) are kept.
+
+### Plaintext and JSON at every connection count
+
+```sh
+SERVERS="goose goose-uring" bench/run.sh
+```
+
+1 worker on CPU 0 or 4 on CPUs 0-3; wrk 4.1.0 with 8 threads on CPUs 4-15; plaintext
+pipelined 16 deep at 256, 1,024, and 4,096 connections, JSON at 256 and 1,024; 3
+interleaved runs of 15 s after 5 s of warm-up, medians. 4 workers, from the
+[summary](../bench/results/2026-10-14T2039-Tiamat/summary.md), against the Goose cells
+in [benchmarks.md](benchmarks.md#plaintext-and-json) before this run (`bc75f2a` at
+256 connections, `e4f7b55` at the others):
+
+| Loop | Test | Conns | Before | `de19e3b` | Change |
+|---|---|---:|---:|---:|---:|
+| io_uring | plaintext | 256 | 6.37 M | 6.84 M (6.76-6.90) | +7.4% |
+| io_uring | plaintext | 1,024 | 6.81 M | 6.64 M (6.54-6.85) | -2.4% |
+| io_uring | plaintext | 4,096 | 6.38 M | 6.30 M (6.25-6.40) | -1.2% |
+| io_uring | JSON | 256 | 481 K | 512 K (504-517) | +6.4% |
+| io_uring | JSON | 1,024 | 489 K | 508 K (500-512) | +3.9% |
+| epoll | plaintext | 256 | 4.87 M | 5.41 M (5.34-5.47) | +11.1% |
+| epoll | plaintext | 1,024 | 5.36 M | 5.39 M (5.35-5.39) | +0.5% |
+| epoll | plaintext | 4,096 | 5.26 M | 5.19 M (5.18-5.20) | -1.3% |
+| epoll | JSON | 256 | 375 K | 402 K (397-407) | +7.2% |
+| epoll | JSON | 1,024 | 401 K | 395 K (395-397) | -1.5% |
+
+The losses are within the 5% drift between sessions. The gains at 256 connections
+are larger than that drift, but this run has no same-session baseline, so it doesn't
+show whether the code or the session caused them. Peak RSS is 3.9-4.8 MB on epoll
+and 10.1-16.1 MB on io_uring with 4 workers; 16.1 MB, at 4,096 connections, is the
+new highest Goose peak, where the earlier matrix had 13 MB. Every cell had zero
+errors.
+
+### Instruction counts
+
+```sh
+bench/instructions.sh goose goose-uring
+```
+
+As in [Instructions per request](#instructions-per-request): one worker on CPU 0,
+plaintext pipelined 16 deep at 256 connections, wrk with 8 threads on CPUs 4-15 for
+20 s, perf on CPU 0 for 10 s from 5 s in, 3 runs, kernel work included
+([counts](../bench/results/2026-10-14T2039-rest-Tiamat-frm/instructions.txt)). Against
+2026-10-12's `47876ad` on kernel 6.18.40.1:
+
+| Loop | Instructions/req | User instructions/req | Cycles/req | Peak RSS |
+|---|---:|---:|---:|---:|
+| epoll, `47876ad` | 2,475-2,530 | 1,535-1,574 | 1,995-2,036 | 2.4 MB |
+| epoll, `de19e3b` | 2,460-2,474 | 1,529-1,538 | 2,100-2,124 | 3.3-3.4 MB |
+| io_uring, `47876ad` | 2,533-2,580 | 1,576-1,601 | 1,808-1,819 | 4.8-4.9 MB |
+| io_uring, `de19e3b` | 2,545-2,571 | 1,582-1,600 | 1,819-1,834 | 5.7-5.8 MB |
+
+Instructions are unchanged. Epoll spends about 4% more cycles per request, and both
+loops hold about 1 MB more at their peak; the kernels differ, so neither is pinned on
+the code.
+
+### Static files without nginx and Caddy
+
+```sh
+SERVERS="goose goose-uring goose-uring-epoll" bench/files.sh
+```
+
+`bench/files.sh`'s defaults have changed since the 2026-10-12 run in
+[benchmarks.md](benchmarks.md#static-files): wrk ran with 8 threads and 64
+connections, not 12 and 96, on CPUs 4-15; 3 runs of 10 s after 3 s of warm-up,
+medians; nginx and Caddy didn't run
+([summary](../bench/results/2026-10-14T2039-Tiamat-files/summary.md)).
+
+| Server | 4 KB, 1 worker | 4 KB, 4 | 64 KB, 1 | 64 KB, 4 | 1 MB, 1 | 1 MB, 4 |
+|---|---:|---:|---:|---:|---:|---:|
+| Goose epoll | 52.6 K/s | 190 K/s | 2.11 GB/s | 7.92 GB/s | 10.6 GB/s | 21.9 GB/s |
+| Goose io_uring | 82.2 K/s | 233 K/s | 2.02 GB/s | 6.84 GB/s | 10.4 GB/s | 21.5 GB/s |
+| Goose, emulated ring | 72.7 K/s | 213 K/s | 2.71 GB/s | 8.35 GB/s | 11.2 GB/s | 21.8 GB/s |
+
+At 1 MB with 4 workers wrk used 80.2 s of CPU in each 10 s run, all of its 8
+threads, so the three servers' 21.5-21.9 GB/s is the client's limit, against 31.3
+GB/s with 12 threads on 2026-10-12. Below that the numbers stand on their own: io_uring
+leads at 4 KB and loses to epoll at 64 KB and 1 MB, and the emulated ring leads at
+64 KB and 1 MB. These cells don't replace the table in benchmarks.md, whose run
+had nginx and Caddy beside Goose under the same load.
+
+### REST tiers A to D
+
+```sh
+SERVERS="goose-uring goose-epoll goose-uring-rest goose-epoll-rest" \
+    RATE_A=100000 RATE_B=24000 RATE_C=1700 bench/rest.sh run   # from goose-rest
+```
+
+goose-rest's `bench/rest.sh run` wraps this repository's: 4 workers on CPUs 0-3,
+saturation with wrk 4.1.0, 8 threads and 256 connections on CPUs 4-15, uploads
+alone with 1 thread and 32 connections, 3 interleaved runs of 15 s after 5 s of
+warm-up with a fresh server per cell, each server checked first
+([summary](../bench/results/2026-10-14T2039-rest-Tiamat/summary.md)). Goose's medians,
+serialized, against `b03a446`'s in [benchmarks.md](benchmarks.md#rest-apis):
+
+| Loop | A | B | C | C, templates | Uploads alone |
+|---|---:|---:|---:|---:|---:|
+| io_uring, `b03a446` / `bc75f2a` | 577 K/s | 308 K/s | 60.3 K/s | 144 K/s | 1,080/s |
+| io_uring, `de19e3b` | 598 K/s | 315 K/s | 62.4 K/s | 147 K/s | 1,120/s |
+| epoll, `b03a446` / `bc75f2a` | 427 K/s | 238 K/s | 58.9 K/s | 135 K/s | 1,076/s |
+| epoll, `de19e3b` | 444 K/s | 244 K/s | 60.9 K/s | 137 K/s | 1,128/s |
+
+Every rate is 1.4-4.8% higher, within session drift. Peak RSS matches the earlier
+run's to within 1 MB in every saturation cell. Tier D beside forms: io_uring 153-182
+uploads a second against 149-159 before, with forms at 7.1-7.2 K/s; epoll 117-120
+uploads a second.
+
+Step 4 offered tier C's reads at 1,700 a second, not at the 16,000 of the "Reads p99"
+column in benchmarks.md, so its p99 doesn't replace that column. At 1,700 a second
+the io_uring loop's reads still suffer beside uploads: p99 4.8-7.5 ms against epoll's
+0.40-1.35 ms, and 0.14-0.96 ms on both loops alone. Every fixed-rate cell reached its
+rate with zero errors.
+
+goose-rest's results from the same sessions are in its task 010.
+
 ## 2026-10-14: REST strings scanned 16 bytes at a time
 
 `b03a446` has the REST server look for a string's JSON escapes with std's `find_any`,

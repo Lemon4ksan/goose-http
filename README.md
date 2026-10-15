@@ -122,18 +122,20 @@ The API by topic, with the examples that show it: [examples/](examples/README.md
 
 ## Benchmarks
 
-Ryzen 7 5800X3D, WSL2, 4 workers against the same worker count, Goose at `bc75f2a` with
-compiler `46356c2` unless a row says otherwise. Every table, the method, and every loss:
-[docs/benchmarks.md](docs/benchmarks.md).
+Ryzen 7 5800X3D, WSL2, 4 workers against the same worker count, Goose at `de19e3b`
+(code as `v0.3.1`) with compiler `46356c2` unless a row says otherwise; competitors from
+an earlier session on the same machine and kernel. Every table, the method, and every
+loss: [docs/benchmarks.md](docs/benchmarks.md); how each run was measured:
+[docs/results.md](docs/results.md); the raw runs: [bench/results/](bench/results/).
 
 | Workload | Goose | Best other | Where Goose stands |
 |---|---:|---:|---|
-| [Plaintext](docs/benchmarks.md#plaintext-and-json)†, pipelined, 256 connections | 6.37 M/s | vanilla-io_uring 8.12 M/s\* | Fastest of the servers that parse the request |
-| [JSON](docs/benchmarks.md#plaintext-and-json)†, 256 connections | 481 K/s | zix 561 K/s | Third of 8 |
-| [REST tiers](#rest-apis) A / B / C (`b03a446`) | 577 K / 308 K / 60.3 K/s | xitca-web 407 K / 235 K / 38.2 K/s | Fastest on every tier |
+| [Plaintext](docs/benchmarks.md#plaintext-and-json)†, pipelined, 256 connections | 6.84 M/s | vanilla-io_uring 8.12 M/s\* | Fastest of the servers that parse the request |
+| [JSON](docs/benchmarks.md#plaintext-and-json)†, 256 connections | 512 K/s | zix 561 K/s | Third of 8 |
+| [REST tiers](#rest-apis) A / B / C | 598 K / 315 K / 62.4 K/s | xitca-web 407 K / 235 K / 38.2 K/s | Fastest on every tier |
 | [Static files](docs/benchmarks.md#static-files), 1 MB (`fcfd80d`) | 31.3 GB/s | nginx 28.5 GB/s | On a par with nginx: ahead at 4 KB and 1 MB, behind at 64 KB |
 | [Compressed JSON](docs/benchmarks.md#compression), json-comp (`6f584e2`) | 66.1 K/s | actix 62.6 K/s | Fastest of the servers that compress each response |
-| [Peak RSS](docs/benchmarks.md#plaintext-and-json), plaintext and JSON | 3.9-13 MB | zix 39 MB | Lowest |
+| [Peak RSS](docs/benchmarks.md#plaintext-and-json), plaintext and JSON | 3.9-16 MB | zix 39 MB | Lowest |
 
 \* Answers without parsing the request; so does libreactorng, at 7.02 M/s.  
 † Tiny fixed responses, which measure the loop and the parser and little else. The
@@ -152,16 +154,16 @@ computes every response per request, and passes a checker before each run.
 
 "Templates" prebuilds each record's JSON at startup and splices in the per-request
 values. "Reads p99" is tier C's reads at a fixed 16,000 a second while uploads stream
-in. 4 workers, 3 runs of 15 s, medians; bold is the column's best. Goose's A to C are
-`b03a446`, its uploads and reads `bc75f2a`; competitors are from the earlier field run
-on the same machine and kernel.
+in. 4 workers, 3 runs of 15 s, medians; bold is the column's best. Goose's A to C and
+uploads are `de19e3b`, its reads `bc75f2a`; competitors are from the earlier field run
+on the same machine and kernel, and sessions drift by up to 5%.
 
 | Server | A | B | C | C, templates | Uploads | Reads p99 |
 |---|---:|---:|---:|---:|---:|---:|
-| **Goose io_uring** | **577 K/s** | **308 K/s** | **60.3 K/s** | **144 K/s** | 1,080/s | 8.5-18.0 ms |
-| **Goose epoll** | 427 K/s | 238 K/s | 58.9 K/s | 135 K/s | 1,076/s | **1.8-2.6 ms** |
+| **Goose io_uring** | **598 K/s** | **315 K/s** | **62.4 K/s** | **147 K/s** | 1,120/s | 8.5-18.0 ms |
+| **Goose epoll** | 444 K/s | 244 K/s | 60.9 K/s | 137 K/s | **1,128/s** | **1.8-2.6 ms** |
 | xitca-web (Rust) | 407 K/s | 235 K/s | 38.2 K/s | 113 K/s | 1,016/s | 2.4-4.6 ms |
-| dusty (Zig)\* | 343 K/s | 162 K/s | 24.6 K/s | 125 K/s | **1,125/s** | 6.7-42 ms |
+| dusty (Zig)\* | 343 K/s | 162 K/s | 24.6 K/s | 125 K/s | 1,125/s | 6.7-42 ms |
 | hyper (Rust) | 271 K/s | 151 K/s | 32.1 K/s | 120 K/s | 1,107/s | 11-29 ms |
 | tokio (Rust) | 393 K/s | 183 K/s | 31.6 K/s | 100 K/s | 1,034/s | 1.1-5.8 s† |
 
@@ -293,7 +295,7 @@ tasks/         task tracking (tasks/README.md)
 | What | Pin | Why |
 |---|---|---|
 | Goose compiler | `aardappel/goose` `46356c2` (`master`) | The language and stdlib change often |
-| Benchmarked | Per workload in [docs/benchmarks.md](docs/benchmarks.md#pins): plaintext and JSON at 256 connections, and REST, at `bc75f2a` (REST rates `b03a446`) with Goose `46356c2`; other connection counts at `e4f7b55` with Goose `0bdbd18` | Each workload names its measured build |
+| Benchmarked | Per workload in [docs/benchmarks.md](docs/benchmarks.md#pins): plaintext and JSON, and REST rates and uploads, at `de19e3b` (code as `v0.3.1`) with Goose `46356c2`; REST reads beside uploads and memory at `bc75f2a` | Each workload names its measured build |
 
 Move the pin in its own commit once the tests pass; benchmarks don't wait for it
 ([development.md](docs/development.md#move-the-pin)).
