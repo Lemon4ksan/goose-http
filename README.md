@@ -1,10 +1,10 @@
 # goose-http
 
 An HTTP/1.1 server package for [Goose](https://github.com/aardappel/goose), with one
-event loop per worker, inspired by [Tina](https://github.com/pmbanugo/tina): io_uring or
-epoll on Linux, kqueue on macOS, and I/O completion ports (IOCP) on Windows.
+event loop per worker, inspired by [Tina](https://github.com/pmbanugo/tina). It uses
+io_uring or epoll on Linux, kqueue on macOS, and I/O completion ports (IOCP) on Windows.
 
-Experimental: tested and benchmarked, not yet used in production, and the API still
+Experimental: tested and benchmarked, but not yet used in production. The API still
 changes between tags.
 
 [Examples](examples/README.md) · [Patterns](docs/patterns.md) · [API](docs/api.md) ·
@@ -12,8 +12,8 @@ changes between tags.
 [Architecture](docs/architecture/README.md) · [Embedded Linux](docs/embedded.md) ·
 [Development](docs/development.md) · [Changelog](CHANGELOG.md)
 
-For a framework on top, with typed routes, extractors, middleware, and routers generated
-from OpenAPI, see [goose-rest](https://github.com/kaitk/goose-rest).
+For a framework with typed routes, extractors, middleware, and routers generated from
+OpenAPI, see [goose-rest](https://github.com/kaitk/goose-rest).
 
 ## Status
 
@@ -21,39 +21,40 @@ from OpenAPI, see [goose-rest](https://github.com/kaitk/goose-rest).
 
 | | Protocol | Notes |
 |---|---|---|
-| 🟢 | HTTP/1.1 | Keep-alive, pipelining, chunked bodies, trailers, `Expect: 100-continue`. HTTP/1.0 too. |
-| 🟢 | Compression | Brotli, Zstandard, and gzip files, and gzip, deflate, and Zstandard on the fly, with [goose-compress](https://github.com/kaitk/goose-compress). |
+| 🟢 | HTTP/1.1 | Keep-alive, pipelining, chunked bodies, trailers, and `Expect: 100-continue`. Also supports HTTP/1.0. |
+| 🟢 | Compression | Files compressed with Brotli, Zstandard, or gzip; on-the-fly gzip, deflate, and Zstandard with [goose-compress](https://github.com/kaitk/goose-compress). |
 | 🟡 | HTTP/2 | Planned next. |
 | 🟡 | TLS | Planned next, likely as a separate package. |
 | 🔴 | WebSocket | Currently out of scope; `Upgrade` hands the connection to the program. |
-| ⚪ | HTTP/3 | Later, once QUIC on Linux matures: today it costs more CPU than TCP for the same traffic. |
+| ⚪ | HTTP/3 | Deferred until QUIC on Linux matures; it currently uses more CPU than TCP for the same traffic. |
 
 | | Platform | Notes |
 |---|---|---|
 | 🟢 | Linux | io_uring (kernel 6.1+) or epoll ([which loop](docs/api.md#event-loops)). |
 | 🟢 | macOS | kqueue. |
 | 🟢 | Windows | I/O completion ports (IOCP). |
-| 🟡 | Embedded Linux | aarch64 cross-builds and passes its tests under emulation, not yet on a board; 32-bit ARM is a work in progress ([embedded Linux](docs/embedded.md)). |
+| 🟡 | Embedded Linux | aarch64 cross-builds pass tests under emulation, but have not yet been tested on a board; 32-bit ARM support is in progress ([embedded Linux](docs/embedded.md)). |
 
 ## What it provides
 
 The latest tag, `v0.3.1`, provides all of this on every platform above:
 
-- A strict parser (smuggling, 414, 431, 501, 505), with header fields, path, query, and
-  percent-decoding; response fields refuse CR, LF, and invalid names.
+- A strict parser that guards against request smuggling and returns 414, 431, 501, and
+  505 where appropriate; header fields, path, query, and percent-decoding support.
+  Response fields reject CR, LF, and invalid names.
 - A router with parameters, wildcards, `OPTIONS`, and 405 with `Allow`.
-- Request bodies and responses of any size, streamed; form and multipart bodies; JSON
+- Streaming request bodies and responses of any size; form and multipart bodies; JSON
   responses.
-- Static files with conditional `GET` and one byte range; files over 64 KB are sent
+- Static files with conditional `GET` and a single byte range; files over 64 KB are sent
   without copying.
 - Cookies, `Basic` authorization, media types, and `Accept` (406, 415).
 - Limits and timeouts per connection and per route, graceful shutdown, and an access log.
-- Answers that wait: on another thread, a timer, long polling, or SSE.
-- The client's address, `Forwarded` from trusted proxies, IPv6, dual-stack, and, on
+- Deferred responses: waiting for another thread or a timer, long polling, and SSE.
+- Client addresses, `Forwarded` headers from trusted proxies, IPv6, dual-stack, and, on
   Linux and macOS, Unix sockets.
 
-Not here: an HTTP client, and what a framework adds, such as CORS, sessions, and
-middleware ([goose-rest](https://github.com/kaitk/goose-rest)).
+The package does not include an HTTP client or framework features such as CORS,
+sessions, and middleware (see [goose-rest](https://github.com/kaitk/goose-rest)).
 
 ## Quick start
 
@@ -68,7 +69,7 @@ a program also needs a C compiler and, on Linux, liburing:
 
 Save this as `hello.goose`:
 
-```goose
+```rust
 import http from "github.com/kaitk/goose-http@v0.3.1";
 
 thread_fn worker(cfg: http::Config) {
@@ -97,11 +98,11 @@ goose build hello.goose
 ./hello
 ```
 
-*Note: `goose hello.goose` runs a program inside the compiler, through TinyCC, which
-can't start threads, so a server with workers needs `goose build`.*
+*Note: `goose hello.goose` runs the program inside the compiler through TinyCC, which
+can't start threads. A server with workers needs `goose build`.*
 
-Routes, JSON, uploads, files, and answers that wait are in the
-[examples](examples/README.md).
+The [examples](examples/README.md) cover routes, JSON, uploads, files, and deferred
+responses.
 
 ## Concepts
 
@@ -126,35 +127,35 @@ flowchart LR
     W1 & W2 & WN <-. mail .-> B["a thread of<br/>the program's"]
 ```
 
-- **Workers.** The program starts a thread per worker, and each runs an event loop with
-  the same handler. A worker owns its connections, workers share no memory, and threads
-  talk by [mail](docs/patterns.md#mail-between-threads).
-- **Two kinds of handler.** `{ req, body, out => }` takes a whole request and answers it
-  once, which is enough for most routes. `{ ev, st, out => }` is called for each event of
-  an exchange, with state the program defines, kept per connection: for large bodies,
-  long responses, files, and answers that wait
+- **Workers.** The program starts one thread per worker. Each worker runs an event loop
+  with the same handler and owns its connections. Workers share no memory; threads
+  communicate by [mail](docs/patterns.md#mail-between-threads).
+- **Two kinds of handler.** `{ req, body, out => }` receives a complete request and
+  responds once, which is enough for most routes. `{ ev, st, out => }` runs for each
+  event in an exchange and keeps program-defined state per connection. Use it for large
+  bodies, long responses, files, and deferred responses
   ([which to use](docs/patterns.md)).
 - **The request is borrowed.** Its head, fields, and route parameters point into the
-  read buffer and last until the handler returns, so reading a request allocates
+  read buffer and remain valid until the handler returns. Reading a request allocates
   nothing.
-- **A handler that returns early is a function**, passed by name or called from the
-  block: a `return` in a block leaves the worker's loop instead
+- **For early returns, use a handler function**, passed by name or called from the
+  block. A `return` in the block exits the worker's loop
   ([why](docs/api.md#handler)).
 - **`http::Config`** holds the address, limits, timeouts, and buffer sizes, all with
-  defaults. `http::stop_on_signals()` ends the loops gracefully on Ctrl+C or `SIGTERM`.
-- **Errors are values.** A loop returns an `http::Error`, the call that failed and its
-  code, and `http::exit_on_error` prints it and ends the process.
+  defaults. `http::stop_on_signals()` stops the loops gracefully on Ctrl+C or `SIGTERM`.
+- **Errors are values.** A loop returns an `http::Error` identifying the failed call
+  and its error code. `http::exit_on_error` prints the error and ends the process.
 
-The API by topic, with the examples that show it: [docs/api.md](docs/api.md).
+For the API organized by topic, with examples, see [docs/api.md](docs/api.md).
 
 ## Benchmarks
 
 goose-http `v0.3.1` and Goose `v2026.1` on a Ryzen 7 5800X3D (WSL2), 4 workers per
 server. [All results, the method, and the losses](docs/benchmarks.md).
 
-Plaintext and JSON are tiny fixed responses over 256 connections, plaintext pipelined, so
-they measure the event loop and the parser and little else. The REST APIs
-[below](#rest-apis) are closer to a real program.
+The plaintext and JSON benchmarks serve tiny fixed responses over 256 connections,
+with pipelining for plaintext. They mainly measure the event loop and parser. The REST
+APIs [below](#rest-apis) are closer to a real application.
 
 | Workload | goose-http | Best other | |
 |---|---:|---:|---|
@@ -164,19 +165,18 @@ they measure the event loop and the parser and little else. The REST APIs
 | 1 MB [static files](docs/benchmarks.md#static-files)\*\* | 31.3 GB/s | 28.5 GB/s (nginx) | Behind only at 64 KB |
 | [Compressed JSON](docs/benchmarks.md#compression)\*\* | 66.1k req/s | 62.6k (actix) | Fastest that compresses each response |
 
-\* Answers without parsing the request; so does libreactorng, at 7.02M req/s.  
-\*\* An earlier build than `v0.3.1`.
+\* Responds without parsing the request; so does libreactorng, at 7.02M req/s.  
+\*\* Measured on a build earlier than `v0.3.1`.
 
 ### REST APIs
 
-Three APIs and an upload workload. Every server serves the same routes from the same
-records, loaded at startup, and computes each response per request, without a
-framework.
+Three APIs and an upload workload. All servers use the same routes and records, load
+the records at startup, and compute each response per request, without a framework.
 
 - **A** is [HttpArena](https://github.com/MDA2AV/HttpArena)'s `production-stack` API.
-- **B** and **C** come from a time tracker and a clinic, with bigger, deeper JSON.
+- **B** and **C** come from a time tracker and a clinic, with larger, more deeply nested JSON.
 - **Templates** builds each record's JSON once at startup.
-- **Reads p99** is C's latency at a fixed rate while uploads run.
+- **Reads p99** measures C's p99 latency at a fixed request rate while uploads run.
 
 | Workload | goose-http | xitca-web (Rust) | dusty (Zig)\* |
 |---|---:|---:|---:|
@@ -187,32 +187,32 @@ framework.
 | [Uploads](docs/benchmarks.md#uploads): CSVs and multipart files, up to 8 MB | **1,128 req/s** | 1,016 | 1,125 |
 | Reads p99 beside uploads | **1.8-2.6 ms** | 2.4-4.6 ms | 6.7-42 ms |
 
-\* A framework; its peer is [goose-rest](https://github.com/kaitk/goose-rest).
+\* A framework; its counterpart is [goose-rest](https://github.com/kaitk/goose-rest).
 
-Goose serves on io_uring, and on epoll for uploads and reads p99. Every server and
-both Goose loops: [docs/benchmarks.md](docs/benchmarks.md#rest-apis).
+Goose uses io_uring, except for uploads and reads p99, which use epoll. Results for
+every server and both Goose event loops: [docs/benchmarks.md](docs/benchmarks.md#rest-apis).
 
 ## What isn't Goose
 
-Everything that is HTTP is Goose: parsing, routing, responses, the loops, the mailboxes'
-messages, timers, and JSON. The package's only other code is a thin layer of C in
-`shim/`, for four things Goose can't do:
+All HTTP functionality is written in Goose: parsing, routing, responses, event loops,
+mailbox messages, timers, and JSON. The package's only other code is a thin C layer in
+`shim/` for four things Goose can't do:
 
-- Call the kernel and convert its structures: sockets, epoll, kqueue, and Winsock.
+- Call the kernel and convert its data structures: sockets, epoll, kqueue, and Winsock.
 - Own buffers the kernel uses after a call returns: the io_uring and IOCP rings.
-- Wait in a way another thread can end, with atomic counts: the mailboxes' queue.
-- Hold memory every thread reads: the shared store's blobs.
+- Provide an interruptible wait with atomic counts: the mailbox queue.
+- Hold memory that all threads can read: the shared store's blobs.
 
-Each file, and why it is C:
+For each file and why it uses C, see the
 [architecture](docs/architecture/README.md#what-isnt-goose-and-why).
 
 ## Credits
 
-The mailboxes take three ideas from [Tina](https://github.com/pmbanugo/tina), a
+The mailboxes draw three ideas from [Tina](https://github.com/pmbanugo/tina), a
 thread-per-core framework in Odin, and its author's post
 [on async/await](https://pmbanugo.me/blog/why-async-await-complect-concurrency):
 
-- Mailboxes bounded at open, whose send says at once that the box is full or the
-  address stale, rather than blocking or growing.
-- Work sent to a worker's address, not to a shared queue.
-- A time limit required on every wait (`http::later`).
+- Mailbox capacity is fixed at creation. Sending reports a full mailbox or stale address
+  immediately, without blocking or growing the mailbox.
+- Work is sent to a worker's address rather than a shared queue.
+- Every wait requires a time limit (`http::later`).
