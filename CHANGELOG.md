@@ -2,6 +2,21 @@
 
 What each tag adds. Each release names the Goose compiler it was built and tested with.
 
+## v0.3.2 (2026-10-15)
+
+A mailbox of one slot is refused, goose-compress is imported by its tag, and the
+documentation is split by topic. Goose `v2026.1` (`ac759c3`).
+
+- `http::mail_open` refuses fewer than two slots with `EINVAL`, and a `Config.mail_slots`
+  of 1 stops the loop with that error. A box of one slot reported `SENT` for every send,
+  overwriting the message not yet taken.
+- `http.compression` imports goose-compress at `v0.1.0`, the same code as the commit
+  v0.3.1 named. A program that compresses declares it at that tag.
+- The API reference, server patterns (request bodies, long responses, mail, slow work,
+  limits, and shared state), development setup, and known issues are pages of their
+  own.
+- Builds with the official Goose release that `scripts/goose.sh` pins.
+
 ## v0.3.1 (2026-10-14)
 
 A send to an exchange that no longer waits says so at once, so a service can stop
