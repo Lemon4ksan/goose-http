@@ -120,6 +120,23 @@ expect 200 "$url/visits"
 holds 1
 expect 200 -H 'Cookie: visits=4' "$url/visits"
 holds 5
+# Written as a form, then listed as CSV, read with its entity tag, and
+# deleted, each on the same connection.
+bearer='Authorization: Bearer let-me-in'
+code=$(curl -sS -o /dev/null -w '%{http_code} ' -H "$bearer" -d 'text=call+mum' "$url/notes" \
+    --next -sS -o "$tmp/body" -w '%{http_code} ' -H 'Accept: text/csv' "$url/notes")
+[ "$code" = "201 200 " ] || fail "api: POST form then GET CSV: $code"
+holds ',"call mum"'
+code=$(curl -sS -o /dev/null -w '%{http_code} ' -H "$bearer" -d 'text=x' "$url/notes" \
+    --next -sS -o /dev/null -w '%{http_code} ' -H 'If-None-Match: "1"' "$url/notes/1" \
+    --next -sS -o /dev/null -w '%{http_code} ' -X DELETE "$url/notes/1" \
+    --next -sS -o /dev/null -w '%{http_code} ' -u admin:secret -X DELETE "$url/notes/1" \
+    --next -sS -o /dev/null -w '%{http_code} ' "$url/notes/1")
+[ "$code" = "201 304 401 204 404 " ] || fail "api: ETag and DELETE: $code"
+expect 406 -H 'Accept: image/png' "$url/notes"
+expect 415 -H "$bearer" -H 'Content-Type: text/plain' -d hi "$url/notes"
+expect 200 -H 'X-Forwarded-For: 203.0.113.7' "$url/whoami"
+holds 203.0.113.7
 end_example
 
 start upload

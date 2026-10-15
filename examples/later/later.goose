@@ -24,7 +24,11 @@ thread_fn backend(box: http::Box) {
         http::mail_wait(box, -1);
         http::mail_take(box) { key, tag, bytes =>
             var j = Job { .. };
-            if tag == JOB && http::mail_value(bytes, j) {
+            // A job can wait in the box past its exchange's time limit:
+            // nothing then waits for its answer, so it's skipped. A thread
+            // can't be stopped from outside, so a job that once started runs
+            // to its end; a long one would check mail_live between steps.
+            if tag == JOB && http::mail_value(bytes, j) && http::mail_live(j.reply) {
                 reply.clear();
                 format(reply, primes_below(j.n), "\n");
                 // STALE when the exchange has timed out or its client has
