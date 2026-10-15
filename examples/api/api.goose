@@ -64,7 +64,7 @@ fn answer(req: const http::Request&, body: const u8[:], out: http::Reply, notes:
         json::format_int(b, i + 1);
         b.push(',');
         json::format_key(b, "text");
-        json::format_string(b, notes[i].text);
+        http::json_string(b, notes[i].text);
         b.push('}');
         http::start(out, 200);
         http::field(out, "ETag", tag);
@@ -133,7 +133,7 @@ fn list_json(notes: const Note[:], out: http::Reply) {
             json::format_int(b, i + 1);
             b.push(',');
             json::format_key(b, "text");
-            json::format_string(b, n.text);
+            http::json_string(b, n.text);
             b.push('}');
         }
         b.push(']');

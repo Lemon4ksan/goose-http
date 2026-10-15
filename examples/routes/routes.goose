@@ -17,7 +17,7 @@ thread_fn worker(cfg: http::Config) {
             http::respond_json(out, 200) { b =>
                 b.push('{');
                 json::format_key(b, "id");
-                json::format_string(b, id);
+                http::json_string(b, id);
                 b.push('}');
             };
         } else if http::on(r, "POST", "/echo") {

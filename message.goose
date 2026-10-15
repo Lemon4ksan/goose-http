@@ -1076,21 +1076,38 @@ inline fn status_line(status: i32) -> const u8[:] {
     }
 }
 
-// A JSON string for s, quotes included.
+// The bytes a JSON string escapes. find_any looks for them 16 bytes at a time,
+// where json::format_string tests a byte at a time (docs/goose-findings.md).
+let JSON_ESCAPES = json_escapes_set();
+
+fn json_escapes_set() -> ByteSet {
+    var m = [false; 256];
+    for i in 256 { m[i] = i < 32 || i == '"' || i == '\\'; }
+    return byte_set(m);
+}
+
+// A JSON string for s, quotes included. Every control byte, \n too, is
+// written as \u00XX, where json::format_string writes \n, \r, \t, \b, and \f.
 fn json_string<A>(out: A&, s: const u8[:]) {
     out.push('"');
-    for c in s {
+    var pos = 0;
+    loop {
+        let k = find_any(s[pos..], JSON_ESCAPES);
+        if k < 0 { break; }
+        let at = pos + k;
+        out.append(s[pos..at]);
+        let c = s[at];
         if c == '"' || c == '\\' {
             out.push('\\');
             out.push(c);
-        } else if c < ' ' {
+        } else {
             out.append("\\u00");
             out.push("0123456789abcdef"[c >> 4]);
             out.push("0123456789abcdef"[c & 15]);
-        } else {
-            out.push(c);
         }
+        pos = at + 1;
     }
+    out.append(s[pos..]);
     out.push('"');
 }
 

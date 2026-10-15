@@ -2,6 +2,14 @@
 
 What each tag adds. Each release names the Goose compiler it was built and tested with.
 
+## Unreleased
+
+- `http::json_string` looks for a byte to escape 16 bytes at a time and appends the
+  bytes between escapes whole, with the same output. The examples and the benchmark
+  servers write their JSON strings with it.
+- An upgraded connection's bytes keep coming as `BODY` while its exchange waits with
+  `later`, where they waited for the wait to end.
+
 ## v0.3.2 (2026-10-15)
 
 A mailbox of one slot is refused, goose-compress is imported by its tag, and the

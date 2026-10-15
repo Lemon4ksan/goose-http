@@ -100,9 +100,9 @@ fn write_items(out: u8[>..]&, n: i64, m: i64) {
         out.append("{\"id\":");
         format(out, it.id);
         out.append(",\"name\":");
-        json::format_string(out, it.name);
+        http::json_string(out, it.name);
         out.append(",\"category\":");
-        json::format_string(out, it.category);
+        http::json_string(out, it.category);
         out.append(",\"price\":");
         format(out, it.price);
         out.append(",\"quantity\":");
@@ -110,7 +110,7 @@ fn write_items(out: u8[>..]&, n: i64, m: i64) {
         out.append(if it.active { ",\"active\":true,\"tags\":[" } else { ",\"active\":false,\"tags\":[" });
         for t, k in it.tags {
             if k > 0 { out.push(','); }
-            json::format_string(out, t);
+            http::json_string(out, t);
         }
         out.append("],\"rating\":{\"score\":");
         format(out, it.score);

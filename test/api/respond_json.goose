@@ -12,7 +12,7 @@ fn main() {
     http::respond_json(http::Reply { buf: out, common: "", keep_alive: keep, minor: 1, head: false, stream: st }, 201) { b =>
         b.push('{');
         json::format_key(b, "name");
-        json::format_string(b, name);
+        http::json_string(b, name);
         b.push(',');
         json::format_key(b, "n");
         json::format_int(b, 7);

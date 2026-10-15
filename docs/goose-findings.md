@@ -185,10 +185,13 @@ carry its own copy of the 293-byte `ByteSet` (globals are copied per thread, nex
 With that change, std's own `stdlib_json` test gives the same output, both compiled
 and under the JIT.
 
-Workaround: the REST server's `json_string` checks with `find_any` first, which serves
-serialized B and C 11-23% faster
-([measurement](results.md#2026-10-14-rest-strings-scanned-16-bytes-at-a-time)). The
-package's examples and its benchmark server still call `format_string`.
+Workaround: the package's `http::json_string` looks for a byte to escape with
+`find_any`, and appends the runs between escapes whole. The REST server, the HttpArena
+server, and the examples write their JSON strings with it. Checking with
+`find_any` first served serialized B and C 11-23% faster
+([measurement](results.md#2026-10-14-rest-strings-scanned-16-bytes-at-a-time)). Object
+keys still go through `format_key`, and the REST dataset generator still calls
+`format_string`.
 
 ### A worker holds its globals twice, and its spawner keeps a third copy
 

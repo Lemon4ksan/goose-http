@@ -96,7 +96,7 @@ fn status(out: http::Reply, b: const Board&) {
         json::format_bool(j, board_gpio_simulated());
         j.push(',');
         json::format_key(j, "loop");
-        json::format_string(j, if b.epoll { "epoll" } else { "uring" });
+        http::json_string(j, if b.epoll { "epoll" } else { "uring" });
         j.push('}');
     };
 }

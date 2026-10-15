@@ -1,0 +1,12 @@
+plain: "Hello, World! café"
+empty: ""
+quote: "a\"b"
+backslash: "a\\b"
+newline: "a\u000ab"
+tab, CR, NUL, 0x1f: "\u0009\u000d\u0000\u001f"
+only escapes: "\"\\\"\\"
+after 16 bytes: "0123456789abcdefghij\"klm"
+at the end: "0123456789abcdefghij\u000a"
+at the start: "\u0001ABCDEFGHIJKLMNOPQRST"
+every byte at every offset of 40
+after a prefix: {"a":"x\u000ay"}
