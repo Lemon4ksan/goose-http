@@ -16,7 +16,7 @@ from OpenAPI, see [goose-rest](https://github.com/kaitk/goose-rest).
 
 ## Status
 
-🟢 works · 🟡 planned or partial · 🔴 not planned
+🟢 works · 🟡 planned or partial · ⚪ later · 🔴 out of scope
 
 | | Protocol | Notes |
 |---|---|---|
@@ -24,8 +24,8 @@ from OpenAPI, see [goose-rest](https://github.com/kaitk/goose-rest).
 | 🟢 | Compression | Brotli, Zstandard, and gzip files, and gzip, deflate, and Zstandard on the fly, with [goose-compress](https://github.com/kaitk/goose-compress). |
 | 🟡 | HTTP/2 | Planned next. |
 | 🟡 | TLS | Planned next, likely as a separate package. |
-| 🔴 | WebSocket | `Upgrade` hands the connection to the program. |
-| 🔴 | HTTP/3 | |
+| 🔴 | WebSocket | Currently out of scope; `Upgrade` hands the connection to the program. |
+| ⚪ | HTTP/3 | Later, once QUIC on Linux matures: today it costs more CPU than TCP for the same traffic. |
 
 | | Platform | Notes |
 |---|---|---|
