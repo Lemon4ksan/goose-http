@@ -126,10 +126,16 @@ epoll, at 2 to 5 times the peak RSS
   numbers ([below](#check-on-the-board)).
 - Build with `--stack-reserve 64M`, as the commands here do. By default Goose reserves
   2 GB of address space for each of a program's data stacks, more than some board
-  kernels allow, and `goose build` sets that per program. It also caps the data a stack
-  holds: raise it if a handler needs more.
+  kernels allow, and `goose build` sets that per program. The package needs far less:
+  the heaviest benchmark, the REST server's tier C with 4 workers, peaks at 70.5 MB of
+  RSS for the whole process ([REST APIs](benchmarks.md#rest-apis)).
 - `examples/c` holds a 1 MB response buffer per worker (`MAX_RESPONSE` in `app.goose`).
   Lower it for a board with little memory.
+
+> [!IMPORTANT]
+> A program whose data outgrows a stack's reservation aborts: Goose has no recoverable
+> allocation failure. Raise `--stack-reserve` to whatever the workload needs. A larger
+> reservation costs address space, not memory.
 
 ## Run it on the board
 
