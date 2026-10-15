@@ -1,5 +1,6 @@
 // Unit tests for the mailboxes (mail.goose, shim/mail.c): FULL, TOO_LONG,
-// and STALE at the send, the slot size from an address, many senders on
+// and STALE at the send, the slot size from an address, the slot counts a
+// box allows and FULL at each one's capacity, many senders on
 // threads of their own with nothing lost or reordered per sender, and a
 // ping-pong between two threads, which needs a
 // wakeup for every message, with no wait reaching its time limit. The
@@ -59,6 +60,26 @@ fn test_full_and_stale() {
     http::mail_close(d);
     let _, bad = http::mail_open_code(3, 8);
     assert(bad < 0);
+}
+
+// A box takes as many messages as it has slots, then reports FULL. One slot
+// can't tell full from free, so a box has at least two: fewer is EINVAL (22).
+fn test_slot_counts() {
+    for slots in [-1, 0, 1] {
+        let _, bad = http::mail_open_code(slots as i32, 8);
+        assert(bad == -22);
+    }
+    for slots in [2, 4] {
+        let b, err = http::mail_open_code(slots as i32, 8);
+        assert(err == 0);
+        let to = http::address(b, 1);
+        for i in slots { assert(http::mail_send(to, i as i32, "x") == http::SENT); }
+        assert(http::mail_send(to, 0, "x") == http::FULL);
+        assert(http::mail_send(to, 0, "x") == http::FULL);
+        let n = http::mail_take(b) { key, tag, bytes => assert(bytes == "x"); };
+        assert(n == slots);
+        http::mail_close(b);
+    }
 }
 
 thread_fn check_dead(to: http::MailAddress) {
@@ -201,6 +222,7 @@ fn test_ping_pong(rounds: i64, pause_ms: i64) {
 
 fn main() {
     test_full_and_stale();
+    test_slot_counts();
     test_live_keys();
     test_senders();
     test_ping_pong(20000, 0);

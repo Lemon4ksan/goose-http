@@ -287,6 +287,9 @@ else { http::respond(out, 503, "text/plain", "busy"); return; }
   bytes)` returns `SENT`, `FULL` (no slot free), `TOO_LONG` (longer than a slot), or
   `STALE` at once, from any thread, and never blocks. `http::mail_slot_size(address)`
   gives a sender the box's slot size, or -1 for a `STALE` address.
+- A box's slot count is a power of two of at least 2. `mail_open` refuses any other
+  count with `EINVAL`, including 1: the ring tells a full slot from a free one by its
+  sequence number, which takes at least two slots.
 - `http::mail_send_value(address, tag, v)` sends a flat value, such as a struct
   holding the reply's address, as its `to_bytes` image, and `http::mail_value(bytes,
   v)` reads it back into `v`, verified by `from_bytes`, or returns false. A limited
@@ -299,7 +302,8 @@ else { http::respond(out, 503, "text/plain", "busy"); return; }
   and sends require the whole key to match. Clearing an old key preserves a newer
   key in the same entry. With `live_keys = 0`, the default, any key is accepted.
 - A worker's own box, which replies come to, has `Config.mail_slots` slots of
-  `Config.mail_size` bytes, 256 by default.
+  `Config.mail_size` bytes, 256 by default. A `Config.mail_slots` that `mail_open`
+  refuses stops the loop with that error.
 
 ## Running a server
 

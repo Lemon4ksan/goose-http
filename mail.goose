@@ -59,7 +59,8 @@ extern "mail_wait" fn mail_wait_c(box: u64, ms: i32) -> i32;
 // with it owns it, and the box is closed before ep.
 extern fn net_waker(ep: i32, tag: u64) -> i64;
 
-// Opens a box of slots messages, a power of two, of up to size bytes each.
+// Opens a box of slots messages, a power of two of at least 2, of up to size
+// bytes each.
 // waker is a loop's (net_waker, ring_waker), which the box then owns, or 0
 // for one the box makes for mail_wait. With live_keys > 0, sends require a
 // nonzero key marked live in entry key >> key_shift (0..63). The table has

@@ -1,6 +1,6 @@
 # 036: A box of one slot never reports FULL
 
-Status: todo (found 2026-10-15)
+Status: done (2026-10-15)
 
 Found by goose-rest's tutorial (its page 15, limits) at `v0.3.1`. `http::mail_open(1,
 size)` succeeds, but every `mail_send` to it returns `SENT`, overwriting the message not
@@ -31,8 +31,16 @@ fn main() {
 
 goose-rest's tutorial opens its box with two slots meanwhile.
 
+`mail_open` now refuses fewer than two slots with `EINVAL`, as it refuses a count that
+isn't a power of two, and so a loop given `Config.mail_slots` of 1 stops with that
+error. A box of one that admits a single message would need a second check in
+`mail_send`, against the owner's dequeue position, which every box would pay; a refusal
+costs nothing and leaves boxes of two or more unchanged. `test/test_mail.goose`'s
+`test_slot_counts` checks the refusal of -1, 0, and 1 slots, and that boxes of 2 and 4
+report `FULL` after 2 and 4 sends.
+
 ## Acceptance criteria
 
-- [ ] `mail_open` refuses fewer than two slots, or a box of one reports `FULL` while its
+- [x] `mail_open` refuses fewer than two slots, or a box of one reports `FULL` while its
       slot is taken
-- [ ] `docs/api.md` says which, and a unit test covers it
+- [x] `docs/api.md` says which, and a unit test covers it

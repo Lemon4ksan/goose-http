@@ -166,13 +166,15 @@ static mail_slot *mail_at(mail_box *b, uint32_t pos) {
     return (mail_slot *)(b->slots + (size_t)(pos & b->mask) * b->stride);
 }
 
-/* Opens a box of slots slots, a power of two, each taking a message of up to
-   size bytes. waker is the platform's waker the box wakes, which the box then
+/* Opens a box of slots slots, a power of two of at least 2, each taking a
+   message of up to size bytes. One slot can't work: once filled, its sequence
+   number equals the next send's position, which mail_send reads as free.
+   waker is the platform's waker the box wakes, which the box then
    owns, or 0 for one of the box's own, for mail_wait. live_count is the number
    of keys the owner can mark, indexed by key >> key_shift; 0 disables key
    tracking. Returns the box's key. */
 int64_t mail_open(int32_t slots, int32_t size, int64_t waker, int32_t live_count, int32_t key_shift) {
-    if (slots <= 0 || (slots & (slots - 1)) || size < 0 || live_count < 0 ||
+    if (slots < 2 || (slots & (slots - 1)) || size < 0 || live_count < 0 ||
         key_shift < 0 || key_shift > 63) return -MAIL_EINVAL;
     mail_box *b = calloc(1, sizeof *b);
     if (!b) return -MAIL_ENOMEM;

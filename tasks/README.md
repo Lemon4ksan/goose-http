@@ -67,7 +67,6 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 | 031: shared REST application | Split reusable application code from HTTP routes without changing behavior or memory. |
 | 032: shared benchmark harness | Reuse one harness across scripts and document external server integration. |
 | 034: Goose releases | goose-http builds from the release; WSL and Windows test runs, goose-compress, goose-rest, and our own packages remain. |
-| 036: one-slot box | A box of one slot never reports `FULL`; refuse it or fix the ring. |
 
 Tasks 013 and 018 have completed acceptance criteria and are archived with the other
 completed work. Compression subtasks stay with their open parent. Completed platform
