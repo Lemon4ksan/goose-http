@@ -267,8 +267,8 @@ and `env.txt`, the machine and the versions.
 `times.txt`, and `instructions.txt`. `.gitignore` keeps the per-cell output out, since
 70 commits of it had grown `main` past 31,000 files (2026-10-15). Commit another file a
 doc cites with `git add -f`. The raw output travels between machines on the
-`bench-raw` branch, which shares no history with `main` and can be squashed when it
-grows:
+`bench-raw` branch, which shares no history with `main`. The first push creates it;
+delete it once its sessions are written up:
 
 ```sh
 bench/raw.sh push bench/results/<dir>   # on the benchmark machine
@@ -276,4 +276,5 @@ bench/raw.sh pull                       # elsewhere: list the directories
 bench/raw.sh pull <dir>                 # extract one into bench/results/
 ```
 
-`bench-raw` holds every result directory committed to `main` up to 2026-10-15.
+The raw output of sessions up to 2026-10-15 stays in `main`'s history, at `30876c1a`:
+`git archive 30876c1a bench/results/<dir> | tar -x` restores one.
