@@ -1,0 +1,39 @@
+bench/rest.sh: /mnt/c/Users/kait/projects/goose/goose-http isn't at goose-http's pin v0.3.1
+== TIER=a /api/items/1
+server	run	user instructions/req	user cycles/req	req/s
+restc-http	1	4060.7	1464.4	1042229
+server	run	user instructions/req	user cycles/req	req/s
+restc-rest	1	4238.7	1626.6	989836
+== TIER=a /api/me
+server	run	user instructions/req	user cycles/req	req/s
+restc-http	1	4046.7	1310.5	1121441
+server	run	user instructions/req	user cycles/req	req/s
+restc-rest	1	4516.7	1670.4	992472
+== TIER=a /nothing
+server	run	user instructions/req	user cycles/req	req/s
+restc-http	1	2568.7	957.8	1234258
+server	run	user instructions/req	user cycles/req	req/s
+restc-rest	1	3143.7	1237.4	1132007
+== TIER=m /api/items/1
+server	run	user instructions/req	user cycles/req	req/s
+restc-rest	1	5829.7	1758.2	958684
+== TIER=f /
+server	run	user instructions/req	user cycles/req	req/s
+restc-rest	1	2376.1	919.4	1260379
+server	run	user instructions/req	user cycles/req	req/s
+restc-rest	1	2278.1	1016.0	1239489
+== TIER=f /id/1?name=bun
+server	run	user instructions/req	user cycles/req	req/s
+restc-rest	1	2956.1	1177.6	1149553
+server	run	user instructions/req	user cycles/req	req/s
+restc-rest	1	3204.1	1240.9	1140460
+== TIER=r /authorizations
+server	run	user instructions/req	user cycles/req	req/s
+restc-rest	1	3167.7	1477.2	1062940
+server	run	user instructions/req	user cycles/req	req/s
+restc-rest	1	2851.7	1575.1	1028039
+== TIER=r /user/keys/id201
+server	run	user instructions/req	user cycles/req	req/s
+restc-rest	1	38421.7	13353.8	245387
+server	run	user instructions/req	user cycles/req	req/s
+restc-rest	1	3298.7	2162.7	801830
