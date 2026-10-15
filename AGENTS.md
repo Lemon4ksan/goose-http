@@ -124,6 +124,11 @@ compilers they name, which `docs/benchmarks.md`'s pins table lists.
   endings on Windows").
 - An `extern fn` whose C side keeps or writes more than the spec's default (§7.10) says
   so in a comment.
+- Tests follow Goose's own convention: a top-level `test/` by area, each test a small
+  program whose printed output a golden file in `test/expected/` checks, `// error:`
+  fixtures for code that must not compile, and a runner that batches them with
+  `goose --multi-test` ([decisions](docs/decisions.md#tests-follow-gooses-convention),
+  2026-10-15).
 
 ## Running commands
 

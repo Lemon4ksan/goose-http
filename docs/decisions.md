@@ -197,6 +197,31 @@ wait stands (`holds_input`). The wait still ends only with `WAKE`, `TIMEOUT`, `e
 or `CLOSED`, so this adds no state, and the handler sees bytes and the reply in the
 order they reached the worker.
 
+## Tests follow Goose's convention
+
+Decided 2026-10-15, task 041, for goose-http, goose-rest, and goose-compress alike.
+Tests follow Goose's own convention, as the Goose repository's `test/` and
+`docs/testing.md` lay it out:
+
+- A top-level `test/` holds the tests, in a folder per area.
+- Each test is a small program: a `main` with `assert`s, which prints what it checks.
+  Its expected output is a golden file, `test/expected/<name>.out`, with
+  `<name>.stderr` for lines its standard error must hold, and `<name>.aborts` for a
+  test that must abort.
+- A test that must not compile carries `// error: <substring>` comments.
+- The repository's own runner, `test/run_tests.py` in Python as Goose's is, finds the
+  tests, compiles them in batches with `goose --multi-test`, runs each as a process of
+  its own and in parallel, and reports every failure without stopping at the first.
+  No runner is shared between repositories, as none is with Goose's.
+- Helpers the tests share are one imported module, not a copy in each test.
+
+This replaces the test programs `scripts/test.sh` runs by name, where the first failed
+`assert` ends a program and hides the rest. A test framework inside Goose was rejected:
+Goose has no reflection to find tests, and checking by printing against a golden file
+needs none. So were tests beside the code: Goose's compiler already leaves out of a
+build what its root doesn't import, so a separate `test/` costs nothing, and it matches
+the convention any reader of Goose's own repository knows.
+
 ## Not yet decided
 
 ### Compression in an optional module
