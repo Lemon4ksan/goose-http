@@ -12,8 +12,8 @@ changes between tags.
 [Architecture](docs/architecture/README.md) · [Embedded Linux](docs/embedded.md) ·
 [Development](docs/development.md) · [Changelog](CHANGELOG.md)
 
-For a framework with typed routes, extractors, middleware, and routers generated from
-OpenAPI, see [goose-rest](https://github.com/kaitk/goose-rest).
+For a full framework with typed routes, extractors, middleware, and optional route
+generation from OpenAPI, see [goose-rest](https://github.com/kaitk/goose-rest).
 
 ## Status
 
