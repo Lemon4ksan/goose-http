@@ -1,10 +1,10 @@
 // Responses compressed on the fly by the request's Accept-Encoding (RFC 9110
 // §12.5.3), with goose-compress's gzip, deflate (zlib), and zstd encoders
 // (task 022). Only a program that imports this module needs that package,
-// which its root file declares at the commit this file names:
+// which its root file declares at the tag this file names:
 //
-//   import http from "github.com/kaitk/goose-http@<commit>";
-//   import compress from "github.com/kaitk/goose-compress@2c7df270b88ed8a00e2d73b6f84d50908cf5a558";
+//   import http from "github.com/kaitk/goose-http@<tag>";
+//   import compress from "github.com/kaitk/goose-compress@v0.1.0";
 //   import http.compression;
 //
 // A whole response:
@@ -20,7 +20,7 @@
 namespace http;
 
 import std;
-import compress from "github.com/kaitk/goose-compress@2c7df270b88ed8a00e2d73b6f84d50908cf5a558";
+import compress from "github.com/kaitk/goose-compress@v0.1.0";
 import message;
 import media;
 

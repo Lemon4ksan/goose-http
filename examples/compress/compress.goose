@@ -6,7 +6,7 @@
 //   curl -H 'Accept-Encoding: zstd' localhost:8080/count/1000 | zstd -d
 import std;
 import http from "../../";
-import compress from "github.com/kaitk/goose-compress@2c7df270b88ed8a00e2d73b6f84d50908cf5a558";
+import compress from "github.com/kaitk/goose-compress@v0.1.0";
 import http.compression;
 
 // An exchange's state: the encoder of a streamed response, and the lines

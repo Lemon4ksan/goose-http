@@ -2,7 +2,7 @@
 // scripts/test-unit.sh runs them through TinyCC.
 import std;
 import http from "../";
-import compress from "github.com/kaitk/goose-compress@2c7df270b88ed8a00e2d73b6f84d50908cf5a558";
+import compress from "github.com/kaitk/goose-compress@v0.1.0";
 import routes;
 
 let GET = "GET /plaintext HTTP/1.1\r\nHost: x\r\n\r\n";
