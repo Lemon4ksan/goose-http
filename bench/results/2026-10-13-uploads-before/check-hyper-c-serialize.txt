@@ -1,4 +1,0 @@
-tier c: version, bookings, and shifts ok
-tier c: encounters ok
-tier c: clients ok
-tier c: ok

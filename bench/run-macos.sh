@@ -115,3 +115,4 @@ for run in $(seq 1 "$runs"); do
 done
 echo "load after: $(sysctl -n vm.loadavg)" >>"$out/env.txt"
 echo "$out"
+echo "share the raw output: bench/raw.sh push $out"

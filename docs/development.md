@@ -165,6 +165,7 @@ Run these in WSL, or on macOS ([below](#macos)). They work from any directory.
 | `scripts/test-echo.sh [server]` | Tests the echo servers of `build/server`, or of another command ([below](#test-the-echo-servers)). |
 | `bench/build.sh` | Builds the Goose server and the competing servers into `build/bench/` ([below](#benchmark)). |
 | `bench/run.sh` | Runs the benchmark matrix against `build/bench/` and writes `bench/results/<date>/` ([below](#benchmark)). |
+| `bench/raw.sh` | Pushes a result directory's raw output to the `bench-raw` branch, or pulls it from there; `main` keeps only what docs cite ([bench/README.md](../bench/README.md#results)). |
 
 `build.sh` runs `goose build --cc gcc --standalone`. gcc builds a faster server than
 clang (task 008); `CC` picks another. `--standalone` puts the runtime in the program's C

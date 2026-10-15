@@ -1,4 +1,0 @@
-vanilla-epoll: 3 workers on port 29280
-[socket] SO_REUSEPORT enabled for load balancing
-[socket] Binding to 0.0.0.0:29280
-listening on http://localhost:29280/

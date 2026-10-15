@@ -261,3 +261,19 @@ A directory holds, per cell, `<server>-w<workers>-<test>-c<conns>-r<run>` with
 `.wrk`, `.h2load`, `.lat` (the latency summary), `.steps`, `.times`, and `.log` (the
 server's output); `runs.tsv`, one line per cell; `summary.md`, from `summarize.py`;
 and `env.txt`, the machine and the versions.
+
+`main` tracks only what the docs cite and what `REUSE` reads: notes (`*.md`), tables
+(`*.tsv`), batch scripts, `env.txt`, `key.txt`, `binaries.txt`, `revs.txt`,
+`times.txt`, and `instructions.txt`. `.gitignore` keeps the per-cell output out, since
+70 commits of it had grown `main` past 31,000 files (2026-10-15). Commit another file a
+doc cites with `git add -f`. The raw output travels between machines on the
+`bench-raw` branch, which shares no history with `main` and can be squashed when it
+grows:
+
+```sh
+bench/raw.sh push bench/results/<dir>   # on the benchmark machine
+bench/raw.sh pull                       # elsewhere: list the directories
+bench/raw.sh pull <dir>                 # extract one into bench/results/
+```
+
+`bench-raw` holds every result directory committed to `main` up to 2026-10-15.
