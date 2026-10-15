@@ -1,0 +1,4 @@
+media_type: Application/JSON charset utf-8; boundary a b\"c; 10 refused
+negotiate: specific ranges, parameters, repeats, case, unreadable ranges
+qvalue: 1000 500 125 1000 0, 1.001 refused
+refusals: 415, 406

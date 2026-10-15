@@ -1,0 +1,3 @@
+cookies: a=1|b=two|c=3|d=|a=9|e=5|
+set_cookie: every attribute, Max-Age=0, a quoted value
+dropped: 9 cookies

@@ -1,0 +1,3 @@
+put: lengths 12 and 0
+ranges: >hellostore
+frozen: no put; reads go on

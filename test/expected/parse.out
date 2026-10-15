@@ -1,0 +1,5 @@
+parse: a request, its 36 prefixes, pipelining, empty lines before it, field case
+fields: Host=x;Cookie=a=1;X-Empty=;cookie=b=2;Accept=*/*;
+keep-alive: Connection close and keep-alive, HTTP/1.0, HTTP/1.7
+expect: 100-continue, 417 for another, none in HTTP/1.0
+limits: line 414, fields 431, head 431, body 413

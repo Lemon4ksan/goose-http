@@ -1,0 +1,6 @@
+4 sent, FULL at the fifth, 4 taken in order
+TOO_LONG past the slot size; STALE once closed and in a new box's place
+a wait with nothing sent ends at its limit; 3 slots refused
+2 slots: FULL after 2
+4 slots: FULL after 4
+-1, 0, and 1 slots: EINVAL

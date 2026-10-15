@@ -1,0 +1,15 @@
+parse_date: format_date's dates come back; RFC 850's doesn't parse
+not_modified: If-None-Match, If-Modified-Since
+bytes=0-9: 0..10 206
+bytes=90-: 90..100 206
+bytes=-5: 95..100 206
+bytes=-500: 0..100 206
+bytes=95-200: 95..100 206
+bytes=100-: 0..0 416
+bytes=-0: 0..0 416
+bytes=0-9,20-29: 0..100 200
+items=0-9: 0..100 200
+bytes=5-2: 0..100 200
+bytes=x-2: 0..100 200
+If-Range: 206 for the same tag, 200 for another
+content_range: bytes 90-99/100, bytes */100

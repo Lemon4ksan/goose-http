@@ -1,0 +1,4 @@
+dechunk: whole bodies, prefixes, extensions, and 400s
+read_body: 4 bodies and 8 refused, in pieces of every size
+trailers: U is w
+Content-Length body: 2 left after 3 of 5

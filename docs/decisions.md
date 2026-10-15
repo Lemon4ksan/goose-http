@@ -212,7 +212,10 @@ Tests follow Goose's own convention, as the Goose repository's `test/` and
 - The repository's own runner, `test/run_tests.py` in Python as Goose's is, finds the
   tests, compiles them in batches with `goose --multi-test`, runs each as a process of
   its own and in parallel, and reports every failure without stopping at the first.
-  No runner is shared between repositories, as none is with Goose's.
+  No runner is shared between repositories, as none is with Goose's. In goose-http the
+  batch is the typecheck, and `goose build` builds each test, since most tests link C
+  that a sidecar names, the package's shim or the mailbox's, which `goose build`
+  compiles.
 - Helpers the tests share are one imported module, not a copy in each test.
 
 This replaces the test programs `scripts/test.sh` runs by name, where the first failed

@@ -1,0 +1,5 @@
+plaintext, json, HEAD, 404 with close, 405 kept alive
+OPTIONS, 501, 405, 404
+HttpArena: baseline11 GET and POST, 405, pipeline
+bytes of 12 and 50000, stream of 20000 in 16 KB chunks, HEAD
+upload and echo, with whole bodies

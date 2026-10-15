@@ -1,0 +1,6 @@
+respond, start and finish, HEAD, HTTP/1.0 kept alive
+bodyless: 204, 304, 103, and HEAD for 304
+keep_alive through the reply; refuse into a limited array
+dropped: 7 field names, 8 values
+json_string: "a\"b\\c\u000a\u0001"
+insert_field: after a body, a bodyless head, an open one; refused; fields added to common

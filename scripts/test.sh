@@ -1,7 +1,8 @@
 #!/bin/sh
 # Runs every test this repository has, and fails on the first failure: the
-# typecheck of each root file, the unit tests through TinyCC
-# (scripts/test-unit.sh), then each loop's build of the server
+# typecheck of the server's and the examples' root files, the tests in test/
+# (test/run_tests.py, which typechecks and runs each one and reports every
+# failure among them), then each loop's build of the server
 # (scripts/build.sh) with scripts/test-http.sh against it,
 # scripts/test-echo.sh, and scripts/test-examples.sh, which builds each
 # example and requests each of its routes on port 8080.
@@ -42,7 +43,6 @@ drain() {
 }
 
 for f in "$root"/server/server.goose "$root"/server/server_epoll.goose \
-    "$root"/test/test_*.goose "$root"/server/test_*.goose \
     "$root"/examples/hello/hello.goose "$root"/examples/routes/routes.goose \
     "$root"/examples/api/api.goose "$root"/examples/upload/upload.goose \
     "$root"/examples/later/later.goose "$root"/examples/files/files.goose \
@@ -51,8 +51,8 @@ for f in "$root"/server/server.goose "$root"/server/server_epoll.goose \
     "$goose" --check "$f"
 done
 
-step "test-unit.sh"
-"$root/scripts/test-unit.sh"
+step "test/run_tests.py"
+python3 "$root/test/run_tests.py"
 
 for loop in $loops; do
     step "LOOP=$loop build.sh"

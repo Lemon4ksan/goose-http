@@ -23,7 +23,8 @@ http.build     the package's sidecar: each platform's shim
 shim/          C for syscalls: sockets, epoll, io_uring, kqueue, IOCP, mailboxes, and the store
 server/        the benchmark server, importing the package from "../"
 examples/      small servers (examples/README.md); the API by topic is docs/api.md
-test/          unit tests
+test/          the tests, a folder per area, their golden files (expected/), and the
+               runner, run_tests.py (below)
 bench/         competing servers, load scripts, recorded results
 scripts/       build, test, and Goose setup scripts
 docs/          the API, architecture, development setup, known issues, results, Goose findings
@@ -64,7 +65,7 @@ any directory:
 |---|---|
 | `scripts/build.sh` | Builds the benchmark server into `build/server` with `goose build`, at `-O2` for Goose and gcc: on Linux `server/server.goose`, which serves with the io_uring loop, or with `LOOP=epoll` `server/server_epoll.goose`, which serves with the epoll loop. |
 | `scripts/test.sh` | Runs every test, and stops at the first failure ([below](#run-every-test)). |
-| `scripts/test-unit.sh` | Runs each `test/test_*.goose` and `server/test_*.goose` through TinyCC ([below](#test-the-http-server)). |
+| `test/run_tests.py` | Runs the tests in `test/` and compares their output with `test/expected/` ([below](#run-the-tests-in-test)). |
 | `scripts/test-http.sh` | Tests the HTTP server of `build/server` ([below](#test-the-http-server)). |
 | `scripts/test-echo.sh [server]` | Tests the echo servers of `build/server`, or of another command ([below](#test-the-echo-servers)). |
 | `bench/build.sh` | Builds the Goose server and the competing servers into `build/bench/` ([below](#benchmarks)). |
@@ -83,8 +84,7 @@ keeps the generated C under `~/.goose/build/prog/`, and the package's compiled C
 
 TinyCC can't place thread-local storage, so it refuses to run any program that can reach
 `thread_spawn`, even when the spawn isn't taken. Build the server with `goose build`,
-as `scripts/build.sh` does. Unit tests without a reachable spawn can run through TinyCC;
-the unit-test script builds those that need threads.
+as `scripts/build.sh` does, and as `test/run_tests.py` builds each test.
 
 The program takes a mode and a port (default 8080):
 
@@ -101,11 +101,8 @@ build/server echo-epoll 8080      # an echo server on one edge-triggered epoll l
 `scripts/test.sh` runs the whole suite, and stops at the first failure:
 
 1. `goose --check` of each root file: `server/server.goose`, `server/server_epoll.goose`,
-   each `test/test_*.goose` and `server/test_*.goose`, and the examples listed in
-   `scripts/test.sh`.
-2. `scripts/test-unit.sh`: each unit test through TinyCC, except one with a `thread_fn`,
-   such as `test/test_mail.goose`, which TinyCC can't run: that one is built with
-   `goose build` into `build/` and run from there.
+   and the examples listed in `scripts/test.sh`.
+2. `test/run_tests.py`: the tests in `test/` ([below](#run-the-tests-in-test)).
 3. For each loop, `scripts/build.sh` and then `scripts/test-http.sh`: uring and epoll on
    Linux and macOS, with `LOOP=uring-epoll` against the uring build on Linux too, and
    iocp on Windows.
@@ -123,6 +120,43 @@ On macOS it waits for `TIME_WAIT` to drain before each run
 ([known issues](known-issues.md#macos)). On Windows, in Git Bash, its first step is the
 Windows typecheck that [Edit on Windows](#edit-on-windows) describes. Git Bash leaves out
 the load runs and the fd-limit check.
+
+### Run the tests in test/
+
+`test/run_tests.py` runs the tests in `test/`, which follow Goose's own convention
+([decisions](decisions.md#tests-follow-gooses-convention)). It needs Python 3 and the C
+compiler `goose build` uses.
+
+- Each test is a program `test/<area>/<name>.goose`, such as `test/http/parse.goose`,
+  that prints what it checks and asserts it. Its expected output is
+  `test/expected/<name>.out`, so names are unique across areas. `<name>.stderr` lists
+  lines its standard error must hold, and `<name>.aborts` marks a test that must exit
+  with an error.
+- A file with `// error: <message>` lines, in `test/errors/`, must fail to compile with
+  each message in a diagnostic.
+- The helpers the tests share are `test/check.goose`, which a test imports with
+  `import check from "../";`.
+- A test that declares the package by `mail.goose` alone has a sidecar of its own,
+  `test/mail/<name>.build`, naming the C the mailbox needs.
+
+The runner typechecks every file in batches, many files to one
+`goose --multi-test --check`. It then builds each test with `goose build` at `-O0` and
+at `-O2`, in `build/test/O<level>/<name>/`, and runs it there, the tests in parallel
+(`-j`, one per processor by default). It reports every failure, with a diff against the
+golden file, and a count per area:
+
+```sh
+test/run_tests.py                # every test, at -O0 and -O2
+test/run_tests.py parse          # one test
+test/run_tests.py http mail      # the areas http and mail
+test/run_tests.py -O 2 -v parse  # at -O2 only, and print the passes too
+test/run_tests.py --bless parse  # rewrite test/expected/parse.out with what it prints
+```
+
+Bless a golden file only after reading the diff that showed it changed, and commit it
+with the change that changed it. `GOOSE` and `GOOSE_COMMIT` pick the compiler, as for the
+scripts, and `CC` the C compiler, as for `goose build --cc`. In Git Bash, run it as
+`python3 test/run_tests.py`.
 
 ### Linux
 
@@ -191,8 +225,7 @@ scripts' `ulimit -n 65536` fits the tested per-process fd limit.
 The io_uring loop runs natively on Windows through `shim/iocp.c` and `shim/net_win.c`,
 which `http.build` lists under `c_sources_windows`
 ([architecture](architecture.md#c-in-the-package)), and
-`scripts/test-unit.sh`, `scripts/test-http.sh`, and `scripts/test-echo.sh` pass there,
-in Git Bash. The epoll loop doesn't build on Windows. Windows isn't for benchmarks.
+`scripts/test-http.sh` and `scripts/test-echo.sh` pass there, in Git Bash. The epoll loop doesn't build on Windows. Windows isn't for benchmarks.
 
 The scripts fetch the `windows-x64` release ([Get Goose](#get-goose)). `goose build`
 needs the Visual Studio 2026 Build Tools: run
@@ -201,7 +234,7 @@ needs the Visual Studio 2026 Build Tools: run
 
 ```sh
 scripts/build.sh                 # LOOP=iocp, CC=msvc: build/server.exe
-nice -n 19 scripts/test-unit.sh
+nice -n 19 python3 test/run_tests.py
 nice -n 19 scripts/test-http.sh
 nice -n 19 scripts/test-echo.sh
 ```
@@ -228,7 +261,7 @@ fetched (`scripts/goose.sh` in Git Bash):
 
 ```powershell
 build\goose-v2026.1-windows-x64\goose.exe --check server\server.goose
-build\goose-v2026.1-windows-x64\goose.exe --check test\test_http.goose
+build\goose-v2026.1-windows-x64\goose.exe --check test\http\parse.goose
 ```
 
 `--check` and `-o out.c` don't compile the generated C, so the Linux-only C in `shim/` is
@@ -353,9 +386,9 @@ own ([embedded Linux](embedded.md#without-the-board-emulated-arm64)).
 
 ### Test the HTTP server
 
-`scripts/test-unit.sh` runs `test/test_http.goose`, which asserts what the package's
-`message.goose` does with bytes alone, and `server/test_routes.goose`, the server's
-routes: the parser on good, partial, pipelined, and refused requests, the
+`test/run_tests.py` runs the tests in `test/http/`, which check what the package's
+`message.goose` does with bytes alone, and `test/server/server_routes.goose`, the
+server's routes: the parser on good, partial, pipelined, and refused requests, the
 `Date` header against dates from Python's `email.utils`, and the exact bytes of each
 kind of response.
 

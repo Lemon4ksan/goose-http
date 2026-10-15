@@ -1,0 +1,4 @@
+body_within, chunked in pieces: yyyyn close
+gather: in pieces, chunked, whole
+gather past the limit: 413 and close
+gather, closed mid-body: no call, its run given back

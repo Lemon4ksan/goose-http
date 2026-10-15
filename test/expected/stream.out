@@ -1,0 +1,5 @@
+chunked, and nothing after end
+a known length: cut past it, closed short of it
+HEAD, HTTP/1.0, 204
+trailers, and those dropped
+upgrade: websocket, 101, and end closes

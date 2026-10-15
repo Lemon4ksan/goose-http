@@ -1,2 +1,4 @@
 *.sh text eol=lf
 *.py text eol=lf
+# Golden files: test/run_tests.py writes them with LF on every platform.
+/test/expected/** text eol=lf

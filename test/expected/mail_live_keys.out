@@ -1,0 +1,3 @@
+marked live: slot size 8, TOO_LONG, SENT, FULL
+cleared and out of range: STALE; queued messages stay
+from another thread: STALE; a bad key count and shift refused

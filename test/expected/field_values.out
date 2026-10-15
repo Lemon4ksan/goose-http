@@ -1,0 +1,10 @@
+byte 0: 400
+byte 9: 200
+byte 13: 400
+byte 31: 400
+byte 32: 200
+byte 126: 200
+byte 127: 400
+byte 128: 200
+byte 255: 200
+23040 values checked

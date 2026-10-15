@@ -1,8 +1,7 @@
-// Unit tests for the shared store (store.goose, shim/store.c): puts, reads
-// of a range, refused ranges and blobs, and no put after the freeze.
-// scripts/test-unit.sh runs them through TinyCC.
+// The shared store (store.goose, shim/store.c): puts, reads of a range,
+// refused ranges and blobs, and no put after the freeze.
 import std;
-import http from "../";
+import http from "../../";
 import http.store;
 
 fn main() {
@@ -11,6 +10,7 @@ fn main() {
     assert(ea == 0 && ee == 0 && a.id != e.id);
     assert(http::store_len(a) == 12 && http::store_len(e) == 0);
     assert(http::store_len(http::Blob { .. }) == -1 && http::store_len(http::Blob { id: 99 }) == -1);
+    print("put: lengths ", http::store_len(a), " and ", http::store_len(e));
 
     var out: u8[>..] = [];
     out.append(">");
@@ -22,10 +22,11 @@ fn main() {
     assert(!http::store_append(a, 0, 13, out) && !http::store_append(a, -1, 2, out));
     assert(!http::store_append(a, 5, 4, out) && !http::store_append(http::Blob { id: 99 }, 0, 0, out));
     assert(out == ">hellostore");
+    print("ranges: ", out);
 
     http::store_freeze();
     let f, ef = http::store_put("late");
     assert(ef < 0 && f.id == -1);
     assert(http::store_append(a, 0, 12, out) && out == ">hellostorehello, store");
-    print("test_store: ok");
+    print("frozen: no put; reads go on");
 }

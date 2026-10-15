@@ -1,0 +1,5 @@
+start_wait and abandon: the key goes stale
+an answer at once: the key goes stale
+a reply in pieces: live through WAKE, stale once answered
+waiting: the pipelined request is held back
+upgraded: ping, pong, reply, bye

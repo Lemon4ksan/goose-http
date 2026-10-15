@@ -142,7 +142,8 @@ intermediate shell can otherwise expand variables before bash sees them.
 ### Line endings on Windows
 
 With `core.autocrlf=true`, `.c`, `.goose`, and `.md` files are CRLF on disk and LF in
-git, while `.gitattributes` keeps `.sh` and `.py` LF. A scripted search and replace that
+git, while `.gitattributes` keeps `.sh`, `.py`, and the golden files in `test/expected/`
+LF. A scripted search and replace that
 assumes LF finds nothing in a CRLF file, and one that writes `\n` turns a whole CRLF file
 into a one-line-per-change diff. `\r`, `\n`, and `\` inside a heredoc pass through two
 rounds of escaping and come out as raw control bytes or literal text. An editor that

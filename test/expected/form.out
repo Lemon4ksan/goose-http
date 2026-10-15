@@ -1,0 +1,7 @@
+form: a=1|b=x+y%21|c=|=z|
+multipart: in pieces of 1 to 219 bytes
+boundaries: missing, mixed, quoted, invalid, 70 and 71 characters
+failed bodies; a part head of 2048 bytes; a body cut short
+fail_multipart at each of 16 calls, in pieces of 1
+fail_multipart at each of 12 calls, in pieces of 7
+fail_multipart at each of 8 calls, in pieces of 219

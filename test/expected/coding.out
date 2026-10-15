@@ -1,0 +1,2 @@
+coding_for: 9 cases, and gzip with zstd turned off
+compressible: JSON, HTML, SVG; not PNG, MP4, zip, WOFF2

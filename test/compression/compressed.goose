@@ -1,22 +1,11 @@
-// Unit tests for compression.goose: which coding a request gets, the
-// responses left uncompressed, and a streamed response's chunks and
-// encoders. scripts/http_client.py compress decompresses real responses.
+// Compressed responses: respond_compressed's whole bodies and those it leaves
+// alone, and a streamed response's chunks and pooled encoders.
+// scripts/http_client.py compress decompresses real responses.
 import std;
-import http from "../";
+import http from "../../";
 import compress from "github.com/kaitk/goose-compress@v0.1.0";
 import http.compression;
-
-let COMMON = "Server: goose\r\nDate: Sat, 10 Oct 2026 12:00:00 GMT\r\n";
-
-fn get_with(method: const u8[:], extra: const u8[:], out: u8[>..]&) -> http::Request {
-    out.append(method);
-    out.append(" /f HTTP/1.1\r\nHost: x\r\n");
-    out.append(extra);
-    out.append("\r\n");
-    let r, s = http::parse(out);
-    assert(s == 200);
-    return r;
-}
+import check from "../";
 
 // A body that compresses: 2,000 bytes of a repeating line.
 fn text() -> u8[>..] {
@@ -48,48 +37,14 @@ fn body_of(response: const u8[:]) -> const u8[:] {
     return response[find(response, "\r\n\r\n") + 4..];
 }
 
-struct Pick { fields: const u8[:], coding: http::Coding }
-
-fn test_coding_for() {
-    let c = http::Compression { .. };
-    let cases = [
-        Pick { fields: "", coding: http::Coding.Identity },
-        Pick { fields: "Accept-Encoding: gzip, br\r\n", coding: http::Coding.Gzip },
-        Pick { fields: "Accept-Encoding: gzip, deflate, br, zstd\r\n", coding: http::Coding.Zstd },
-        Pick { fields: "Accept-Encoding: deflate\r\n", coding: http::Coding.Deflate },
-        Pick { fields: "Accept-Encoding: deflate, gzip\r\n", coding: http::Coding.Gzip },
-        Pick { fields: "Accept-Encoding: zstd;q=0.5, gzip\r\n", coding: http::Coding.Gzip },
-        Pick { fields: "Accept-Encoding: br\r\n", coding: http::Coding.Identity },
-        Pick { fields: "Accept-Encoding: *\r\n", coding: http::Coding.Zstd },
-        Pick { fields: "Accept-Encoding: identity\r\n", coding: http::Coding.Identity },
-    ];
-    for k in cases {
-        var b: u8[>..] = [];
-        let r = get_with("GET", k.fields, b);
-        if http::coding_for(r, c) != k.coding { print("coding_for: ", k.fields); }
-        assert(http::coding_for(r, c) == k.coding);
-    }
-    var b: u8[>..] = [];
-    let r = get_with("GET", "Accept-Encoding: zstd, gzip;q=0.9\r\n", b);
-    assert(http::coding_for(r, http::Compression { zstd: false, .. }) == http::Coding.Gzip);
-
-    assert(http::compressible("application/json"));
-    assert(http::compressible("text/html; charset=utf-8"));
-    assert(http::compressible("image/svg+xml"));
-    assert(!http::compressible("image/png"));
-    assert(!http::compressible("Video/mp4"));
-    assert(!http::compressible("application/zip"));
-    assert(!http::compressible("font/woff2"));
-}
-
 // respond_compressed's response to a request with the fields extra.
 fn respond(method: const u8[:], extra: const u8[:], status: i32, content_type: const u8[:],
            body: const u8[:], out: u8[>..]&) {
     var b: u8[>..] = [];
-    let r = get_with(method, extra, b);
+    let r = check::request(method, extra, b);
     var keep = true;
     var st = http::Stream { .. };
-    let c = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: method == "HEAD", stream: st };
+    let c = http::Reply { buf: out, common: check::COMMON, keep_alive: keep, minor: 1, head: method == "HEAD", stream: st };
     http::respond_compressed(c, r, status, content_type, body);
 }
 
@@ -111,6 +66,7 @@ fn test_whole() {
     var want: u8[>..] = [];
     compress::compress(t, want, compress::GZIP, 1);
     assert(body == want);
+    print("gzip: ", t.len, " bytes to ", body.len, ", as compress gives");
 
     out.clear();
     respond("GET", "Accept-Encoding: deflate\r\n", 200, "text/plain", t, out);
@@ -120,6 +76,7 @@ fn test_whole() {
     let zb = body_of(out);
     assert(value_of(out, "Content-Encoding") == "zstd");
     assert(zb[0] == 0x28 && zb[1] == 0xb5 && zb[2] == 0x2f && zb[3] == 0xfd);
+    print("deflate and zstd: their magic bytes");
 
     // Left alone, with Vary: no Accept-Encoding, a short body, HEAD, 206,
     // and 304.
@@ -143,6 +100,7 @@ fn test_whole() {
     respond("GET", gzip, 200, "image/png", t, out);
     assert(value_of(out, "Content-Encoding") == "" && value_of(out, "Vary") == "");
     assert(body_of(out) == t);
+    print("left alone: no Accept-Encoding, 206, HEAD, 304, a short body, an image");
 }
 
 // A streamed response, its chunks unwrapped into body.
@@ -161,11 +119,11 @@ fn unchunk(response: const u8[:], body: u8[>..]&) {
 fn test_stream() {
     let t = text();
     var b: u8[>..] = [];
-    let r = get_with("GET", "Accept-Encoding: gzip\r\n", b);
+    let r = check::request("GET", "Accept-Encoding: gzip\r\n", b);
     var out: u8[>..] = [];
     var keep = true;
     var st = http::Stream { .. };
-    let c = http::Reply { buf: out, common: COMMON, keep_alive: keep, minor: 1, head: false, stream: st };
+    let c = http::Reply { buf: out, common: check::COMMON, keep_alive: keep, minor: 1, head: false, stream: st };
     var z = http::Compressed { .. };
     http::begin_compressed(c, r, 200, "text/event-stream", z);
     assert(z.coding == http::Coding.Gzip && z.slot == 0);
@@ -181,6 +139,7 @@ fn test_stream() {
     var gz: u8[>..] = [];
     unchunk(out, gz);
     assert(gz[0] == 0x1f && gz[1] == 0x8b && gz.len < t.len / 2);
+    print("streamed gzip: flushed pieces, chunked");
 
     // The pool lends the same encoder again, and a second at once.
     var z2 = http::Compressed { .. };
@@ -195,10 +154,11 @@ fn test_stream() {
     http::begin_compressed(c, r, 200, "text/plain", z3);
     assert(z3.slot == 0);
     http::release_compressed(z3);
+    print("the pool: slots 0 and 1, then 0 again");
 
     // zstd, and identity for a client that takes neither.
     var bz: u8[>..] = [];
-    let rz = get_with("GET", "Accept-Encoding: zstd\r\n", bz);
+    let rz = check::request("GET", "Accept-Encoding: zstd\r\n", bz);
     let mz = out.len;
     http::begin_compressed(c, rz, 200, "text/plain", z);
     assert(z.coding == http::Coding.Zstd && z.slot == 0);
@@ -209,7 +169,7 @@ fn test_stream() {
     assert(zs[0] == 0x28 && zs[1] == 0xb5);
 
     var bn: u8[>..] = [];
-    let rn = get_with("GET", "", bn);
+    let rn = check::request("GET", "", bn);
     let mn = out.len;
     http::begin_compressed(c, rn, 200, "text/plain", z);
     assert(z.slot == -1);
@@ -218,11 +178,10 @@ fn test_stream() {
     var plain: u8[>..] = [];
     unchunk(out[mn..], plain);
     assert(plain == "plain" && value_of(out[mn..], "Vary") == "Accept-Encoding");
+    print("streamed zstd, and identity: ", plain);
 }
 
 fn main() {
-    test_coding_for();
     test_whole();
     test_stream();
-    print("test_compression: ok");
 }

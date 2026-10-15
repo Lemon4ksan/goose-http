@@ -1,0 +1,4 @@
+basic: Aladdin, open sesame
+bearer: x==, in any case of the scheme
+refused: 6 Bearer, 7 Basic, a bad scheme
+challenge: 401

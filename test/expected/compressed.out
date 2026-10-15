@@ -1,0 +1,6 @@
+gzip: 2015 bytes to 67, as compress gives
+deflate and zstd: their magic bytes
+left alone: no Accept-Encoding, 206, HEAD, 304, a short body, an image
+streamed gzip: flushed pieces, chunked
+the pool: slots 0 and 1, then 0 again
+streamed zstd, and identity: plain

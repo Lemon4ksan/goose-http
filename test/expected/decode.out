@@ -1,0 +1,2 @@
+decode: /a b/c a b+, and 400 for a bad escape
+query: q=a+b%26c;flag=;n=12;q=second;e=;
