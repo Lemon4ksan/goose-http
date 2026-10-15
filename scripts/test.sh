@@ -31,7 +31,7 @@ step() {
 
 # macOS holds a closed client's port in TIME_WAIT for 30 s, and the next
 # script's 10,000 connections fail with EADDRNOTAVAIL until most are gone
-# (docs/development.md, "macOS"). Waits for that, up to 60 s.
+# (docs/known-issues.md, "macOS"). Waits for that, up to 60 s.
 drain() {
     [ "$os" = Darwin ] || return 0
     i=0

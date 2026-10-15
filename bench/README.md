@@ -28,12 +28,107 @@ script writes each one's configuration in its `start` function.
 
 They need Linux (`taskset`, `perf`, `/proc`; on Windows, WSL), `GOOSE`, and
 `~/.cargo/bin` on `PATH`. The environment configures them (see the comment at the top
-of each). `docs/development.md` lists the tools and the traps they work around.
+of each). [Toolchain](#toolchain) lists the tools beyond the
+[development setup](../docs/development.md#linux), and
+[known issues](../docs/known-issues.md#benchmarks) the traps they work around. Run a
+benchmark with no competing work on the machine, and compare only compatible machines,
+kernels, and settings.
+
+`bench/codegen.sh REV...` compares generated code without serving traffic. It keeps
+generated C under `~/goose-http-codegen/` and reports function-family sizes and hot
+function instruction counts. Specialization numbers change between builds, so compare
+families. Static counts include cold branches; `bench/count.sh` measures executed
+user instructions over a fixed request count. Neither substitutes for rate and
+memory measurements.
 
 `bench/run-macos.sh` is the exception: it runs on macOS, without pinning, against the
 Rust servers that build there, and records wrk's rate and peak RSS only. macOS's
 loopback caps every server at the same rate, so its numbers show that a build works and
 what it uses, and don't rank the servers (task 012).
+
+## Toolchain
+
+Beyond the [Linux test tools](../docs/development.md#linux), the benchmarks need these,
+on Ubuntu 26.04 in WSL2:
+
+| Tool | Source | Version used (2026-10-10) |
+|---|---|---|
+| perf | apt `linux-perf` | 7.0.14 (package `7.0.0-38.38`) |
+| Rust | rustup | rustc 1.99.0, cargo 1.99.0, for the Rust servers |
+| Odin | `/opt/odin-dev-2026-10` | `dev-2026-10` (`dev-2026-10-nightly:84bc3fc`, LLVM 20.1.8), for odin-http |
+| Zig | `/opt/zig-0.16.0` | 0.16.0, for dusty, zix, and zeemo |
+| V | built by `bench/build.sh` in its cache | 0.5.2 `b99970b`, for vanilla-epoll; needs apt `liburing-dev` (2.14) |
+| Docker | Docker Desktop | 29.8.2, for HttpArena's harness |
+| nginx | apt `nginx`, service disabled | 1.28.3, for `bench/files.sh` |
+| Caddy | fetched by `bench/build.sh` | 2.10.2, for `bench/files.sh` |
+
+Odin comes from its GitHub release; `bench/build.sh` refuses any other version, because
+odin-http follows Odin's master branch. Odin links with clang:
+
+```sh
+curl -sSLf -o /tmp/odin.tgz \
+    https://github.com/odin-lang/Odin/releases/download/dev-2026-10/odin-linux-amd64-dev-2026-10.tar.gz
+mkdir -p /tmp/odin && tar -xzf /tmp/odin.tgz -C /tmp/odin
+sudo mv /tmp/odin/odin-linux-amd64-nightly+2026-10-06 /opt/odin-dev-2026-10
+sudo ln -sf /opt/odin-dev-2026-10/odin /usr/local/bin/odin
+```
+
+Zig comes from ziglang.org; `bench/build.sh` refuses any other version, because dusty
+pins `minimum_zig_version = "0.16.0"` and Zig's standard library changes between
+releases. The tarball's SHA-256 is
+`70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00`, as
+`https://ziglang.org/download/index.json` lists it:
+
+```sh
+curl -sSLf -o /tmp/zig.tar.xz https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
+mkdir -p /tmp/zig && tar -xJf /tmp/zig.tar.xz -C /tmp/zig
+sudo mv /tmp/zig/zig-x86_64-linux-0.16.0 /opt/zig-0.16.0
+sudo ln -sf /opt/zig-0.16.0/zig /usr/local/bin/zig
+```
+
+`bench/build.sh` builds V itself, at the commits HttpArena's vanilla-epoll image pins.
+vanilla's io_uring module needs liburing's header even in an epoll build, and
+libreactorng builds with autotools:
+
+```sh
+sudo apt-get install -y liburing-dev
+sudo apt-get install -y autoconf automake libtool libltdl-dev
+```
+
+### HttpArena under Docker on macOS
+
+`bench/httparena.sh` drives HttpArena's harness, which needs bash 4, GNU `stat` and
+`timeout`, and `nproc`; macOS has bash 3.2 and none of the rest. Run it in a Linux
+container that talks to Docker Desktop through its socket, with the cache and the working
+tree mounted at the same paths as on the Mac, so the paths the harness passes to `docker
+run -v` resolve on the Mac. `--network host` puts the container on the VM's host network,
+where the servers listen, and its `nproc` is the VM's 10 CPUs, which the harness reads
+for its CPU limits. The image, 2026-10-11:
+
+```dockerfile
+FROM docker:29.8.2-cli AS cli
+FROM ubuntu:26.04
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+    bash ca-certificates curl git jq python3 openssl util-linux procps bc
+COPY --from=cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=cli /usr/local/libexec/docker/cli-plugins /usr/local/libexec/docker/cli-plugins
+```
+
+```sh
+docker run --rm --network host -v /var/run/docker.sock:/var/run/docker.sock \
+    -v "$HOME/.cache/goose-http-bench:$HOME/.cache/goose-http-bench" -v "$PWD:$PWD" \
+    -e HOME="$HOME" -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory \
+    -e GIT_CONFIG_VALUE_0='*' -e SERVER_CPUS=0-2 -e LOAD_CPUS=3-9 -e MACHINE=m1pro-docker \
+    -w "$PWD" goose-http-arena bench/httparena.sh run
+```
+
+- The buildx plugin is needed: without it, `docker build` doesn't set `TARGETARCH`,
+  and dusty's Dockerfile then builds for x86-64.
+- The safe.directory setting lets the container's git read a working tree owned by
+  another user.
+- HttpArena's zrk image downloads an x86-64 binary, and its vanilla-epoll image pins
+  tccbin's x86-64 branch, whose `libgc.a` V's bootstrap links. On an arm64 Docker host,
+  `bench/httparena.sh` swaps in zrk's aarch64 release and tccbin's arm64 branch.
 
 ## Servers
 

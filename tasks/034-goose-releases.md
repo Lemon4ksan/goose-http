@@ -10,7 +10,7 @@ the same way.
 
 goose-http's part (2026-10-15): `scripts/goose.sh` names the release (`v2026.1`) and its
 archives' SHA-256 sums. It downloads the archive into `build/`, or uses `GOOSE` or
-`GOOSE_COMMIT` when set ([setup](../docs/development.md#set-up-the-goose-compiler)).
+`GOOSE_COMMIT` when set ([setup](../docs/development.md#get-goose)).
 Every script that runs the compiler, `env.txt`, and the HttpArena Dockerfile use it.
 `v2026.1` is `46356c2` plus the release packaging and the compiler's lookup of its
 stdlib, so benchmark results at `46356c2` still stand. `http.build` excludes `build/`:

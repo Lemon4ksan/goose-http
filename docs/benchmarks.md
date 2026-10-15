@@ -28,7 +28,7 @@ The method, each load generator, and the servers' pins and builds:
 | Compression | `6f584e2`, goose-compress `4bed2d2` | `0bdbd18` | 6.18.54.1 | 2026-10-14 | `bench/httparena.sh run` |
 
 Benchmarks run in overnight batches, so they lag the
-[Goose pin](development.md#pins).
+[Goose pin](development.md#get-goose).
 
 ## Plaintext and JSON
 

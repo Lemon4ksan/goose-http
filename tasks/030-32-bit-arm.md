@@ -45,7 +45,7 @@ same `#pragma pack`. `scripts/test.sh` passed on macOS after the change.
 ## Emulated armv7 (2026-10-14)
 
 `scripts/test-armhf.sh` at Goose `46356c2`, with the Linux compiler built in
-`ubuntu:26.04` for x86-64 (`docs/development.md`, "Test on ARM"):
+`ubuntu:26.04` for x86-64 (`docs/development.md`, "ARM under Docker"):
 `arm-linux-gnueabihf-gcc` 15.2.0 (`15.2.0-16ubuntu1`) and `liburing-dev:armhf` 2.14 in
 `ubuntu:26.04` for amd64, run in `ubuntu:26.04` for arm/v7 under qemu-arm 10.2.3, in
 Docker Desktop 29.8.2 (VM kernel 7.0.14-linuxkit, 10 CPUs, 8 GB) on a MacBook Pro

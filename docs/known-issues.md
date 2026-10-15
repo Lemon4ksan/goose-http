@@ -1,0 +1,197 @@
+# Known issues
+
+Environment traps and incidents met while building, testing, and benchmarking
+goose-http, grouped by platform. A date records when an incident happened. Setup steps
+are in [development](development.md).
+
+## WSL2 on Windows
+
+### wrk's clock in WSL2
+
+wrk 4.1.0 times requests with the wall clock, `gettimeofday`, and WSL2 steps its wall
+clock back by about a millisecond every 30 s or so. wrk then counts each request in
+flight across the step as a timeout, one per connection (64 for `-c 64`), with no slow
+response behind them. `scripts/test-http.sh` ignores wrk's timeouts for that reason, and
+`bench/run.sh` preloads `wrk-monotonic.so` to give wrk a monotonic clock.
+
+### Kernel and toolchain
+
+- Windows Update can stop WSL distributions and change the kernel. Check each run's
+  `env.txt`; don't compare across a kernel change as if only the server changed.
+  If Docker Desktop loses its WSL engine, restore WSL integration before running
+  HttpArena.
+- Run cargo and Zig dependency builds from a Linux filesystem cache. Cargo under
+  `/mnt/c` can inherit Windows configuration; Zig package renames there can fail
+  with `AccessDenied`. `bench/build.sh` uses its Linux cache.
+- perf uses the WSL kernel and needs elevated access to hardware counters. A warning
+  about `/proc/schedstat` doesn't by itself mean the recording failed.
+- Docker Desktop's host network is the Docker VM's, not WSL's loopback. HttpArena's
+  readiness probes and cgroup reads use helper containers; published ports reach WSL.
+
+### WSL from a Windows shell
+
+Name the WSL distribution explicitly: `wsl.exe -d Ubuntu`. Docker Desktop can change
+the default to a distribution with no bash. For commands containing shell variables,
+put them in a script and run `wsl.exe -d Ubuntu -- bash /mnt/c/.../script.sh`; the
+intermediate shell can otherwise expand variables before bash sees them.
+
+- Git Bash rewrites POSIX-looking arguments. Set `MSYS_NO_PATHCONV=1` for a WSL call;
+  PowerShell doesn't rewrite paths.
+- A non-login script doesn't read the WSL profile. Export the oha path, and `GOOSE` or
+  `GOOSE_COMMIT` when not using the release, inside it.
+- Run cargo with `cd ~` first, or use WSL's `--cd` option, to avoid inheriting
+  configuration from parent directories on the Windows filesystem.
+- Keep a long benchmark's foreground WSL call open. A detached run may end when the
+  call returns; a background server may instead survive and retain its port.
+- Use different `PORT` values for simultaneous Linux and Windows HTTP tests. WSL's
+  localhost forwarding can make one suite's listener visible to the other's port
+  probe, which reports the port taken (2026-10-14).
+- Bash reads a script's later commands from the file as it runs, so editing a running
+  script changes what it does. Editing a benchmark script during its builds caused an
+  unexpected EOF before measurement began (2026-10-14). Prepare a separate script for
+  an extension.
+- `pkill -f` inside `bash -c` can match and kill that shell, and killing strace doesn't
+  kill the server it started. Kill by PID.
+- Windows and WSL git record different file stats. The first WSL diff after Windows
+  git can reread the whole checkout, delaying benchmark startup.
+- A WSL `git push` stalled after fetch had succeeded, while Git for Windows pushed
+  the same commit successfully (2026-10-14). End the stalled push by PID before
+  retrying from Windows; both Git installations share this checkout. The cause
+  wasn't established.
+- Git for Windows 2.45 writes absolute Windows paths in worktree `.git` files that
+  WSL git can't follow. A relative `gitdir: ../goose-http/.git/worktrees/<name>`
+  works for both.
+- Windows Python defaults can write cp1252 and CRLF, and shell heredocs add another
+  escaping layer ([line endings on Windows](#line-endings-on-windows)).
+
+## Benchmarks
+
+- When V fails to compile the C it generated, it downloads a V release and retries with
+  it, unpinned. A missing `liburing.h` did that once; a build whose output mentions
+  `v1-fallback` didn't use the pinned V, so fix the cause and rebuild.
+- wrk rounds connections down to a multiple of its thread count. Give it a thread
+  count dividing each cell's connection count. wrk 4.1.0 also needs a space after
+  the colon in `-H "Host: tfb-server"`.
+- oha with `-z` aborts the requests in flight at the deadline and lists them as
+  errors. A request count avoids them.
+- Check status counts when benchmarking `/later` with a small `MAIL_SLOTS`: the
+  benchmark backend drops replies on `FULL`, and the resulting wait timeouts can
+  dominate a fixed-count run's rate. The
+  [WAKE measurement](../bench/results/2026-10-14-mail-wake-method.md#results-and-limits)
+  records this with 256 connections and 64 slots per worker (2026-10-14).
+- HttpArena validation can leave its watchdog holding output open until
+  `VALIDATE_TIMEOUT` expires. Read output as it arrives instead of piping it to
+  `tail`.
+- vanilla-epoll's JSON build with `-gc none` leaks enough memory to exhaust the VM.
+  Leave those cells out of unattended matrices or isolate them in their own run.
+
+## macOS
+
+- macOS holds closed client ports in `TIME_WAIT` for 30 s. Wait between large client
+  runs; `scripts/test.sh` drains between stages. Count remaining sockets with
+  `netstat -an -p tcp | grep -c TIME_WAIT`.
+- `kern.ipc.somaxconn` defaults to 128, limiting the listen backlog. The tests pass
+  there; `sudo sysctl kern.ipc.somaxconn=4096` raises it until reboot.
+- `lsof` resolves `/var` and `/tmp` through `/private`. Match resolved paths when
+  checking open files.
+- Apple's `nc -N` means keepalive probes, not OpenBSD's shutdown-after-input.
+  The echo test checks nc's help and uses `-w 2` otherwise.
+- Native loopback comparisons are kernel-limited; see
+  [measurement limits](results.md#m1-pro-macos-native). Separate `SO_REUSEPORT`
+  listeners can also leave a competing server using only one worker.
+- `sample PID 5` profiles without sudo, but includes time blocked in `kevent`.
+  `/usr/bin/time -l` reports retired instructions and elapsed cycles, including
+  kernel work, after the process exits. It is less precise than fixed-count perf
+  comparisons for changes of only a few instructions.
+
+### Docker on macOS
+
+- Passing an export's file list through xargs can produce several archives, and
+  extraction stops after the first. Export as one archive
+  ([development](development.md#docker-on-macos)).
+- Transparent huge pages can inflate RSS relative to WSL. Record their setting;
+  disabling them with `prctl(PR_SET_THP_DISABLE)` gives measurements with 4 KB pages.
+- The VM can hide the CPU part number. `bench/build.sh` selects Zig's `apple_m1`
+  rather than a generic arm64 target for this host.
+- Tina can require `--security-opt seccomp=unconfined` to map its shard memory.
+  Keep its `[FATAL]` lines when inspecting logs.
+
+## Windows
+
+- With only Visual Studio 2022 17.6, MSBuild rejects Goose's C standard when building a
+  checkout: `Element <LanguageStandard_C> has an invalid value of "stdclatest"`
+  (2026-10-12). Install the Visual Studio 2026 Build Tools.
+- The Windows Performance Toolkit of the Windows 10 SDK, 10.0.20348, can't read a trace
+  that `wpr` records on Windows 11 10.0.26200: `xperf -a profile` stops with
+  `ISession::ProcessEvents [0x80070032]` (2026-10-12). Read it with the current Windows
+  Performance Analyzer, from the Microsoft Store.
+- `wpr -start CPU` and `wpr -stop file.etl` need an elevated shell. `wpr -stop` takes a
+  minute or more to write the trace; Ctrl+C in that time cancels it with `0x800704c7`
+  and discards the recording, and the next `wpr -stop` finds no profile running.
+- `Get-Process`'s CPU times print with the locale's decimal separator, a comma in some
+  locales; `bench/oha.sh` formats them with the invariant culture.
+- The default listener is 127.0.0.1. Explicit IPv4 and IPv6 addresses are supported;
+  listening elsewhere can raise a Windows Defender Firewall prompt.
+- A connection to a port nothing listens on is refused only after Windows retries for
+  about 2 s, so a client with a shorter timeout sees a timeout, not a refusal.
+- Python's `os.kill(pid, signal.SIGTERM)` ends a process at once, as `TerminateProcess`
+  does. For a graceful stop, start the server with `CREATE_NEW_PROCESS_GROUP` and send
+  `signal.CTRL_BREAK_EVENT` to its PID; a path for `subprocess` must be absolute
+  (`cygpath -m "$PWD/build/server.exe"`).
+
+### Line endings on Windows
+
+With `core.autocrlf=true`, `.c`, `.goose`, and `.md` files are CRLF on disk and LF in
+git, while `.gitattributes` keeps `.sh` and `.py` LF. A scripted search and replace that
+assumes LF finds nothing in a CRLF file, and one that writes `\n` turns a whole CRLF file
+into a one-line-per-change diff. `\r`, `\n`, and `\` inside a heredoc pass through two
+rounds of escaping and come out as raw control bytes or literal text. An editor that
+keeps each file's endings needs no escaping.
+
+### Git Bash
+
+- Back-to-back runs of `scripts/test.sh` leave thousands of connections to port 29080
+  in `TIME_WAIT`, which Windows keeps for 240 s. A run started before they drain fails
+  at random with client connect timeouts (`TimeoutError`, `WinError 121`, or
+  `WinError 52`), anywhere from `keepalive` to `many` (2026-10-12). Wait until
+  `(Get-NetTCPConnection -State TimeWait | Measure-Object).Count` is low again. Windows
+  has 16,384 ephemeral ports; changing the server's `PORT` doesn't replenish them.
+- A Linux build in the same tree leaves an ELF `build/server` beside `build/server.exe`,
+  and Git Bash runs `build/server` first, which fails with "Exec format error". The test
+  scripts name `build/server.exe` on Windows; do the same by hand.
+- `ulimit -n` fails, and wouldn't reach a native program anyway.
+- Git Bash's `kill` doesn't always end a native program. The test scripts end the server
+  with `taskkill //F //PID` and the Windows process ID from `/proc/$pid/winpid`.
+- `cd dir && build/server.exe ... &` puts the whole list in a background subshell, so
+  `$!` and its `/proc/$!/winpid` name the subshell, and `taskkill` on that PID leaves the
+  server running. Start the server alone with `&`, after the `cd`.
+- MSYS rewrites arguments that look like paths, so `cmd /c` becomes `cmd C:/`. Run it
+  with `MSYS2_ARG_CONV_EXCL='*'`. Writing `//c` with path conversion turned off
+  (`MSYS_NO_PATHCONV=1`) passes `//c` through, and leaves `cmd` waiting for input.
+- Git Bash's `tar` reads an archive path that starts with a drive letter, such as
+  `C:\Users\...\tree.tar` from `$TEMP`, as a remote host, fails with "Cannot connect
+  to C: resolve failed", and extracts nothing. Pass `--force-local`, or a `/c/...`
+  path.
+
+### MinGW-w64
+
+The [MinGW-w64 check](development.md#check-the-windows-shims-without-windows) warns
+twice about code that MSVC builds as intended: MinGW has no `SOMAXCONN_HINT`
+(`shim/net_win.c`), and a sign comparison in `shim/iocp.c` (2026-10-12, at `551ee19`).
+
+## ARM under Docker
+
+- qemu delivers an alignment fault to the program as `SIGBUS`, where a 32-bit ARM
+  kernel may fix up the access ([findings](goose-findings.md#thread_spawn-writes-its-packets-lengths-through-misaligned-int64_t-pointers)).
+  `QEMU_STRACE=1` in the container's environment makes qemu print each system call and
+  signal, with the fault's address; `QEMU_GDB=1234` makes it wait for `gdb` on that
+  port, in the same container.
+- Under Docker Desktop's file sharing, git in a container can see a mounted directory
+  as another user's and refuse it ("detected dubious ownership"), which stopped the
+  fetch of `examples/compress`'s package. `scripts/test-arm.sh` sets `safe.directory`
+  through git's environment.
+- `goose build --cc` takes the names `gcc`, `clang`, and `cc`, or a path, so a cross
+  compiler goes by its path: `--cc /usr/bin/aarch64-linux-gnu-gcc`. A bare
+  `aarch64-linux-gnu-gcc` fails with "unknown C compiler name".
+- `kill %1` in a `sh -c` script does nothing, because a non-interactive `sh` has no job
+  control, and a `wait` after it waits forever. Kill by `$!`.

@@ -12,7 +12,7 @@ as well as gains.
 1. Install Ubuntu 26.04 in WSL2, beside the distributions already there. Ubuntu 22.04's
    liburing and kernel may be older than the io_uring loop needs (kernel 6.1+).
 2. Build the Linux compiler in it and run `scripts/test.sh` (`docs/development.md`,
-   "Set up the Goose compiler"). Record the kernel, liburing, and gcc versions in the
+   "Get Goose"). Record the kernel, liburing, and gcc versions in the
    toolchain table.
 3. Before a new comparison, measure both sides at the same commit with the baseline's
    method below: oha 1.16.0, `-n 2000000 -c 256`, 1 and 4 workers. Record the source

@@ -96,7 +96,7 @@ scripts/test-armhf.sh
 ```
 
 They use the pinned release's Linux x86-64 compiler unless `GOOSE` names another
-([development](development.md#test-on-arm)). The executables stay in
+([development](development.md#arm-under-docker)). The executables stay in
 `build/aarch64/examples/` and `build/armhf/examples/`. On an x86-64 host, qemu runs the
 ARM containers, and RSS includes about 13,000 kB of qemu's own per process (task 029).
 Docker blocks io_uring, so the io_uring loop runs over its emulation there.

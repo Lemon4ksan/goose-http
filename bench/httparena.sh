@@ -37,7 +37,7 @@
 #
 # The harness needs bash 4 and GNU tools. On macOS, run this script in a Linux
 # container that drives Docker Desktop through its socket
-# (docs/development.md, "HttpArena under Docker on macOS").
+# (bench/README.md, "HttpArena under Docker on macOS").
 #
 # Settings, from the environment:
 #   FRAMEWORKS  goose tokio dusty vanilla-epoll

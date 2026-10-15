@@ -4,7 +4,8 @@
 
 - What this is: `README.md`; what each tag adds: `CHANGELOG.md`
 - Architecture decisions, and what isn't Goose: `docs/architecture/README.md`
-- Layout, pins, toolchain, and local setup: `docs/development.md`
+- Layout, the Goose release, toolchain, and local setup: `docs/development.md`
+- Environment traps and incidents, by platform: `docs/known-issues.md`
 - What `extern fn` looks like from C, for the shim: `docs/c-interop.md`
 - Goose compiler and stdlib gaps found here: `docs/goose-findings.md`
 - Task tracking: `tasks/` (see `tasks/README.md`)
@@ -15,9 +16,10 @@
   assuming a feature exists.
 
 Follow the recorded decisions; if a change contradicts one, update the doc in the same
-change or ask first. Record setup facts and environment traps you find (paths, shell
-quirks, ports, encodings) in `docs/development.md`, not in agent memory, so the next
-agent finds them. Docs and commits name no people: date a decision or a request
+change or ask first. Record setup facts you find (paths, versions, install steps) in
+`docs/development.md`, and environment traps (shell quirks, ports, encodings, dated
+incidents) in `docs/known-issues.md`, not in agent memory, so the next agent finds
+them. Docs and commits name no people: date a decision or a request
 (`(2026-10-11)`), and describe the setup without anyone's machine, checkouts, or home
 directory. What only one machine needs, such as where its Goose checkout is, goes in
 `CLAUDE.local.md`, which git ignores. Benchmark results still name their machine.
@@ -43,10 +45,8 @@ directory. What only one machine needs, such as where its Goose checkout is, goe
 
 ## Goose, not an addition to Goose
 
-- Build with the official Goose release that `scripts/goose.sh` pins. Check for a newer
-  release at the start of a session and move the pin to it (`docs/development.md`,
-  "Move the pin"). Pin a commit (`GOOSE_COMMIT`) only when a fix this repository needs
-  isn't released yet, and return to a release once one has it (2026-10-15).
+- Build with the official Goose release that `scripts/goose.sh` pins, and move the pin
+  to each new release ("Move the Goose pin" below).
 - Don't edit a Goose checkout. When the compiler rejects something it should accept,
   miscompiles, or the stdlib lacks something, work around it here, and reduce it to a
   minimal program for `docs/goose-findings.md` only if it meets the bar that file's
@@ -63,6 +63,36 @@ directory. What only one machine needs, such as where its Goose checkout is, goe
 - C is for what Goose can't reach: syscalls and kernel structures, behind thin functions
   in `shim/`. HTTP parsing, routing, response building, and JSON are Goose, since
   measuring Goose is the point.
+
+## Move the Goose pin
+
+The pin is an official Goose release, which builds the same on every platform. At the
+start of a session, check for a newer one:
+
+```sh
+gh release list -R aardappel/goose --limit 3
+```
+
+To move to a new release, update `goose_release` and the four archives' SHA-256 sums in
+`scripts/goose.sh`. GitHub lists each asset's digest:
+
+```sh
+gh api repos/aardappel/goose/releases/tags/<tag> -q '.assets[] | "\(.name) \(.digest)"'
+```
+
+Then run `scripts/test.sh` on Linux, on Windows in Git Bash, and on macOS, and update
+the release and its commit in `README.md`'s quick start, `docs/development.md` ("Get
+Goose" and the release paths), and `.vscode/settings.json`, in its own commit.
+
+Pin a commit only when a Goose fix that this repository needs isn't in a release yet,
+and return to a release once one has it (2026-10-15). Set `GOOSE_COMMIT` in the
+scripts' environment (`docs/development.md`, "Use another compiler"), and
+`--build-arg GOOSE_COMMIT=<hash>` for `bench/httparena/goose/Dockerfile`. Record the
+commit and the reason in `docs/development.md`, "Get Goose".
+
+A pin move doesn't wait for benchmarks. They're costly to run, so they run in batches,
+overnight, after a stretch of work (2026-10-13). Until then the results stand at the
+compilers they name, which `docs/benchmarks.md`'s pins table lists.
 
 ## Benchmarks
 
@@ -82,10 +112,22 @@ directory. What only one machine needs, such as where its Goose checkout is, goe
   the next line, and don't describe earlier versions or the task that added the code;
   history belongs in git.
 - Edit files with the Edit tool, not with `sed` or a Python or PowerShell script. On
-  Windows, line endings differ by file type and a shell adds a layer of escaping, and
-  scripted edits break on both (`docs/development.md`, "Line endings on Windows").
+  Windows, line endings differ by file type, Python defaults can write cp1252 and CRLF,
+  and a shell adds a layer of escaping, and scripted edits break on all three. The Edit
+  tool keeps each file's endings and needs no escaping (`docs/known-issues.md`, "Line
+  endings on Windows").
 - An `extern fn` whose C side keeps or writes more than the spec's default (§7.10) says
   so in a comment.
+
+## Running commands
+
+- Never edit a script while it runs: Bash reads later commands from the file as it
+  executes, and an edit to a benchmark script during its builds ended the run with an
+  unexpected EOF before measurement began (2026-10-14). Write a separate script for an
+  extension.
+- Kill a process by its PID, never by pattern: `pkill -f` inside `bash -c` can match
+  and kill that shell, and killing strace doesn't kill the server it started
+  (`docs/known-issues.md`, "WSL from a Windows shell").
 
 ## Commits
 
