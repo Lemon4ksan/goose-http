@@ -69,6 +69,7 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 | 034: Goose releases | goose-http builds from the release; WSL and Windows test runs, goose-compress, goose-rest, and our own packages remain. |
 | 037: architecture split | Split the architecture doc into a user's page and a decision log. |
 | 038: upgraded reads while waiting | Done on macOS; run the tests on Linux (io_uring, epoll) and Windows (IOCP). |
+| 040: typed store reads | Scalars and fixed-size records read from `http::store` by value, measured against `store_append`. |
 
 Tasks 013 and 018 have completed acceptance criteria and are archived with the other
 completed work. Compression subtasks stay with their open parent. Completed platform
