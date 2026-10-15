@@ -3,7 +3,7 @@
 The package runs on 64-bit ARM Linux boards (aarch64), such as NXP i.MX 8 and i.MX 9.
 Every example cross-builds with an aarch64 gcc and passes `scripts/test-examples.sh` on
 emulated arm64 (2026-10-14). None has run on a board yet (task 029). 32-bit ARM
-cross-builds but doesn't run: two Goose bugs block it ([below](#32-bit-arm)).
+cross-builds but doesn't run yet, a work in progress ([below](#32-bit-arm)).
 
 Goose compiles to C, so building for a board means having `goose build` run the board's
 C cross compiler. The compiler runs on the build machine, and only the executable goes to
@@ -196,21 +196,18 @@ prints.
 ## 32-bit ARM
 
 32-bit ARM boards (armhf: i.MX 6 and 7, Cortex-A7, STM32MP1) don't run the package yet
-(task 030). Every example cross-builds without a C warning, and every one exits at start
-on emulated armv7, blocked by two Goose bugs:
+(task 030). Every example cross-builds without a C warning but exits at start on
+emulated armv7. Two causes are still being looked into:
 
-- `thread_spawn` writes the lengths in its packet through misaligned `int64_t`
-  pointers, and gcc's `strd` faults on them. The runtime reports the fault as a data
-  stack overflow, "a value on main's data stacks grew past the 512 MB reserved for it"
-  ([findings](goose-findings.md#thread_spawn-writes-its-packets-lengths-through-misaligned-int64_t-pointers)).
-  A 32-bit ARM kernel may fix up the misaligned `strd` on a board; qemu doesn't.
-- The compiler sizes slices and references for 64-bit pointers on every target, so
-  arrays of structs that hold one, such as the io_uring loop's connections, are laid
-  out two ways on a 32-bit target
-  ([findings](goose-findings.md#slices-and-references-in-a-struct-take-64-bit-sizes-on-a-32-bit-target)).
+- A misaligned 64-bit write when a thread starts faults under qemu, and shows as a data
+  stack overflow. A board's kernel may fix it up where qemu doesn't
+  ([details](goose-findings.md#thread_spawn-writes-its-packets-lengths-through-misaligned-int64_t-pointers)).
+- Structs that hold a slice or a reference get 64-bit sizes in the compiler and 32-bit
+  ones in C, so arrays of them are laid out two ways
+  ([details](goose-findings.md#slices-and-references-in-a-struct-take-64-bit-sizes-on-a-32-bit-target)).
 
 The rest of this section is what armhf needs beyond the aarch64 steps above, for when
-the bugs are fixed.
+it runs.
 
 ### Cross-build for armhf
 

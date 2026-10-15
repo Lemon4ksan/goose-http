@@ -2,7 +2,7 @@
 
 An HTTP/1.1 server package for [Goose](https://github.com/aardappel/goose), with one
 event loop per worker, inspired by [Tina](https://github.com/pmbanugo/tina): io_uring or
-epoll on Linux, kqueue on macOS, and I/O completion ports on Windows.
+epoll on Linux, kqueue on macOS, and I/O completion ports (IOCP) on Windows.
 
 Experimental: tested and benchmarked, not yet used in production, and the API still
 changes between tags.
@@ -30,10 +30,10 @@ from OpenAPI, see [goose-rest](https://github.com/kaitk/goose-rest).
 
 | | Platform | Notes |
 |---|---|---|
-| 🟢 | Linux | io_uring (kernel 6.1+) or epoll. |
+| 🟢 | Linux | io_uring (kernel 6.1+) or epoll ([which loop](docs/api.md#event-loops)). |
 | 🟢 | macOS | kqueue. |
-| 🟢 | Windows | I/O completion ports. |
-| 🟡 | Embedded Linux | aarch64 cross-builds and passes its tests under emulation, not yet on a board; two Goose bugs keep 32-bit ARM from running ([embedded Linux](docs/embedded.md)). |
+| 🟢 | Windows | I/O completion ports (IOCP). |
+| 🟡 | Embedded Linux | aarch64 cross-builds and passes its tests under emulation, not yet on a board; 32-bit ARM is a work in progress ([embedded Linux](docs/embedded.md)). |
 
 ## What it provides
 
@@ -126,36 +126,24 @@ flowchart LR
     W1 & W2 & WN <-. mail .-> B["a thread of<br/>the program's"]
 ```
 
-- **Workers.** The program spawns a thread per worker, and each runs a loop with the
-  same handler. Each worker has its own connections, and on Linux its own listener.
-  `thread_spawn` can't take a `thread_fn` passed to a package function, so the
-  spawning stays in the program. `goose hello.goose` runs in the compiler, which
-  can't reach `thread_spawn`: call `http::serve` from `main` there, for one worker.
-- **Two loops.** `http::serve` is io_uring on Linux, a ring emulated on kqueue on macOS,
-  and IOCP on Windows; `http::serve_epoll` is epoll or kqueue. A program calls one, and
-  only that one is compiled in.
-- **A handler for whole requests**, `{ req, body, out => }`: the parsed head, the body
-  if it fits in the read buffer, and one response of any size. `http::gather` gives a
-  handler with state a longer body whole, up to a limit
-  ([which to use](docs/patterns.md#request-bodies)).
-- **A handler with state**, `{ ev, st, out => }`, for everything else: the loop calls it
-  for each event of an exchange (the head, each piece of a body, room to send more, a
-  message from another thread, a time limit), with state of the program's own type kept
-  per connection. Bodies and responses of any size, files, upgrades, and
-  answers that wait all go through it, and so does
-  [slow work](docs/patterns.md#slow-work).
-- **A handler that returns early is a function.** A `return` in a block returns from
-  the function the block is written in, past the loop, which then can't answer the
-  request or close its connections, and Goose can't refuse it
-  ([findings](docs/goose-findings.md#a-function-cant-keep-its-block-from-returning-past-it)).
-  Pass such a handler by name, or call it from the block.
-- **The request is borrowed.** The head, its fields, and route parameters are slices
-  into the read buffer, valid until the handler returns; the router allocates nothing.
+- **Workers.** The program starts a thread per worker, and each runs an event loop with
+  the same handler. A worker owns its connections, workers share no memory, and threads
+  talk by [mail](docs/patterns.md#mail-between-threads).
+- **Two kinds of handler.** `{ req, body, out => }` takes a whole request and answers it
+  once, which is enough for most routes. `{ ev, st, out => }` is called for each event of
+  an exchange, with state the program defines, kept per connection: for large bodies,
+  long responses, files, and answers that wait
+  ([which to use](docs/patterns.md)).
+- **The request is borrowed.** Its head, fields, and route parameters point into the
+  read buffer and last until the handler returns, so reading a request allocates
+  nothing.
+- **A handler that returns early is a function**, passed by name or called from the
+  block: a `return` in a block leaves the worker's loop instead
+  ([why](docs/api.md#handler)).
 - **`http::Config`** holds the address, limits, timeouts, and buffer sizes, all with
-  defaults. `http::stop()` or `http::stop_on_signals()` ends the loops gracefully.
-- **Errors are `http::Error`**: the call that failed and its code. A loop,
-  `http::stop_on_signals()`, and `http::mail_open` return one, `http::report` prints it,
-  and `http::exit_on_error(e)` prints it and ends the process unless its code is 0.
+  defaults. `http::stop_on_signals()` ends the loops gracefully on Ctrl+C or `SIGTERM`.
+- **Errors are values.** A loop returns an `http::Error`, the call that failed and its
+  code, and `http::exit_on_error` prints it and ends the process.
 
 The API by topic, with the examples that show it: [docs/api.md](docs/api.md).
 

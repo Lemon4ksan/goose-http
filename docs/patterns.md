@@ -97,6 +97,44 @@ sequenceDiagram
     H->>L: end(out)
 ```
 
+## Mail between threads
+
+Threads share no memory, so they send each other messages. A thread that takes messages
+owns a box: a fixed number of slots, each of a fixed size, set when the box opens. Any
+thread sends to a box's address, and the send never blocks or grows the box. Here every
+worker sends jobs to a backend thread's box, two of whose slots are taken:
+
+```mermaid
+flowchart LR
+    W1["worker 1"] -- send --> B
+    W2["worker 2"] -- send --> B
+    WN["worker N"] -- send --> B
+    subgraph B ["the backend's box"]
+        direction LR
+        s1["job"] ~~~ s2["job"] ~~~ s3["free"] ~~~ s4["..."]
+    end
+    B -- take --> O["backend thread"]
+```
+
+A send says at once whether the message went in, `SENT`, or why not:
+
+- `FULL`: every slot is taken. The sender decides what the client gets, such as 503.
+- `TOO_LONG`: the message is longer than a slot. Send it in pieces, or open the box
+  with larger slots.
+- `STALE`: nobody waits at that address any more, so the work can be dropped.
+
+A worker waits for mail with `http::later`, which takes a time limit and returns the
+address to reply to. How to shape the backend thread, and the work it takes:
+[slow work](#slow-work). With goose-rest, a route asks a service thread with
+`rest::ask`, and the service answers it:
+[goose-rest's waiting](https://github.com/kaitk/goose-rest/blob/main/docs/architecture/README.md#waiting-on-another-thread).
+
+The design is [Tina](https://github.com/pmbanugo/tina)'s, a thread-per-core framework in
+Odin: boxes bounded when they open, work sent to a thread's address rather than to a
+shared queue, and a time limit on every wait. Its author explains the reasons in
+[a post on async/await](https://pmbanugo.me/blog/why-async-await-complect-concurrency).
+How the boxes work: [architecture](architecture/README.md#waiting-answers-logging-and-shutdown).
+
 ## Slow work
 
 A handler should answer in microseconds. Work that takes longer runs on a thread of the
@@ -136,9 +174,6 @@ sequenceDiagram
 - **A job can't be stopped from outside.** Once it starts, it runs to its end, past its
   time limit if need be. Check `http::mail_live(reply)` before starting, as `later/`
   does, and between the steps of a long job.
-- **A send never blocks.** It returns at once, and the sender decides what the client
-  gets: `FULL` when the box's slots are all taken (`later/` answers 503), `TOO_LONG`
-  when the message is longer than a slot, and `STALE` when nobody waits any more.
 - **One thread runs its jobs one at a time.** A job queued behind a long one can time
   out before it starts. For more at once, start several threads, each with its own box,
   and send each job to one of them.
@@ -159,4 +194,4 @@ share no memory. In `api/`, a note written through one worker isn't there for an
   ([architecture](architecture/README.md#shared-read-only-blobs)). The benchmarks' REST
   server, `bench/rest/goose/rest.goose`, uses it.
 - **Data that changes**, such as counters or sessions: give it one owner thread, and
-  have workers ask it by mail, as in [slow work](#slow-work).
+  have workers ask it by [mail](#mail-between-threads).
