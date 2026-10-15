@@ -156,7 +156,7 @@ Plaintext and JSON are tiny fixed responses over 256 connections, plaintext pipe
 they measure the event loop and the parser and little else. The REST APIs
 [below](#rest-apis) are closer to a real program.
 
-| Workload | Goose | Best other | |
+| Workload | goose-http | Best other | |
 |---|---:|---:|---|
 | [Plaintext](docs/benchmarks.md#plaintext-and-json) | 6.84M req/s | 8.12M (vanilla-io_uring\*) | Fastest that parses requests |
 | [JSON](docs/benchmarks.md#plaintext-and-json) | 512k req/s | 561k (zix) | Third of 8 |
@@ -178,7 +178,7 @@ framework.
 - **Templates** builds each record's JSON once at startup.
 - **Reads p99** is C's latency at a fixed rate while uploads run.
 
-| Workload | Goose | xitca-web (Rust) | dusty (Zig)\* |
+| Workload | goose-http | xitca-web (Rust) | dusty (Zig)\* |
 |---|---:|---:|---:|
 | [A](docs/benchmarks.md#tier-a): HttpArena's items, 0.2 KB | **598k req/s** | 407k | 343k |
 | [B](docs/benchmarks.md#tier-b): sessions and time entries, 0.3-13 KB | **315k req/s** | 235k | 162k |

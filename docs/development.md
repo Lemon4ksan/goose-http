@@ -128,12 +128,18 @@ the load runs and the fd-limit check.
 
 **OS:** tested only on Ubuntu 26.04.1 LTS so far (2026-10-10).
 
-Install the test tools, then run `scripts/test.sh`. oha lands in `~/.cargo/bin`:
+Install the C compilers, liburing, and the test tools, then run `scripts/test.sh`. oha
+builds with cargo, from [rustup](https://rustup.rs), and lands in `~/.cargo/bin`:
 
 ```sh
-sudo apt-get install -y curl wrk nghttp2-client netcat-openbsd strace linux-perf
+sudo apt-get install -y gcc clang libc6-dev liburing-dev git curl python3 \
+    wrk nghttp2-client netcat-openbsd strace linux-perf
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 cd ~ && cargo install oha --locked
 ```
+
+`GOOSE_COMMIT` and Linux on arm64, which has no Goose release archive, build Goose from
+source, with `sudo apt-get install -y cmake ninja-build g++`.
 
 The benchmarks need more tools ([bench/README.md](../bench/README.md#toolchain)).
 
@@ -443,8 +449,8 @@ not yet released. Two settings choose one, and the first set wins:
 commit.
 
 To build a checkout by hand, clone it anywhere and point `GOOSE` at its build. Don't edit
-the checkout: work around Goose's gaps in this repository
-([AGENTS.md](../AGENTS.md#goose-not-an-addition-to-goose)). TinyCC, which lets
+the checkout: work around Goose's gaps in this repository, and record them in
+[Goose findings](goose-findings.md). TinyCC, which lets
 `goose file.goose` run a program in process, is vendored, so the checkout has no
 submodules:
 

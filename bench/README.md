@@ -54,11 +54,11 @@ on Ubuntu 26.04 in WSL2:
 | Tool | Source | Version used (2026-10-10) |
 |---|---|---|
 | perf | apt `linux-perf` | 7.0.14 (package `7.0.0-38.38`) |
-| Rust | rustup | rustc 1.99.0, cargo 1.99.0, for the Rust servers |
+| Rust | rustup ([Linux test tools](../docs/development.md#linux)) | rustc 1.99.0, cargo 1.99.0, for the Rust servers |
 | Odin | `/opt/odin-dev-2026-10` | `dev-2026-10` (`dev-2026-10-nightly:84bc3fc`, LLVM 20.1.8), for odin-http |
 | Zig | `/opt/zig-0.16.0` | 0.16.0, for dusty, zix, and zeemo |
 | V | built by `bench/build.sh` in its cache | 0.5.2 `b99970b`, for vanilla-epoll; needs apt `liburing-dev` (2.14) |
-| Docker | Docker Desktop | 29.8.2, for HttpArena's harness |
+| Docker | Docker Desktop; on Linux without it, apt `docker.io` with the user in the `docker` group | 29.8.2, for HttpArena's harness |
 | nginx | apt `nginx`, service disabled | 1.28.3, for `bench/files.sh` |
 | Caddy | fetched by `bench/build.sh` | 2.10.2, for `bench/files.sh` |
 
