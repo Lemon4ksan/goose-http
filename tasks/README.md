@@ -58,6 +58,7 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 | 016: worker memory | Finish source accounting, reductions, and the Goose-side question. |
 | 017: IOCP speed | Read the kernel trace and evaluate candidates against the recorded baseline. |
 | 022: compression | Record approval of the implemented boundary and finish outstanding platform validation. |
+| 035: tutorial plan | Agree which of goose-http and goose-rest holds what, and the tutorial's pages. |
 | 024: 64 KB files | Explain and measure the gap to nginx; recheck the threshold if paths change. |
 | 025: REST memory | Finish source accounting and the sharing question; reporting awaits authorization. Reductions are on `main`. |
 | 026: reads beside uploads | Measure and reduce completion-loop read latency without losing upload throughput. |
