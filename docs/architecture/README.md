@@ -28,6 +28,70 @@ not fit the loop. IOCP's wait callback is C calling C; Goose runs only on thread
 started. A list of slices cannot cross `extern fn` (§7.10), so responses are batched
 in one buffer rather than passed as an `iovec` list to `writev`.
 
+<a id="what-isnt-goose-and-why"></a>
+## What isn't Goose
+
+Measuring Goose is the point, so everything that is HTTP is Goose: parsing, routing,
+response building, the loops' state machines, the mailbox's messages, the timer table,
+and JSON. This section lists everything that isn't.
+
+### In the package: C in `shim/`
+
+Thin functions for what Goose can't do, which `http.build` compiles into every program
+that imports the package, on each platform its own:
+
+| File | Platform | What it does |
+|---|---|---|
+| `shim/net.c` | Linux | Sockets, epoll, clocks, file reads, the stop counter, and the loops' waker, an `eventfd` |
+| `shim/kqueue.c` | macOS | `shim/net.c`'s functions over kqueue, with the same Linux error codes; the waker is `EVFILT_USER` |
+| `shim/net_win.c` | Windows | `shim/net.c`'s functions over Winsock |
+| `shim/uring.c` | Linux | The io_uring ring, over liburing |
+| `shim/iocp.c` | Windows | The same ring over a completion port, and the waker, a completion packet |
+| `shim/ring_epoll.c` | Linux, macOS | The ring emulated over epoll or kqueue, where io_uring is blocked, and always on macOS |
+| `shim/mail.c` | all | The mailboxes' bounded queue, and the list of loop wakers that `http::stop` wakes |
+| `shim/store.c` | all | The shared store's blobs, written once at startup and read by every thread |
+
+Each is C for one of four reasons:
+
+- **Syscalls and kernel structures.** Goose calls C functions, not the kernel, and its
+  structs are packed, so they don't match the kernel's own (`struct epoll_event` is 16
+  bytes on ARM, 12 in Goose). So `shim/net.c`, `shim/kqueue.c`, and `shim/net_win.c`
+  call the kernel and copy its structures into the package's.
+- **Memory the kernel uses after a call returns.** A C function may not keep a
+  pointer into Goose memory past the call (spec §7.10), but io_uring and IOCP read and
+  write buffers while a request is in flight. So each ring owns its buffers in C:
+  `shim/uring.c`, `shim/iocp.c`, and `shim/ring_epoll.c`.
+- **Atomics, and a wait another thread can end.** Goose threads share no memory and
+  have no atomics, and a Goose thread can't end another's wait in the kernel. So
+  `shim/mail.c` holds each box's slots and the counts its senders change atomically,
+  and each platform's waker ends a loop's wait. The mailbox's design is Tina's
+  ([credits](../../README.md#credits)). What goes in a message, the addresses, and everything above
+  the queue are Goose (`mail.goose`).
+- **Memory every thread reads.** Goose shares only static data between threads, and
+  copies every other global a worker uses when it's spawned, so data built at startup
+  costs a copy per worker. `shim/store.c` holds byte blobs a program writes once,
+  before its workers read them, and copies a range into a Goose array on each read.
+  What the bytes are, and every response built around them, are Goose
+  (`store.goose`). Only a program that imports `http.store` calls it.
+
+### Outside the package
+
+None of this is in a program that imports the package:
+
+- **Competing servers, in `bench/`**, each in its own language, built in release mode
+  by `bench/build.sh`: hyper, tokio, may-minihttp, and xitca-web (Rust); vanilla-epoll
+  and vanilla-io_uring (V); dusty, zeemo, and zix (Zig); odin-http (Odin); and
+  libreactorng (C). `bench/httparena/goose/` is the Dockerfile that builds this
+  server for HttpArena.
+- **Benchmark tools, in C**: `bench/latency.c` reads h2load's per-request log into
+  percentiles, and `bench/wrk-monotonic.c`, preloaded into wrk, gives it the
+  monotonic clock where WSL2 steps the wall clock.
+- **Scripts.** Shell runs the builds, tests, and benchmarks (`scripts/*.sh`,
+  `bench/*.sh`). Python drives the HTTP and echo checks (`scripts/http_client.py`,
+  `scripts/echo_client.py`), summarizes benchmark runs (`bench/summarize.py`), and logs
+  clock steps (`bench/clockstep.py`). Lua makes wrk pipeline its requests
+  (`scripts/pipeline.lua`).
+
 ## Workers and connection ownership
 
 The program spawns workers and passes each a flat `Config`. A `thread_fn` is compiled

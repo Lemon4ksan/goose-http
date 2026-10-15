@@ -2,9 +2,9 @@
 
 ## Project context
 
-- What this is and its pins: `README.md`
-- Architecture decisions: `docs/architecture/README.md`
-- Toolchain and local setup: `docs/development.md`
+- What this is: `README.md`; what each tag adds: `CHANGELOG.md`
+- Architecture decisions, and what isn't Goose: `docs/architecture/README.md`
+- Layout, pins, toolchain, and local setup: `docs/development.md`
 - What `extern fn` looks like from C, for the shim: `docs/c-interop.md`
 - Goose compiler and stdlib gaps found here: `docs/goose-findings.md`
 - Task tracking: `tasks/` (see `tasks/README.md`)
@@ -24,6 +24,9 @@ directory. What only one machine needs, such as where its Goose checkout is, goe
 
 ## Writing
 
+- `README.md` is for people who use the package: what it provides, a quick start,
+  concepts, benchmark highlights, and links. Process, pins, layout, internals, and
+  rules for agents go in `docs/` or here (2026-10-15).
 - Lead with the decision, behavior, or action, then explain why. Name the responsible
   component and use concrete facts. Cut filler and repeated summaries.
 - Preserve technical meaning when editing: actors, negations, conditions, numbers,

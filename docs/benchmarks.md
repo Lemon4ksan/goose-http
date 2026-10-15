@@ -27,8 +27,8 @@ The method, each load generator, and the servers' pins and builds:
 | Static files | `fcfd80d` | `5c83a5a` | 6.18.40.1 | 2026-10-12 | `bench/files.sh` |
 | Compression | `6f584e2`, goose-compress `4bed2d2` | `0bdbd18` | 6.18.54.1 | 2026-10-14 | `bench/httparena.sh run` |
 
-Benchmarks run in overnight batches, so they lag the pin in the
-[README](../README.md#pins).
+Benchmarks run in overnight batches, so they lag the
+[Goose pin](development.md#pins).
 
 ## Plaintext and JSON
 
@@ -84,6 +84,35 @@ server, 5 s of warm-up, and 3 runs of 15 s, medians.
 - **B**: a time tracker's hot path, 0.3-13 KB of JSON.
 - **C**: a clinic's schedule and records, up to 728 KB.
 - **Uploads**: chunked CSVs of 2-8 MB and multipart files up to 1 MB.
+
+### The tiers
+
+The requests, their shares, and the decisions behind them are in task 021
+(`tasks/000-archive/021-rest-bench.md`); the scripts are `bench/rest/tier-*.lua`.
+
+<a id="tier-a"></a>
+**A**, [HttpArena](https://github.com/MDA2AV/HttpArena)'s `production-stack` API. Every
+request carries a bearer token. Reads get one of 10,000 items or the caller's profile;
+an eighth of the connections write items with a 51-byte JSON body.
+
+<a id="tier-b"></a>
+**B**, a time tracker's hot path, behind a session cookie. The session (about 2 KB of
+nested JSON), the running timer, two weeks of entries (about 13 KB), the projects, and
+small `PATCH` and `POST` writes.
+
+<a id="tier-c"></a>
+**C**, a clinic's schedule and records, behind a 530-byte JWT in a browser-sized head.
+Mostly a cheap version poll, then a week's bookings for ten people (700 bookings nested
+four deep, up to 728 KB), shifts, one visit with its case's notes
+(6-50 KB), and a client's past visits (50-90 KB). "Templates" builds each record's JSON
+once at startup and splices in the per-request values.
+
+<a id="uploads"></a>
+**Uploads** (tier D): chunked CSV imports of 2-8 MB, multipart attachments up to 1 MB,
+JSON batches of a few hundred KB, and form posts, from an eighth of the connections.
+Each answer is computed from the whole body, so the checker sees every byte read.
+"Reads p99" sends C's reads at a fixed 16,000 a second on the same server while the
+uploads run.
 
 "Uploads" is uploads alone. "Reads p99" is tier C's reads at a fixed 16,000 a second
 while uploads stream in, the range over the routes and runs. Bold is the column's best;

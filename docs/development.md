@@ -6,6 +6,30 @@ io_uring loop over I/O completion ports ([below](#windows)). Platform test cover
 recorded in the tasks; performance comparisons use
 Linux unless a measurement explicitly names another platform.
 
+## Layout
+
+```text
+http.goose     the package's entry: settings, errors, what both loops share
+*.goose        other modules, all namespace http: parser and response writers
+               (message.goose), loops (uring.goose, epoll.goose), router
+               (router.goose), files (file.goose), shim functions (sys.goose, ring.goose),
+               and with nothing of HTTP in them, the mailbox (mail.goose), timer table
+               (timers.goose), handles (handle.goose), and the shared store (store.goose)
+http.build     the package's sidecar: each platform's shim
+shim/          C for syscalls: sockets, epoll, io_uring, kqueue, IOCP, mailboxes, and the store
+server/        the benchmark server, importing the package from "../"
+examples/      small servers, and the API by topic (examples/README.md)
+test/          unit tests
+bench/         competing servers, load scripts, recorded results
+scripts/       build, test, and Goose setup scripts
+docs/          architecture, development setup, results, Goose findings
+tasks/         task tracking (tasks/README.md)
+CHANGELOG.md   what each tag adds
+```
+
+What isn't Goose, and why, is in
+[architecture](architecture/README.md#what-isnt-goose-and-why).
+
 ## Toolchain
 
 | Tool | Where | Version used (2026-10-10) |
@@ -130,6 +154,13 @@ binary; a release's sits beside it. A compiler copied anywhere else needs
 `GOOSE_STDLIB` pointing at a `stdlib/`. The compiler reads that itself and says where it
 looked when it finds none.
 
+### Pins
+
+| What | Pin | Why |
+|---|---|---|
+| Goose compiler | `aardappel/goose` release `v2026.1` (`ac759c3`), which the scripts fetch | An official release builds the same on every platform; a commit is pinned only for a fix not yet released |
+| Benchmarked | Per workload in [benchmarks](benchmarks.md#pins): plaintext and JSON, and REST rates and uploads, at `de19e3b` (code as `v0.3.1`) with Goose `46356c2`; REST reads beside uploads and memory at `bc75f2a` | Each workload names its measured build |
+
 ### Move the pin
 
 The pin is a Goose release. At the start of a session, check for a newer one:
@@ -146,17 +177,17 @@ gh api repos/aardappel/goose/releases/tags/<tag> -q '.assets[] | "\(.name) \(.di
 ```
 
 Then run `scripts/test.sh` ([below](#run-every-test)) in WSL, in Git Bash, and on macOS,
-and update the pin in `README.md`, the table above, `.vscode/settings.json`, and this
-page's release paths, in its own commit.
+and update the release in `README.md`'s quick start, the [pins](#pins) and toolchain
+tables, `.vscode/settings.json`, and this page's release paths, in its own commit.
 
 Pin a commit only when a Goose fix that this repository needs isn't in a release yet. Set
 `GOOSE_COMMIT` in the scripts' environment, and `--build-arg GOOSE_COMMIT=<hash>` for
-`bench/httparena/goose/Dockerfile`. Record the commit in the README's Pins table with the
+`bench/httparena/goose/Dockerfile`. Record the commit in the [pins](#pins) table with the
 reason, and return to a release once one includes the fix.
 
 A pin move doesn't wait for benchmarks. They're costly to run, so they run in batches,
 overnight, after a stretch of work (2026-10-13). Until then the results
-stand at the compilers they name, and the README's Pins table says which ones.
+stand at the compilers they name, and the [pins](#pins) table says which ones.
 
 ## Build and run
 
