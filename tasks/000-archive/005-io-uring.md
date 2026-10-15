@@ -30,7 +30,7 @@ zix and zeemo (Zig), first and fifth in its pipelined test, and libreactorng (C)
 - [x] xitca-web, zix, zeemo, and libreactorng in `bench/`, pinned and in their fastest
       documented configuration
 - [x] Task 004's matrix rerun with both loops, and the results recorded here
-- [x] A decision recorded in `docs/architecture/README.md`: which loop is the default,
+- [x] A decision recorded in `docs/decisions.md`: which loop is the default,
       and why; the epoll loop stays buildable and tested
 
 ## Progress
@@ -38,7 +38,7 @@ zix and zeemo (Zig), first and fifth in its pipelined test, and libreactorng (C)
 ### 2026-10-11
 
 `LOOP=uring scripts/build.sh` builds the io_uring loop (`src/uring.goose`, over
-`src/ring.goose` and `shim/uring.c`); `docs/architecture/README.md` describes it.
+`src/ring.goose` and `shim/uring.c`); `docs/architecture.md` describes it.
 `scripts/test-unit.sh` and `scripts/test-http.sh` pass against both loops at Goose
 `f084e52`. `scripts/test-echo.sh` is still to run against the io_uring build off CPU 15:
 pinned to that one CPU beside the benchmark, its EPIPE check failed for both builds. The design follows from spec §7.10: the ring owns every

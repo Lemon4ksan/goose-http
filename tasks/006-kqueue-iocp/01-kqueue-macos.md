@@ -182,6 +182,6 @@ The wrk run on `/plaintext` is in `docs/development.md`, with how it was measure
       `test-http.sh`, and `test-echo.sh`
 - [x] The macOS build and its environment recorded in `docs/development.md`, with one wrk
       run on `/plaintext`
-- [x] The error codes and the platform choice recorded in `docs/architecture/README.md`
+- [x] The error codes and the platform choice recorded in `docs/decisions.md`
 - [x] macOS gaps in the Goose compiler, runtime, or stdlib recorded in
       `docs/goose-findings.md` (none at `efe3155`)

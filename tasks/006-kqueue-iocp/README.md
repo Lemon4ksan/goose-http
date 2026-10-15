@@ -7,7 +7,7 @@ has not been completed or cancelled, so the parent remains open. It is separate 
 platform support and requires a Goose feature, not a change to this package.
 
 Run the server on macOS and the BSDs through kqueue, and on Windows through I/O
-completion ports. Linux stays the benchmark platform (`docs/architecture/README.md`), so
+completion ports. Linux stays the benchmark platform (`docs/decisions.md`), so
 this task is about the server running correctly elsewhere, not about matching its Linux
 numbers.
 

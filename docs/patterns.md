@@ -142,7 +142,7 @@ The design is [Tina](https://github.com/pmbanugo/tina)'s, a thread-per-core fram
 Odin: boxes bounded when they open, work sent to a thread's address rather than to a
 shared queue, and a time limit on every wait. Its author explains the reasons in
 [a post on async/await](https://pmbanugo.me/blog/why-async-await-complect-concurrency).
-How the boxes work: [architecture](architecture/README.md#waiting-answers-logging-and-shutdown).
+How the boxes work: [architecture](architecture.md#mail-between-threads).
 
 ## Slow work
 
@@ -226,7 +226,7 @@ share no memory. In `api/`, a note written through one worker isn't there for an
 
 - **Data built at startup and only read**, such as a catalog: the shared store,
   `import http.store`, keeps one copy that every worker reads
-  ([architecture](architecture/README.md#shared-read-only-blobs)). The benchmarks' REST
+  ([architecture](architecture.md#the-shared-store)). The benchmarks' REST
   server, `bench/rest/goose/rest.goose`, uses it.
 - **Data that changes**, such as counters or sessions: give it one owner thread, and
   have workers ask it by [mail](#mail-between-threads).

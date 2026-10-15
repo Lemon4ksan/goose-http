@@ -21,7 +21,7 @@ of in a build script. The servers it builds must run as fast as before.
       where Goose and vanilla-epoll are closest: the same rate within the runs' spread,
       or the difference recorded
 - [x] HttpArena's Goose image built and run once with `goose build`
-- [x] `docs/development.md`, `docs/c-interop.md`, `docs/architecture/README.md`, and
+- [x] `docs/development.md`, `docs/c-interop.md`, `docs/architecture.md`, and
       the two findings' workarounds updated
 
 ## Progress

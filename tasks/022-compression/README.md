@@ -4,7 +4,7 @@ Status: in-progress (implemented; approval record and validation remain open)
 
 Responses use precompressed files or the optional `http.compression` module for
 dynamic gzip, deflate, and zstd. HttpArena's json-comp entry is validated and measured
-(task 022.03, 2026-10-14). The [architecture](../../docs/architecture/README.md#files-and-compression)
+(task 022.03, 2026-10-14). The [architecture](../../docs/architecture.md#files-and-compression)
 describes the implemented boundary. Its approval has not been recorded as a settled
 decision; implementation alone does not complete that criterion.
 

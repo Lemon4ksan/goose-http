@@ -98,7 +98,7 @@ reset) instead of its 408. The sweep queued the 408 and closed the socket at onc
 `closesocket` aborts an overlapped send that is still pending. The client thread died
 without adding to the check's errors, so the run printed ok. Two fixes followed: the
 sweep sends its 408 through the same shutdown and drain as any refusal
-([architecture](../../docs/architecture/README.md#settled)), and `http_client.py`
+([architecture](../../docs/architecture.md#the-handler-and-its-events)), and `http_client.py`
 counts a client thread that raises as a failure. After them, 10 runs of 10 passed.
 
 ## Open

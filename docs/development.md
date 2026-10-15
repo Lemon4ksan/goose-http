@@ -32,7 +32,7 @@ CHANGELOG.md   what each tag adds
 ```
 
 What isn't Goose, and why, is in
-[architecture](architecture/README.md#what-isnt-goose).
+[architecture](architecture.md#what-isnt-goose).
 
 ## Get Goose
 
@@ -77,7 +77,7 @@ gcc can inline the runtime's functions into the server. The server imports the p
 from `../`, whose sidecar, `http.build`, names the C in `shim/` to compile and link for
 each platform (`shim/net.c` and `shim/uring.c` on Linux, `shim/kqueue.c` on macOS), and
 liburing on Linux, for the io_uring loop, which needs Linux 6.1
-([architecture](architecture/README.md#the-io_uring-loop-task-005)). `goose build`
+([architecture](architecture.md#completion-loop)). `goose build`
 keeps the generated C under `~/.goose/build/prog/`, and the package's compiled C under
 `~/.goose/build/pkg/local/`; `goose build -v` prints the commands with their paths.
 
@@ -161,7 +161,7 @@ The benchmarks need more tools ([bench/README.md](../bench/README.md#toolchain))
 `scripts/build.sh` defaults to the epoll loop over kqueue. `LOOP=uring` builds the
 completion loop over its kqueue emulation; the benchmark server includes both loops.
 The platform mapping is in
-[architecture](architecture/README.md#platform-shims-and-error-codes).
+[architecture](architecture.md#completion-loop).
 
 Install the tools with Homebrew, then run `scripts/test.sh`:
 
@@ -190,7 +190,7 @@ scripts' `ulimit -n 65536` fits the tested per-process fd limit.
 
 The io_uring loop runs natively on Windows through `shim/iocp.c` and `shim/net_win.c`,
 which `http.build` lists under `c_sources_windows`
-([architecture](architecture/README.md#the-platform-and-its-error-codes-task-006)), and
+([architecture](architecture.md#c-in-the-package)), and
 `scripts/test-unit.sh`, `scripts/test-http.sh`, and `scripts/test-echo.sh` pass there,
 in Git Bash. The epoll loop doesn't build on Windows. Windows isn't for benchmarks.
 
@@ -376,7 +376,7 @@ no file open, and streaming checks bound peak memory on Linux and Windows.
 
 `LOOP=uring-epoll scripts/test-http.sh`, against the `LOOP=uring` build, tests the
 io_uring loop over its emulation on epoll, which it falls back to where io_uring is
-blocked ([architecture](architecture/README.md#the-io_uring-loop-task-005)). The
+blocked ([architecture](architecture.md#completion-loop)). The
 fallback itself was tested (2026-10-11) by running the uring build under Docker's
 default seccomp profile, with WSL's liburing mounted, and `http_client.py`'s modes from
 WSL against it:

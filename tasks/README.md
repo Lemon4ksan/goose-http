@@ -67,7 +67,6 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 | 031: shared REST application | Split reusable application code from HTTP routes without changing behavior or memory. |
 | 032: shared benchmark harness | Reuse one harness across scripts and document external server integration. |
 | 034: Goose releases | goose-http builds from the release; WSL and Windows test runs, goose-compress, goose-rest, and our own packages remain. |
-| 037: architecture split | Split the architecture doc into a user's page and a decision log. |
 | 038: upgraded reads while waiting | Done on macOS; run the tests on Linux (io_uring, epoll) and Windows (IOCP). |
 | 040: typed store reads | Scalars and fixed-size records read from `http::store` by value, measured against `store_append`. |
 

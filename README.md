@@ -9,7 +9,7 @@ changes between tags.
 
 [Examples](examples/README.md) · [Patterns](docs/patterns.md) · [API](docs/api.md) ·
 [Benchmarks](docs/benchmarks.md) ·
-[Architecture](docs/architecture/README.md) · [Embedded Linux](docs/embedded.md) ·
+[Architecture](docs/architecture.md) · [Embedded Linux](docs/embedded.md) ·
 [Development](docs/development.md) · [Changelog](CHANGELOG.md)
 
 For a full framework with typed routes, extractors, middleware, and optional route
@@ -204,7 +204,7 @@ mailbox messages, timers, and JSON. The package's only other code is a thin C la
 - Hold memory that all threads can read: the shared store's blobs.
 
 For each file and why it uses C, see the
-[architecture](docs/architecture/README.md#what-isnt-goose-and-why).
+[architecture](docs/architecture.md#what-isnt-goose).
 
 ## Credits
 

@@ -28,4 +28,4 @@ Additive: `FULL` keeps its meaning for a message that fits.
       slots are all taken. In `test/test_mail.goose`, beside the full box's existing
       test; `scripts/test.sh` passes in WSL and Git Bash (2026-10-14).
 - [x] `mail.goose`'s header and the README describe both: `examples/README.md`, the
-      API reference, and `docs/architecture/README.md`
+      API reference, and `docs/architecture.md`

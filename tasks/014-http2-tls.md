@@ -71,7 +71,7 @@ and duplicates its types.
 
 ## Phases
 
-1. Record the decision in `docs/architecture/README.md`, with the TLS exception to the C
+1. Record the decision in `docs/decisions.md`, with the TLS exception to the C
    rule, and update `README.md`'s scope.
 2. `goose-tls` over OpenSSL 3 with memory BIOs, and HTTP/1.1 over TLS in the epoll loop on
    port 8443. Measure HttpArena's JSON-over-TLS profile against its Rust entries.
@@ -101,7 +101,7 @@ the `Upgrade: h2c` handshake, gRPC, and WebSocket over h2.
 
 ## Acceptance criteria
 
-- [ ] The split above discussed, and the decision recorded in `docs/architecture/README.md`
+- [ ] The split above discussed, and the decision recorded in `docs/decisions.md`
       with its reasons, or this task rewritten to the one chosen
 - [ ] A test that a program importing `http` without `http.tls` builds without declaring
       `goose-tls`, at the pin of the day

@@ -94,7 +94,7 @@ Baseline: `2afc12f`, rebuilt at each Goose pin the comparisons use, `0bdbd18` si
 goose-http was written for correctness and speed, partly before Goose had features
 that fit it better. A review against the Goose docs and code at `a6249a4` (2026-10-13,
 for goose-rest's plan) proposed the changes below. Each lands only if its benchmark
-shows speed and memory hold (`docs/architecture/README.md`, "The API isn't frozen").
+shows speed and memory hold (`docs/decisions.md`, "The API isn't frozen").
 The task then rewrites the examples and the API reference for the API that results.
 
 ## How a change is validated
@@ -818,7 +818,7 @@ Item 12, found later the same day, is completed below.
     knows no HTTP state. The HTTP worker sizes it by `max_conns` and selects entries
     with the key's top 20 bits. The lifecycle and the race with a send already in
     flight are recorded in
-    [the waiting design](../docs/architecture/README.md#waiting-answers-logging-and-shutdown).
+    [the waiting design](../docs/architecture.md#mail-between-threads).
     Publishing in `later` itself lets another thread reply before the handler
     returns; timer exhaustion or an immediate whole response clears the key again.
     `mail_slot_size` now returns -1 for a stale tracked key too.

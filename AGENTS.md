@@ -5,7 +5,8 @@
 - What this is: `README.md`; what each tag adds: `CHANGELOG.md`; the API by topic:
   `docs/api.md`; which approach fits bodies, responses, and slow work:
   `docs/patterns.md`; and the examples: `examples/README.md`
-- Architecture decisions, and what isn't Goose: `docs/architecture/README.md`
+- Architecture decisions, dated, with their reasons: `docs/decisions.md`; how the
+  package works, and what isn't Goose: `docs/architecture.md`
 - Layout, the Goose release, toolchain, and local setup: `docs/development.md`
 - Environment traps and incidents, by platform: `docs/known-issues.md`
 - What `extern fn` looks like from C, for the shim: `docs/c-interop.md`

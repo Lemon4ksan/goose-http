@@ -3,7 +3,7 @@
 Status: done
 
 The HTTP/1.1 server, one edge-triggered epoll loop per core, as
-`docs/architecture/README.md` proposes. It serves the two TechEmpower-style endpoints the
+`docs/decisions.md` records. It serves the two TechEmpower-style endpoints the
 benchmarks in task 004 call:
 
 - `GET /plaintext` answers `Hello, World!` as `text/plain`.
@@ -54,7 +54,7 @@ Anything else answers 404. Responses carry `Server`, `Date`, `Content-Type`, and
   TinyCC refuses `src/main.goose` now that it can spawn a thread.
 
 The decisions this task settled, with their reasons, are in
-`docs/architecture/README.md`: the per-worker `reusable` pool, 8 KB read and write
+`docs/decisions.md`: the per-worker `reusable` pool, 8 KB read and write
 buffers, 16,384 connections per worker, pausing `accept` at that limit and at `EMFILE`,
 the HTTP limits, the timeouts, and the lingering close after a refusal.
 

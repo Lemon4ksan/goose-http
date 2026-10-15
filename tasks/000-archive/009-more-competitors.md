@@ -67,7 +67,7 @@ Done, at Goose `e7792d7`:
 - All three pass `tfb` and `many 4096`. `keepalive` fails on HTTP/1.0 in every
   competitor; `bench/README.md` breaks it down check by check.
 - The Goose server accepts chunked request bodies and serves `/baseline11` and
-  `/pipeline` (`docs/architecture/README.md`), and `bench/httparena/goose` is its
+  `/pipeline` (`docs/architecture.md`), and `bench/httparena/goose` is its
   HttpArena entry. HttpArena's `scripts/validate.sh` passes for it: 24 of 24 checks,
   including all 1,047 split offsets of `validate-frag.py`.
 - `bench/httparena.sh validate` and `run` drive HttpArena's harness at `0720ee5` under
@@ -119,7 +119,7 @@ medians of `RUNS=3`. Against Goose, in that one pass:
 Goose's 16 KB slots, with both buffers inline, were resident in full: the compiler writes
 the whole `Conn` on every accept (`docs/goose-findings.md`, two entries). The buffers now
 belong to the worker, and a slot keeps leftovers in a `reusable[]` spill pool
-(`docs/architecture/README.md`). An intermediate version, kept as
+(`docs/decisions.md`). An intermediate version, kept as
 `bench/results/2026-10-10-slots/server-a.goose`, reused freed slots field by field
 instead of through `alloc_index`.
 

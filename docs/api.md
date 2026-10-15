@@ -365,5 +365,5 @@ other isn't in the binary.
 
 The benchmark server links both. `LOOP` picks: `uring` (`iocp` on Windows), `epoll`,
 or `uring-epoll`. See
-[architecture](architecture/README.md#the-io_uring-loop-task-005).
+[architecture](architecture.md#completion-loop).
 

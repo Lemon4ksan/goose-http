@@ -1,5 +1,5 @@
 // The C the package calls, which goose build compiles and links into every program
-// that imports it: each platform's shim (docs/architecture/README.md).
+// that imports it: each platform's shim (docs/architecture.md).
 c_sources_linux = ["shim/net.c", "shim/uring.c", "shim/ring_epoll.c", "shim/mail.c", "shim/store.c"];
 c_libs_linux = ["uring"];
 c_sources_macos = ["shim/kqueue.c", "shim/ring_epoll.c", "shim/mail.c", "shim/store.c"];

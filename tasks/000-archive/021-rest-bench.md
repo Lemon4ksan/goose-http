@@ -350,7 +350,7 @@ time from `/proc/PID/stat` over each run, 2 rounds each:
   io_uring spent about 1.6 µs more user time per request. The epoll loop sent each
   response, up to 728 KB, in one `send`, with no `EAGAIN`; `ur_send` copied each one,
   74 KB on average, into its own buffer first.
-- Sending a response inline in `ur_send` (`62e1d45`, `docs/architecture/README.md`)
+- Sending a response inline in `ur_send` (`62e1d45`, `docs/decisions.md`)
   took io_uring to 34.7-34.9K serialized and 59.6-60.4K templated, epoll's 34.9K and
   59.9-61.2K. Sent inline at every size, tier B fell from 232-234K to 209-211K
   serialized and from 275-279K to 261-262K templated, epoll's rate; at 64 KB and up
