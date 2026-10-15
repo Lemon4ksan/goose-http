@@ -2,7 +2,10 @@
 
 What each tag adds. Each release names the Goose compiler it was built and tested with.
 
-## Unreleased
+## v0.3.3 (2026-10-15)
+
+JSON strings are written faster, an upgraded connection is read while it waits, and the
+tests follow Goose's own convention. Goose `v2026.1` (`ac759c3`).
 
 - `http::json_string` looks for a byte to escape 16 bytes at a time and appends the
   bytes between escapes whole. Its output equals `json::format_string`'s, and the
@@ -11,6 +14,10 @@ What each tag adds. Each release names the Goose compiler it was built and teste
   in their short forms (`\n`, not `\u000a`), as `json::format_string` does.
 - An upgraded connection's bytes keep coming as `BODY` while its exchange waits with
   `later`, where they waited for the wait to end.
+- The architecture is two pages: how goose-http works, for users, and the decisions
+  behind it, for contributors.
+- The tests are small programs by area under `test/`, each checked against a golden
+  file, and `test/run_tests.py` runs them.
 
 ## v0.3.2 (2026-10-15)
 
