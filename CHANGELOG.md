@@ -5,8 +5,10 @@ What each tag adds. Each release names the Goose compiler it was built and teste
 ## Unreleased
 
 - `http::json_string` looks for a byte to escape 16 bytes at a time and appends the
-  bytes between escapes whole, with the same output. The examples and the benchmark
-  servers write their JSON strings with it.
+  bytes between escapes whole. Its output equals `json::format_string`'s, and the
+  examples and the benchmark servers write their JSON strings with it.
+- `http::json_string` writes a newline, tab, carriage return, backspace, and form feed
+  in their short forms (`\n`, not `\u000a`), as `json::format_string` does.
 - An upgraded connection's bytes keep coming as `BODY` while its exchange waits with
   `later`, where they waited for the wait to end.
 

@@ -132,9 +132,10 @@ call's result to a reference parameter.
   At `END`, the body is whole if `http::multipart_done(st.parts)`.
 - `http::respond_json(out, status) { b => json::format_key(b, "id"); ... }`.
   `http::json_string(b, s)` writes `s` as a JSON string, quotes included, into any
-  builder with `push` and `append`. It looks for a byte to escape 16 bytes at a time,
-  where `json::format_string` tests each byte, and writes every control byte as
-  `\u00XX`.
+  builder with `push` and `append`. Its output is `json::format_string`'s: `\n`, `\t`,
+  `\r`, `\b`, and `\f` in their short forms, and other control bytes as `\u00XX`. It
+  looks for a byte to escape 16 bytes at a time, where `json::format_string` tests each
+  byte.
 - `Config.max_requests` caps a connection's requests. `http::body_within(st.taken, ev,
   out, limit)` at `REQUEST` and each `BODY` answers 413 past a route's own limit.
 - `http::gather(ev, st.body, out, limit) { req, body, o => }`, called with every event

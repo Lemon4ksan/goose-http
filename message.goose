@@ -1086,8 +1086,9 @@ fn json_escapes_set() -> ByteSet {
     return byte_set(m);
 }
 
-// A JSON string for s, quotes included. Every control byte, \n too, is
-// written as \u00XX, where json::format_string writes \n, \r, \t, \b, and \f.
+// A JSON string for s, quotes included, as json::format_string writes it:
+// \n, \t, \r, \b, and \f in their short forms, and other control bytes as
+// \u00XX.
 fn json_string<A>(out: A&, s: const u8[:]) {
     out.push('"');
     var pos = 0;
@@ -1100,6 +1101,16 @@ fn json_string<A>(out: A&, s: const u8[:]) {
         if c == '"' || c == '\\' {
             out.push('\\');
             out.push(c);
+        } else if c == '\n' {
+            out.append("\\n");
+        } else if c == '\t' {
+            out.append("\\t");
+        } else if c == '\r' {
+            out.append("\\r");
+        } else if c == 8 {
+            out.append("\\b");
+        } else if c == 12 {
+            out.append("\\f");
         } else {
             out.append("\\u00");
             out.push("0123456789abcdef"[c >> 4]);

@@ -104,7 +104,7 @@ fn test_reply() {
 
     var j: u8[>..] = [];
     http::json_string(j, "a\"b\\c\n\x01");
-    check::same(j, "\"a\\\"b\\\\c\\u000a\\u0001\"");
+    check::same(j, "\"a\\\"b\\\\c\\n\\u0001\"");
     print("json_string: ", j);
 }
 

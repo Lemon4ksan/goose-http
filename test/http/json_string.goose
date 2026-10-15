@@ -1,32 +1,15 @@
 // json_string: strings with no escape, each kind, and escapes at either end
-// of a 16-byte block, against a byte at a time.
+// of a 16-byte block, against json::format_string.
 import std;
+import json;
 import http from "../../";
 import check from "../";
 
-// What json_string writes, a byte at a time.
-fn bytewise(out: u8[>..]&, s: const u8[:]) {
-    out.push('"');
-    for c in s {
-        if c == '"' || c == '\\' {
-            out.push('\\');
-            out.push(c);
-        } else if c < ' ' {
-            out.append("\\u00");
-            out.push("0123456789abcdef"[c >> 4]);
-            out.push("0123456789abcdef"[c & 15]);
-        } else {
-            out.push(c);
-        }
-    }
-    out.push('"');
-}
-
-fn agrees(s: const u8[:]) -> u8[>..] {
+fn agrees(s: u8[:]) -> u8[>..] {
     var got: u8[>..] = [];
     var want: u8[>..] = [];
     http::json_string(got, s);
-    bytewise(want, s);
+    json::format_string(want, s);
     check::same(got, want);
     return got;
 }
@@ -37,7 +20,8 @@ fn main() {
     print("quote: ", agrees("a\"b"));
     print("backslash: ", agrees("a\\b"));
     print("newline: ", agrees("a\nb"));
-    print("tab, CR, NUL, 0x1f: ", agrees("\t\r\x00\x1f"));
+    print("tab, CR, backspace, form feed: ", agrees("\t\r\x08\x0c"));
+    print("NUL, 0x01, 0x1f: ", agrees("\x00\x01\x1f"));
     print("only escapes: ", agrees("\"\\\"\\"));
     print("after 16 bytes: ", agrees("0123456789abcdefghij\"klm"));
     print("at the end: ", agrees("0123456789abcdefghij\n"));
@@ -59,6 +43,6 @@ fn main() {
     out.append("{\"a\":");
     http::json_string(out, "x\ny");
     out.push('}');
-    check::same(out, "{\"a\":\"x\\u000ay\"}");
+    check::same(out, "{\"a\":\"x\\ny\"}");
     print("after a prefix: ", out);
 }
