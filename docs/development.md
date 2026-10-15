@@ -10,7 +10,7 @@ Linux unless a measurement explicitly names another platform.
 
 | Tool | Where | Version used (2026-10-10) |
 |---|---|---|
-| Goose compiler | `../goose`, at the pin in `README.md` | `46356c2` (2026-10-13) |
+| Goose compiler | release fetched by `scripts/goose.sh` into `build/` ([below](#set-up-the-goose-compiler)) | `v2026.1` (2026-10-15) |
 | WSL2 Ubuntu | | 26.04.1 LTS, kernel 6.18.54.1-microsoft-standard-WSL2 (WSL 3.0.3, since 2026-10-13) |
 | C compilers | WSL | gcc 15.2.0, clang 21.1.8 |
 | CMake, Ninja | WSL, apt | 4.2.3, 1.13.2 |
@@ -85,72 +85,78 @@ it, unpinned. A missing `liburing.h` did that once; a build whose output mention
 
 ## Set up the Goose compiler
 
-The scripts run the compiler that `GOOSE` names, or `goose` on `PATH` without it, so the
-checkout can live anywhere; this page puts it next to this repository, at `../goose`.
-Leave it on the pinned commit and don't edit it (`AGENTS.md`). One checkout serves both
-platforms: WSL builds into `build-linux/` and Windows into `build/`, and the checkout's
-`.gitignore` covers both.
+The scripts use the Goose release pinned in `scripts/goose.sh` (`v2026.1`, 2026-10-15)
+unless told otherwise. The first script that needs the compiler downloads the release's
+archive for the platform from
+[the releases page](https://github.com/aardappel/goose/releases), checks its SHA-256,
+and unpacks it into `build/goose-v2026.1-<platform>/`; later runs reuse it. Run
+`scripts/goose.sh` to fetch it and print the compiler's path. The release needs the C
+library's headers on Linux and the Xcode command line tools on macOS
+([Goose's README](https://github.com/aardappel/goose#install-a-release)). Linux on arm64
+has no release archive, so there the script builds the release's tag from source, as
+`GOOSE_COMMIT` does below.
 
-1. Clone the checkout at the pin. It has no submodules: TinyCC, which lets
-   `goose file.goose` compile and run a program in process, is vendored, and graphics,
-   audio, and physics are packages the compiler fetches only for a program that imports
-   them.
+Use another compiler only when the release can't do the job, such as a Goose fix not
+yet released. Two settings choose one, and the first set wins:
 
-   ```sh
-   git clone -o upstream https://github.com/aardappel/goose.git ../goose
-   git -C ../goose checkout 46356c2
-   ```
+| Setting | Compiler |
+|---|---|
+| `GOOSE` | The binary it names, such as a checkout's build or a release unpacked elsewhere. |
+| `GOOSE_COMMIT` | That commit of `aardappel/goose`, cloned into `build/goose-<commit>/` and built with CMake (and Ninja if installed) on first use. Give the full 40-hex hash; a shallow fetch can't resolve an abbreviated one. |
 
-2. Build the Linux compiler, in WSL:
+`bench/*.sh` record which one ran in `env.txt`: the release's tag, or a checkout's
+commit. `http.build` excludes `build/` from the package, because the unpacked
+compiler's `stdlib/` declares `extern fn`s that the package's JIT library would
+otherwise try to link (2026-10-15).
 
-   ```sh
-   sudo apt-get install -y cmake ninja-build
-   cd ../goose
-   cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release
-   cmake --build build-linux
-   ```
+To build a checkout by hand, clone it anywhere and point `GOOSE` at its build. Don't edit
+it (`AGENTS.md`). TinyCC, which lets `goose file.goose` run a program in process, is
+vendored, so the checkout has no submodules:
 
-   The compiler is `../goose/build-linux/goose`. Point `GOOSE` at it, for example in
-   `~/.profile`:
+```sh
+git clone -o upstream https://github.com/aardappel/goose.git ../goose
+cmake -S ../goose -B ../goose/build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build ../goose/build-linux
+export GOOSE=$PWD/../goose/build-linux/goose
+```
 
-   ```sh
-   export GOOSE=$HOME/path/to/goose/build-linux/goose
-   ```
+On Windows, configure with `-G "Visual Studio 18 2026"` instead and build with
+`--config Release`. The compiler is then `..\goose\build\Release\goose.exe`. CMake comes
+with the Visual Studio Build Tools, at
+`Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`.
 
-3. Build the Windows compiler, in PowerShell. CMake comes with the Visual Studio Build
-   Tools, at `Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`.
-
-   ```powershell
-   cmake -S ..\goose -B ..\goose\build -G "Visual Studio 18 2026"
-   cmake --build ..\goose\build --config Release
-   ```
-
-   The compiler is `..\goose\build\Release\goose.exe`.
-
-The compiler finds the stdlib by walking up to four directories from its own binary, so
-both builds find `../goose/stdlib` with no setting. A compiler copied anywhere else needs
-`GOOSE_STDLIB` pointing at the checkout's `stdlib/`; the compiler reads it itself, and
-says where it looked when it finds none.
+A checkout's compiler finds the stdlib by walking up to four directories from its own
+binary; a release's sits beside it. A compiler copied anywhere else needs
+`GOOSE_STDLIB` pointing at a `stdlib/`. The compiler reads that itself and says where it
+looked when it finds none.
 
 ### Move the pin
 
-The Goose repository changes daily. Fetch it at the start of a session, and move the pin
-in its own commit once the tests pass:
+The pin is a Goose release. At the start of a session, check for a newer one:
 
 ```sh
-git -C ../goose fetch upstream
-git -C ../goose log --oneline HEAD..upstream/master
-git -C ../goose checkout upstream/master
+gh release list -R aardappel/goose --limit 3
 ```
 
-Then rebuild both compilers (`cmake --build` with the same directories), run
-`scripts/test.sh` ([below](#run-every-test)) in WSL and in Git Bash, and update the pin in
-`README.md`, the table above, and `GOOSE_COMMIT` in `bench/httparena/goose/Dockerfile`,
-which builds the HttpArena entry with Goose fetched at that commit.
+To move to a new release, update `goose_release` and the four archives' SHA-256 sums in
+`scripts/goose.sh`. GitHub lists each asset's digest:
+
+```sh
+gh api repos/aardappel/goose/releases/tags/<tag> -q '.assets[] | "\(.name) \(.digest)"'
+```
+
+Then run `scripts/test.sh` ([below](#run-every-test)) in WSL, in Git Bash, and on macOS,
+and update the pin in `README.md`, the table above, `.vscode/settings.json`, and this
+page's release paths, in its own commit.
+
+Pin a commit only when a Goose fix that this repository needs isn't in a release yet. Set
+`GOOSE_COMMIT` in the scripts' environment, and `--build-arg GOOSE_COMMIT=<hash>` for
+`bench/httparena/goose/Dockerfile`. Record the commit in the README's Pins table with the
+reason, and return to a release once one includes the fix.
 
 A pin move doesn't wait for benchmarks. They're costly to run, so they run in batches,
 overnight, after a stretch of work (2026-10-13). Until then the results
-stand at the commits they name, and the README's Pins table says which ones.
+stand at the compilers they name, and the README's Pins table says which ones.
 
 ## Build and run
 
@@ -211,10 +217,10 @@ build/server echo-epoll 8080      # one edge-triggered epoll loop
    including the device example with simulated hardware. ARM builds are checked separately.
 
 ```sh
-GOOSE=../goose/build-linux/goose scripts/test.sh
+scripts/test.sh
 ```
 
-`GOOSE`, `CC`, `PORT`, and `WORKERS` pass through to the scripts it runs. On macOS it
+`GOOSE`, `GOOSE_COMMIT`, `CC`, `PORT`, and `WORKERS` pass through to the scripts it runs. On macOS it
 waits for `TIME_WAIT` to drain before each run ([below](#macos)). On Windows, in Git
 Bash, its first step is the Windows typecheck that [Edit on Windows](#edit-on-windows)
 describes. Git Bash leaves out the load runs and the fd-limit check.
@@ -308,26 +314,11 @@ and a server port among them fails to bind with `EADDRINUSE`.
 emulation, which Docker Desktop has. `test-aarch64.sh` took 53 s in WSL2 and 63 s on the
 Mac (2026-10-14). Neither is part of `scripts/test.sh`.
 
-On macOS, the scripts still need a Linux build of the compiler that runs in
-`ubuntu:26.04` on x86-64. Build one in Docker from the pinned checkout, mounted read-only,
-into this repository's ignored `build/`:
-
-```sh
-docker build -q --platform linux/amd64 -t goose-http-goose-build - <<'EOF'
-FROM ubuntu:26.04
-RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    --no-install-recommends cmake ninja-build g++ >/dev/null
-EOF
-mkdir -p build/goose-linux
-docker run --rm --platform linux/amd64 --user "$(id -u):$(id -g)" \
-    -v "$PWD/../goose:/goose:ro" -v "$PWD/build/goose-linux:/out" goose-http-goose-build \
-    sh -c 'cmake -S /goose -B /out -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build /out'
-GOOSE=$PWD/build/goose-linux/goose GOOSE_STDLIB=$PWD/../goose/stdlib scripts/test-armhf.sh
-```
-
-The build took 1 min 54 s under Docker Desktop's x86-64 emulation on the Mac
-(2026-10-14). The compiler finds its stdlib only in the checkout it was built in, so
-`GOOSE_STDLIB` names it. Rebuild after moving the pin.
+The cross-build runs the compiler in an x86-64 `ubuntu:26.04` container. Without
+`GOOSE`, `scripts/test-arm.sh` uses the pinned release's `linux-x64` archive, which
+`scripts/goose.sh` fetches on any host, macOS included. A `GOOSE` of its own must be a
+Linux x86-64 build that runs on Ubuntu 26.04; for one copied away from its stdlib,
+`GOOSE_STDLIB` names the stdlib.
 
 - Docker Desktop on the Mac runs arm64 containers natively in its VM and arm/v7 ones
   under qemu-arm 10.2.3 (Docker Desktop 29.8.2), since the M1 has no 32-bit mode. Its
@@ -359,7 +350,7 @@ The build took 1 min 54 s under Docker Desktop's x86-64 emulation on the Mac
 [bench/README.md](../bench/README.md) owns the scripts, server configurations, and
 measurement method. [benchmarks.md](benchmarks.md) owns the current comparisons;
 [results.md](results.md) links their evidence. Script headers list the settings.
-Set `GOOSE` and put `$HOME/.cargo/bin` on `PATH`. Run a benchmark with no competing
+Put `$HOME/.cargo/bin` on `PATH`. Run a benchmark with no competing
 work on the machine, and compare only compatible machines, kernels, and settings.
 
 `bench/codegen.sh REV...` compares generated code without serving traffic. It keeps
@@ -408,8 +399,8 @@ intermediate shell can otherwise expand variables before bash sees them.
 
 - Git Bash rewrites POSIX-looking arguments. Set `MSYS_NO_PATHCONV=1` for a WSL call;
   PowerShell does not rewrite paths.
-- A non-login script does not read the WSL profile. Export `GOOSE` and the oha path
-  inside it.
+- A non-login script does not read the WSL profile. Export the oha path, and `GOOSE` or
+  `GOOSE_COMMIT` when not using the release, inside it.
 - Run cargo with `cd ~` first, or use WSL's `--cd` option, to avoid inheriting
   configuration from parent directories on the Windows filesystem.
 - Keep a long benchmark's foreground WSL call open. A detached run may end when the
@@ -455,10 +446,9 @@ The platform mapping is in [architecture](architecture/README.md#platform-shims-
 
 ```sh
 brew install cmake wrk nghttp2 oha
-cmake -S ../goose -B ../goose/build-macos -DCMAKE_BUILD_TYPE=Release
-cmake --build ../goose/build-macos -j
-export GOOSE=$PWD/../goose/build-macos/goose
 ```
+
+The scripts fetch the `macos-arm64` or `macos-x64` release; CMake is for `GOOSE_COMMIT`.
 
 TinyCC finds SDK headers through `xcrun --show-sdk-path`, requiring Xcode or the
 Command Line Tools. `goose build --cc gcc` works because macOS's gcc is Apple clang.
@@ -483,9 +473,10 @@ Command Line Tools. `goose build --cc gcc` works because macOS's gcc is Apple cl
 
 ### Linux in Docker on macOS
 
-Use an arm64 Linux image with the Linux toolchain and test tools. Build the Goose
-compiler at the [current pin](../README.md#pins), rather than reusing a named image
-from a previous session. Test tools include liburing, curl, wrk, nghttp2-client,
+Use an arm64 Linux image with the Linux toolchain and test tools, plus CMake, Ninja, and
+g++: Goose has no arm64 Linux release, so `scripts/goose.sh` builds the pinned release's
+source there. Build the image fresh rather than reusing a named image from a previous
+session. Test tools include liburing, curl, wrk, nghttp2-client,
 netcat-openbsd, python3, and oha. Benchmark builds additionally need the Rust, Zig,
 Odin, and autotools versions above, plus util-linux and procps.
 
@@ -580,15 +571,14 @@ in Git Bash. The epoll loop doesn't build on Windows. Windows isn't for benchmar
 | Python | on `PATH` as `python3` | 3.14.6 |
 | oha | its `oha-windows-amd64.exe` release, as `%USERPROFILE%\.local\bin\oha.exe` | 1.16.0, for `bench/oha.sh` (`OHA` names it) |
 
-Build the compiler as in [Set up the Goose compiler](#set-up-the-goose-compiler), step 3.
-It needs the Visual Studio 2026 Build Tools (`winget install
-Microsoft.VisualStudio.BuildTools` with the `Microsoft.VisualStudio.Workload.VCTools`
-workload). With only Visual Studio 2022 17.6, MSBuild rejects Goose's C standard:
-`Element <LanguageStandard_C> has an invalid value of "stdclatest"` (2026-10-12). Then,
-in Git Bash:
+The scripts fetch the `windows-x64` release ([Set up the Goose
+compiler](#set-up-the-goose-compiler)). `goose build` needs the Visual Studio 2026 Build
+Tools (`winget install Microsoft.VisualStudio.BuildTools` with the
+`Microsoft.VisualStudio.Workload.VCTools` workload). With only Visual Studio 2022 17.6,
+MSBuild rejects Goose's C standard when building a checkout: `Element
+<LanguageStandard_C> has an invalid value of "stdclatest"` (2026-10-12). In Git Bash:
 
 ```sh
-export GOOSE=$PWD/../goose/build/Release/goose.exe
 scripts/build.sh                 # LOOP=iocp, CC=msvc: build/server.exe
 nice -n 19 scripts/test-unit.sh
 nice -n 19 scripts/test-http.sh
@@ -654,24 +644,25 @@ Traps in Git Bash:
 
 ## Edit on Windows
 
-The Windows compiler typechecks the whole program without running it:
+The Windows compiler typechecks the whole program without running it. With the release
+fetched (`scripts/goose.sh` in Git Bash):
 
 ```powershell
-..\goose\build\Release\goose.exe --check server\server.goose
-..\goose\build\Release\goose.exe --check test\test_http.goose
+build\goose-v2026.1-windows-x64\goose.exe --check server\server.goose
+build\goose-v2026.1-windows-x64\goose.exe --check test\test_http.goose
 ```
 
 `--check` and `-o out.c` don't compile the generated C, so the Linux-only C in `shim/` is
 no obstacle on Windows.
 
 The Goose VS Code extension checks on save and underlines errors. Its run commands go
-through TinyCC, which can't run the server ([above](#build-and-run)). Install it from the checkout:
+through TinyCC, which can't run the server ([above](#build-and-run)). Install it from the release:
 
 ```powershell
-code --install-extension ..\goose\vscode\goose-language.vsix
+code --install-extension build\goose-v2026.1-windows-x64\vscode\goose-language.vsix
 ```
 
 It needs VS Code 1.85 or later. If `code` on PATH belongs to an older install, call the
-newer install's `bin\code.cmd` directly. `.vscode/settings.json` points it at the Windows compiler
-and stdlib in `../goose` and sets `server/server.goose` as the entry file, so a check of any
-file covers the whole program.
+newer install's `bin\code.cmd` directly. `.vscode/settings.json` points it at the Windows
+release's compiler and stdlib in `build/` and sets `server/server.goose` as the entry
+file, so a check of any file covers the whole program.

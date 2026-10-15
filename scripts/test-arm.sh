@@ -5,9 +5,10 @@
 # Prints each example's peak RSS, which under emulation includes the
 # emulator's own. scripts/test-aarch64.sh and scripts/test-armhf.sh run it.
 #
-# GOOSE names a Linux build of the compiler, such as ../goose/build-linux/goose,
-# which must run on Ubuntu 26.04. The compiler finds its stdlib in the checkout
-# it was built in; for one built elsewhere, GOOSE_STDLIB names the stdlib.
+# GOOSE names a Linux x86-64 build of the compiler that runs on Ubuntu 26.04,
+# by default the pinned release's linux-x64 archive (scripts/goose.sh). A
+# release finds its stdlib beside it and a checkout's build in the checkout;
+# for one copied elsewhere, GOOSE_STDLIB names the stdlib.
 # Needs Docker with ARM emulation: Docker Desktop has it, and elsewhere
 # tonistiigi/binfmt installs it.
 set -eu
@@ -19,9 +20,15 @@ armhf) deb=armhf gcc=arm-linux-gnueabihf-gcc platform=linux/arm/v7 ;;
 esac
 arch=$1
 root=$(cd "$(dirname "$0")/.." && pwd)
-: "${GOOSE:?GOOSE must name a Linux build of the compiler}"
+[ -n "${GOOSE:-}" ] || GOOSE=$(GOOSE_ASSET=linux-x64 "$root/scripts/goose.sh")
 goose=$(cd "$(dirname "$GOOSE")" && pwd)/$(basename "$GOOSE")
-stdlib=${GOOSE_STDLIB:-$(dirname "$(dirname "$goose")")/stdlib}
+if [ -n "${GOOSE_STDLIB:-}" ]; then
+    stdlib=$GOOSE_STDLIB
+elif [ -d "$(dirname "$goose")/stdlib" ]; then
+    stdlib=$(dirname "$goose")/stdlib
+else
+    stdlib=$(dirname "$(dirname "$goose")")/stdlib
+fi
 stdlib=$(cd "$stdlib" && pwd)
 out=$root/build/$arch
 mkdir -p "$out/examples" "$out/goose-home"

@@ -16,7 +16,8 @@
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-goose=${GOOSE:-goose}
+. "$root/scripts/goose.sh"
+goose=$GOOSE
 os=$(uname -s)
 case $os in
 MINGW* | MSYS*) loops=iocp ;;

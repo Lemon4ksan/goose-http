@@ -18,7 +18,8 @@ suffix=${SUFFIX:-}
 mkdir -p "$out"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-"${GOOSE:-goose}" -O2 -o "$tmp/server.c" --standalone "$root/server/server_epoll.goose" >/dev/null
+. "$root/scripts/goose.sh"
+"$GOOSE" -O2 -o "$tmp/server.c" --standalone "$root/server/server_epoll.goose" >/dev/null
 
 build() {
     # shellcheck disable=SC2086 # $3 is a list of flags

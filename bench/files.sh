@@ -26,6 +26,7 @@
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+. "$root/scripts/goose.sh"
 bin=$root/build/bench
 servers=${SERVERS:-goose goose-uring goose-uring-epoll nginx caddy}
 server_cpus=${SERVER_CPUS:-0-3}
@@ -63,7 +64,7 @@ done
     echo "server cpus: $server_cpus, client cpus: $client_cpus, client threads: $threads"
     echo "duration: $duration s, warm-up: $warmup s, runs: $runs, connections: $conns"
     echo "goose-http: $(git -C "$root" rev-parse --short HEAD)$(git -C "$root" diff --quiet || echo ' (modified)')"
-    echo "goose: $(git -C "$root/../goose" rev-parse --short HEAD)"
+    echo "goose: $(goose_version)"
     echo "nginx: $(nginx -v 2>&1)"
     [ ! -x "$bin/caddy" ] || echo "caddy: $("$bin/caddy" version)"
     echo "wrk: $(wrk -v 2>&1 | head -1)"

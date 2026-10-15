@@ -81,7 +81,7 @@ rm -rf "$arena/frameworks/goose"
 cp -r "$root/bench/httparena/goose" "$arena/frameworks/goose"
 cp -r "$root"/*.goose "$root/http.build" "$root/shim" "$root/server" "$arena/frameworks/goose/"
 mkdir -p "$arena/frameworks/goose/scripts"
-cp "$root/scripts/build.sh" "$arena/frameworks/goose/scripts/"
+cp "$root/scripts/build.sh" "$root/scripts/goose.sh" "$arena/frameworks/goose/scripts/"
 sed -i "s/0-31,64-95/$server_cpus/g" "$arena/scripts/lib/profiles.sh"
 # Docker Desktop's host network is its VM's, which the containers share but
 # WSL doesn't reach, so the readiness probe runs curl in a container too.

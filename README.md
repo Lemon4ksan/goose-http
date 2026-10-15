@@ -294,7 +294,7 @@ tasks/         task tracking (tasks/README.md)
 
 | What | Pin | Why |
 |---|---|---|
-| Goose compiler | `aardappel/goose` `46356c2` (`master`) | The language and stdlib change often |
+| Goose compiler | `aardappel/goose` release `v2026.1` (`ac759c3`), which the scripts fetch ([setup](docs/development.md#set-up-the-goose-compiler)) | An official release builds the same on every platform; a commit is pinned only for a fix not yet released |
 | Benchmarked | Per workload in [docs/benchmarks.md](docs/benchmarks.md#pins): plaintext and JSON, and REST rates and uploads, at `de19e3b` (code as `v0.3.1`) with Goose `46356c2`; REST reads beside uploads and memory at `bc75f2a` | Each workload names its measured build |
 
 Move the pin in its own commit once the tests pass; benchmarks don't wait for it

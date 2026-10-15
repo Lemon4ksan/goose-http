@@ -5,12 +5,13 @@
 # so a test with a thread_fn is built with goose build into build/ and run
 # from there.
 #
-# GOOSE names the compiler (default: goose on PATH), and CC the C compiler for
+# GOOSE names the compiler (default: the pinned release, scripts/goose.sh), and CC the C compiler for
 # the tests with threads, as for build.sh.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-goose=${GOOSE:-goose}
+. "$root/scripts/goose.sh"
+goose=$GOOSE
 case $(uname -s) in
 MINGW* | MSYS*) cc=${CC:-msvc} exe=.exe ;;
 *) cc=${CC:-gcc} exe= ;;

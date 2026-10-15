@@ -54,6 +54,7 @@ set -eu
 METHOD=1
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+. "$root/scripts/goose.sh"
 bin=$root/build/bench
 servers=${SERVERS:-goose may-minihttp hyper tokio dusty vanilla-epoll}
 server_cpus=${SERVER_CPUS:-0-3}
@@ -101,7 +102,7 @@ trap '[ -z "$pid" ] || kill "$pid" 2>/dev/null; [ -z "$mon" ] || kill "$mon" 2>/
     echo "server cpus: $server_cpus, client cpus: $client_cpus, client threads: $threads"
     echo "duration: $duration s, warm-up: $warmup s, runs: $runs"
     echo "goose-http: $(git -C "$root" rev-parse --short HEAD)$(git -C "$root" diff --quiet || echo ' (modified)')"
-    echo "goose: $(git -C "$root/../goose" rev-parse --short HEAD)"
+    echo "goose: $(goose_version)"
     echo "cc: $(${CC:-cc} --version | head -1)"
     echo "rustc: $(PATH=$HOME/.cargo/bin:$PATH rustc --version)"
     echo "odin: $(${ODIN:-odin} version)"

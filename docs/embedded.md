@@ -91,12 +91,12 @@ container, and prints each one's peak RSS. `scripts/test-armhf.sh` does the same
 change, to catch a break before a board does:
 
 ```sh
-GOOSE=../goose/build-linux/goose scripts/test-aarch64.sh
-GOOSE=../goose/build-linux/goose scripts/test-armhf.sh
+scripts/test-aarch64.sh
+scripts/test-armhf.sh
 ```
 
-`GOOSE` names a Linux build of the compiler; one built outside its checkout also needs
-`GOOSE_STDLIB` ([development](development.md#test-on-arm)). The executables stay in
+They use the pinned release's Linux x86-64 compiler unless `GOOSE` names another
+([development](development.md#test-on-arm)). The executables stay in
 `build/aarch64/examples/` and `build/armhf/examples/`. On an x86-64 host, qemu runs the
 ARM containers, and RSS includes about 13,000 kB of qemu's own per process (task 029).
 Docker blocks io_uring, so the io_uring loop runs over its emulation there.

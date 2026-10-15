@@ -11,5 +11,6 @@ c_libs_windows = ["ws2_32", "mswsock"];
 c_flags_msvc = ["/std:c11"];
 // The benchmarks' programs aren't the package: the package's library would
 // otherwise link their extern fns, such as the REST server's mallopt, which
-// Windows lacks.
-exclude = ["bench"];
+// Windows lacks. build/ holds the compiler scripts/goose.sh fetches, whose stdlib
+// declares the runtime's extern fns.
+exclude = ["bench", "build"];

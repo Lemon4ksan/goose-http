@@ -13,7 +13,8 @@ set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 out=${OUT:-$HOME/goose-http-codegen}
 top=${TOP:-25}
-goose=${GOOSE:-goose}
+. "$root/scripts/goose.sh"
+goose=$GOOSE
 mkdir -p "$out"
 
 for rev in "$@"; do

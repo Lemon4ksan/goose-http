@@ -52,6 +52,7 @@ set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 cache=${CACHE:-$HOME/.cache/goose-http-bench}
+. "$root/scripts/goose.sh"
 bin=$root/build/rest
 data=${DATA:-$root/build/rest}
 PATH=$HOME/.cargo/bin:$PATH
@@ -63,7 +64,7 @@ zrk=${ZRK:-$cache/zrk-$ZRK_VERSION/zrk}
 case ${1:-} in
 build)
     mkdir -p "$bin" "$data"
-    goose=${GOOSE:-goose}
+    goose=$GOOSE
     "$goose" build --cc gcc --standalone -o "$bin/gen" "$root/bench/rest/gen.goose"
     "$bin/gen" "$data"
     "$goose" build --cc gcc --standalone -o "$bin/rest" "$root/bench/rest/goose/rest.goose"
@@ -182,7 +183,7 @@ trap '[ -z "$pid" ] || kill "$pid" 2>/dev/null' EXIT
     echo "server cpus: $server_cpus, workers: $workers, client cpus: $client_cpus, client threads: $threads"
     echo "duration: $duration s, warm-up: $warmup s, runs: $runs"
     echo "goose-http: $(git -C "$root" rev-parse --short HEAD)$(git -C "$root" diff --quiet || echo ' (modified)')"
-    echo "goose: $(git -C "$root/../goose" rev-parse --short HEAD)"
+    echo "goose: $(goose_version)"
     echo "cc: $(${CC:-cc} --version | head -1)"
     echo "rustc: $(rustc --version)"
     case " $servers " in *" odin-http "* | *" tina "*)

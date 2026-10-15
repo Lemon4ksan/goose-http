@@ -26,6 +26,7 @@
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+. "$root/scripts/goose.sh"
 case $(uname -s) in MINGW* | MSYS* | CYGWIN*) windows=1 ;; *) windows= ;; esac
 servers=${SERVERS:?name=path pairs}
 worker_counts=${WORKER_COUNTS:-1 4}
@@ -79,7 +80,7 @@ cpu() {
     echo "os: $(uname -srv)"
     echo "requests: $requests, connections: $conns, runs: $runs, pin: ${PIN:-none}"
     echo "goose-http: $(git -C "$root" rev-parse --short HEAD)$(git -C "$root" diff --quiet || echo ' (modified)')"
-    echo "goose: $(git -C "$root/../goose" rev-parse --short HEAD)"
+    echo "goose: $(goose_version)"
     echo "oha: $("$oha" --version)"
     echo "servers: $servers"
 } >"$out/env.txt"

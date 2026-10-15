@@ -1,7 +1,7 @@
 # Calling C from Goose
 
 What the C in `shim/` shares with the Goose program, for writing the shim. The rules are
-in the pinned checkout's spec, §7.10 and Appendix C; this page records how they come out
+in the pinned release's spec, §7.10 and Appendix C; this page records how they come out
 in the generated C. Checked on Goose `3536810` (2026-10-10) with TinyCC (`goose file.goose`)
 and with gcc 15.2 (`goose -o file.c --standalone`, then `cc -O2 -Wall`). Recheck it
 after moving the pin.
@@ -10,7 +10,7 @@ after moving the pin.
 
 The shim is plain C files that the package's sidecar names, `c_sources_linux =
 ["shim/net.c", "shim/uring.c"];` in `http.build`. `goose build` compiles each with the C compiler
-and links it with the program (the pinned checkout's `docs/packages.md`). Goose emits a
+and links it with the program (the pinned release's `docs/packages.md`). Goose emits a
 prototype for each `extern fn`, such as `int64_t net_recv(int32_t, sl_u8);`, from the
 declaration, and the shim defines the function under that name.
 
@@ -75,5 +75,5 @@ slice garbled on armhf (task 030).
   Goose can't hand C an `iovec` list, and the server batches its responses into one
   buffer for a single `send` instead of calling `writev`.
 
-The checkout's `samples/24_call_c.goose` and `samples/call_c.h` are a complete worked
+The release's `samples/24_call_c.goose` and `samples/call_c.h` are a complete worked
 example.

@@ -22,7 +22,8 @@
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-goose=${GOOSE:-goose}
+. "$root/scripts/goose.sh"
+goose=$GOOSE
 data=${DATA:-$root/build/rest}
 out=${OUT:-$root/bench/results/$(date +%F)-rest-memory}
 cpus=${SERVER_CPUS:-0-3}

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds the benchmark server, server/, into build/server with goose build.
 #
-# GOOSE names the compiler (default: goose on PATH). CC picks the C compiler
+# GOOSE names the compiler (default: the pinned release, scripts/goose.sh). CC picks the C compiler
 # (default gcc, which builds a faster server than clang: task 008). The
 # server has both of the package's loops, and LOOP picks the one it serves
 # with when its own LOOP isn't set at run time: uring (server/server.goose,
@@ -19,7 +19,8 @@
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-goose=${GOOSE:-goose}
+. "$root/scripts/goose.sh"
+goose=$GOOSE
 
 os=$(uname -s)
 case $os in

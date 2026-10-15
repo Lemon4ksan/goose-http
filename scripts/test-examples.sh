@@ -3,14 +3,15 @@
 # that a change to the package can't leave an example broken. Each example
 # listens on port 8080, which must be free. Needs curl.
 #
-# GOOSE names the compiler (default: goose on PATH), and CC the C compiler,
+# GOOSE names the compiler (default: the pinned release, scripts/goose.sh), and CC the C compiler,
 # as scripts/build.sh takes them. BIN is where the examples are built, and
 # PREBUILT=1 runs the ones already there, as scripts/test-aarch64.sh does on a
 # machine without the compiler. RSS=1 prints each example's peak RSS on Linux.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-goose=${GOOSE:-goose}
+[ -n "${PREBUILT:-}" ] || . "$root/scripts/goose.sh"
+goose=${GOOSE:-}
 url=http://127.0.0.1:8080
 case $(uname -s) in
 MINGW* | MSYS*) windows=1 cc=${CC:-msvc} ;;
