@@ -1,6 +1,8 @@
 # 039: Let a program turn gzip and deflate off
 
-Status: todo, later (found 2026-10-15)
+Status: cancelled (2026-10-15): asked to drop it. A program has little reason to offer
+deflate alone, or to refuse gzip, and the two flags would be API to keep for no user.
+An implementation was written and discarded unmerged.
 
 `http::Compression` has a `zstd` flag, but gzip and deflate are always offered. A
 program can't limit its answers to one coding, such as zstd alone for clients it
