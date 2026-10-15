@@ -22,11 +22,11 @@ http.goose     the package's entry: settings, errors, what both loops share
 http.build     the package's sidecar: each platform's shim
 shim/          C for syscalls: sockets, epoll, io_uring, kqueue, IOCP, mailboxes, and the store
 server/        the benchmark server, importing the package from "../"
-examples/      small servers, and the API by topic (examples/README.md)
+examples/      small servers (examples/README.md); the API by topic is docs/api.md
 test/          unit tests
 bench/         competing servers, load scripts, recorded results
 scripts/       build, test, and Goose setup scripts
-docs/          architecture, development setup, known issues, results, Goose findings
+docs/          the API, architecture, development setup, known issues, results, Goose findings
 tasks/         task tracking (tasks/README.md)
 CHANGELOG.md   what each tag adds
 ```

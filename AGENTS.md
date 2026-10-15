@@ -2,7 +2,9 @@
 
 ## Project context
 
-- What this is: `README.md`; what each tag adds: `CHANGELOG.md`
+- What this is: `README.md`; what each tag adds: `CHANGELOG.md`; the API by topic:
+  `docs/api.md`; which approach fits bodies, responses, and slow work:
+  `docs/patterns.md`; and the examples: `examples/README.md`
 - Architecture decisions, and what isn't Goose: `docs/architecture/README.md`
 - Layout, the Goose release, toolchain, and local setup: `docs/development.md`
 - Environment traps and incidents, by platform: `docs/known-issues.md`

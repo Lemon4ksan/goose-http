@@ -345,7 +345,7 @@ past it, or to run its cleanup when one does.
     answered 0
 
 Workaround: a handler that returns early is a function, passed by name or called from
-the block (`examples/README.md`, "Handler").
+the block (`docs/api.md`, "Handler").
 
 ### Data built at run time can't be shared read-only between threads
 

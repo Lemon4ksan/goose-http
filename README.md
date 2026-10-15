@@ -7,7 +7,8 @@ epoll on Linux, kqueue on macOS, and I/O completion ports on Windows.
 Experimental: tested and benchmarked, not yet used in production, and the API still
 changes between tags.
 
-[Examples and API](examples/README.md) · [Benchmarks](docs/benchmarks.md) ·
+[Examples](examples/README.md) · [Patterns](docs/patterns.md) · [API](docs/api.md) ·
+[Benchmarks](docs/benchmarks.md) ·
 [Architecture](docs/architecture/README.md) · [Embedded Linux](docs/embedded.md) ·
 [Development](docs/development.md) · [Changelog](CHANGELOG.md)
 
@@ -104,6 +105,27 @@ Routes, JSON, uploads, files, and answers that wait are in the
 
 ## Concepts
 
+```mermaid
+flowchart LR
+    C(["clients"]) --> K["each connection<br/>goes to one worker"]
+    K --> W1
+    K --> W2
+    K --> WN
+    subgraph W1 ["worker 1, a thread"]
+        direction LR
+        L1["loop"] --> H1["handler"]
+    end
+    subgraph W2 ["worker 2"]
+        direction LR
+        L2["loop"] --> H2["handler"]
+    end
+    subgraph WN ["worker N"]
+        direction LR
+        LN["loop"] --> HN["handler"]
+    end
+    W1 & W2 & WN <-. mail .-> B["a thread of<br/>the program's"]
+```
+
 - **Workers.** The program spawns a thread per worker, and each runs a loop with the
   same handler. Each worker has its own connections, and on Linux its own listener.
   `thread_spawn` can't take a `thread_fn` passed to a package function, so the
@@ -114,12 +136,14 @@ Routes, JSON, uploads, files, and answers that wait are in the
   only that one is compiled in.
 - **A handler for whole requests**, `{ req, body, out => }`: the parsed head, the body
   if it fits in the read buffer, and one response of any size. `http::gather` gives a
-  handler with state a longer body whole, up to a limit.
+  handler with state a longer body whole, up to a limit
+  ([which to use](docs/patterns.md#request-bodies)).
 - **A handler with state**, `{ ev, st, out => }`, for everything else: the loop calls it
   for each event of an exchange (the head, each piece of a body, room to send more, a
   message from another thread, a time limit), with state of the program's own type kept
-  per connection. Bodies and responses of any size, files, upgrades, and answers that
-  wait all go through it.
+  per connection. Bodies and responses of any size, files, upgrades, and
+  answers that wait all go through it, and so does
+  [slow work](docs/patterns.md#slow-work).
 - **A handler that returns early is a function.** A `return` in a block returns from
   the function the block is written in, past the loop, which then can't answer the
   request or close its connections, and Goose can't refuse it
@@ -133,7 +157,7 @@ Routes, JSON, uploads, files, and answers that wait are in the
   `http::stop_on_signals()`, and `http::mail_open` return one, `http::report` prints it,
   and `http::exit_on_error(e)` prints it and ends the process unless its code is 0.
 
-The API by topic, with the examples that show it: [examples/](examples/README.md).
+The API by topic, with the examples that show it: [docs/api.md](docs/api.md).
 
 ## Benchmarks
 

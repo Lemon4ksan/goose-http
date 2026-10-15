@@ -114,7 +114,7 @@ At start, `examples/device` prints which loop it runs, and when `http::serve` is
 emulation, why: for example `io_uring_setup: Operation not permitted` where a seccomp
 profile blocks it, as Docker's does. On Linux, io_uring serves 12% to 22% faster than
 epoll, at 2 to 5 times the peak RSS
-([event loops](../examples/README.md#event-loops)).
+([event loops](api.md#event-loops)).
 
 ## Memory and address space
 

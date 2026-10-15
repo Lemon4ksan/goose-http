@@ -1,7 +1,7 @@
 # Architecture
 
 Current design, the decisions behind it, and the trade-offs that still matter.
-The [API and examples](../../examples/README.md) describe how to use the package;
+The [API](../api.md) and the [examples](../../examples/README.md) describe how to use the package;
 [benchmarks](../benchmarks.md) describe its measured costs.
 
 <a id="settled"></a>
@@ -168,7 +168,7 @@ A handler with state is called again for each part of an exchange, with a flat v
 of the program's type kept in the connection slot. Goose cannot suspend or store a
 handler (§7.6), so this is how bodies, streamed responses, upgrades, and waiting
 answers resume (task 013, 2026-10-12). The
-[event table](../../examples/README.md#streaming) defines each call and its lifetime.
+[event table](../api.md#streaming) defines each call and its lifetime.
 
 A whole-request handler receives a body that fits with its head in the read buffer.
 A longer body needs a handler with state, optionally through `http::gather` to copy
