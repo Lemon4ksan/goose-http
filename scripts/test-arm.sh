@@ -21,7 +21,14 @@ armhf) deb=armhf gcc=arm-linux-gnueabihf-gcc platform=linux/arm/v7 reserve=16M ;
 esac
 arch=$1
 root=$(cd "$(dirname "$0")/.." && pwd)
-[ -n "${GOOSE:-}" ] || GOOSE=$(GOOSE_ASSET=linux-x64 "$root/scripts/goose.sh")
+if [ -z "${GOOSE:-}" ]; then
+    # GOOSE_COMMIT builds for the host, and the cross-build runs on Linux x86-64.
+    if [ -n "${GOOSE_COMMIT:-}" ] && [ "$(uname -s)-$(uname -m)" != Linux-x86_64 ]; then
+        echo "GOOSE_COMMIT builds a compiler for this host; set GOOSE to a Linux x86-64 build" >&2
+        exit 2
+    fi
+    GOOSE=$(GOOSE_ASSET=linux-x64 "$root/scripts/goose.sh")
+fi
 goose=$(cd "$(dirname "$GOOSE")" && pwd)/$(basename "$GOOSE")
 if [ -n "${GOOSE_STDLIB:-}" ]; then
     stdlib=$GOOSE_STDLIB
