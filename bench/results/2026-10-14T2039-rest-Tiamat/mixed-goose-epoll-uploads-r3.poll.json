@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v2/schedule/version?since=63288", "method": "GET" },
+  "config": { "connections": 140, "launched": 140, "duration_s": 15.000, "closed": false, "target_rate": 935, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 14009,
+  "bytes": 2507611,
+  "achieved_rate": 933.87,
+  "target_rate": 935,
+  "target_rate_end": 935,
+  "rate_ratio": 0.9988,
+  "bytes_per_sec": 167162.27,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 0,
+  "latency_us": {
+    "min": 45, "mean": 247.4, "stdev": 868.1, "max": 31327,
+    "p50": 170, "p75": 259, "p90": 363, "p99": 801, "p99_9": 15908, "p99_99": 30104
+  },
+  "status_codes": { "1xx": 0, "2xx": 14009, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAyN4nC1SbYsbZRR97smTp0+m6TTMpjENw7iEGNM4xjCNIQwhrsuw6Ap1KWVVWNaCUGo/iC9QZF0WLaX1JQbZdqGUtS0iuopIET+IKBSliOAf8Af4Wb+J3zzPpLnDfTn3nHMZJuHlawtK6aGa/woPquTDtavqqX/mwEtaQyttPFs28LVXLpfDWrlWrQZRtdWLmmm6tDFeeXH9zXNvz+R9uSQXp3Jd9mUqn8u38rV8JzeZv5FP5Cc5kFvyB3cfymfEv5cbcpebe/IDOb/Ij5yvyx3q7pJ3h9M95gOyD2QmV+QL2ZnlzU2u3iV9yrgku3J2n+7ndkm8Ihd2Xtvamsn29lQuc73P9Uwu3uLBXZ7ZuUHBTLZotDGV7dfPn9++sLF5ZnOyuZ6Nk6XTa8vZqWx9lKyO0mSwlq0mp5bOnsnWlk/30mdG45XlQTror5IyyUar3cloOOh0V7Js3F0edpcG42SQjIfttWwwHnQ6adxMB5NhN54Mh/1uv91Jeotxs9tu9eNOL+4nw14vSuJhp9ltpO0gjRthGo8a7UbUrjWbrajRioIwslGnHoZBGESNil+vh4xWI4iDSlLzo8XANsOGv9gOaoFvgnoI3zR8v1KthEFQrVnPr2mvXgkWK1V+O2O0V/HLtqKN9cqeMb7vwa/BGM/Ysgd41gYwnra+ttrwg2uPBdZarY2BYbZa2bw12hpoTxmuOVvAwpKhnYI067FzuNIAUZUvlC47WLH1+PA0qXQyWpFlcoD22rpJwT3uLFxAzROZBZ3bssuBXO80/JtSY7gvUG4KcD3RAopsuSui5KQ6p6u5gLaFvCgHo6gpUk7mHNgSVA8Adzg3LLpyiLsiK91NDvNBaQ4gV8yVCkd1PjEOz8XHc5Z75xLHEuMowwHHQHERR7CQEx7GIWpLvLXAfJihcITvc4z1IZwgxwmLeCTfnHT+eJzbE3Q4iaeJH8djwJN4nlb/AnsF7Gk8gb/ZFvGx4H4Rvwn+0vi5gDfwLP4DvhJ8KvT8AHgUvwtug8dfwTt4zkH3gS8FvwpexlXBC/hTqHsL7wk+Erzq0m3BnuB/FU+NeQ=="
+}

@@ -1,0 +1,22 @@
+{
+  "zrk_version": "2.3.0",
+  "target": { "url": "http://127.0.0.1:29380/api/v2/schedule/version?since=63277", "method": "GET" },
+  "config": { "connections": 140, "launched": 140, "duration_s": 15.000, "closed": false, "target_rate": 935, "timeout_ms": 2000, "deadline_ms": 0, "deadline_abort": false, "record_timeouts": true },
+  "duration_s": 15.001,
+  "requests": 14012,
+  "bytes": 2508148,
+  "achieved_rate": 934.09,
+  "target_rate": 935,
+  "target_rate_end": 935,
+  "rate_ratio": 0.9990,
+  "bytes_per_sec": 167201.39,
+  "error_rate": 0.000000,
+  "max_schedule_lag_us": 0,
+  "latency_us": {
+    "min": 46, "mean": 240.0, "stdev": 754.3, "max": 28383,
+    "p50": 170, "p75": 261, "p90": 365, "p99": 766, "p99_9": 12956, "p99_99": 27288
+  },
+  "status_codes": { "1xx": 0, "2xx": 14012, "3xx": 0, "4xx": 0, "5xx": 0 },
+  "errors": { "connect": 0, "read": 0, "write": 0, "timeout": 0, "deadline": 0, "non_2xx_3xx": 0 },
+  "latency_histogram": "HISTFAAAAyV4nC1S3WsjVRSfc+buze3t7Ox0HKdxto5jiCEOMYQQhhDGGEoIoZQQRHCNL8WPpbvUUkqRIlLKsmoRkWWrq8suq4j6JH1QRJFVFNGn1QfB9UX/APHFF5/1dyfOvffMOff3ce5wZ+Xy8T2WJRat+WP//6aiOH7Neuzv+cbTzEIKobUOXFfLSuQ7QRCGUVRtN2qt1nA0nI7yzYsHu3vX6OB9+oCu0rt0iz6hj+mEvqHb9AviCf1Iv9PPdAf5XWB3kZvqDn0J7IQ+pa+g+5auYbxJxuV1rJv0Kh1cpUM6ootX6BKwl45o7xayt7A+pJ2t3ecu0+7W/mz7/GR/Y/v8ztZsZ/sNOGxt7B/Ri1fA27hEB5uH9PLeM3uHNJud2x3N1s9182ycD9anvdVJt5VPx+PHx83p2mZnNMiy/no/X18bdEajcTcfdZ+YdAdrw9Fk0J90e/3xtN7PVgdZe9LuDEdZMsw7eTvNBtV2nK110m4nbWadpJrmvVZ7td6sNrNe2uw3ar08rdZanXSl3Go2klYrrjfqlVqcBlEcR5VqmKSVZKXSWPHiMK7Hnl/2Ij+MkrLn+OWkFtVDPyxHaeKFSeAEYeQn0o1DR5Udz3O07/huEPhSu772PU/5gdRShypwFW7NwaUpxVq57EntaJZaKKWVI5UUypfC0lJKoVGzYCFYOrhw7UrlWI5QkgU40mX8AxYzSpAxpIYlgjAFQ2IJLaSFH8VSlmDFCmqGM0zxCNaCLdPbFWjPxkkCUcoxKmU8FTpoYUkLPRibDDfja3iWMTHNWGEJ4wXz4lD4AlManRmYqjgqlwqZbQ5gWPAyjgXjFBcYksIbaUnaMDCANW9midMsbQG98QCwwCUB2J47YNrFQPNTvAhU2HwfkkK/gDPZc+695hyFAd68hFgC4YGCdsb0W0RYLvwfNeISdhfAW0J+P+IiP8QPA36QTyMuwWqZzyI+gniGn0f1JJDPhZnL/J3kd2z+TPJ7xH8wHzN/wXyd+Vfiv4h/YMh+I36BL0D5EyFc4BvEfxL/Q/wv8dfE14mPiZ/i74mf5beJPzJ0bL5C/B+sb4z2"
+}
