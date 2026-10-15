@@ -1014,8 +1014,9 @@ def later(port):
     the backend thread after its delay, and 504 when the time limit passes
     first, after which the backend's late reply is dropped; requests pipelined
     behind a waiting one wait for it, in order; a reply to a connection that
-    closed while it waited doesn't reach the next connection in its slot; and
-    /events sends its events as they come, or ends at its time limit."""
+    closed while it waited doesn't reach the next connection in its slot;
+    /events sends its events as they come, or ends at its time limit; and an
+    upgraded connection keeps echoing while it waits."""
     def timed(c, path):
         t0 = time.time()
         c.send(request(path))
@@ -1105,6 +1106,45 @@ def later(port):
     if rest or not d.eof:
         fail(f"/events compressed: {rest!r} after the events, eof {d.eof}")
     c.close()
+
+    # An upgraded connection that waits for the backend still echoes what
+    # comes meanwhile; the reply comes among the echoes, or "timeout" at its
+    # limit, and echoing goes on after either.
+    def upgraded(query):
+        c = Conn(port)
+        t0 = time.time()
+        c.send(b"GET /upgrade?" + query + b" HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\n"
+               b"Upgrade: echo\r\n\r\nping")
+        r = c.response()
+        if r.status != 101 or c.take(4) != b"ping":
+            fail(f"/upgrade?{query.decode()}: {r.status} {r.headers}")
+        return c, t0
+
+    c, t0 = upgraded(b"id=u&delay=400")
+    c.send(b"pong")
+    if c.take(4) != b"pong" or time.time() - t0 >= 0.35:
+        fail(f"an upgraded connection's bytes were echoed only after {time.time() - t0:.2f} s, "
+             "behind the reply it waited for")
+    got = c.take(3)
+    if got != b"u 1" or time.time() - t0 < 0.39:
+        fail(f"an upgraded connection's reply: {got!r} after {time.time() - t0:.2f} s")
+    c.send(b"after")
+    if c.take(5) != b"after":
+        fail("an upgraded connection stopped echoing after its reply")
+    c.close()
+    c, t0 = upgraded(b"id=expired&delay=500&ms=100")
+    c.send(b"pong")
+    got = c.take(11)
+    if got != b"pongtimeout" or not 0.09 <= time.time() - t0 < 0.45:
+        fail(f"an upgraded connection past its limit: {got!r} after {time.time() - t0:.2f} s")
+    c.send(b"after")
+    if c.take(5) != b"after":
+        fail("an upgraded connection stopped echoing after its timeout")
+    c.close()
+    # Closed while it waits: the reply finds the exchange gone (STALE).
+    c, _ = upgraded(b"id=gone&delay=300")
+    c.close()
+    time.sleep(0.4)
     print("later: ok")
 
 

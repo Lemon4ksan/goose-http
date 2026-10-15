@@ -2,7 +2,8 @@
 // HttpArena's endpoints (bench/httparena), and for the tests, /bytes and
 // /stream, which send a response of any size in pieces, /upload and /echo,
 // which take a body of any size in pieces, /upgrade, which switches to a
-// protocol that echoes bytes, /files/NAME, the files of the directory that
+// protocol that echoes bytes, and with delay, waits for the backend
+// meanwhile, /files/NAME, the files of the directory that
 // FILES names, /client, the peer's address and port and the client's,
 // trusting proxies on loopback, /later and /events, answers that wait
 // for the backend thread (backend.goose): one reply, or Server-Sent Events,
@@ -65,8 +66,10 @@ inline fn handle(ev: http::Event, st: Transfer&, out: http::Reply) {
         if ev.kind == http::BODY { take(st, ev.data); }
         else if ev.kind == http::END { uploaded(st, out); }
     } else if st.route == ECHO {
-        if ev.kind == http::BODY { http::send(out, ev.data); }
+        // WAKE and TIMEOUT come only to /upgrade with delay.
+        if ev.kind == http::BODY || ev.kind == http::WAKE { http::send(out, ev.data); }
         else if ev.kind == http::END { http::end(out, ev.trailers); }
+        else if ev.kind == http::TIMEOUT { http::send(out, "timeout"); }
     } else if st.route == FILE {
         if ev.kind == http::MORE {
             if !http::send_file(out, st.file) { http::end(out); }
@@ -203,6 +206,8 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
         if http::upgrade_of(req) == "echo" {
             http::upgrade(out, "echo");
             st.route = ECHO;
+            let _, delayed = http::query_of(req.target, "delay");
+            if delayed { upgraded_later(req, out); }
         } else {
             http::start(out, 426);
             http::field(out, "Upgrade", "echo");
@@ -270,6 +275,18 @@ fn wait_for_backend(req: http::Request, events: bool, st: Transfer&, out: http::
         if events { http::end_compressed(out, st.coded); } else { http::respond(out, 503, "text/plain", "busy"); }
         return;
     };
+}
+
+// /upgrade?id=ID&delay=D&ms=M, upgraded: "ID 1" from the backend after D
+// milliseconds, or "timeout" if M milliseconds pass first, among the bytes
+// echoed meanwhile. The connection closes when the backend's box is full,
+// or waiting is off.
+fn upgraded_later(req: http::Request, out: http::Reply) {
+    var j = Job { delay: query_or(req.target, "delay", 0), count: 1, .. };
+    let id, has = http::query_of(req.target, "id");
+    if has && id.len <= 32 { j.id.append(id); }
+    j.reply = http::later(out, query_or(req.target, "ms", 5000));
+    if http::mail_send_value(backend_box, JOB_LATER, j) != http::SENT { http::end(out); }
 }
 
 // /delay/MS, HttpArena's async profile: MS, as text, after MS milliseconds

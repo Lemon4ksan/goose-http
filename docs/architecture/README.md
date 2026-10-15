@@ -234,6 +234,13 @@ a waiting exchange. Repeating `later` on the same exchange marks its key live ag
 Send returns `SENT`, `FULL`, `TOO_LONG`, or `STALE` without blocking; senders can query
 the slot size, or -1 for a stale address (tasks 027 and 028, 2026-10-14).
 
+A waiting exchange holds back the bytes after it, since the next request must wait
+its turn, except an upgraded one: its connection is a stream both ways, so the loops
+go on reading it and `answer` hands what arrives to the handler as `BODY` while the
+wait stands (`holds_input`). The wait still ends only with `WAKE`, `TIMEOUT`, `end`,
+or `CLOSED`, so this adds no state, and the handler sees bytes and the reply in the
+order they reached the worker (task 038, 2026-10-15).
+
 `http::peer` asks for the socket address on demand. Forwarded addresses are used only
 when the peer is in the program's trusted networks. With `Config.log`, `DONE` reports
 status, bytes, and elapsed loop time. It measures completion in the write buffer, not

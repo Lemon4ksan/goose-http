@@ -236,7 +236,9 @@ struct Event {
 // the response; at MORE, or after begin, it pauses an open response, for
 // Server-Sent Events and long polling. While an exchange waits, the requests
 // pipelined behind it wait in the read buffer, and the loop stops reading
-// once that's full. The address is the same for each call in one exchange,
+// once that's full. After an upgrade, the client's bytes still come as BODY
+// while the exchange waits; a later at BODY starts the time limit again, and
+// end stops the wait. The address is the same for each call in one exchange,
 // and a message to it after the exchange has ended, or once the connection
 // has closed, makes a send return STALE; messages already in flight may be
 // dropped. A call that writes a whole response doesn't wait,
@@ -278,6 +280,11 @@ fn later_slot(key: u64) -> i64 { (key >> 44) as i64 }
 fn waits_for(c, key: u64) -> bool {
     return c.fd >= 0 && c.state == OPEN && c.x.stream.waiting && c.x.stream.later.key == key;
 }
+
+// Whether exchange x waits with the bytes after it held back: any but an
+// upgraded one, whose client's bytes go on to the handler as BODY while it
+// waits.
+fn holds_input(x) -> bool { return x.stream.waiting && x.body != BodyReader.Raw; }
 
 // The box of a loop with cfg, on a waker that ends the loop's wait, which the
 // box then owns: none when cfg asks for no waiting, and then the loop closes
@@ -384,7 +391,8 @@ let INTERIM = "HTTP/1.1 100 Continue\r\n\r\n";
 // request, or a response that doesn't keep the connection open, leaves c
 // CLOSING and rbuf empty. wake, unless its kind is NO_EVENT, is a WAKE or
 // TIMEOUT for c's exchange, which stopped waiting, for H before the rest. It
-// does nothing while c's exchange waits, and stops when it starts to.
+// does nothing while c's exchange waits, and stops when it starts to, unless
+// the exchange is upgraded (holds_input).
 fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: const u8[:],
                          cfg: const Config&, fresh: const S&, stopping: bool, now: i64,
                          wake: const Event&) -> i64, i64, bool {
@@ -433,7 +441,8 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
         close();
     }
 
-    // A call that both waited and wrote a whole response doesn't wait.
+    // A call that both waited and wrote a whole response, or ended one,
+    // doesn't wait.
     fn unwait() {
         x.stream.waiting = false;
         x.stream.rearm = false;
@@ -449,7 +458,9 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
                                head: x.head, stream: x.stream, fd: c.fd });
         done++;
         let wrote = wbuf.len > before;
-        if wrote && x.stream.waiting && !x.stream.open { unwait(); }
+        // An end after an upgrade, or of a response that ends with the
+        // connection, writes nothing.
+        if (wrote || was_open) && x.stream.waiting && !x.stream.open { unwait(); }
         retire(x.stream);
         x.sent += wbuf.len - before;
         if x.stream.file >= 0 { x.sent += x.stream.file_left; }
@@ -461,9 +472,9 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
     }
 
     // Moves the request in x on after a call to H. False when the connection
-    // closes, or the exchange waits.
+    // closes, or the exchange waits with its input held back.
     fn settle() -> bool {
-        if x.stream.waiting { return false; }
+        if holds_input(x) { return false; }
         if x.body == BodyReader.None {
             if x.stream.open { return true; }
             if !x.answered {
@@ -492,7 +503,7 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
         return true;
     }
 
-    var go = !x.stream.waiting;
+    var go = !holds_input(x);
     if wake.kind != NO_EVENT {
         call(wake);
         go = settle();

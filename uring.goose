@@ -176,8 +176,9 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     // Answers n received bytes after rbuf[..rlen]: those of provided buffer
     // buf, or of src when buf is -1. rbuf takes them as it has room. If the
     // connection reaches cfg.max_queued, it stops reading and holds the rest;
-    // while its exchange waits, it holds the rest, and stops reading once it
-    // holds rbuf's worth. wake goes to answer first (answer).
+    // while its exchange waits, unless upgraded (holds_input), it holds the
+    // rest, and stops reading once it holds rbuf's worth. wake goes to answer
+    // first (answer).
     fn pump(c: RingConn<S>&, buf: i32, src: const u8[:], n: i64, wake: const Event&) {
         // At least once, with no bytes, to go on with a response.
         var off: i64 = 0;
@@ -198,13 +199,13 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
             // The ring sends the file in order, so answering goes on.
             if c.x.stream.file >= 0 {
                 send_file(c);
-                if c.state == OPEN && !blocked(c) && !c.x.stream.waiting { continue; }
+                if c.state == OPEN && !blocked(c) && !holds_input(c.x) { continue; }
             }
             if c.state != OPEN {
                 rlen = 0;
                 break;
             }
-            if blocked(c) || c.x.stream.waiting {
+            if blocked(c) || holds_input(c.x) {
                 c.held = spill.alloc_slice(rlen + n - off);
                 copy_into(c.held[..rlen], rbuf[..rlen]);
                 if buf >= 0 { ring_take(r, buf, off, c.held[rlen..]); }
@@ -274,7 +275,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
             let n = cq.res as i64;
             // A connection that isn't OPEN drops what arrives.
             if c.state != OPEN {
-            } else if c.stalled || c.x.stream.waiting {
+            } else if c.stalled || holds_input(c.x) {
                 let m = c.held.len;
                 if m == 0 { c.x.since = now; }
                 c.held = if m == 0 { spill.alloc_slice(n) } else { spill.realloc_slice(c.held, m + n) };

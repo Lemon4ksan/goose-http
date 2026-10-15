@@ -212,7 +212,8 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     // filled less than it was given emptied the socket, and the next byte to
     // arrive raises a new event, so it isn't followed by a recv that would
     // block, unless hup: a close that arrived with the last bytes raises none.
-    // While the exchange waits, it stops reading once rbuf is full.
+    // While the exchange waits, it stops reading once rbuf is full; an
+    // upgraded one's answer takes what arrives (holds_input).
     fn advance(c: EpollConn<S>&, hup: bool, wake: const Event&) -> bool {
         var progress = false;
         var drained = false;

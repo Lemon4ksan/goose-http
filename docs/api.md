@@ -215,7 +215,8 @@ thread_fn worker(cfg: http::Config) {
 - `Expect: 100-continue` gets `100 Continue` unless the handler answers at `REQUEST`.
 - `http::upgrade_of(req)`: the protocol asked for, such as `websocket`.
   `http::upgrade(out, protocol)` answers 101. After that, bytes come as `BODY`,
-  `http::send` writes them raw, and `http::end` closes.
+  `http::send` writes them raw, and `http::end` closes. `BODY` keeps coming while the
+  exchange waits with `later` ([answers that wait](#answers-that-wait)).
 
 ### Files
 
@@ -250,7 +251,8 @@ A handler with state can hand a request to another thread, or wait for a timer, 
 answer later without blocking its worker. How to shape that work, with a diagram of
 `later/`: [slow work](patterns.md#slow-work). Shown in `later/`, and in `server/`:
 `/later` and `/events` wait for a worker thread with a box and a timer table of its own
-(`server/backend.goose`), with `MAIL_SLOTS` set, and `/delay/MS` for a timer.
+(`server/backend.goose`), with `MAIL_SLOTS` set, as does `/upgrade?delay=D` once
+upgraded, and `/delay/MS` waits for a timer.
 
 `Config.mail_slots` and `Config.max_waiting` turn waiting on; both are 0 by default, and
 then a loop opens no box and arms no timer.
@@ -273,6 +275,11 @@ else { http::respond(out, 503, "text/plain", "busy"); return; }
   once.
 - Requests pipelined behind a waiting exchange wait in the read buffer, and reading
   stops once it's full.
+- An upgraded connection is read while it waits: the client's bytes still come as
+  `BODY`, and the handler can answer them with `http::send`, then `WAKE` or `TIMEOUT`
+  comes when the reply or the limit does. A `later` at `BODY` starts the limit again,
+  and `http::end` stops the wait and closes. A client that closes meanwhile gets the
+  handler `CLOSED`, and the reply then finds the address `STALE`.
 - A send to an exchange that no longer waits returns `STALE`. A message already
   queued or in flight when the wait ends can still be dropped by the loop. At stop,
   a waiting exchange gets `Config.grace_ms`, then `CLOSED`.

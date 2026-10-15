@@ -1116,6 +1116,57 @@ fn test_wait_liveness() {
     http::mail_close(box);
 }
 
+// A waiting exchange holds back the requests pipelined behind it, but an
+// upgraded one gets the client's bytes as BODY, and end stops its wait.
+fn test_upgraded_wait() {
+    let nothing = http::Request { .. };
+    let cfg = http::Config { .. };
+    let none = http::Event { kind: http::NO_EVENT, req: nothing, .. };
+    let fresh = false;
+    var out: u8[>..] = [];
+    var input: u8[>..] = [];
+
+    var held = WaitingConn { fd: 1, state: http::OPEN, .. };
+    input.append(GET);
+    input.append(GET);
+    fn wait_now(ev: http::Event, st: bool&, out: http::Reply) { http::later(out, 1000); }
+    let rest, done, full = http::answer(held, input, input.len, out, COMMON, cfg, fresh, false, 0, none, wait_now) { false };
+    assert(done == 1 && rest == GET.len && held.x.stream.waiting && out.len == 0);
+
+    var c = WaitingConn { fd: 1, state: http::OPEN, .. };
+    input.clear();
+    input.append("GET /chat HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: echo\r\n\r\nping");
+    fn echo(ev: http::Event, st: bool&, out: http::Reply) {
+        if ev.kind == http::REQUEST {
+            http::upgrade(out, "echo");
+            http::later(out, 1000);
+        } else if ev.kind == http::BODY || ev.kind == http::WAKE {
+            http::send(out, ev.data);
+            if ev.data == "bye" { http::end(out); }
+        }
+    }
+    let r1, d1, f1 = http::answer(c, input, input.len, out, COMMON, cfg, fresh, false, 0, none, echo) { false };
+    assert(r1 == 0 && d1 == 2 && c.x.stream.waiting && ends_with(out, "\r\n\r\nping"));
+    input.clear();
+    input.append("pong");
+    out.clear();
+    let r2, d2, f2 = http::answer(c, input, input.len, out, COMMON, cfg, fresh, false, 0, none, echo) { false };
+    assert(r2 == 0 && d2 == 1 && c.x.stream.waiting && out == "pong");
+    // As the loop does, before WAKE.
+    c.x.stream.waiting = false;
+    let reply = http::Event { kind: http::WAKE, req: nothing, data: "reply", .. };
+    out.clear();
+    http::answer(c, input, 0, out, COMMON, cfg, fresh, false, 0, reply, echo) { false };
+    assert(!c.x.stream.waiting && out == "reply" && c.state == http::OPEN);
+    // Waiting again, the client says goodbye: end closes, and stops the wait.
+    c.x.stream.waiting = true;
+    input.clear();
+    input.append("bye");
+    out.clear();
+    http::answer(c, input, input.len, out, COMMON, cfg, fresh, false, 0, none, echo) { false };
+    assert(!c.x.stream.waiting && out == "bye" && c.state == http::CLOSING);
+}
+
 fn main() {
     test_parse();
     test_fields();
@@ -1138,5 +1189,6 @@ fn main() {
     test_files();
     test_codings();
     test_wait_liveness();
+    test_upgraded_wait();
     print("test_http: ok");
 }
