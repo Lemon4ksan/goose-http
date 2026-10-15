@@ -180,11 +180,11 @@ the records at startup, and compute each response per request, without a framewo
 
 | Workload | goose-http | xitca-web (Rust) | dusty (Zig)\* |
 |---|---:|---:|---:|
-| [A](docs/benchmarks.md#tier-a): HttpArena's items, 0.2 KB | **598k req/s** | 407k | 343k |
-| [B](docs/benchmarks.md#tier-b): sessions and time entries, 0.3-13 KB | **315k req/s** | 235k | 162k |
-| [C](docs/benchmarks.md#tier-c): schedules and records, up to 728 KB | **62.4k req/s** | 38.2k | 24.6k |
-| C, templates | **147k req/s** | 113k | 125k |
-| [Uploads](docs/benchmarks.md#uploads): CSVs and multipart files, up to 8 MB | **1,128 req/s** | 1,016 | 1,125 |
+| [A](docs/benchmarks.md#tier-a): HttpArena's items, 0.2 KB | **586k req/s** | 407k | 341k |
+| [B](docs/benchmarks.md#tier-b): sessions and time entries, 0.3-13 KB | **313k req/s** | 235k | 161k |
+| [C](docs/benchmarks.md#tier-c): schedules and records, up to 728 KB | **61.8k req/s** | 38.2k | 25.2k |
+| C, templates | **144k req/s** | 113k | 130k |
+| [Uploads](docs/benchmarks.md#uploads): CSVs and multipart files, up to 8 MB | **1,154 req/s** | 1,016 | 1,137 |
 | Reads p99 beside uploads | **1.8-2.6 ms** | 2.4-4.6 ms | 6.7-42 ms |
 
 \* A framework; its counterpart is [goose-rest](https://github.com/kaitk/goose-rest).

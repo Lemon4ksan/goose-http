@@ -21,7 +21,7 @@ The method, each load generator, and the servers' pins and builds:
 | Workload | Goose server | Goose compiler | Kernel | Date | Command |
 |---|---|---|---|---|---|
 | Plaintext and JSON, every connection count | `de19e3b`, code as `v0.3.1` | `46356c2` | 6.18.54.1 | 2026-10-14 | `bench/run.sh` |
-| REST saturation rates and uploads, both loops | `de19e3b`, code as `v0.3.1` | `46356c2` | 6.18.54.1 | 2026-10-14 | goose-rest's `bench/rest.sh run`, steps 1 and 2 |
+| REST saturation rates and uploads, both loops | `de19e3b`, code as `v0.3.1` | `46356c2` | 6.18.54.1 | 2026-10-15 | goose-rest's `bench/rest.sh run`, steps 1 and 2 |
 | REST reads beside uploads at 16,000/s, and peak memory, both loops | `bc75f2a` | `46356c2` | 6.18.54.1 | 2026-10-14 | `bench/rest.sh run`, steps 1, 2, and 4 |
 | REST memory, idle | `1818526` | `46356c2` | 6.18.54.1 | 2026-10-14 | VmRSS 3 s after listening; task 025 |
 | Static files | `fcfd80d` | `5c83a5a` | 6.18.40.1 | 2026-10-12 | `bench/files.sh` |
@@ -120,21 +120,20 @@ rows go by average rank.
 
 | Server | A | B | C | C, templates\* | Uploads | Reads p99 |
 |---|---:|---:|---:|---:|---:|---:|
-| Goose io_uring | **598 K/s** | **315 K/s** | **62.4 K/s** | **147 K/s** | 1,120/s | 8.5-18.0 ms |
-| Goose epoll | 444 K/s | 244 K/s | 60.9 K/s | 137 K/s | **1,128/s** | **1.8-2.6 ms** |
-| xitca-web (Rust) | 407 K/s | 235 K/s | 38.2 K/s | 113 K/s | 1,016/s | 2.4-4.6 ms |
-| dusty (Zig)§ | 343 K/s | 162 K/s | 24.6 K/s | 125 K/s | 1,125/s | 6.7-42 ms |
-| hyper (Rust) | 271 K/s | 151 K/s | 32.1 K/s | 120 K/s | 1,107/s | 11-29 ms |
-| tokio (Rust) | 393 K/s | 183 K/s | 31.6 K/s | 100 K/s | 1,034/s | 1.1-5.8 s† |
+| Goose io_uring | **586 K/s** | **313 K/s** | **61.8 K/s** | **144 K/s** | 1,125/s | 8.5-18.0 ms |
+| Goose epoll | 432 K/s | 243 K/s | 60.3 K/s | 136 K/s | **1,154/s** | **1.8-2.6 ms** |
+| xitca-web (Rust)‡ | 407 K/s | 235 K/s | 38.2 K/s | 113 K/s | 1,016/s | 2.4-4.6 ms |
+| dusty (Zig)§ | 341 K/s | 161 K/s | 25.2 K/s | 130 K/s | 1,137/s | 6.7-42 ms |
+| hyper (Rust) | 269 K/s | 149 K/s | 32.4 K/s | 118 K/s | 1,104/s | 11-29 ms |
+| tokio (Rust)‡ | 393 K/s | 183 K/s | 31.6 K/s | 100 K/s | 1,034/s | 1.1-5.8 s† |
 
-Goose's A to C rates and uploads are `de19e3b`, whose code is `v0.3.1`'s, measured on
-2026-10-14 without competitors
-([record](results.md#2026-10-14-v031-goose-builds-only)); its reads p99 is `bc75f2a`,
-because the later run offered the reads at 1,700 a second. Both use compiler
-`46356c2`. Competitors retain the earlier field run on the same machine and kernel,
-so their gaps include session drift of up to 5%: Goose's uploads, hyper's, and
-dusty's are within 2% of each other, and the bold on epoll's uploads doesn't rank
-them.
+Goose's, dusty's, and hyper's A to C rates and uploads come from one session on
+2026-10-15 ([record](results.md#2026-10-15-rest-frameworks-beside-v031)), Goose at
+`de19e3b`, whose code is `v0.3.1`'s, with compiler `46356c2`. "Reads p99" is from the
+earlier runs at 16,000 a second, Goose's at `bc75f2a`; the 2026-10-15 session offered
+the reads at 1,700 a second.  
+‡ From the earlier field run on the same machine and kernel; sessions have drifted by up
+to 5%.
 
 \* Each record's JSON is prebuilt at startup, with the per-request values spliced in.  
 † The server fell behind the fixed rate, so the reads queued.  
@@ -259,8 +258,8 @@ From the runs in this file:
 - **REST reads beside uploads on the io_uring loop**: p99 8.5-18.0 ms against the epoll
   loop's 1.8-2.6 ms and xitca-web's earlier 2.4-4.6 ms.
 - **Uploads beside the forms role** (tier D), to tokio: 252-279 uploads a second against
-  the io_uring loop's 153-182 at `de19e3b`, though Goose served the forms at 7.1-7.2 K/s
-  against tokio's 3.7-3.9 K/s
+  the io_uring loop's 159-165 at `de19e3b` (2026-10-15), though Goose served the forms at
+  6.9-7.1 K/s against tokio's 3.7-3.9 K/s
   ([summary](../bench/results/2026-10-14-rest-field/summary.md#tier-d)).
 - **REST reads beside uploads at 1,700 a second**, at `de19e3b`: the io_uring loop's p99
   is 4.8-7.5 ms against epoll's 0.40-1.35 ms, so the gap above isn't only the 16,000/s

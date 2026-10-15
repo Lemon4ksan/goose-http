@@ -17,6 +17,50 @@ WSL2 loopback runs through a VM; its kernel cost differs from bare metal. Runs t
 2026-10-12 use kernel 6.18.40.1-microsoft-standard-WSL2. The 2026-10-14 runs use
 6.18.54.1-microsoft-standard-WSL2. Each run's `env.txt` records the environment.
 
+## 2026-10-15: REST frameworks beside v0.3.1
+
+goose-rest's `bench/rest.sh run` measured its frameworks beside this repository's REST
+server, hyper, and the catch-all dusty in one session, machine name Tiamat
+([summary](../bench/results/2026-10-15T1539-rest-Tiamat/summary.md),
+[tiers F, R, and M](../bench/results/2026-10-15T1539-rest-Tiamat/summary-extra.md)).
+The Goose binaries are the ones of [the session before](#2026-10-14-v031-goose-builds-only),
+code as `v0.3.1`, compiler `46356c2`; goose-rest's results and the comparison of
+frameworks are in its
+[benchmarks](https://github.com/kaitk/goose-rest/blob/main/docs/benchmarks.md).
+
+```sh
+SERVERS="goose-uring goose-epoll goose-uring-rest goose-epoll-rest axum actix-web dusty-routes dusty hyper" \
+    EXTRA="goose-uring-rest goose-epoll-rest axum actix-web dusty-routes" \
+    RATE_A=100000 RATE_B=24000 RATE_C=1700 bench/rest.sh run   # from goose-rest
+```
+
+Kernel 6.18.54.1-microsoft-standard-WSL2; 4 workers on CPUs 0-3; wrk 4.1.0 with 8
+threads and 256 connections on CPUs 4-15; uploads alone with 1 thread and 32
+connections; 3 interleaved runs of 15 s after 5 s of warm-up, a fresh server per cell,
+each server checked first. Before the run, the 1-minute load average was 0.74 and then
+0.50, and Windows CPU 8% and then 6%
+([idle.txt](../bench/results/2026-10-15T1539-rest-Tiamat/idle.txt)).
+Every server reached every fixed rate with zero errors.
+
+This server's medians, serialized, against the Goose-only session the day before:
+
+| Loop | A | B | C | C, templates | Uploads alone |
+|---|---:|---:|---:|---:|---:|
+| io_uring, 2026-10-14 | 598 K/s | 315 K/s | 62.4 K/s | 147 K/s | 1,120/s |
+| io_uring, 2026-10-15 | 586 K/s | 313 K/s | 61.8 K/s | 144 K/s | 1,125/s |
+| epoll, 2026-10-14 | 444 K/s | 244 K/s | 60.9 K/s | 137 K/s | 1,128/s |
+| epoll, 2026-10-15 | 432 K/s | 243 K/s | 60.3 K/s | 136 K/s | 1,154/s |
+
+The same binaries moved by -2.7% to +2.3% between the two sessions. hyper and dusty, in
+the same session: A 269 K and 341 K, B 149 K and 161 K, C 32.4 K and 25.2 K, C templated
+118 K and 130 K, uploads 1,104/s and 1,137/s. Their 2026-10-14 field-run medians in
+[benchmarks.md](benchmarks.md#rest-apis) are within 2.5% of these on every column but
+dusty's C templated, 125 K there, 4.1% lower.
+
+dusty's log shows `error.IncompleteBody` on `POST /api/v3/imports` 13 times, and
+dusty-routes's 3 times: uploads that wrk cut off as a cell ended. No upload cell counted
+an error.
+
 ## 2026-10-14: v0.3.1, Goose builds only
 
 goose-rest's `bench/all.sh` measured the Goose servers alone on the desktop, machine
