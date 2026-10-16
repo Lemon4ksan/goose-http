@@ -88,8 +88,11 @@ Epoll's user instructions per request rise from a median of 1,533 to 1,555, 1.4%
 beyond the earlier range. Its cycles rise 1.8% at the medians, and io_uring's 1.9%,
 both beyond the earlier ranges; io_uring's instructions overlap the earlier range.
 Epoll's first run, the slowest at 1.48 M requests a second, holds its highest cycle
-count, 2,246. The code and the compiler both changed, so the rise isn't pinned on
-either.
+count, 2,246. Counted again with one compiler, `v2026.1`, 3 interleaved runs each,
+`v0.3.1` takes 1,532-1,539 user instructions per request and `1c53fda1` 1,538-1,550,
+with level cycles, 2,068-2,084 against 2,051-2,080 (2026-10-16). The compiler adds
+nothing, the code about 10 instructions within the runs' spread, and the rest of the
+session's rise was that session's.
 
 ### Static files without nginx and Caddy
 
