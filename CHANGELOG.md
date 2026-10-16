@@ -2,6 +2,23 @@
 
 What each tag adds. Each release names the Goose compiler it was built and tested with.
 
+## v0.3.6 (2026-10-16)
+
+The store reads numbers and records by value, and the release builds with Goose
+`v2026.2` (`3ee3871`) and goose-compress `v0.1.1`.
+
+- `http::store_i64`, `store_u32`, `store_u8`, and `store_f64` read a little-endian
+  value at a byte offset of a blob, and `http::store_record<T>(b, i, read)` reads record
+  `i` of a flat fixed-size `T` through a C function the program declares for `T`. Each
+  returns the value and whether the read was in range, with no buffer. A record read
+  costs 2.6 ns on an M1 Pro, against 10.3 ns for `store_append` and `from_bytes`
+  ([api](docs/api.md#the-store)).
+- `docs/api.md` documents the store, `store_append` included.
+- The REST benchmark server's application, its records, loaders, writers, templates,
+  and tier D's body work, is `bench/rest/goose/app.goose`, which goose-rest's benchmark
+  server imports.
+- goose-compress `v0.1.1`, the same encoders built with `v2026.2`.
+
 ## v0.3.5 (2026-10-16)
 
 A part of a multipart body read whole comes as slices of it. Goose `v2026.1` (`ac759c3`).
