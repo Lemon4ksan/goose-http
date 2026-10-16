@@ -1,7 +1,7 @@
 # Server patterns
 
 This guide covers server patterns for large request bodies, long responses, slow work,
-resource limits, crashes, and state that workers share. Each section presents a pattern, links
+resource limits, and state that workers share. Each section presents a pattern, links
 to an example, and points to the [API](api.md) for details. It builds on the README's
 [concepts](../README.md#concepts). goose-rest's
 [tutorial](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/README.md) builds
@@ -244,24 +244,6 @@ before work nobody waits for ([slow work](#slow-work)).
 
 For goose-rest's answers at each limit and a background task the client polls, see
 [limits](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/13-limits.md).
-
-## A crash ends the process
-
-A crash in any thread, such as an index out of bounds in a lane's job, ends the whole
-server: Goose can't catch an abort or restart one thread
-([why](decisions.md#a-crash-ends-the-process-and-a-service-manager-restarts-it)). Run
-the server under a service manager that restarts it, after a delay, and gives up after
-a few crashes in a row, so a crash that repeats at startup doesn't loop:
-
-| Manager | Restart | Against a crash loop |
-|---|---|---|
-| systemd | `Restart=on-failure`, `RestartSec=1` | `StartLimitIntervalSec=60`, `StartLimitBurst=5` in `[Unit]` |
-| Docker Compose | `restart: on-failure:5` | the count after `on-failure`; Docker doubles the delay between restarts |
-| Kubernetes | a Deployment's pods restart by default | `CrashLoopBackOff` delays each restart, up to 5 minutes |
-
-`SIGTERM` stops the server gracefully under each of them (`http::stop_on_signals`,
-[running a server](api.md#running-a-server)). [Embedded Linux](embedded.md) has a whole
-systemd unit.
 
 ## State that workers share
 

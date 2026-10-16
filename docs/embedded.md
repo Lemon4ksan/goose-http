@@ -157,22 +157,17 @@ To keep it running, a systemd unit:
 [Unit]
 Description=Device HTTP API
 After=network-online.target
-StartLimitIntervalSec=60
-StartLimitBurst=5
 
 [Service]
 ExecStart=/usr/local/bin/device
 Environment=LED=/sys/class/leds/user-led GPIO=/dev/gpiochip0:17
 Restart=on-failure
-RestartSec=1
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-The server stops gracefully on `SIGTERM`, which `systemctl stop` sends. After a crash,
-systemd restarts it a second later, and gives up after 5 crashes within a minute
-([a crash ends the process](patterns.md#a-crash-ends-the-process)).
+The server stops gracefully on `SIGTERM`, which `systemctl stop` sends.
 
 ## Check on the board
 

@@ -240,24 +240,6 @@ Decided 2026-10-16, with goose-rest: work of minutes that the handler answers wi
 *job* is the work a handler mails a lane and waits for, as in goose-rest, where a
 background task is made of jobs: one that starts it, and one for each poll.
 
-## A crash ends the process, and a service manager restarts it
-
-Decided 2026-10-16.
-
-A crash in any thread, worker or lane, ends the whole process. The service manager
-restarts it, with a delay and a limit on restarts in a row
-([a crash ends the process](patterns.md#a-crash-ends-the-process)). The package has no
-supervisor of its own.
-
-Tina restarts one Isolate after a crash and keeps the rest of its shard running ("let it
-crash"). Goose can't do this inside a process: an abort, such as an index out of bounds
-or a failed `assert`, ends the program and can't be caught (spec §9.3). A thread can't
-be restarted after it fails. Running each lane as a child process would give that
-boundary, but it needs boxes and wakes that work across processes on Linux, macOS, and
-Windows, and a second way to start the program on Windows, which has no `fork`. That
-cost is rejected. A crash restart per thread waits on Goose
-([findings](goose-findings.md#an-abort-ends-every-thread-of-the-program)).
-
 ## Not yet decided
 
 ### Compression in an optional module

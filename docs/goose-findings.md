@@ -350,50 +350,6 @@ past it, or to run its cleanup when one does.
 Workaround: a handler that returns early is a function, passed by name or called from
 the block (`docs/api.md`, "Handler").
 
-### An abort ends every thread of the program
-
-Found on `3ee3871` (`v2026.2`). Status: open (not reported)
-
-An abort in one thread, such as an index out of bounds, ends the whole program
-(spec §9.3: "message + exit; not catchable"). A server can't then keep its other threads
-serving while it restarts the one that failed, as Erlang and Tina do. A bug in a
-lane's rarely used code takes every worker's connections down with it. Expected: a way
-for `thread_wait`, or a hook a thread installs, to learn that a thread aborted, and to
-continue the others, with the aborted thread's memory released. A thread shares nothing
-with the others but what static data and its arguments carry (§11.2), which is what
-makes ending one thread alone plausible.
-
-    thread_fn lane(n: i64) {
-        let a = [1, 2, 3];
-        print(a[n]);
-    }
-
-    thread_fn other(n: i64) {
-        for i in 3 { print("still serving ", i); }
-    }
-
-    fn main() {
-        let t = thread_spawn(lane, 7);
-        let o = thread_spawn(other, 0);
-        thread_wait(t);
-        thread_wait(o);
-        print("main restarts the lane here");
-    }
-
-    $ goose build --cc cc --standalone -o abort abort.goose && ./abort; echo $?
-    goose runtime error: index 7 out of bounds (length 3) (abort.goose:3)
-    still serving 0
-    still serving 1
-    still serving 2
-    1
-
-The out-of-bounds index in `lane` ends the program with status 1. `main` never learns
-that `lane` failed and never continues; `other` finishes here only because the exit
-races it.
-
-Workaround: none inside the process. The service manager restarts the process
-([decisions](decisions.md#a-crash-ends-the-process-and-a-service-manager-restarts-it)).
-
 ### Data built at run time can't be shared read-only between threads
 
 Found on `46356c2`, task 025. Status: open (not asked; contact waits on the maintainer
