@@ -150,7 +150,7 @@ For the API organized by topic, with examples, see [docs/api.md](docs/api.md).
 
 ## Benchmarks
 
-goose-http `v0.3.1` and Goose `v2026.1` on a Ryzen 7 5800X3D (WSL2), 4 workers per
+goose-http `v0.3.3` and Goose `v2026.1` on a Ryzen 7 5800X3D (WSL2), 4 workers per
 server. [All results, the method, and the losses](docs/benchmarks.md).
 
 The plaintext and JSON benchmarks serve tiny fixed responses over 256 connections,
@@ -159,8 +159,8 @@ APIs [below](#rest-apis) are closer to a real application.
 
 | Workload | goose-http | Best other | |
 |---|---:|---:|---|
-| [Plaintext](docs/benchmarks.md#plaintext-and-json) | 6.84M req/s | 8.12M (vanilla-io_uring\*) | Fastest that parses requests |
-| [JSON](docs/benchmarks.md#plaintext-and-json) | 512k req/s | 561k (zix) | Third of 8 |
+| [Plaintext](docs/benchmarks.md#plaintext-and-json) | 6.95M req/s | 8.12M (vanilla-io_uring\*) | Fastest that parses requests |
+| [JSON](docs/benchmarks.md#plaintext-and-json) | 517k req/s | 561k (zix) | Third of 8 |
 | [Peak RSS](docs/benchmarks.md#plaintext-and-json), plaintext and JSON | 4.8-16 MB | 39 MB (zix) | Lowest |
 | 1 MB [static files](docs/benchmarks.md#static-files)\*\* | 31.3 GB/s | 28.5 GB/s (nginx) | Behind only at 64 KB |
 | [Compressed JSON](docs/benchmarks.md#compression)\*\* | 66.1k req/s | 62.6k (actix) | Fastest that compresses each response |
@@ -172,6 +172,8 @@ APIs [below](#rest-apis) are closer to a real application.
 
 Three APIs and an upload workload. All servers use the same routes and records, load
 the records at startup, and compute each response per request, without a framework.
+goose-http's rates are measured at `v0.3.1` with Goose `46356c2`, and its reads p99 on
+an earlier build.
 
 - **A** is [HttpArena](https://github.com/MDA2AV/HttpArena)'s `production-stack` API.
 - **B** and **C** come from a time tracker and a clinic, with larger, more deeply nested JSON.
