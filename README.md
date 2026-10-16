@@ -58,7 +58,7 @@ sessions, and middleware (see [goose-rest](https://github.com/kaitk/goose-rest))
 
 ## Quick start
 
-Install Goose [`v2026.1`](https://github.com/aardappel/goose/releases/tag/v2026.1): unpack
+Install Goose [`v2026.2`](https://github.com/aardappel/goose/releases/tag/v2026.2): unpack
 the archive for your platform and put its directory on `PATH`
 ([Goose's install notes](https://github.com/aardappel/goose#install-a-release)). Building
 a program also needs a C compiler and, on Linux, liburing:
