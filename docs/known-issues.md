@@ -115,6 +115,9 @@ intermediate shell can otherwise expand variables before bash sees them.
   rather than a generic arm64 target for this host.
 - Tina can require `--security-opt seccomp=unconfined` to map its shard memory.
   Keep its `[FATAL]` lines when inspecting logs.
+- The REST server, `bench/rest/goose/rest.goose`, doesn't link natively on macOS: it
+  calls glibc's `mallopt`. `goose check` still type-checks it; build it and run
+  `bench/rest/check.py` against it in an arm64 Linux container (2026-10-16).
 
 ## Windows
 

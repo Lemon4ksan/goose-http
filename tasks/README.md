@@ -64,7 +64,7 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 | 027: idiomatic API | Record the pending tier C templated benchmark recheck; API and examples are on `main`. |
 | 029: embedded aarch64 | Validate on a board; emulated tests do not settle it. |
 | 030: 32-bit ARM | Unblock execution after the two recorded Goose bugs are fixed. |
-| 031: shared REST application | Split reusable application code from HTTP routes without changing behavior or memory. |
+| 031: shared REST application | Split is on `main` and checked in Docker; recheck idle memory on the desktop against task 025's tables. |
 | 032: shared benchmark harness | Reuse one harness across scripts and document external server integration. |
 | 034: Goose releases | goose-http builds from the release; WSL and Windows test runs, goose-compress, goose-rest, and our own packages remain. |
 | 038: upgraded reads while waiting | Done on macOS; run the tests on Linux (io_uring, epoll) and Windows (IOCP). |

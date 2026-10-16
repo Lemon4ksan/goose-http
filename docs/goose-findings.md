@@ -116,7 +116,7 @@ function parameter does, or the compiler refuses the write to a copy.
 
 Workaround: pass the block a struct that holds a reference, `struct Cursor { r:
 json::Reader& }`, and bind it in the block with `let r .= c.r;`
-(`bench/rest/goose/rest.goose`, `load_each`). Or pass the local's reference, `F(&c)`,
+(`bench/rest/goose/app.goose`, `load_each`). Or pass the local's reference, `F(&c)`,
 which the block then binds (goose-rest, 2026-10-13).
 
 The loops met it too: `serve(cfg, fresh) { ev, st, out => ... }` gave the block a copy

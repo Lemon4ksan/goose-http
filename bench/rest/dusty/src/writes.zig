@@ -155,7 +155,7 @@ const columns = [6]Column{
 const Quote = enum { outside, inside, after };
 
 // A CSV body (RFC 4180, with LF or CRLF line ends) read piece by piece, as
-// rest.goose's Csv: where the reader is, the field it's in, and each column's
+// app.goose's Csv: where the reader is, the field it's in, and each column's
 // count of non-empty cells and its sum, or its bytes for text.
 const Csv = struct {
     record: i64 = 1,

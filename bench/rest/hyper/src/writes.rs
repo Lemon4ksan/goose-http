@@ -119,7 +119,7 @@ enum Quote {
 }
 
 // A CSV body (RFC 4180, with LF or CRLF line ends) read frame by frame, as
-// rest.goose's Csv: where the reader is, the field it's in, and each column's
+// app.goose's Csv: where the reader is, the field it's in, and each column's
 // count of non-empty cells and its sum, or its bytes for text.
 struct Csv {
     record: i64,
