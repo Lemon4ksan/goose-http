@@ -76,8 +76,12 @@ None of this is in a program that imports the package:
 ### Workers and connections
 
 The program spawns workers and passes each a flat `Config`. Each worker runs one loop
-and owns its connections for their lifetime. Spawning stays in the program because `thread_spawn` can't take a `thread_fn` passed
-through a package function.
+and owns its connections for their lifetime. No worker takes another's connections, as a
+work-stealing scheduler would, so a connection's state stays in one thread's caches and
+idle workers don't contend for a shared run queue. Tina's author explains the trade in
+[the work-stealing myth](https://pmbanugo.me/blog/why-async-await-complect-concurrency):
+fairness costs throughput. Spawning stays in the program because `thread_spawn` can't
+take a `thread_fn` passed through a package function.
 
 `http::worker_count(cfg)` uses `Config.workers`, or the hardware thread count by
 default. On macOS it defaults to the performance-core count, and the loop sets
@@ -240,3 +244,34 @@ completion in the write buffer, not its delivery to the client.
 wakes every loop; a loop started after a stop runs normally. The loops close their
 listeners and idle connections, add `Connection: close` to the next response on the
 others, and return when drained or after `Config.grace_ms`.
+
+## Background
+
+Each part of the design has a precedent in the research literature, though none of
+these papers describes the combination:
+
+- **Thread-per-core, shared-nothing.** Enberg, Rao, and Tarkoma,
+  [The Impact of Thread-Per-Core Architecture on Application Tail Latency](https://penberg.org/papers/tpc-ancs19.pdf)
+  (ANCS 2019), build a key-value store with one epoll loop per core, `SO_REUSEPORT`,
+  and bounded queues between threads. It lowers tail latency only while the threads
+  neither synchronize nor block. It partitions data by key and forwards requests
+  between workers; goose-http partitions by connection.
+- **Blocking work off the loop.** Flash
+  ([Pai, Druschel, Zwaenepoel](https://www.usenix.org/legacy/events/usenix99/full_papers/pai/pai.pdf),
+  USENIX 1999) hands disk operations that could block to helper processes, and their
+  completion reaches the loop as an event.
+  [Half-Sync/Half-Async](https://www.dre.vanderbilt.edu/~schmidt/PDF/PLoP-95.pdf)
+  (Schmidt and Cranor, PLoP 1995) names the split: an asynchronous layer for I/O,
+  threads that run blocking code such as database queries, and a queue between them
+  that discards messages rather than block the asynchronous side. Here that queue is a
+  box addressed to one thread, not a layer any thread drains.
+- **Bounded boxes.** [SEDA](https://doi.org/10.1145/502034.502057) (Welsh, Culler,
+  Brewer, SOSP 2001) bounds the queue in front of each stage and answers with an error
+  when it's full, which bounds response time under overload, as `FULL` and a 503 do here.
+- **CPU-bound work in the handler.**
+  [Shinjuku](https://www.usenix.org/conference/nsdi19/presentation/kaffes) (Kaffes et
+  al., NSDI 2019) shows that run-to-completion on per-core queues, which is what a
+  worker does, gives poor tail latency when service times vary widely: short requests
+  wait behind long ones. Its fix, preemption every few microseconds through hardware
+  virtualization, is beyond a portable server, so long work moves to a thread instead
+  ([slow work](patterns.md#slow-work)).
