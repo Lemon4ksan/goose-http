@@ -35,7 +35,7 @@ spill pool. Full buffers in every slot were rejected for their memory cost.
 
 Decided 2026-10-11, tasks 010 and 011.
 
-HTTP parsing, routing, response building, loop state machines, mailbox messages,
+HTTP parsing, routing, response building, loop state machines, messages between threads,
 timers, and JSON are Goose. C in `shim/` wraps syscalls and kernel structures that
 Goose cannot reach. The package sidecar, `http.build`, selects and compiles each
 platform's C files; Goose code needs no conditional compilation.
@@ -119,12 +119,12 @@ use `pread` in pieces. The threshold avoids direct-send overhead for small files
 [measurement](results.md#static-files) and the remaining 64 KB gap to nginx are
 recorded in task 024.
 
-## Waiting through bounded mailboxes in C
+## Waiting through bounded boxes in C
 
 Decided 2026-10-12, task 015.
 
-Waiting uses bounded mailboxes, a fixed-capacity timer table, and generation-checked
-handles, each independent of HTTP. Mailboxes are C because Goose has neither atomics
+Waiting uses bounded boxes, a fixed-capacity timer table, and generation-checked
+handles, each independent of HTTP. Boxes are C because Goose has neither atomics
 nor a wait another thread can end. Goose's typed queues have no bound, allow any
 thread to receive, and cannot wake an event loop.
 
@@ -172,7 +172,7 @@ stops waiting instead of waiting. `Stream.live` records whether the key is marke
 only an exchange that waited pays for an atomic write. This covers io_uring, epoll,
 kqueue, and IOCP through their shared Goose paths.
 
-## A shared store for read-only blobs
+## A store for read-only blobs
 
 Decided 2026-10-14, task 025.
 
@@ -214,7 +214,7 @@ Tests follow Goose's own convention, as the Goose repository's `test/` and
   its own and in parallel, and reports every failure without stopping at the first.
   No runner is shared between repositories, as none is with Goose's. In goose-http the
   batch is the typecheck, and `goose build` builds each test, since most tests link C
-  that a sidecar names, the package's shim or the mailbox's, which `goose build`
+  that a sidecar names, the package's shim or the box's, which `goose build`
   compiles.
 - Helpers the tests share are one imported module, not a copy in each test.
 
@@ -224,6 +224,16 @@ Goose has no reflection to find tests, and checking by printing against a golden
 needs none. So were tests beside the code: Goose's compiler already leaves out of a
 build what its root doesn't import, so a separate `test/` costs nothing, and it matches
 the convention any reader of Goose's own repository knows.
+
+## One name for each place data lives
+
+Decided 2026-10-16, with goose-rest. A thread's queue of messages is a *box*
+(`http::Box`), and a message reaches it *by mail*; the shared blobs are the *store*
+(`http.store`); a global with a literal value, compiled into the program, is a
+*constant*; and the thread that does one kind of slow work, which workers send jobs to
+by mail, is a *lane*. These replace "mailbox", "shared store", "a global with a literal
+initializer", and, in the slow-work pattern, "service thread" and "backend thread".
+The request's state in `http::serve` keeps its name, and no API name changed.
 
 ## Not yet decided
 

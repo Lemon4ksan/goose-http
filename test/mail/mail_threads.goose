@@ -1,4 +1,4 @@
-// Mailboxes between threads: many senders with nothing lost or reordered per
+// Boxes between threads: many senders with nothing lost or reordered per
 // sender, and a ping-pong between two threads, which needs a wakeup for
 // every message, with no wait reaching its time limit. The package is
 // declared by mail.goose alone; the sidecar beside it names the C.

@@ -1,4 +1,4 @@
-// Mailboxes: a box has a fixed number of slots of a fixed size, allocated
+// Mail between threads: a box has a fixed number of slots of a fixed size, allocated
 // when it opens, and one owner, the thread that takes from it. Any thread
 // sends to it by address, and the send says at once whether the message
 // went in: SENT, FULL (no slot free, which may pass), TOO_LONG (the message

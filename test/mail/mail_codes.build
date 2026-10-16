@@ -1,5 +1,5 @@
 // The C a mail test needs, since it declares the package by mail.goose,
-// which has no sidecar of its own: the mailbox, and the platform's waker.
+// which has no sidecar of its own: the box, and the platform's waker.
 // Each mail test has a copy, named after it.
 c_sources_macos = ["../../shim/mail.c", "../../shim/kqueue.c"];
 c_sources_linux = ["../../shim/mail.c", "../../shim/net.c"];

@@ -9,7 +9,7 @@ with their dates and the alternatives rejected, are in [decisions](decisions.md)
 ## What isn't Goose
 
 Measuring Goose is the point, so everything that is HTTP is Goose: parsing, routing,
-response building, the loops' state machines, the mailbox's messages, the timer table,
+response building, the loops' state machines, the messages between threads, the timer table,
 and JSON. The package uses the pinned Goose release without modifying it.
 
 ### C in the package
@@ -26,8 +26,8 @@ compilation:
 | `shim/uring.c` | Linux | The io_uring ring, over liburing |
 | `shim/iocp.c` | Windows | The same ring over a completion port, and the waker, a completion packet |
 | `shim/ring_epoll.c` | Linux, macOS | The ring emulated over epoll or kqueue, where io_uring is blocked, and always on macOS |
-| `shim/mail.c` | all | The mailboxes' bounded queue, and the list of loop wakers that `http::stop` wakes |
-| `shim/store.c` | all | The shared store's blobs, written once at startup and read by every thread |
+| `shim/mail.c` | all | The boxes' bounded queue, and the list of loop wakers that `http::stop` wakes |
+| `shim/store.c` | all | The store's blobs, written once at startup and read by every thread |
 
 Each is C for one of four reasons:
 
@@ -196,12 +196,12 @@ program that doesn't import the module needs no codec. TLS is outside this packa
 
 A handler that waits for another thread calls `http::later`, which needs a time limit
 and returns the exchange's address. The other thread sends its reply to that address
-through the worker's bounded mailbox, and the loop calls the handler with `WAKE`, or
+through the worker's bounded box, and the loop calls the handler with `WAKE`, or
 with `TIMEOUT` when the limit passes. [Mail between threads](patterns.md#mail-between-threads)
 shows the pattern, and the API's [answers that wait](api.md#answers-that-wait) its
 calls.
 
-The mailboxes are C because Goose has neither atomics nor a wait that another thread
+Boxes are C because Goose has neither atomics nor a wait that another thread
 can end. Goose's typed queues have no bound, let any thread receive, and can't wake
 an event loop. A loop opens a box and a timer table only when `Config.mail_slots` and
 `Config.max_waiting` are positive.
@@ -223,7 +223,7 @@ upgraded connection is a stream both ways, so the loops go on reading it, and th
 bytes that arrive reach the handler as `BODY` while the wait stands, in the order they
 reached the worker.
 
-## The shared store
+## The store
 
 `import http.store` gives a program byte blobs that one thread writes at startup and
 every worker then reads, so data built once, such as a JSON catalog, isn't copied into

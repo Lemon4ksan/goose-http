@@ -295,7 +295,7 @@ else { http::respond(out, 503, "text/plain", "busy"); return; }
   queued or in flight when the wait ends can still be dropped by the loop. At stop,
   a waiting exchange gets `Config.grace_ms`, then `CLOSED`.
 - `http::mail_live(address)` tells any thread whether the box accepts that key now,
-  so a service can skip work for a client that has gone. It is a snapshot: a later
+  so a lane can skip work for a client that has gone. It is a snapshot: a later
   send can still return `STALE`. The key stays live through `WAKE` while the
   handler calls `later` again, so a reply can go in pieces back to back; it is
   cleared once the handler returns without waiting, and before `TIMEOUT` or

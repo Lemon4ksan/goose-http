@@ -93,7 +93,7 @@ var items: Item[>..];
 var users: User[>..];
 var template: bool;
 
-// The prebuilt JSON of each record type, in the shared store.
+// The prebuilt JSON of each record type, in the store.
 struct Templates {
     item: http::Blob = http::Blob { .. },
     user: http::Blob = http::Blob { .. },
@@ -110,7 +110,7 @@ struct Templates {
 var tpl: Templates;
 // JSON=template's prebuilt records, without their closing brace: item i's
 // is item_json[item_at[i]..item_at[i + 1]]. The loader builds them, and puts
-// each *_json in the shared store (share_templates), where every worker
+// each *_json in the store (share_templates), where every worker
 // reads the one copy: item i's is then tpl.item's bytes item_at[i] to
 // item_at[i + 1].
 var item_json: u8[>..];
@@ -2884,7 +2884,7 @@ fn print_lens() {
 // the next set only after a Taken. hand_over and take_all name the same
 // arrays in the same order. Ready tells main a set is on the queues, and
 // Flags carries the scalar globals with it, the templates' blobs among them:
-// the templates themselves are in the shared store, never on the queues.
+// the templates themselves are in the store, never on the queues.
 struct Flags { template: bool, version_epoch: i64, tpl: Templates }
 
 // glibc's: with M_MMAP_THRESHOLD set, malloc keeps serving each queue copy
@@ -2999,14 +2999,14 @@ thread_fn distributor(count: i64) {
     }
 }
 
-// Puts the prebuilt JSON in the shared store, where every worker reads the
+// Puts the prebuilt JSON in the store, where every worker reads the
 // one copy, empties the loader's own, and freezes the store. The workers get
 // the blobs in Flags, through the queues, which order the store's writes
 // before their reads (store.goose).
 fn share_templates() {
     fn share(json: u8[>..]&) -> http::Blob {
         let b, err = http::store_put(json);
-        guard err == 0 else { abort("rest: the shared store refused the templates"); }
+        guard err == 0 else { abort("rest: the store refused the templates"); }
         json.clear();
         return b;
     }

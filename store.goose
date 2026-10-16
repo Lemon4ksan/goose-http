@@ -1,4 +1,4 @@
-// The shared store: byte blobs written once at startup and then read by
+// The store: byte blobs written once at startup and then read by
 // every thread, one copy for the process. Goose shares only static data
 // between threads (spec §11.2), and copies every other global a worker uses
 // when it's spawned, so data built at startup and never written again, such

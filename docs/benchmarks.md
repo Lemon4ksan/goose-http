@@ -157,7 +157,7 @@ machine and kernel. Bold is the column's lowest among these recorded runs.
 | tokio (Rust) | 16 MB | 30 MB | 307 MB | 365 MB | 412 MB |
 
 Workers receive their records over queues, and prebuilt JSON is held once per
-process in the shared store. Every saturation cell's peak is lower beyond the
+process in the store. Every saturation cell's peak is lower beyond the
 baseline's ranges. The
 [measurement record](results.md#2026-10-14-main-against-the-readme-benchmark-build)
 contains both loops' rates, memory, uploads, and latency. `bc75f2a` lost 2.7-5.8% of

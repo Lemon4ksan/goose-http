@@ -1,7 +1,7 @@
-// The mailboxes (mail.goose, shim/mail.c): FULL, TOO_LONG, and STALE at the
+// The boxes (mail.goose, shim/mail.c): FULL, TOO_LONG, and STALE at the
 // send, the slot size from an address, and the slot counts a box allows with
 // FULL at each one's capacity. The package is declared by mail.goose alone,
-// so this compiles only while the mailbox reaches nothing of the HTTP side;
+// so this compiles only while the box reaches nothing of the HTTP side;
 // the sidecar beside it names the C.
 import std;
 import os;

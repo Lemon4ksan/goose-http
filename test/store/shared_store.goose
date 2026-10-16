@@ -1,4 +1,4 @@
-// The shared store (store.goose, shim/store.c): puts, reads of a range,
+// The store (store.goose, shim/store.c): puts, reads of a range,
 // refused ranges and blobs, and no put after the freeze.
 import std;
 import http from "../../";

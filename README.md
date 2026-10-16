@@ -130,8 +130,9 @@ flowchart LR
 - **Workers.** The program starts one thread per worker. Each worker runs an event loop
   with the same handler and owns its connections. Workers share no memory; threads
   communicate by [mail](docs/patterns.md#mail-between-threads). A handler must never
-  block its loop, so slow work runs on a thread of the program's while the handler waits
-  for the reply: the half-sync/half-async pattern ([slow work](docs/patterns.md#slow-work)).
+  block its loop, so slow work runs on a lane, a thread of its own, while the handler
+  waits for the reply: the half-sync/half-async pattern
+  ([slow work](docs/patterns.md#slow-work)).
 - **Two kinds of handler.** `{ req, body, out => }` receives a complete request and
   responds once, which is enough for most routes. `{ ev, st, out => }` runs for each
   event in an exchange and keeps program-defined state per connection. Use it for large
@@ -199,24 +200,24 @@ every server and both Goose event loops: [docs/benchmarks.md](docs/benchmarks.md
 ## What isn't Goose
 
 All HTTP functionality is written in Goose: parsing, routing, responses, event loops,
-mailbox messages, timers, and JSON. The package's only other code is a thin C layer in
+mail between threads, timers, and JSON. The package's only other code is a thin C layer in
 `shim/` for four things Goose can't do:
 
 - Call the kernel and convert its data structures: sockets, epoll, kqueue, and Winsock.
 - Own buffers the kernel uses after a call returns: the io_uring and IOCP rings.
-- Provide an interruptible wait with atomic counts: the mailbox queue.
-- Hold memory that all threads can read: the shared store's blobs.
+- Provide an interruptible wait with atomic counts: a box's queue.
+- Hold memory that all threads can read: the blobs of the store, `http.store`.
 
 For each file and why it uses C, see the
 [architecture](docs/architecture.md#what-isnt-goose).
 
 ## Credits
 
-The mailboxes draw three ideas from [Tina](https://github.com/pmbanugo/tina), a
+The boxes draw three ideas from [Tina](https://github.com/pmbanugo/tina), a
 thread-per-core framework in Odin, and its author's post
 [on async/await](https://pmbanugo.me/blog/why-async-await-complect-concurrency):
 
-- Mailbox capacity is fixed at creation. Sending reports a full mailbox or stale address
-  immediately, without blocking or growing the mailbox.
+- A box's capacity is fixed at creation. Sending reports a full box or stale address
+  immediately, without blocking or growing the box.
 - Work is sent to a worker's address rather than a shared queue.
 - Every wait requires a time limit (`http::later`).

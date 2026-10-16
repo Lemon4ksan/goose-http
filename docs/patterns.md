@@ -105,8 +105,8 @@ sequenceDiagram
     H->>L: end(out)
 ```
 
-With goose-rest: a reply that a service sends in pieces,
-[two services, or a reply in pieces](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/14-two-services.md).
+With goose-rest: a reply that a lane sends in pieces,
+[two lanes, or a reply in pieces](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/14-two-lanes.md).
 
 ## Mail between threads
 
@@ -135,11 +135,11 @@ A send says at once whether the message went in, `SENT`, or why not:
 - `STALE`: nobody waits at that address any more, so the work can be dropped.
 
 A worker waits for mail with `http::later`, which takes a time limit and returns the
-address to reply to. How to shape the backend thread, and the work it takes:
-[slow work](#slow-work). With goose-rest, a route asks a service thread with
-`rest::ask`, and the service answers it:
+address to reply to. How to shape that thread as a lane, and the work it takes:
+[slow work](#slow-work). With goose-rest, a route asks a lane with
+`rest::ask`, and the lane answers it:
 [work that waits](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/13-waiting.md)
-and [two services](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/14-two-services.md).
+and [two lanes](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/14-two-lanes.md).
 
 The design is [Tina](https://github.com/pmbanugo/tina)'s, a thread-per-core framework in
 Odin: boxes bounded when they open, work sent to a thread's address rather than to a
@@ -150,8 +150,8 @@ How the boxes work: [architecture](architecture.md#mail-between-threads).
 ## Slow work
 
 A handler runs to its end on the worker, and the worker's other connections wait until it
-does. Two kinds of work therefore leave the handler for a thread of the program's own,
-which the handler waits for without blocking the worker:
+does. Two kinds of work therefore leave the handler for a lane, a thread of its own that
+does one kind of slow work, which the handler waits for without blocking the worker:
 
 - **I/O-bound work**, such as a query to a database server, goes however short it is. In
   the handler the core sits idle through the wait: a 20 ms query holds a worker to 50
@@ -167,14 +167,14 @@ Short CPU-bound work, including a query on embedded SQLite, stays in the handler
 | The work | Where it runs | Shown in |
 |---|---|---|
 | Short and CPU-bound: parse, look up, format, query embedded SQLite | In the handler | `routes/`, `api/` |
-| I/O-bound, or long and CPU-bound | A thread of the program's; the handler waits with `http::later` | `later/`, which counts primes |
+| I/O-bound, or long and CPU-bound | A lane; the handler waits with `http::later` | `later/`, which counts primes |
 | Either, going on with results as they come | The same, with the response sent in pieces | `device/`'s `/api/events` |
 | Minutes of either | A job: answer `202 Accepted` with its ID at once, and let the client ask for the result | goose-rest's [work that takes minutes](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/15-limits.md#work-that-takes-minutes) |
 
 The split is the half-sync/half-async pattern: workers are the asynchronous half, the
-program's threads are the synchronous half and run plain blocking code, and mail is the
-queue between them. In the classic pattern a pool of threads drains one shared queue.
-Here each job goes to one thread's own bounded box, as in the actor model and
+lanes are the synchronous half and run plain blocking code, and mail is the queue
+between them. In the classic pattern a pool of threads drains one shared queue. Here
+each job goes to one thread's own bounded box, as in the actor model and
 [Tina](#mail-between-threads).
 
 The handler sends the job by mail and gives a time limit. The worker serves its other
@@ -184,7 +184,7 @@ connections until the reply or the time limit comes:
 sequenceDiagram
     participant C as Client
     participant W as Worker loop
-    participant B as Backend thread
+    participant B as Lane
     C->>W: GET /primes/1000000
     Note over W: REQUEST: later(out, 2000)<br/>returns the reply's address
     W->>B: mail_send_value(backend, JOB, job)
@@ -245,9 +245,9 @@ With goose-rest, each answered at its limit, and a job the client polls:
 Each worker has its own copy of the program's globals, made when it starts, and workers
 share no memory. In `api/`, a note written through one worker isn't there for another.
 
-- **Data built at startup and only read**, such as a catalog: the shared store,
-  `import http.store`, keeps one copy that every worker reads
-  ([architecture](architecture.md#the-shared-store)). The benchmarks' REST
+- **Data built at startup and only read**, such as a catalog: the store,
+  `http.store` (`import http.store`), keeps one copy that every worker reads
+  ([architecture](architecture.md#the-store)). The benchmarks' REST
   server, `bench/rest/goose/rest.goose`, uses it.
 - **Data that changes**, such as counters or sessions: give it one owner thread, and
   have workers ask it by [mail](#mail-between-threads).

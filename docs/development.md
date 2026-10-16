@@ -17,10 +17,10 @@ http.goose     the package's entry: settings, errors, what both loops share
 *.goose        other modules, all namespace http: parser and response writers
                (message.goose), loops (uring.goose, epoll.goose), router
                (router.goose), files (file.goose), shim functions (sys.goose, ring.goose),
-               and with nothing of HTTP in them, the mailbox (mail.goose), timer table
-               (timers.goose), handles (handle.goose), and the shared store (store.goose)
+               and with nothing of HTTP in them, mail between threads (mail.goose), the timer table
+               (timers.goose), handles (handle.goose), and the store (store.goose)
 http.build     the package's sidecar: each platform's shim
-shim/          C for syscalls: sockets, epoll, io_uring, kqueue, IOCP, mailboxes, and the store
+shim/          C for syscalls: sockets, epoll, io_uring, kqueue, IOCP, boxes, and the store
 server/        the benchmark server, importing the package from "../"
 examples/      small servers (examples/README.md); the API by topic is docs/api.md
 test/          the tests, a folder per area, their golden files (expected/), and the
@@ -137,7 +137,7 @@ compiler `goose build` uses.
 - The helpers the tests share are `test/check.goose`, which a test imports with
   `import check from "../";`.
 - A test that declares the package by `mail.goose` alone has a sidecar of its own,
-  `test/mail/<name>.build`, naming the C the mailbox needs.
+  `test/mail/<name>.build`, naming the C that mail needs.
 
 The runner typechecks every file in batches, many files to one
 `goose --multi-test --check`. It then builds each test with `goose build` at `-O0` and
