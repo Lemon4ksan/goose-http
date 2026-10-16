@@ -162,7 +162,8 @@ program's own, and the handler waits for it without blocking the worker:
 The split is the half-sync/half-async pattern: workers are the asynchronous half, the
 program's threads are the synchronous half and run plain blocking code, and mail is the
 queue between them. In the classic pattern a pool of threads drains one shared queue.
-Here each job goes to one thread's own bounded box, as in the actor model.
+Here each job goes to one thread's own bounded box, as in the actor model and
+[Tina](#mail-between-threads).
 
 The handler sends the job by mail and gives a time limit. The worker serves its other
 connections until the reply or the time limit comes:
