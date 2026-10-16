@@ -1,8 +1,8 @@
 # Server patterns
 
-How to shape a server for large request bodies, long responses, slow work, its limits,
-and state that workers share. Each section gives the pattern first, then the example
-that shows it and the [API](api.md) that has the details. It builds on the README's
+This guide covers server patterns for large request bodies, long responses, slow work,
+resource limits, and state that workers share. Each section presents a pattern, links
+to an example, and points to the [API](api.md) for details. It builds on the README's
 [concepts](../README.md#concepts). goose-rest's
 [tutorial](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/README.md) builds
 an application on these patterns, and each section names the page that does.
@@ -157,13 +157,13 @@ does. Two kinds of work therefore leave the handler for a lane, a thread of its 
 does one kind of slow work. The handler mails the lane a job, and waits for the reply
 without blocking the worker:
 
-- **I/O-bound work**, such as a query to a database server, goes however short it is. In
-  the handler the core sits idle through the wait: a 20 ms query holds a worker to 50
-  such requests a second.
-- **Long CPU-bound work** goes when it holds up the worker's other requests. Moving it
-  adds no throughput when the workers use every core, but short requests stop waiting
-  behind it, which keeps the tail latency down. How long is too long depends on the load
-  and the latency the server must keep, since the tail grows with the spread of service
+- **I/O-bound work**, such as a query to a database server, moves to a lane however short
+  it is. In the handler, the core sits idle during the wait: a 20 ms query limits a
+  worker to 50 such requests a second.
+- **Long CPU-bound work** moves to a lane when it holds up the worker's other requests.
+  Moving it adds no throughput when the workers use every core, but short requests stop
+  waiting behind it, which keeps the tail latency down. How long is too long depends on
+  the load and the required latency, because the tail grows with the spread of service
   times ([background](architecture.md#background)).
 
 Short CPU-bound work, including a query on embedded SQLite, stays in the handler:
@@ -181,8 +181,8 @@ between them. In the classic pattern a pool of threads drains one shared queue. 
 each job goes to one thread's own bounded box, as in the actor model and
 [Tina](#mail-between-threads).
 
-The handler sends the job by mail and gives a time limit. The worker serves its other
-connections until the reply or the time limit comes:
+The handler sends the job by mail and sets a time limit. The worker serves its other
+connections until the reply arrives or the time limit expires:
 
 ```mermaid
 sequenceDiagram
@@ -242,7 +242,7 @@ closes one that stops reading. A wait is the handler's: it gives each `later` a 
 limit, answers 503 when a box is `FULL`, and has its thread check `http::mail_live`
 before work nobody waits for ([slow work](#slow-work)).
 
-With goose-rest, each answered at its limit, and a background task the client polls:
+For goose-rest's answers at each limit and a background task the client polls, see
 [limits](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/13-limits.md).
 
 ## State that workers share

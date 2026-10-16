@@ -8,9 +8,9 @@ with their dates and the alternatives rejected, are in [decisions](decisions.md)
 
 ## What isn't Goose
 
-Measuring Goose is the point, so everything that is HTTP is Goose: parsing, routing,
-response building, the loops' state machines, the messages between threads, the timer table,
-and JSON. The package uses the pinned Goose release without modifying it.
+Measuring Goose is the point, so all HTTP functionality is written in Goose: parsing,
+routing, response building, the loops' state machines, messages between threads, the
+timer table, and JSON. The package uses the pinned Goose release without modifying it.
 
 ### C in the package
 
@@ -197,9 +197,9 @@ program that doesn't import the module needs no codec. TLS is outside this packa
 A handler that waits for another thread calls `http::later`, which needs a time limit
 and returns the exchange's address. The other thread sends its reply to that address
 through the worker's bounded box, and the loop calls the handler with `WAKE`, or
-with `TIMEOUT` when the limit passes. [Mail between threads](patterns.md#mail-between-threads)
-shows the pattern, and the API's [answers that wait](api.md#answers-that-wait) its
-calls.
+with `TIMEOUT` when the limit expires.
+[Mail between threads](patterns.md#mail-between-threads) shows the pattern, and the
+API's [answers that wait](api.md#answers-that-wait) lists the calls.
 
 Boxes are C because Goose has neither atomics nor a wait that another thread
 can end. Goose's typed queues have no bound, let any thread receive, and can't wake
@@ -214,9 +214,9 @@ between one piece and the handler's next `later`, and is cleared once the handle
 answers or stops waiting, and before `TIMEOUT` and `CLOSED`.
 
 A send never blocks: it returns `SENT`, `FULL`, `TOO_LONG`, or `STALE`, the last for
-an exchange that no longer waits, and `mail_live` asks the same without sending. A
-send that saw a key live just before it was cleared can still be queued, so the loop
-checks each delivered key and drops a message no exchange waits for.
+an exchange that no longer waits. `mail_live` checks whether the address is still live
+without sending. A send that saw a key live just before it was cleared can still be
+queued, so the loop checks each delivered key and drops a message no exchange waits for.
 
 A waiting exchange holds back the requests after it, which must wait their turn. An
 upgraded connection is a stream both ways, so the loops go on reading it, and the
