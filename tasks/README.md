@@ -70,6 +70,7 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 | 038: upgraded reads while waiting | Done on macOS; run the tests on Linux (io_uring, epoll) and Windows (IOCP). |
 | 040: typed store reads | Scalars and fixed-size records read from `http::store` by value, measured against `store_append`. |
 | 041: Goose's test convention | Done on macOS; run `test/run_tests.py` and `scripts/test.sh` on Linux and Windows. |
+| 043: `later` without waiting configured | Confirm with a test that `later` gets no `TIMEOUT` when `mail_slots` and `max_waiting` are 0, then fix it. |
 
 Tasks 013 and 018 have completed acceptance criteria and are archived with the other
 completed work. Compression subtasks stay with their open parent. Completed platform
