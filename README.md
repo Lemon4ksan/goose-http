@@ -153,7 +153,7 @@ For the API organized by topic, with examples, see [docs/api.md](docs/api.md).
 
 ## Benchmarks
 
-goose-http `v0.3.4` and Goose `v2026.1` on a Ryzen 7 5800X3D (WSL2), 4 workers per
+goose-http `v0.3.6` and Goose `v2026.2` on a Ryzen 7 5800X3D (WSL2), 4 workers per
 server. [All results, the method, and the losses](docs/benchmarks.md).
 
 The plaintext and JSON benchmarks serve tiny fixed responses over 256 connections,
@@ -162,9 +162,9 @@ APIs [below](#rest-apis) are closer to a real application.
 
 | Workload | goose-http | Best other | |
 |---|---:|---:|---|
-| [Plaintext](docs/benchmarks.md#plaintext-and-json) | 6.91M req/s | 8.12M (vanilla-io_uring\*) | Fastest that parses requests |
-| [JSON](docs/benchmarks.md#plaintext-and-json) | 498k req/s | 561k (zix) | Third of 8 |
-| [Peak RSS](docs/benchmarks.md#plaintext-and-json), plaintext and JSON | 4.8-13 MB | 39 MB (zix) | Lowest |
+| [Plaintext](docs/benchmarks.md#plaintext-and-json) | 6.73M req/s | 8.12M (vanilla-io_uring\*) | Fastest that parses requests |
+| [JSON](docs/benchmarks.md#plaintext-and-json) | 495k req/s | 561k (zix) | Third of 8 |
+| [Peak RSS](docs/benchmarks.md#plaintext-and-json), plaintext and JSON | 4.9-13 MB | 39 MB (zix) | Lowest |
 | 1 MB [static files](docs/benchmarks.md#static-files)\*\* | 31.3 GB/s | 28.5 GB/s (nginx) | Behind only at 64 KB |
 | [Compressed JSON](docs/benchmarks.md#compression)\*\* | 66.1k req/s | 62.6k (actix) | Fastest that compresses each response |
 

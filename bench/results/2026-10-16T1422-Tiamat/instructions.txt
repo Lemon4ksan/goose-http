@@ -1,0 +1,7 @@
+server	run	req/s	instructions/req	user instructions/req	cycles/req	peak_rss_kb
+goose	1	1599590	2480	1556	2067	3560
+goose-uring	1	1897129	2600	1633	1784	5784
+goose	2	1594465	2517	1580	2085	3540
+goose-uring	2	1872076	2628	1650	1816	5920
+goose	3	1568220	2475	1553	2076	3540
+goose-uring	3	1886335	2627	1650	1808	5920
