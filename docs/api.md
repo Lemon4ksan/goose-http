@@ -129,7 +129,13 @@ call's result to a reference parameter.
   `part` is an `http::Part`: `Head { fields }`, `Data { bytes }`, or `End`. Use
   `http::disposition(fields)` for a part's name and filename. A check of your own,
   such as of a part's head, fails the body with `http::fail_multipart(st.parts)`.
-  At `END`, the body is whole if `http::multipart_done(st.parts)`.
+  At `END`, the body is whole if `http::multipart_done(st.parts)`. For a body already
+  whole, `http::find_part(req, body, name)` returns the first part with that
+  Content-Disposition name as slices of `body`: its content, its head fields (for
+  `disposition` and `field_in`), and a status, `http::PART_FOUND`, `PART_ABSENT`,
+  `PART_TYPE` (not `multipart/form-data`, or no usable boundary), or `PART_BAD` (a body
+  `each_part` fails, a part without a form-data Content-Disposition, or one never
+  closed). It stops at the part it finds.
 - `http::respond_json(out, status) { b => json::format_key(b, "id"); ... }`.
   `http::json_string(b, s)` writes `s` as a JSON string, quotes included, into any
   builder with `push` and `append`. Its output is `json::format_string`'s: `\n`, `\t`,

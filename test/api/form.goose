@@ -158,7 +158,73 @@ fn test_multipart() {
     }
 }
 
+// find_part's status for name in body, with the content and the filename and
+// type its fields give, as "status:content:filename:type".
+fn found(req: const http::Request&, body: const u8[:], name: const u8[:]) -> u8[>..] {
+    let v, fields, status = http::find_part(req, body, name);
+    var log: u8[>..] = [];
+    if status == http::PART_FOUND { log.append("found"); }
+    else if status == http::PART_ABSENT { log.append("absent"); }
+    else if status == http::PART_TYPE { log.append("type"); }
+    else { log.append("bad"); }
+    log.append(":");
+    log.append(v);
+    let n, filename, ok = http::disposition(fields);
+    let t, has = http::field_in(fields, "content-type");
+    log.append(":");
+    log.append(filename);
+    log.append(":");
+    log.append(t);
+    return log;
+}
+
+fn test_find_part() {
+    var buf: u8[>..] = [];
+    let req = check::request("POST", "Content-Type: multipart/form-data; boundary=XyZ\r\n", buf);
+    // The first part of a name, a file with CRLF and boundary-like bytes, an
+    // empty part, and a preamble and epilogue.
+    check::same(found(req, MULTIPART, "a"), "found:one::");
+    check::same(found(req, MULTIPART, "f"), "found:line\r\n--XyY\r\n-\r\n--Xy:x \\\"y\\\".txt:text/plain");
+    // MULTIPART's last part has no Content-Disposition, which fails a scan
+    // that reaches it.
+    check::same(found(req, MULTIPART, "z"), "bad:::");
+    // The first of a repeated name.
+    let twice = "--XyZ\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n1\r\n--XyZ\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n2\r\n--XyZ--";
+    check::same(found(req, twice, "a"), "found:1::");
+    check::same(found(req, twice, "z"), "absent:::");
+    // No preamble, and a close delimiter right after the first part.
+    check::same(found(req, "--XyZ\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n\r\n--XyZ--", "a"), "found:::");
+    check::same(found(req, "--XyZ--", "a"), "absent:::");
+    // A part past the one found isn't read.
+    check::same(found(req, "--XyZ\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n1\r\n--XyZ\r\nbad", "a"), "found:1::");
+    check::same(found(req, "--XyZ\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n1\r\n--XyZ\r\nbad", "b"), "bad:::");
+    // Bodies that aren't multipart, a part never closed, and a part without
+    // a form-data Content-Disposition.
+    for b in ["", "no boundary", "--XyZx\r\n", "--XyZ\r\nno colon\r\n\r\n", "--XyZ\r\n\r\nab",
+              "--XyZ\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nab",
+              "--XyZ\r\nContent-Type: text/plain\r\n\r\nab\r\n--XyZ--", "--XyZ"] {
+        check::same(found(req, b, "a"), "bad:::");
+    }
+    // A head of MAX_PART_HEAD bytes, and one byte more.
+    for extra in [0, 1] {
+        var long: u8[>..] = [];
+        long.append("--XyZ\r\nContent-Disposition: form-data; name=\"a\"\r\nX: ");
+        for i in http::MAX_PART_HEAD - 47 + extra { long.push('v'); }
+        long.append("\r\n\r\nab\r\n--XyZ--");
+        let want = if extra == 0 { "found:ab::" } else { "bad:::" };
+        check::same(found(req, long, "a"), want);
+    }
+    // Not multipart/form-data, or no usable boundary.
+    for t in ["", "Content-Type: multipart/form-data\r\n", "Content-Type: application/x-www-form-urlencoded\r\n"] {
+        var other: u8[>..] = [];
+        let r = check::request("POST", t, other);
+        check::same(found(r, MULTIPART, "a"), "type:::");
+    }
+    print("find_part: found, absent, the first of a name, bad and not multipart bodies");
+}
+
 fn main() {
     test_form();
     test_multipart();
+    test_find_part();
 }

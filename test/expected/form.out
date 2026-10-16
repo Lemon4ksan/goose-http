@@ -5,3 +5,4 @@ failed bodies; a part head of 2048 bytes; a body cut short
 fail_multipart at each of 16 calls, in pieces of 1
 fail_multipart at each of 12 calls, in pieces of 7
 fail_multipart at each of 8 calls, in pieces of 219
+find_part: found, absent, the first of a name, bad and not multipart bodies

@@ -13,6 +13,9 @@
 //       }
 //   };
 //   // At END, the body is whole if http::multipart_done(st.parts).
+//
+//   // Or, for a body already whole, one part as slices of it:
+//   let v, fields, status = http::find_part(req, body, "name");
 namespace http;
 
 import std;
@@ -177,15 +180,7 @@ fn read_parts<F>(m: Multipart&, work: const u8[:]) -> bool {
             at = p + 2;
             m.place = MP_HEAD;
         } else if m.place == MP_HEAD {
-            // The head ends at a blank line, which is the first line when it
-            // has no fields.
-            var end = -1;
-            if work.len - at >= 2 && work[at] == '\r' && work[at + 1] == '\n' {
-                end = at;
-            } else {
-                let k = find_bytes(work[at..], "\r\n\r\n");
-                if k >= 0 { end = at + k + 2; }
-            }
+            let end = head_end(work, at);
             if end < 0 {
                 if work.len - at > MAX_PART_HEAD { return failed(m); }
                 break;
@@ -202,6 +197,16 @@ fn read_parts<F>(m: Multipart&, work: const u8[:]) -> bool {
     }
     m.held.append(work[at..]);
     return true;
+}
+
+// Where the head that starts at work[at] ends, after its last field line's
+// CRLF, or -1 if its blank line isn't in work. The head ends at a blank line,
+// which is the first line when it has no fields.
+fn head_end(work: const u8[:], at: i64) -> i64 {
+    if work.len - at >= 2 && work[at] == '\r' && work[at + 1] == '\n' { return at; }
+    let k = find_bytes(work[at..], "\r\n\r\n");
+    if k >= 0 { return at + k + 2; }
+    return -1;
 }
 
 fn failed(m: Multipart&) -> bool {
@@ -231,6 +236,59 @@ fn field_lines(lines: const u8[:]) -> bool {
         pos += e + 2;
     }
     return true;
+}
+
+// find_part's statuses.
+let PART_FOUND = 0;
+let PART_ABSENT = 1;   // a whole multipart body without that name
+let PART_TYPE = 2;     // not multipart/form-data, or no usable boundary
+let PART_BAD = 3;      // a body each_part would fail, a part without a
+                       // form-data Content-Disposition, or one never closed
+
+// The first part of the whole multipart/form-data body that req announces whose
+// Content-Disposition name is name: its content, its header fields for
+// disposition and field_in, and a PART_ status. Both are slices of body, which
+// each_part can't give for a whole body, since it joins the first piece to the
+// bytes it holds. The rules are each_part's: start_multipart's boundary check,
+// the same delimiters and head limits, and a part's head checked by
+// field_lines. Parts after the one found aren't read, so damage past it goes
+// unseen; one before it is PART_BAD. Content and fields are empty unless found.
+fn find_part(req: const Request&, body: const u8[:], name: const u8[:]) -> const u8[:], const u8[:], i64 {
+    let none = body[..0];
+    var m = Multipart { .. };
+    guard start_multipart(req, m) else { return none, none, PART_TYPE; }
+    let d = m.delimiter;
+    // The first delimiter has no CRLF before it.
+    var at = 0;
+    if body.len >= d.len - 2 && body[..d.len - 2] == d[2..] {
+        at = d.len - 2;
+    } else {
+        let k = find_bytes(body, d);
+        guard k >= 0 else { return none, none, PART_BAD; }
+        at = k + d.len;
+    }
+    loop {
+        guard body.len - at >= 2 else { return none, none, PART_BAD; }
+        if body[at] == '-' && body[at + 1] == '-' { return none, none, PART_ABSENT; }
+        var p = at;
+        while p < body.len && (body[p] == ' ' || body[p] == '\t') { p++; }
+        guard p - at <= 64 && body.len - p >= 2 && body[p] == '\r' && body[p + 1] == '\n' else {
+            return none, none, PART_BAD;
+        }
+        at = p + 2;
+        let end = head_end(body, at);
+        guard end >= 0 && end - at <= MAX_PART_HEAD && field_lines(body[at..end]) else {
+            return none, none, PART_BAD;
+        }
+        let fields = body[at..end];
+        let start = end + 2;
+        let k = find_bytes(body[start..], d);
+        guard k >= 0 else { return none, none, PART_BAD; }
+        let n, filename, ok = disposition(fields);
+        guard ok else { return none, none, PART_BAD; }
+        if n == name { return body[start..start + k], fields, PART_FOUND; }
+        at = start + k + d.len;
+    }
 }
 
 // The name and filename parameters of a part's Content-Disposition (RFC
