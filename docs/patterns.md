@@ -10,7 +10,10 @@ an application on these patterns, and each section names the page that does.
 One fact explains each of these patterns: a worker is a single thread that runs the
 handler for every connection it owns, thousands of them, one call at a time. Any time a
 handler spends waiting holds up each of those connections, and memory a handler keeps
-is multiplied by the connections doing the same.
+is multiplied by the connections doing the same. This is the thread-per-core,
+shared-nothing model of [Seastar](https://seastar.io) and
+[Tina](https://github.com/pmbanugo/tina), and its rule is the one Node.js states as
+"don't block the event loop."
 
 ## Request bodies
 
@@ -155,6 +158,11 @@ program's own, and the handler waits for it without blocking the worker:
 | Milliseconds to seconds | A thread of the program's; the handler waits with `http::later` | `later/` |
 | As long as it goes on, with results as they come | The same, with the response sent in pieces | `device/`'s `/api/events` |
 | Minutes | A job: answer `202 Accepted` with its ID at once, and let the client ask for the result | goose-rest's [limits](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/15-limits.md#work-that-takes-minutes) |
+
+The split is the half-sync/half-async pattern: workers are the asynchronous half, the
+program's threads are the synchronous half and run plain blocking code, and mail is the
+queue between them. In the classic pattern a pool of threads drains one shared queue.
+Here each job goes to one thread's own bounded box, as in the actor model.
 
 The handler sends the job by mail and gives a time limit. The worker serves its other
 connections until the reply or the time limit comes:

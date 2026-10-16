@@ -97,9 +97,10 @@ sustained upload can still delay other connections' reads.
 
 ### Completion loop
 
-`http::serve` runs a completion loop: io_uring on Linux, IOCP on Windows, and an
-emulation over epoll or kqueue elsewhere. `http::serve_epoll` uses less memory and
-works on Linux and macOS. The program chooses a loop by calling it, and a loop it
+`http::serve` runs a completion loop, a proactor that submits I/O and learns when it is
+done: io_uring on Linux, IOCP on Windows, and an emulation over epoll or kqueue
+elsewhere. `http::serve_epoll` is a readiness loop, a reactor that learns a socket is
+ready and then reads or writes; it uses less memory and works on Linux and macOS. The program chooses a loop by calling it, and a loop it
 doesn't call isn't compiled in.
 
 | Platform | `http::serve` | `http::serve_epoll` | Networking shim |
