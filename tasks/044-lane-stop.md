@@ -10,8 +10,10 @@ part of its message pool for shutdown, timers, and restarts, so that traffic can
 crowd them out (its `docs/concepts/backpressure_and_drops.md`, at `d129f67`).
 
 A stop becomes a flag in the box, not a message in a slot: `http::mail_stop(box)` sets
-it and wakes the thread that waits, and `http::mail_wait` returns `false` once the box
-is stopped and empty. Jobs queued before the stop still run, and their replies go
+it and wakes the thread that waits, and `http::mail_stopped(box)` is true once the box
+is stopped and empty. `mail_wait` keeps its meaning, since its `false` already means the
+time limit passed, so a lane can wait with no limit (`-1`) and still wake for the stop.
+Jobs queued before the stop still run, and their replies go
 `STALE` once the workers have stopped. goose-rest then wraps the loop every lane writes
 by hand in `rest::lane(box) { tag, bytes => ... }`, which also closes the box.
 
@@ -21,8 +23,8 @@ by hand in `rest::lane(box) { tag, bytes => ... }`, which also closes the box.
       and a lane that never returns
 - [ ] `http::mail_stop` in `mail.goose` and the shim, on every loop and platform: it
       never fails for a full box, and wakes a thread blocked in `mail_wait`
-- [ ] `http::mail_wait` returns `false` only once the box is stopped and empty, and
-      the test above returns with every queued job taken
+- [ ] `http::mail_stopped` is true only once the box is stopped and empty, and the test
+      above returns with every queued job taken
 - [ ] `docs/api.md` ("Answers that wait") and `docs/architecture.md` ("Mail between
       threads") describe the stop; `docs/patterns.md` ("Slow work") shows a lane that
       stops
