@@ -541,8 +541,11 @@ static void rp_work(struct rp *u, rp_completions out, int32_t *n) {
     u->nready = 0;
 }
 
-/* Makes what's queued, waits up to timeout_ms (-1: no limit) for events if
-   that made no completion, and writes up to out.len completions into out. */
+/* Makes what's queued, collects events, waiting up to timeout_ms (-1: no
+   limit) only if that made no completion, and writes up to out.len
+   completions into out. Events are collected on every call: a few busy
+   connections that always make completions would otherwise keep the ones
+   waiting for an edge from ever seeing it. */
 int32_t RP(wait)(int64_t h, rp_completions out, int32_t timeout_ms) {
     struct rp *u = (struct rp *)(intptr_t)h;
     if (u->err) return u->err;
@@ -550,10 +553,9 @@ int32_t RP(wait)(int64_t h, rp_completions out, int32_t timeout_ms) {
     while (n < out.len && u->headdone < u->ndone) out.data[n++] = u->done[u->headdone++];
     if (u->headdone == u->ndone) u->headdone = u->ndone = 0;
     rp_work(u, out, &n);
-    if (n > 0) return n;
     rp_event evs[256];
     rp_events in = { evs, 256 };
-    int32_t got = net_epoll_wait(u->ep, in, timeout_ms);
+    int32_t got = net_epoll_wait(u->ep, in, n > 0 ? 0 : timeout_ms);
     if (got < 0) return got;
     for (int32_t i = 0; i < got; i++) {
         if (evs[i].tag == RP_LISTENER) {

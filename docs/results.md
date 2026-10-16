@@ -113,15 +113,18 @@ Every cell's median request rate is within -2.1% to +2.7% of `de19e3b`'s on
 2026-10-14 under the same settings. At 1 MB with 4 workers wrk used 80.2 s of CPU in
 each 10 s run, all of its 8 threads, so 21.2-21.5 GB/s is the client's limit, against
 31.3 GB/s with 12 threads on 2026-10-12. Below that, io_uring leads at 4 KB and loses
-to epoll at 64 KB, and the emulated ring leads at 64 KB and 1 MB. These cells don't
-replace the table in benchmarks.md, whose run had nginx and Caddy beside Goose under
-the same load.
+to epoll at 64 KB. These cells don't replace the table in benchmarks.md, whose run had
+nginx and Caddy beside Goose under the same load.
 
-The emulated ring's second run at 64 KB with 1 worker counted 22 timeouts among its
-64 connections, with wrk on a monotonic clock, so they are requests that waited
-longer than the script's `--timeout 8`, 8 s, not [clock steps](known-issues.md#wrks-clock-in-wsl2). The
-cell's other runs and every other cell, in this run and on 2026-10-14, had zero
-errors. The cause isn't measured.
+The emulated ring's 64 KB cell with 1 worker doesn't count: it starved connections.
+Its latency peaked at 3.8-5.5 s in every run, against under 50 ms on the other loops,
+and its second run counted 22 timeouts, requests that waited past wrk's `--timeout 8`
+on a monotonic clock, not [clock steps](known-issues.md#wrks-clock-in-wsl2). Its wait
+returned the completions of the sockets it had queued without collecting epoll's
+events, so while a few busy connections kept making completions, the others never saw
+their edge. `shim/ring_epoll.c` now collects the events on every wait; with that, one
+10 s run of the cell peaked at 2.3 ms and served 43.6 K files a second, against 40.3 K
+before (2026-10-16).
 
 ## 2026-10-15: REST frameworks beside v0.3.1
 
