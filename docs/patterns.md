@@ -149,15 +149,27 @@ How the boxes work: [architecture](architecture.md#mail-between-threads).
 
 ## Slow work
 
-A handler should answer in microseconds. Work that takes longer runs on a thread of the
-program's own, and the handler waits for it without blocking the worker:
+A handler runs to its end on the worker, and the worker's other connections wait until it
+does. Two kinds of work therefore leave the handler for a thread of the program's own,
+which the handler waits for without blocking the worker:
 
-| The work takes | Where it runs | Shown in |
+- **I/O-bound work**, such as a query to a database server, goes however short it is. In
+  the handler the core sits idle through the wait: a 20 ms query holds a worker to 50
+  such requests a second.
+- **Long CPU-bound work** goes when it holds up the worker's other requests. Moving it
+  adds no throughput when the workers use every core, but short requests stop waiting
+  behind it, which keeps the tail latency down. How long is too long depends on the load
+  and the latency the server must keep, since the tail grows with the spread of service
+  times ([background](architecture.md#background)).
+
+Short CPU-bound work, including a query on embedded SQLite, stays in the handler:
+
+| The work | Where it runs | Shown in |
 |---|---|---|
-| Microseconds: parse, look up, format | In the handler | `routes/`, `api/` |
-| Milliseconds to seconds | A thread of the program's; the handler waits with `http::later` | `later/` |
-| As long as it goes on, with results as they come | The same, with the response sent in pieces | `device/`'s `/api/events` |
-| Minutes | A job: answer `202 Accepted` with its ID at once, and let the client ask for the result | goose-rest's [limits](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/15-limits.md#work-that-takes-minutes) |
+| Short and CPU-bound: parse, look up, format, query embedded SQLite | In the handler | `routes/`, `api/` |
+| I/O-bound, or long and CPU-bound | A thread of the program's; the handler waits with `http::later` | `later/`, which counts primes |
+| Either, going on with results as they come | The same, with the response sent in pieces | `device/`'s `/api/events` |
+| Minutes of either | A job: answer `202 Accepted` with its ID at once, and let the client ask for the result | goose-rest's [work that takes minutes](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/15-limits.md#work-that-takes-minutes) |
 
 The split is the half-sync/half-async pattern: workers are the asynchronous half, the
 program's threads are the synchronous half and run plain blocking code, and mail is the
