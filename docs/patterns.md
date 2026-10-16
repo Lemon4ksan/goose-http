@@ -106,26 +106,29 @@ sequenceDiagram
 ```
 
 With goose-rest: a reply that a lane sends in pieces,
-[two lanes, or a reply in pieces](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/14-two-lanes.md).
+[two lanes, or a reply in pieces](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/12-two-lanes.md).
 
 ## Mail between threads
 
 Threads share no memory, so they send each other messages. A thread that takes messages
 owns a box: a fixed number of slots, each of a fixed size, set when the box opens. Any
 thread sends to a box's address, and the send never blocks or grows the box. Here every
-worker sends jobs to a backend thread's box, two of whose slots are taken:
+worker sends to one thread's box, two of whose slots hold messages:
 
 ```mermaid
 flowchart LR
     W1["worker 1"] -- send --> B
     W2["worker 2"] -- send --> B
     WN["worker N"] -- send --> B
-    subgraph B ["the backend's box"]
+    subgraph B ["the thread's box"]
         direction LR
-        s1["job"] ~~~ s2["job"] ~~~ s3["free"] ~~~ s4["..."]
+        s1["message"] ~~~ s2["message"] ~~~ s3["free"] ~~~ s4["..."]
     end
-    B -- take --> O["backend thread"]
+    B -- take --> O["the thread that owns it"]
 ```
+
+Opening a box, sending to it, and taking from it need no other thread, so a test can do
+all three on its own thread.
 
 A send says at once whether the message went in, `SENT`, or why not:
 
@@ -138,8 +141,8 @@ A worker waits for mail with `http::later`, which takes a time limit and returns
 address to reply to. How to shape that thread as a lane, and the work it takes:
 [slow work](#slow-work). With goose-rest, a route asks a lane with
 `rest::ask`, and the lane answers it:
-[work that waits](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/13-waiting.md)
-and [two lanes](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/14-two-lanes.md).
+[work that waits](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/11-waiting.md)
+and [two lanes](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/12-two-lanes.md).
 
 The design is [Tina](https://github.com/pmbanugo/tina)'s, a thread-per-core framework in
 Odin: boxes bounded when they open, work sent to a thread's address rather than to a
@@ -151,7 +154,8 @@ How the boxes work: [architecture](architecture.md#mail-between-threads).
 
 A handler runs to its end on the worker, and the worker's other connections wait until it
 does. Two kinds of work therefore leave the handler for a lane, a thread of its own that
-does one kind of slow work, which the handler waits for without blocking the worker:
+does one kind of slow work. The handler mails the lane a job, and waits for the reply
+without blocking the worker:
 
 - **I/O-bound work**, such as a query to a database server, goes however short it is. In
   the handler the core sits idle through the wait: a 20 ms query holds a worker to 50
@@ -169,7 +173,7 @@ Short CPU-bound work, including a query on embedded SQLite, stays in the handler
 | Short and CPU-bound: parse, look up, format, query embedded SQLite | In the handler | `routes/`, `api/` |
 | I/O-bound, or long and CPU-bound | A lane; the handler waits with `http::later` | `later/`, which counts primes |
 | Either, going on with results as they come | The same, with the response sent in pieces | `device/`'s `/api/events` |
-| Minutes of either | A job: answer `202 Accepted` with its ID at once, and let the client ask for the result | goose-rest's [work that takes minutes](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/15-limits.md#work-that-takes-minutes) |
+| Minutes of either | A background task: answer `202 Accepted` with its ID at once, and let the client ask for the result | goose-rest's [background tasks](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/13-limits.md#background-tasks) |
 
 The split is the half-sync/half-async pattern: workers are the asynchronous half, the
 lanes are the synchronous half and run plain blocking code, and mail is the queue
@@ -209,11 +213,12 @@ sequenceDiagram
   and send each job to one of them.
 - **A wait isn't free.** It holds the connection, a timer, and any requests pipelined
   behind it, and a worker waits for at most `Config.max_waiting` at once. Work that
-  takes minutes is better as a job the client asks about.
+  takes minutes is better as a background task, which the client asks about after a
+  `202 Accepted`.
 
 Waiting is off until `Config.mail_slots` and `Config.max_waiting` are set. The calls,
 and every limit: [API, answers that wait](api.md#answers-that-wait). With goose-rest:
-[work that waits](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/13-waiting.md).
+[work that waits](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/11-waiting.md).
 
 ## Limits
 
@@ -237,13 +242,19 @@ closes one that stops reading. A wait is the handler's: it gives each `later` a 
 limit, answers 503 when a box is `FULL`, and has its thread check `http::mail_live`
 before work nobody waits for ([slow work](#slow-work)).
 
-With goose-rest, each answered at its limit, and a job the client polls:
-[limits](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/15-limits.md).
+With goose-rest, each answered at its limit, and a background task the client polls:
+[limits](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/13-limits.md).
 
 ## State that workers share
 
 Each worker has its own copy of the program's globals, made when it starts, and workers
 share no memory. In `api/`, a note written through one worker isn't there for another.
+
+The copies cost more than one per worker. `thread_spawn` copies each global a worker
+uses, the worker keeps both the copy it was sent and its own, and the thread that spawned
+it keeps the original. Data that `main` loads into a global before it starts four workers
+is then held about ten times
+([findings](goose-findings.md#a-worker-holds-its-globals-twice-and-its-spawner-keeps-a-third-copy)).
 
 - **Data built at startup and only read**, such as a catalog: the store,
   `http.store` (`import http.store`), keeps one copy that every worker reads

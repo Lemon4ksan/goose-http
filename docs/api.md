@@ -129,7 +129,10 @@ call's result to a reference parameter.
   `part` is an `http::Part`: `Head { fields }`, `Data { bytes }`, or `End`. Use
   `http::disposition(fields)` for a part's name and filename. A check of your own,
   such as of a part's head, fails the body with `http::fail_multipart(st.parts)`.
-  At `END`, the body is whole if `http::multipart_done(st.parts)`. For a body already
+  At `END`, the body is whole if `http::multipart_done(st.parts)`. An
+  `http::Multipart` holds up to 2 KB of a part's head between pieces, and fails the
+  body on a longer one. It's in the request's state, so every connection's slot holds
+  those 2 KB, whichever route the connection is on. For a body already
   whole, `http::find_part(req, body, name)` returns the first part with that
   Content-Disposition name as slices of `body`: its content, its head fields (for
   `disposition` and `field_in`), and a status, `http::PART_FOUND`, `PART_ABSENT`,

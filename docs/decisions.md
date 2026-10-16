@@ -235,6 +235,11 @@ by mail, is a *lane*. These replace "mailbox", "shared store", "a global with a 
 initializer", and, in the slow-work pattern, "service thread" and "backend thread".
 The request's state in `http::serve` keeps its name, and no API name changed.
 
+Decided 2026-10-16, with goose-rest: work of minutes that the handler answers with
+`202 Accepted`, and that the client then polls, is a *background task*, not a job. A
+*job* is the work a handler mails a lane and waits for, as in goose-rest, where a
+background task is made of jobs: one that starts it, and one for each poll.
+
 ## Not yet decided
 
 ### Compression in an optional module

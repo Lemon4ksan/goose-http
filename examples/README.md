@@ -17,7 +17,7 @@ program of your own imports it as the [Quick start](../README.md#quick-start) do
 | [`routes/`](routes/routes.goose) | The router: parameters, 404 and 405, a JSON response, a request body, and a stop on Ctrl+C |
 | [`api/`](api/api.goose) | A JSON API: path parameters, JSON or CSV by `Accept`, a JSON or form body, an entity tag, Bearer and Basic credentials, a cookie, and the client's address behind a proxy |
 | [`upload/`](upload/upload.goose) | Uploads read as they arrive: a raw body, and a multipart form part by part, with a body limit; and a body larger than the read buffer, gathered whole |
-| [`later/`](later/later.goose) | An answer that waits for a backend thread over mail, with 504 when it takes too long, and jobs skipped once nobody waits for them |
+| [`later/`](later/later.goose) | An answer that waits for a lane over mail, with 504 when it takes too long, and jobs skipped once nobody waits for them |
 | [`files/`](files/files.goose) | A directory's files, with ranges, conditional requests, and precompressed copies |
 | [`compress/`](compress/compress.goose) | Responses compressed by `Accept-Encoding`, whole and streamed, with goose-compress |
 | [`c/`](c/) | A handler written in C, with the server and its loops in Goose ([below](#a-handler-in-c)) |
