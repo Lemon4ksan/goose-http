@@ -2,6 +2,15 @@
 
 What each tag adds. Each release names the Goose compiler it was built and tested with.
 
+## v0.3.5 (2026-10-16)
+
+A part of a multipart body read whole comes as slices of it. Goose `v2026.1` (`ac759c3`).
+
+- `http::find_part(req, body, name)` gives the first part named `name` of a whole
+  `multipart/form-data` body: its content and its head fields, both slices of the body,
+  and a status, `PART_FOUND`, `PART_ABSENT`, `PART_TYPE`, or `PART_BAD`. It follows
+  `each_part`'s rules, and doesn't read the parts after the one it finds.
+
 ## v0.3.4 (2026-10-16)
 
 The emulated ring serves every connection under load. Goose `v2026.1` (`ac759c3`).
