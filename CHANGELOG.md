@@ -2,6 +2,15 @@
 
 What each tag adds. Each release names the Goose compiler it was built and tested with.
 
+## v0.3.4 (2026-10-16)
+
+The emulated ring serves every connection under load. Goose `v2026.1` (`ac759c3`).
+
+- The ring's emulation, over epoll where io_uring isn't available and over kqueue on
+  macOS, collects the kernel's events on every wait. It returned the completions of its
+  busy connections without them, so under load a connection waiting to send or to read
+  could wait for seconds.
+
 ## v0.3.3 (2026-10-15)
 
 JSON strings are written faster, an upgraded connection is read while it waits, and the
