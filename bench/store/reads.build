@@ -1,0 +1,2 @@
+// The per-type record read reads.goose passes to http::store_record.
+c_sources = ["reads.c"];

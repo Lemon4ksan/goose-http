@@ -70,6 +70,14 @@ slice garbled on armhf (task 030).
   should be (`const u8[:]`), because a string literal is `const u8[:]` (spec §9.5).
 - Returning `-errno` from C works as the task 002 convention expects: `close(-1)` comes
   back as `-9` (`EBADF`).
+- A flat struct comes back by value, as a value and a flag do from `shim/store.c`'s
+  `store_i64`: the shim declares the struct packed, with the same fields in the same
+  order, since the calling convention passes a struct by its fields' types, not its
+  size alone (arm64 returns a struct of floats in float registers).
+- Two `extern fn`s can't bind one C symbol with different types: each emits its
+  prototype, and the C compiler rejects the second ("conflicting types"). One C
+  function can't then serve several record types through a `T&`, so a record read
+  is a C function per type (`http::store_record`; Goose v2026.2, 2026-10-16).
 - Nested references and slices don't cross (spec §7.10): `extern fn wv(fd: i32, parts:
   const u8[:][:])` is rejected with "nested references and slices do not cross". So
   Goose can't hand C an `iovec` list, and the server batches its responses into one

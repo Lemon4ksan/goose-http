@@ -12,6 +12,7 @@ bench/compilers.sh     # the Goose server built by gcc and clang, into build/ben
 bench/instructions.sh  # instructions per request of servers in build/bench/, with perf
 bench/count.sh         # user instructions over a fixed request count, to compare builds
 bench/parse.sh         # http::parse alone on the requests in bench/parse/
+bench/store.sh         # reads from http.store: scalars and records against store_append
 bench/httparena.sh     # HttpArena's harness, in Docker, with Goose as an entry
 bench/run-macos.sh     # a short matrix natively on macOS, into bench/results/<date>-<machine>/
 bench/files.sh         # static files, and /bytes from memory, against nginx and Caddy

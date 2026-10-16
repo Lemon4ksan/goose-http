@@ -228,8 +228,9 @@ reached the worker.
 `import http.store` gives a program byte blobs that one thread writes at startup and
 every worker then reads, so data built once, such as a JSON catalog, isn't copied into
 each worker. Writes must be ordered before reads by a queue, `thread_spawn`, or
-`thread_wait`. A read copies a range into a Goose array, because an `extern fn` can't
-return a view of C memory (§7.10). What the bytes mean, and the responses built from
+`thread_wait`. A read copies a range into a Goose array, or returns a scalar or a
+fixed-size record by value, because an `extern fn` can't return a view of C memory
+(§7.10). What the bytes mean, and the responses built from
 them, are Goose. [State that workers share](patterns.md#state-that-workers-share)
 says when to use it.
 

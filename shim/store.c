@@ -70,3 +70,55 @@ int32_t store_append(int64_t id, int64_t from, int64_t to, gs_rref out) {
     gs_bld_append(out, store_blobs[id] + from, to - from);
     return 0;
 }
+
+/* Blob id's n bytes at at, or NULL for no such blob or a range outside it. */
+static const uint8_t *store_at(int64_t id, int64_t at, int64_t n) {
+    if (id < 0 || id >= store_count || at < 0 || n < 0 || at > store_lens[id] - n) return NULL;
+    return store_blobs[id] + at;
+}
+
+/* Record i of blob id, of records of size bytes end to end, or NULL for no
+   such blob or an i outside it. For a program's own C, which declares it:
+   the per-type reads that http::store_record takes (docs/api.md). */
+const uint8_t *store_record_at(int64_t id, int64_t i, int64_t size) {
+    if (size <= 0 || i < 0 || i > INT64_MAX / size - 1) return NULL;
+    return store_at(id, i * size, size);
+}
+
+/* The scalar reads: the value at byte at, in the host's order, which is
+   little-endian wherever Goose runs, as to_bytes writes. u8 and u32 come
+   back widened, and -1 for no such blob or a range outside it; i64 and f64
+   come back with a flag, in the packed layouts of store.goose's StoreI64 and
+   StoreF64. */
+#pragma pack(push, 1)
+typedef struct { int64_t v; uint8_t ok; } store_i64_read;
+typedef struct { double v; uint8_t ok; } store_f64_read;
+#pragma pack(pop)
+_Static_assert(sizeof(store_i64_read) == 9 && sizeof(store_f64_read) == 9, "packed as Goose");
+
+int64_t store_u8(int64_t id, int64_t at) {
+    const uint8_t *p = store_at(id, at, 1);
+    return p ? *p : -1;
+}
+
+int64_t store_u32(int64_t id, int64_t at) {
+    const uint8_t *p = store_at(id, at, 4);
+    uint32_t v;
+    if (!p) return -1;
+    memcpy(&v, p, 4);
+    return v;
+}
+
+store_i64_read store_i64(int64_t id, int64_t at) {
+    store_i64_read r = { 0, 0 };
+    const uint8_t *p = store_at(id, at, 8);
+    if (p) { memcpy(&r.v, p, 8); r.ok = 1; }
+    return r;
+}
+
+store_f64_read store_f64(int64_t id, int64_t at) {
+    store_f64_read r = { 0, 0 };
+    const uint8_t *p = store_at(id, at, 8);
+    if (p) { memcpy(&r.v, p, 8); r.ok = 1; }
+    return r;
+}

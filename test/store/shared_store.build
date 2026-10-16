@@ -1,0 +1,3 @@
+// The record read shared_store.goose passes to http::store_record.
+c_sources = ["shared_store.c"];
+c_flags_msvc = ["/std:c11"];

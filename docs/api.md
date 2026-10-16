@@ -326,6 +326,76 @@ else { http::respond(out, 503, "text/plain", "busy"); return; }
   `Config.mail_size` bytes, 256 by default. A `Config.mail_slots` that `mail_open`
   refuses stops the loop with that error.
 
+## The store
+
+Used by the benchmarks' REST server, `bench/rest/goose/rest.goose`.
+
+`import http.store` gives byte blobs that `main` writes before it starts the workers,
+and every worker then reads: one copy for the process
+([architecture](architecture.md#the-store)).
+
+- `http::store_put(bytes)` copies bytes into a new blob and returns an `http::Blob`
+  and 0, or a blob with id -1 and `-EPERM` after the freeze or `-ENOMEM`.
+- `http::store_freeze()` ends the puts. Call it before any other thread reads, and
+  hand the blobs on through a queue, `thread_spawn`, or `thread_wait`.
+- `http::store_len(b)`: the blob's length, or -1 for a blob the store doesn't have.
+- `http::store_append(b, from, to, out)` appends bytes `from..to` to `out`, such as
+  `out.buf` for a response, or returns false with nothing appended for a range
+  outside the blob or a blob the store doesn't have.
+- `http::store_i64(b, at)`, `http::store_u32(b, at)`, `http::store_u8(b, at)`, and
+  `http::store_f64(b, at)` return the value at byte `at`, little-endian as
+  `bytes_of` writes it, and true, from one C call with no buffer. A value that
+  doesn't fit inside the blob, or a blob the store doesn't have, gives 0 and false.
+  A column is one blob, read at `i * 8` for an `i64`:
+
+  ```rust
+  let prices, err = http::store_put(bytes_of(price_column));   // an i64[>..]
+  let price, ok = http::store_i64(prices, i * 8);
+  ```
+
+- `http::store_record<T>(b, i, read)` returns record `i` of a blob of flat
+  fixed-size `T`s end to end, such as `bytes_of` an array of them gives, by value,
+  and true; or `default<T>()` and false for an `i` outside the blob or a blob the
+  store doesn't have. `read` is the program's own C function for `T`, since an
+  `extern fn` can't be generic (spec §7.10). It copies the record with
+  `store_record_at`, which the package's C provides:
+
+  ```rust
+  struct Item { id: i64, price: i64, stock: i32 }
+  extern "app_item_read" fn item_read(id: i64, i: i64, out: Item&) -> i32;
+  let item, ok = http::store_record<Item>(items, i, item_read);
+  ```
+
+  ```c
+  /* app.c, named by the program's sidecar: c_sources = ["app.c"]; */
+  #include <stdint.h>
+  #include <string.h>
+
+  #pragma pack(push, 1)  /* Goose structs have no padding */
+  typedef struct { int64_t id, price; int32_t stock; } item;
+  #pragma pack(pop)
+  _Static_assert(sizeof(item) == 20, "Item's size in Goose");
+
+  const uint8_t *store_record_at(int64_t id, int64_t i, int64_t size);
+
+  int32_t app_item_read(int64_t id, int64_t i, item *out) {
+      const uint8_t *p = store_record_at(id, i, sizeof *out);
+      if (!p) return -1;
+      memcpy(out, p, sizeof *out);
+      return 0;
+  }
+  ```
+
+  The C needs only the record's size, but declaring its fields lets
+  `_Static_assert` catch a struct that changed on one side. Nothing verifies the
+  bytes, as `from_bytes` would, so the blob must hold `T`s as `bytes_of` wrote them,
+  and `T` no references, whose links would come back unproven.
+
+A scalar read costs half of a `store_append` of the same 8 bytes into a buffer, and a
+record read half of a `store_append` of the record. Rebuilding the record in Goose
+from its `store_append` image with `from_bytes` costs four times the C read
+(task 040, `bench/store.sh`).
+
 ## Running a server
 
 ### Config and shutdown

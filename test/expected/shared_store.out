@@ -1,3 +1,9 @@
 put: lengths 12 and 0
 ranges: >hellostore
+scalars: -5000000000 3735928559 200 2.5
+scalars at the end: true true; past it refused
+record 0: 1 9.5 3 a
+record 1: 2 0.25 0 b
+record 2: 3 100.0 70000 c
+records past the end and of no blob refused
 frozen: no put; reads go on
