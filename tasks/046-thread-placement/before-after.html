@@ -298,51 +298,45 @@ fn main() {
     // ...
 }</code></pre></div>
     <div class="pane"><div class="pane-head"><span class="label after">After</span><span class="file">8 cores, 16 hardware threads (Ryzen 7 5800X3D: CPU n and n+8 share a core)</span></div>
-<pre><code class="language-rust">// A placement is a flat value, so a thread can take it as an argument.
-//   http::floating()        the OS decides (the default)
-//   http::each_core(set)    each thread pinned to its own core of the set,
-//                           physical cores first, SMT siblings last
-//   http::core(n)           pinned to hardware thread n
-//   http::within(set)       the OS moves it, but only within the set
-// A set is written as taskset and cgroups write it: "0-5,8".
-
+<pre><code class="language-rust">// The code names roles and no cores. Run without a placement file,
+// every thread floats, as now.
 fn main() {
-    // Six workers, each alone on a physical core.
-    let cfg = http::Config { port: 8080, workers: 6,
-                             place: http::each_core("0-5"), .. };
+    // --place prod.place, or GOOSE_PLACE=prod.place; warnings for
+    // anything the machine can't do, and the start goes on.
+    let place = http::place_load();
+    let cfg = http::Config { port: 8080, place: place, role: "workers", .. };
 
-    // The hasher has a core of its own; the writer has the other.
-    let hasher = rest::lane_open(1, HASHER_SLOTS, 256, http::core(6));
-    let writer = rest::lane_open(1, WRITER_SLOTS, 256, http::core(7));
-    // Four readers on the workers' SMT siblings: they mostly wait on
-    // SQLite, so they take little from the worker sharing their core.
-    let reports = rest::lane_open(4, REPORTS_SLOTS, 256, http::within("8-15"));
+    let hasher  = rest::lane_open(place, "hasher",  HASHER_SLOTS,  256);
+    let writer  = rest::lane_open(place, "writer",  WRITER_SLOTS,  256);
+    // The file says how many threads a lane gets, and where.
+    let reports = rest::lane_open(place, "reports", REPORTS_SLOTS, 256);
+    let checkout = rest::lane_open(place, "checkout", CHECKOUT_SLOTS, 256);
     // ...
 }
 
-thread_fn reader(box: http::Box, place: http::Place) {
-    // First, before the thread touches its own memory: Linux puts a page
-    // on the NUMA node of the thread that first writes it.
-    http::place_thread(place);
+thread_fn reader(box: http::Box, at: http::Seat) {
+    // First, before the thread touches its own memory: Linux puts a
+    // page on the NUMA node of the thread that first writes it.
+    http::take_seat(at);
     rest::lane(box) { tag, bytes =&gt; /* ... */ };
-}
+}</code></pre>
+<pre><code class="language-ini"># prod.place: the 8-core desktop; CPU n and n+8 share a core.
+# Which cores share an L3 or a node is ours to know: nothing is detected.
+set front = 0-3        exclusive   # no other set may use these
+set flows = 4-5                    # shared by the workflows
+set db    = 6-7, 12-15
 
-// On a two-node server the same program plans by node:
-//   workers  http::each_core(http::node_cores(0))
-//   readers  http::within(http::node_cores(1)), beside the database's disk
+workers  = 4 each front            # one per core
+hasher   = 1 within flows
+checkout = 1 within flows          # 3 long steps; shares cores with hasher
+writer   = 1 core 7
+reports  = 4 within db             # SQLite readers: CPU work, warm caches
 
-// For any machine, 1 core included: nothing pinned, and the kernel runs
-// a worker ahead of the hasher whenever both are ready.
-thread_fn hasher(box: http::Box) {
-    http::low_priority();   // nice +10 and SCHED_BATCH on Linux;
-                            // a background QoS class on macOS
-    rest::lane(box) { tag, bytes =&gt; /* ... */ };
-}
-
-// macOS has no affinity: every placement there reports that it did
-// nothing, and workers keep the performance-core QoS class they get now.</code></pre></div>
+# dev.place: a 2-core laptop. Nothing exclusive, nothing pinned.
+workers  = 2
+hasher   = 1 low                   # nice + SCHED_BATCH; background QoS on macOS</code></pre></div>
   </div>
-  <div class="api">Candidates: <span class="chip">http::Place</span> <span class="chip">Config.place: Place = floating()</span> <span class="chip">http::place_thread(p: Place) -&gt; bool</span> <span class="chip">http::node_cores(node) / http::l3_cores(cpu)</span> <span class="chip">http::low_priority() -&gt; bool</span> · Open (task 046): who opens a box, for its memory's node; <code>SO_INCOMING_CPU</code> for pinned workers; what a placement does on fewer cores than threads</div>
+  <div class="api">Candidates: <span class="chip">http::place_load()</span> <span class="chip">Config.role</span> <span class="chip">rest::lane_open(place, role, ...)</span> <span class="chip">http::take_seat</span> <span class="chip">set NAME = cores [exclusive]</span> <span class="chip">each / within / core N / low</span> · Open (task 046): the file's format and the set's name; who opens a box; <code>SO_INCOMING_CPU</code> for pinned workers</div>
 </section>
 
 <!-- ───────── N threads ───────── -->

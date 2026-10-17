@@ -9,15 +9,12 @@ work routed to a shard by `key_to_shard` (its `docs/concepts/thread_per_core.md`
 over every hardware thread, lanes float on top of them, and an app picks a lane's thread
 by hand. This task designs the opinionated version for this architecture: not a copy of
 Tina, but as close to its locality as Goose and the platforms allow, and opt-in, so a
-program that sets nothing runs as it does today.
+program that sets nothing runs as it does today. A Goose thread already owns all its
+memory, so a pinned thread gets most of the locality Tina builds arenas for.
 
 The design covers, in one place, the Tina-inspired changes discussed on 2026-10-16:
 
-- **Placement.** Any thread, a worker or a lane, can stay floating (the default), be
-  pinned to one core the package picks, to one core named, or be kept within a named set
-  of cores. A set lets a program plan around the cache hierarchy and NUMA nodes: workers
-  on one L3 or one node, a CPU lane on the SMT sibling of a worker or on a core of its
-  own, a database lane on the node its disk and NIC hang off.
+- **Placement:** below.
 - **Lanes of N threads.** A lane is N threads, each with its own box and database
   connection. A job goes to the first box with room, or, given a key, to the thread the
   key always picks, Tina's `key_to_shard`. A lane's threads take their placement from
@@ -32,50 +29,69 @@ What stays out, decided 2026-10-16: lanes as processes, and a supervisor in the 
 A restart per thread waits on Goose (`docs/goose-findings.md`, "An abort ends every
 thread of the program").
 
-## What the design has to settle
+## Placement, as agreed on 2026-10-17
 
-- **The placement API.** A per-role setting in `Config` for workers, the same for each
-  lane, and a call a thread makes on itself. How a core set is written (`"0-5,8"`, as
-  `taskset` and cgroups write it, or a list), and what "the package picks" means: the
-  next free physical core, SMT siblings last.
-- **Topology.** What the package reads, and on which platform: on Linux, `/sys/devices/
-  system/cpu/cpu*/topology` (cores and SMT siblings), `cache/index3/shared_cpu_list` (L3
-  groups), and `/sys/devices/system/node` (NUMA); on Windows,
-  `GetLogicalProcessorInformationEx` and processor groups past 64 CPUs. Whether the
-  package names groups ("the L3 of core 0", "node 1") or only takes core numbers and
-  leaves the plan to the program.
-- **Memory placement.** Linux places a page on the node of the thread that first
-  touches it. A Goose thread can pin itself only once it runs, after the runtime copied
-  its arguments and globals, and `mail_open` in `main` touches a box's slots on `main`'s
-  node. The design says who opens a box, and whether pinning has to come first in a
-  thread.
+- **Code names roles; a file per environment places them.** The program names its
+  workers and each lane. A placement file, chosen at startup (`--place prod.place`, or
+  an environment variable naming it), maps each role to cores. A program run without one
+  floats every thread, as today. Changing a machine changes the file, not the build.
+  Tina fixes its layout in a boot spec compiled into the program; Vx's machine files
+  (`vxc --machine`, [vxlang.org](https://vxlang.org/docs/machine-files.html)) describe
+  hardware to the compiler. Here the file is read at run time and holds only cores.
+- **Cores and sets of cores, nothing the package discovers.** A role is pinned to one
+  core, or each of its threads to its own core of a set, or kept anywhere within a set.
+  Which cores share an L3 or a NUMA node is the operator's to know and write down; the
+  package reads no topology. Hardware descriptions may come later, once a machine shows
+  they matter.
+- **Named sets of cores** (the name is open: zone, cpuset, pen). A set is named once and
+  roles refer to it. A set can be exclusive: the workers' set shares cores with no lane's,
+  while lanes' sets may overlap each other, so two workflows can share two cores and
+  neither ever runs on a worker's.
+- **The start never fails on hardware.** A core that doesn't exist, a set smaller than its
+  threads (they wrap around), an overlap with an exclusive set, and a platform with no
+  affinity (macOS) each print one warning, and the program runs with what it could
+  apply. A file that doesn't parse stops the start, as any malformed configuration does.
+- **A thread places itself first**, before it touches its own memory: Linux puts a page
+  on the NUMA node of the thread that first writes it.
+- **Low priority** is the option for any machine, 1 core included: `nice` and
+  `SCHED_BATCH` on Linux, a background QoS class on macOS.
+
+### What the design still has to settle
+
+- **The file's format.** Goose has `env`, `args`, and `read_file`, and no parser for TOML
+  or YAML; a line format (`name = value`) parses in a few lines of Goose. The same parser
+  could load a `.env` file for development. In production, systemd's `EnvironmentFile`
+  and Compose's `env_file` already load one into the environment that `env` reads.
+- **The name** for a named set of cores.
+- **Who opens a box.** `mail_open` in `main` touches a box's slots on `main`'s node; on a
+  NUMA machine the owner thread may have to open it.
 - **Connections to cores.** With `SO_REUSEPORT`, Linux spreads connections by hash, not
-  by the core whose NIC queue received them. `SO_INCOMING_CPU`, or a reuseport BPF
-  program, keeps a connection on the core of its interrupt. The design says whether
-  pinned workers use either.
-- **Platforms without affinity.** macOS has none; it already keeps workers on the
-  performance cores with a QoS class (`sys.goose`, `net_worker_start`). A low-priority
-  lane there gets a background QoS class instead of a core. WSL2 pins to virtual CPUs,
-  not physical cores, so its numbers don't speak for bare metal.
-- **Containers and quotas.** `hardware_threads()` already counts the affinity mask
-  (Goose `92afe05`, in `v2026.2`). A CPU quota without a mask still says nothing about
-  the cores the program may use; the design says what a pinned layout does then.
-- **Fewer cores than threads.** On 1 or 2 cores nothing can have a core of its own: the
-  design says what each setting does there, and that it never fails the start.
+  by the core whose NIC queue received them, so a pinned worker still gets connections
+  another core processed. `SO_INCOMING_CPU`, or a reuseport BPF program, keeps each on
+  the core of its interrupt. Task 045 measures it as a layout of its own.
+- **Database lanes.** With SQLite, or Turso's embedded engine, a query runs in the lane's
+  own thread: parsing, the B-tree, and the page cache are CPU and memory work there, so a
+  reader lane may gain from a core and a warm cache like a CPU lane does. Only a commit's
+  `fsync`, or a remote Turso server, is a wait. The spike says which.
+- **Containers.** `hardware_threads()` already counts the affinity mask (Goose `92afe05`,
+  in `v2026.2`). A CPU quota without a mask still says nothing about which cores the
+  program may use.
 
 ## Acceptance criteria
 
-- [ ] `docs/design/placement.md`, or a section of `docs/architecture.md`: the decisions
-      above, each with its reason, what Tina does, and why this differs where it does
+- [ ] `docs/architecture.md` or a design doc: the decisions above, each with its reason,
+      what Tina does, and why this differs where it does
 - [ ] `before-after.html` in this folder, opened from disk: today's code beside the
       design's for workers, a CPU lane, a database lane of N threads with a key, a writer
-      with group commit, and a lane that stops; it states which parts tasks 044 and 045
-      settle
-- [ ] Task 045's layouts cover the placements the design proposes: pinned workers, a
-      lane on a core of its own, a lane on a worker's SMT sibling, and a lane kept in a
-      set; a placement the spike can't separate from floating by more than the runs'
-      spread is dropped, and recorded there
-- [ ] A topology a NUMA or multi-L3 machine needs is measured on one, or marked unmeasured:
+      with group commit, a lane that stops, and a placement file for two environments; it
+      states which parts tasks 044 and 045 settle
+- [ ] Task 045's layouts cover the placements the design proposes, on bare-metal Linux
+      (WSL2 pins to virtual CPUs): pinned workers, connections kept on their interrupt's
+      core, a CPU lane and a SQLite reader lane on a core of their own or a worker's SMT
+      sibling, and a lane kept within a set; a placement that doesn't beat floating by
+      more than the runs' spread is dropped, and recorded there
+- [ ] A placement for a NUMA or multi-L3 machine is measured on one, or marked unmeasured:
       the benchmark desktop (Ryzen 7 5800X3D) has one L3 and one node
 - [ ] The accepted parts: decisions in `docs/decisions.md`, then implementation tasks for
-      goose-http (placement, topology) and goose-rest (lanes of N, group commit)
+      goose-http (placement file, placement, low priority) and goose-rest (lanes of N,
+      group commit)
