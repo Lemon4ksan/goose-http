@@ -60,6 +60,33 @@ real, and no number from it is a result. macOS itself can't pin: there, the scri
 `over`, `fewer`, and `nice`, which on Apple silicon puts the lane on the efficiency cores
 (the background QoS class).
 
+## On macOS (2026-10-17)
+
+On an M1 Pro (8 performance and 2 efficiency cores), macOS 26.3.1 (Darwin 25.3.0), Goose
+`v2026.2`, at `e73ccb82`: `bench/pinning.sh` with `RUNS=5 SECONDS_EACH=30 WARMUP=5`,
+the layouts alternating. `over` and `nice` run 10 workers, `fewer` 9; the lane is one
+thread. /fast has 64 connections and /primes/200000 16, both from oha 1.16.0 with
+`--latency-correction`, on the same cores as the server: macOS can't keep them apart.
+Other programs ran (a terminal at about half a core, idle containers). Median of 5, with
+the range:
+
+| /fast rate | Layout | /fast p50 | p99 | p99.9 | Primes done/s (of 1,771.5 asked) |
+|---|---|---|---|---|---|
+| 24,331/s (70% of `over` alone) | `over` | 0.911 ms | 4.49 (4.14–4.65) | 10.8 (9.6–11.1) | 1,771 |
+| | `fewer` | 0.906 ms | 5.17 (4.91–6.95) | 10.8 (10.0–35.2) | 1,771 |
+| | `nice` | 0.887 ms | 6.39 (6.35–6.47) | 10.2 (9.2–16.4) | 1,060 (966–1,068) |
+| 12,165/s (35%) | `over` | 0.428 ms | 4.01 (3.99–4.02) | 6.5 (5.3–6.7) | 1,771 |
+| | `fewer` | 0.427 ms | 4.00 (3.95–4.04) | 6.2 (4.7–10.3) | 1,771 |
+| | `nice` | 0.492 ms | 3.96 (3.91–3.99) | 6.0 (5.0–9.4) | 998 (968–1,014) |
+
+No 503 or 504 in any run. Neither `fewer` nor `nice` beats `over` on /fast's p99 by more
+than the runs' spread on this machine: at 70%, both are worse; at 35%, `nice` is 1% lower
+with ranges that touch. `nice` costs the lane about 40% of its rate, since the
+background QoS class runs it on the efficiency cores only; the client, held to 16
+connections, then asks less than its rate rather than meeting 503s. So on macOS, `low`
+is for work that may run slower, not a latency gain for the workers. The decision below
+waits for bare-metal Linux, where the pinned layouts can run.
+
 ## Acceptance criteria
 
 - [x] `http::pin_thread(core)` in the shim: `sched_setaffinity` on Linux,
