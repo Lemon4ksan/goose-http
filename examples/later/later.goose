@@ -16,11 +16,12 @@ let JOB: i32 = 1;
 let JOB_SIZE: i32 = 64;
 let MAX_N = 10000000;
 
-// Takes jobs from its box for as long as the process runs, and mails each
-// count to the exchange that asked.
+// Takes jobs from its box until main stops it and every job queued before is
+// taken, and mails each count to the exchange that asked.
 thread_fn backend(box: http::Box) {
     var reply: u8[>..] = [];
-    loop {
+    while !http::mail_stopped(box) {
+        // No time limit: mail_stop wakes this wait too.
         http::mail_wait(box, -1);
         http::mail_take(box) { key, tag, bytes =>
             var j = Job { .. };
@@ -37,6 +38,7 @@ thread_fn backend(box: http::Box) {
             }
         };
     }
+    http::mail_close(box);
 }
 
 fn primes_below(n: i64) -> i64 {
@@ -94,9 +96,12 @@ fn main() {
     let cfg = http::Config { port: 8080, mail_slots: 256, max_waiting: 1024, .. };
     let b, err = http::mail_open(256, JOB_SIZE);
     http::exit_on_error(err);
-    thread_spawn(backend, b);
+    let lane = thread_spawn(backend, b);
     print("listening on port ", cfg.port);
     var ids: i64[>..] = [];
     for i in http::worker_count(cfg) { ids.push(thread_spawn(worker, cfg, http::address(b, 0))); }
     for id in ids { thread_wait(id); }
+    // A flag in the box, not a message in a slot: a full box can't refuse it.
+    http::mail_stop(b);
+    thread_wait(lane);
 }

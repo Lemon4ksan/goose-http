@@ -146,6 +146,7 @@ typedef struct {
     uint32_t deq;
     uint32_t mask, size, stride;
     mail_a64 pending;
+    mail_a32 stopped;
     int64_t waker;
     int own_waker;
     unsigned char *slots;
@@ -293,7 +294,7 @@ int32_t mail_send(uint64_t to, uint64_t key, int32_t tag, mail_bytes data) {
     ADD64(&mail_table[i].senders, 1);
     int32_t r = MAIL_STALE;
     mail_box *b = LOAD32_SEQ(&mail_table[i].gen) == (uint32_t)(to >> 32) ? mail_table[i].box : NULL;
-    if (b && mail_key_live(b, key)) {
+    if (b && !LOAD32_SEQ(&b->stopped) && mail_key_live(b, key)) {
         r = data.len > (int64_t)b->size ? MAIL_TOO_LONG : MAIL_FULL;
         if (r == MAIL_FULL) {
             uint32_t pos = LOAD32_RELAXED(&b->enq);
@@ -323,6 +324,33 @@ int32_t mail_send(uint64_t to, uint64_t key, int32_t tag, mail_bytes data) {
     }
     ADD64(&mail_table[i].senders, -1);
     return r;
+}
+
+/* Stops the box of to, from any thread: sends from then on return STALE, and
+   its owner is woken. A flag, not a message, so a full box can't refuse it.
+   Protected against a concurrent close as a send is. */
+void mail_stop(uint64_t to) {
+    uint32_t i = (uint32_t)to;
+    if (i >= MAIL_MAX_BOXES) return;
+    ADD64(&mail_table[i].senders, 1);
+    mail_box *b = LOAD32_SEQ(&mail_table[i].gen) == (uint32_t)(to >> 32) ? mail_table[i].box : NULL;
+    if (b && !LOAD32_SEQ(&b->stopped)) {
+        STORE32_SEQ(&b->stopped, 1);
+        net_waker_wake(b->waker);
+    }
+    ADD64(&mail_table[i].senders, -1);
+}
+
+/* For the owner: 1 once the box is stopped and holds nothing, so that a lane
+   ends with every message sent before the stop taken. A send that read the
+   flag before the stop raised the senders count first (seq_cst both), so it
+   is either still counted or already pending. */
+int32_t mail_stopped(uint64_t key) {
+    mail_box *b = mail_own(key);
+    if (!b) return 1;
+    uint32_t i = (uint32_t)key;
+    return LOAD32_SEQ(&b->stopped) && LOAD64_SEQ(&mail_table[i].senders) == 0 &&
+           LOAD64_SEQ(&b->pending) == 0;
 }
 
 /* The messages the box of key has counted and not yet settled: one load. */
@@ -381,17 +409,19 @@ int32_t mail_settle(uint64_t key, int64_t n) {
    the kernel. A wake can find nothing pending, when the spin or an earlier
    take got its message first and the wake stayed reported; the wait then goes
    on for the rest of ms. Returns 1 when a message is pending, 0 at the time
-   limit. */
+   limit or once the box is stopped. */
 int32_t mail_wait(uint64_t key, int32_t ms) {
     mail_box *b = mail_own(key);
     if (!b) return -MAIL_EINVAL;
     for (int k = 0; k < 2000; k++) {
         if (LOAD64_ACQUIRE(&b->pending) > 0) return 1;
+        if (LOAD32_SEQ(&b->stopped)) return 0;
         PAUSE();
     }
     int64_t until = ms >= 0 ? net_clock_ms() + ms : 0;
     for (;;) {
         if (LOAD64_ACQUIRE(&b->pending) > 0) return 1;
+        if (LOAD32_SEQ(&b->stopped)) return 0;
         int32_t left = ms;
         if (ms >= 0) {
             int64_t now = net_clock_ms();

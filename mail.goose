@@ -53,6 +53,8 @@ extern "mail_slot_size" fn mail_slot_size_c(to: u64, key: u64) -> i32;
 extern "mail_take_one" fn mail_take_one_c(box: u64, out: u8[:], head: i64[:]) -> i64;
 extern "mail_settle" fn mail_settle_c(box: u64, n: i64) -> i32;
 extern "mail_wait" fn mail_wait_c(box: u64, ms: i32) -> i32;
+extern "mail_stop" fn mail_stop_c(to: u64);
+extern "mail_stopped" fn mail_stopped_c(box: u64) -> i32;
 
 // A waker for a loop's epoll or kqueue instance ep: each wake makes the
 // loop's wait report tag as readable. Returns it, or -code. A box opened
@@ -121,8 +123,20 @@ fn mail_pending(b: Box) -> bool { mail_pending_c(key_of(b.handle)) > 0 }
 
 // Waits up to ms milliseconds (-1: no limit) for a message, in b's owner when
 // b has no loop's waker. Returns whether one is pending: false at the time
-// limit, or after a wake whose message was taken already.
+// limit, once b is stopped, or after a wake whose message was taken already.
 fn mail_wait(b: Box, ms: i32) -> bool { mail_wait_c(key_of(b.handle), ms) > 0 }
+
+// Stops b, from any thread: sends to it return STALE from then on, and a
+// mail_wait in its owner returns. A flag in the box, not a message, so a full
+// box can't refuse it. What b holds already is still taken.
+fn mail_stop(b: Box) { mail_stop_c(key_of(b.handle)); }
+
+// In b's owner: whether b is stopped and holds nothing more, which ends a
+// lane's loop:
+//
+//   while !http::mail_stopped(b) { http::mail_wait(b, -1); http::mail_take(b) { ... }; }
+//   http::mail_close(b);
+fn mail_stopped(b: Box) -> bool { mail_stopped_c(key_of(b.handle)) != 0 }
 
 // Calls F with each message b holds, in the order sent: the key of the
 // address it was sent to, its tag, and its bytes, valid until F returns.
