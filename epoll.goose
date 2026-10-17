@@ -8,6 +8,7 @@ import std;
 import os;
 import sys;
 import message;
+import place;
 
 // The listener's epoll tag. A connection's is its slot.
 let EPOLL_LISTENER: u64 = 0xFFFFFFFFFFFFFFFF;
@@ -39,10 +40,12 @@ fn serve_epoll<H>(cfg: Config) -> Error {
 // serve_epoll(cfg), with a handler H that's called for each Event of a
 // request, with the request's state, which starts as fresh.
 fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
+    let seat = place_worker(cfg);
     net_worker_start();
     guard is_field_value(cfg.server) else { return Error { call: "server", code: EINVAL }; }
     var lfd, listening = listen_on(cfg);
     guard lfd >= 0 else { return listening; }
+    place_listener(seat, lfd);
     let ep = net_epoll_create();
     guard ep >= 0 else {
         net_close(lfd);

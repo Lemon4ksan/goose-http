@@ -11,6 +11,7 @@ import os;
 import sys;
 import message;
 import ring;
+import place;
 
 // A request's tag: the connection's slot in the low 32 bits and a
 // generation above, so a completion that arrives after its connection
@@ -45,10 +46,12 @@ fn serve<H>(cfg: Config) -> Error {
 // serve(cfg), with a handler H that's called for each Event of a request,
 // with the request's state, which starts as fresh.
 fn serve<S, H>(cfg: Config, fresh: S) -> Error {
+    let seat = place_worker(cfg);
     net_worker_start();
     guard is_field_value(cfg.server) else { return Error { call: "server", code: EINVAL }; }
     var lfd, listening = listen_on(cfg);
     guard lfd >= 0 else { return listening; }
+    place_listener(seat, lfd);
     let r = ring_create(cfg.ring_entries, cfg.ring_buffers, cfg.ring_buffer_size,
                         if cfg.emulate_ring { RING_EMULATE } else { 0 });
     guard r >= 0 else {
