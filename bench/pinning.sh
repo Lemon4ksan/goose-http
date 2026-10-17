@@ -168,7 +168,8 @@ fi
     if [ "$os" = Darwin ]; then
         echo "cpu: $(sysctl -n machdep.cpu.brand_string), $(sysctl -n hw.perflevel0.logicalcpu) performance + $(sysctl -n hw.perflevel1.logicalcpu 2>/dev/null || echo 0) efficiency cores"
     else
-        echo "cpu: $(grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //'), $(nproc --all) hardware threads"
+        echo "cpu: $(lscpu | sed -n 's/^Model name: *//p' | head -1), $(nproc --all) hardware threads"
+        echo "smt: $(cat /sys/devices/system/cpu/smt/active 2>/dev/null || echo unknown)"
     fi
     echo "server cores: $(echo "$cpus" | paste -sd, -), clients: ${CLIENT_CPUS:-shared}"
     echo "compiler: $(goose_version)"
