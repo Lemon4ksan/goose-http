@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Placement and lanes: before and after</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one reading column for prose, widening to before/after code pairs side by side. */
+:root {
+  --bg: #f6f7f8;
+  --surface: #ffffff;
+  --fg: #1c2229;
+  --muted: #5b6672;
+  --line: #dde1e6;
+  --accent: #b85a0c;
+  --before: #9a3b3b;
+  --after: #2f6f4e;
+  --open: #6a4bb0;
+  --code-bg: #fbfbfc;
+  --c-comment: #6b7785;
+  --c-keyword: #8a3ea8;
+  --c-string: #2f6f4e;
+  --c-number: #b85a0c;
+  --c-title: #1f5c99;
+  --c-type: #7a5a00;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14181d; --surface: #1b2027; --fg: #e3e7ec; --muted: #9aa5b1; --line: #2c333c;
+    --accent: #f0954a; --before: #e58a8a; --after: #7cc79f; --open: #b9a2ef; --code-bg: #171b21;
+    --c-comment: #8793a0; --c-keyword: #d2a2e8; --c-string: #8fd1ad; --c-number: #f0a868;
+    --c-title: #8cbcf0; --c-type: #e2c46e;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14181d; --surface: #1b2027; --fg: #e3e7ec; --muted: #9aa5b1; --line: #2c333c;
+  --accent: #f0954a; --before: #e58a8a; --after: #7cc79f; --open: #b9a2ef; --code-bg: #171b21;
+  --c-comment: #8793a0; --c-keyword: #d2a2e8; --c-string: #8fd1ad; --c-number: #f0a868;
+  --c-title: #8cbcf0; --c-type: #e2c46e;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 64px;
+}
+.wrap { max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px; }
+header { display: flex; flex-direction: column; gap: 12px; max-width: 72ch; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+h1 { font-size: 2.2rem; line-height: 1.1; font-weight: 600; }
+h2 { font-size: 1.5rem; font-weight: 600; }
+p { margin: 0; max-width: 72ch; }
+code { font-family: var(--font-mono); font-size: .9em; }
+.lede { color: var(--muted); }
+section { display: flex; flex-direction: column; gap: 16px; }
+.sec-head { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 20px; }
+.status { align-self: flex-start; font-family: var(--font-mono); font-size: 12px; padding: 1px 8px; border-radius: 4px; border: 1px solid currentColor; }
+.status.agreed { color: var(--after); }
+.status.spike { color: var(--accent); }
+.status.open { color: var(--open); }
+.status.none { color: var(--muted); }
+.pair { display: grid; grid-template-columns: 1fr; gap: 16px; }
+@media (min-width: 1000px) { .pair { grid-template-columns: 1fr 1fr; } }
+.pane { min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 6px; background: var(--code-bg); overflow: hidden; }
+.pane-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.label { font-family: var(--font-mono); font-size: 12px; font-weight: 500; letter-spacing: .05em; text-transform: uppercase; }
+.label.before { color: var(--before); }
+.label.after { color: var(--after); }
+.file { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+pre { margin: 0; padding: 12px 14px; overflow-x: auto; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; tab-size: 4; }
+pre code { font-size: inherit; background: none; }
+.hljs-comment { color: var(--c-comment); font-style: italic; }
+.hljs-keyword, .hljs-meta { color: var(--c-keyword); }
+.hljs-string { color: var(--c-string); }
+.hljs-number, .hljs-literal { color: var(--c-number); }
+.hljs-title, .hljs-title\.function_ { color: var(--c-title); }
+.hljs-type, .hljs-built_in { color: var(--c-type); }
+.api { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
+.chip { font-family: var(--font-mono); font-size: 12px; padding: 1px 7px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); }
+.chip.gone { text-decoration: line-through; color: var(--muted); }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { font-family: var(--font-display); font-weight: 600; font-size: 13px; letter-spacing: .02em; color: var(--muted); background: var(--code-bg); }
+tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+td .status { white-space: nowrap; }
+nav.toc { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 14px; }
+nav.toc a { color: var(--fg); text-decoration: none; border-bottom: 1px solid var(--line); }
+nav.toc a:hover, nav.toc a:focus-visible { border-color: var(--accent); color: var(--accent); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">goose-http + goose-rest · task 046 · branch tina-alignment · 2026-10-17</div>
+  <h1>Placement and lanes, before and after</h1>
+  <p class="lede">What the Tina-inspired proposals change in the API. Every "after" name is new, and
+  the code is a sketch that hasn't been compiled. Each section says whether its change is agreed,
+  depends on task 045's spike, or is for task 046's design to settle.</p>
+  <nav class="toc" aria-label="Sections">
+    <a href="#summary">Summary</a>
+    <a href="#stop-http">Stopping a lane: goose-http</a>
+    <a href="#stop-rest">Stopping a lane: goose-rest</a>
+    <a href="#pin">Placement</a>
+    <a href="#lanes-n">A lane of several threads</a>
+    <a href="#batch">Group commit</a>
+    <a href="#none">No API change</a>
+  </nav>
+</header>
+
+<section id="summary">
+  <div class="sec-head"><h2>Summary</h2></div>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Change</th><th>Package</th><th>Added</th><th>Removed or changed</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>A stop a full box can't refuse</td><td>goose-http</td><td><code>http::mail_stop</code>, <code>http::mail_stopped</code></td><td>none; <code>mail_wait</code> keeps its meaning</td><td><span class="status agreed">agreed · task 044</span></td></tr>
+      <tr><td>The lane loop</td><td>goose-rest</td><td><code>rest::lane</code></td><td>the <code>STOP</code> tag and the hand-written loop, in docs and examples</td><td><span class="status agreed">agreed · task 044</span></td></tr>
+      <tr><td>Place workers and lanes: floating, one core each, a named core, or within a set; or a lane at low priority</td><td>goose-http, goose-rest</td><td><code>http::Place</code>, <code>Config.place</code>, <code>http::place_thread</code>, <code>http::low_priority</code>, a lane's <code>place</code></td><td>none; all opt-in</td><td><span class="status spike">design · task 046, measured · task 045</span></td></tr>
+      <tr><td>A lane of several threads</td><td>goose-rest</td><td><code>rest::Lane</code>, <code>rest::lane_open</code>, <code>rest::ask</code> takes a <code>Lane</code>, <code>rest::ask_by</code></td><td>apps stop picking a thread themselves</td><td><span class="status open">design · task 046</span></td></tr>
+      <tr><td>Group commit on the writer</td><td>goose-rest</td><td><code>rest::lane_batch</code></td><td>none</td><td><span class="status open">design · task 046</span></td></tr>
+      <tr><td>A crash ends the process</td><td>both</td><td>nothing</td><td>nothing; docs only</td><td><span class="status none">decided · no API</span></td></tr>
+      <tr><td><code>Waiting</code>, <code>resume</code>, <code>rest::ask</code> to one address</td><td>goose-rest</td><td>nothing</td><td>nothing</td><td><span class="status none">unchanged</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ───────── Stop, goose-http ───────── -->
+<section id="stop-http">
+  <div class="sec-head">
+    <span class="status agreed">agreed · task 044</span>
+    <h2>Stopping a lane: goose-http</h2>
+    <p class="lede">goose-http has no way to stop a lane today. <code>examples/later</code> never stops its lane, and the process ends around it. A program that does stop one sends a message, and a full box can refuse it.</p>
+  </div>
+  <div class="pair">
+    <div class="pane"><div class="pane-head"><span class="label before">Now</span><span class="file">examples/later/later.goose</span></div>
+<pre><code class="language-rust">thread_fn backend(box: http::Box) {
+    var reply: u8[>..] = [];
+    // Never ends: main's exit takes the thread with it, mid-job if need be.
+    loop {
+        http::mail_wait(box, -1);
+        http::mail_take(box) { key, tag, bytes =>
+            var j = Job { .. };
+            if tag == JOB &amp;&amp; http::mail_value(bytes, j) &amp;&amp; http::mail_live(j.reply) {
+                reply.clear();
+                format(reply, primes_below(j.n), "\n");
+                http::mail_send(j.reply, 0, reply);
+            }
+        };
+    }
+}
+
+fn main() {
+    // ...
+    let b, err = http::mail_open(256, JOB_SIZE);
+    http::exit_on_error(err);
+    thread_spawn(backend, b);
+    var ids: i64[>..] = [];
+    for i in http::worker_count(cfg) { ids.push(thread_spawn(worker, cfg, http::address(b, 0))); }
+    for id in ids { thread_wait(id); }
+}</code></pre></div>
+    <div class="pane"><div class="pane-head"><span class="label after">After</span><span class="file">examples/later/later.goose</span></div>
+<pre><code class="language-rust">thread_fn backend(box: http::Box) {
+    var reply: u8[>..] = [];
+    // Runs until main stops the box and every job queued before is taken.
+    while !http::mail_stopped(box) {
+        // No time limit: mail_stop wakes this wait too.
+        http::mail_wait(box, -1);
+        http::mail_take(box) { key, tag, bytes =>
+            var j = Job { .. };
+            if tag == JOB &amp;&amp; http::mail_value(bytes, j) &amp;&amp; http::mail_live(j.reply) {
+                reply.clear();
+                format(reply, primes_below(j.n), "\n");
+                http::mail_send(j.reply, 0, reply);
+            }
+        };
+    }
+    http::mail_close(box);
+}
+
+fn main() {
+    // ...
+    let b, err = http::mail_open(256, JOB_SIZE);
+    http::exit_on_error(err);
+    let lane = thread_spawn(backend, b);
+    var ids: i64[>..] = [];
+    for i in http::worker_count(cfg) { ids.push(thread_spawn(worker, cfg, http::address(b, 0))); }
+    for id in ids { thread_wait(id); }
+    // A flag in the box, not a message in a slot: a full box can't refuse it.
+    http::mail_stop(b);
+    thread_wait(lane);
+}</code></pre></div>
+  </div>
+  <div class="api">New: <span class="chip">http::mail_stop(b: Box)</span> <span class="chip">http::mail_stopped(b: Box) -&gt; bool</span> · Unchanged: <span class="chip">mail_wait</span>, whose <code>false</code> still means the time limit passed</div>
+</section>
+
+<!-- ───────── Stop, goose-rest ───────── -->
+<section id="stop-rest">
+  <div class="sec-head">
+    <span class="status agreed">agreed · task 044</span>
+    <h2>Stopping a lane: goose-rest</h2>
+    <p class="lede">Every lane in the tutorial and the best practices writes the same loop by hand, with a <code>STOP</code> tag and a <code>running</code> flag. <code>rest::lane</code> replaces both.</p>
+  </div>
+  <div class="pair">
+    <div class="pane"><div class="pane-head"><span class="label before">Now</span><span class="file">best-practices/lanes/main.goose</span></div>
+<pre><code class="language-rust">let STOP: i32 = 5;   // in app.goose, beside the job tags
+
+thread_fn hasher(box: http::Box) {
+    var running = true;
+    while running {
+        http::mail_wait(box, 1000);
+        http::mail_take(box) { key, tag, bytes =>
+            if tag == VERIFY_PASSWORD {
+                let a, ok = rest::asked&lt;auth::SignInJob&gt;(bytes);
+                if ok { rest::reply_value(a, auth::verify_password(a.job)); }
+            } else if tag == STOP {
+                running = false;
+            }
+        };
+    }
+    http::mail_close(box);
+}
+
+fn main() {
+    // ...
+    thread_wait(thread_spawn(worker, cfg, app));
+    // FULL if the box is full, and nothing reads the result:
+    // the lane then never stops, and thread_wait hangs.
+    http::mail_send(app.hasher, STOP, "");
+    thread_wait(ht);
+}</code></pre></div>
+    <div class="pane"><div class="pane-head"><span class="label after">After</span><span class="file">best-practices/lanes/main.goose</span></div>
+<pre><code class="language-rust">// No STOP tag: a stop isn't a job.
+
+thread_fn hasher(box: http::Box) {
+    // Each job in turn until the box is stopped and empty; then closes it.
+    rest::lane(box) { tag, bytes =>
+        if tag == VERIFY_PASSWORD {
+            let a, ok = rest::asked&lt;auth::SignInJob&gt;(bytes);
+            if ok { rest::reply_value(a, auth::verify_password(a.job)); }
+        }
+    };
+}
+
+fn main() {
+    // ...
+    thread_wait(thread_spawn(worker, cfg, app));
+    http::mail_stop(hbox);
+    thread_wait(ht);
+}
+
+// In goose-rest: the loop each lane wrote by hand.
+fn lane(box: http::Box, body) {
+    while !http::mail_stopped(box) {
+        http::mail_wait(box, -1);
+        http::mail_take(box) { key, tag, bytes => body(tag, bytes); };
+    }
+    http::mail_close(box);
+}</code></pre></div>
+  </div>
+  <div class="api">New: <span class="chip">rest::lane(box) { tag, bytes =&gt; }</span> · Gone from apps: <span class="chip gone">STOP</span> <span class="chip gone">var running</span> <span class="chip gone">mail_wait(box, 1000)</span></div>
+</section>
+
+<!-- ───────── Pinning ───────── -->
+<section id="pin">
+  <div class="sec-head">
+    <span class="status spike">design · task 046, measured · task 045</span>
+    <h2>Placement</h2>
+    <p class="lede">Tina names one core per shard in its boot spec (<code>target_core</code>). Here any thread, a worker or a lane, takes a placement: floating (today, and the default), one core each from a set, one named core, or anywhere within a set. A set is what lets a program plan around SMT siblings, L3 groups, and NUMA nodes. Only placements that beat floating on a short route's p99 by more than the runs' spread stay.</p>
+  </div>
+  <div class="pair">
+    <div class="pane"><div class="pane-head"><span class="label before">Now</span><span class="file">a program with a CPU lane</span></div>
+<pre><code class="language-rust">thread_fn hasher(box: http::Box) {
+    // Runs on whichever core the OS picks, at the workers' priority:
+    // a 50 ms hash competes with them as an equal.
+    rest::lane(box) { tag, bytes =&gt;
+        // ...
+    };
+}
+
+fn main() {
+    // ...
+    let ht = thread_spawn(hasher, hbox);
+    // workers: 0 starts one per hardware thread, none of them pinned.
+    let cfg = http::Config { port: 8080, mail_slots: 64, max_waiting: 1024, .. };
+    // ...
+}</code></pre></div>
+    <div class="pane"><div class="pane-head"><span class="label after">After</span><span class="file">8 cores, 16 hardware threads (Ryzen 7 5800X3D: CPU n and n+8 share a core)</span></div>
+<pre><code class="language-rust">// A placement is a flat value, so a thread can take it as an argument.
+//   http::floating()        the OS decides (the default)
+//   http::each_core(set)    each thread pinned to its own core of the set,
+//                           physical cores first, SMT siblings last
+//   http::core(n)           pinned to hardware thread n
+//   http::within(set)       the OS moves it, but only within the set
+// A set is written as taskset and cgroups write it: "0-5,8".
+
+fn main() {
+    // Six workers, each alone on a physical core.
+    let cfg = http::Config { port: 8080, workers: 6,
+                             place: http::each_core("0-5"), .. };
+
+    // The hasher has a core of its own; the writer has the other.
+    let hasher = rest::lane_open(1, HASHER_SLOTS, 256, http::core(6));
+    let writer = rest::lane_open(1, WRITER_SLOTS, 256, http::core(7));
+    // Four readers on the workers' SMT siblings: they mostly wait on
+    // SQLite, so they take little from the worker sharing their core.
+    let reports = rest::lane_open(4, REPORTS_SLOTS, 256, http::within("8-15"));
+    // ...
+}
+
+thread_fn reader(box: http::Box, place: http::Place) {
+    // First, before the thread touches its own memory: Linux puts a page
+    // on the NUMA node of the thread that first writes it.
+    http::place_thread(place);
+    rest::lane(box) { tag, bytes =&gt; /* ... */ };
+}
+
+// On a two-node server the same program plans by node:
+//   workers  http::each_core(http::node_cores(0))
+//   readers  http::within(http::node_cores(1)), beside the database's disk
+
+// For any machine, 1 core included: nothing pinned, and the kernel runs
+// a worker ahead of the hasher whenever both are ready.
+thread_fn hasher(box: http::Box) {
+    http::low_priority();   // nice +10 and SCHED_BATCH on Linux;
+                            // a background QoS class on macOS
+    rest::lane(box) { tag, bytes =&gt; /* ... */ };
+}
+
+// macOS has no affinity: every placement there reports that it did
+// nothing, and workers keep the performance-core QoS class they get now.</code></pre></div>
+  </div>
+  <div class="api">Candidates: <span class="chip">http::Place</span> <span class="chip">Config.place: Place = floating()</span> <span class="chip">http::place_thread(p: Place) -&gt; bool</span> <span class="chip">http::node_cores(node) / http::l3_cores(cpu)</span> <span class="chip">http::low_priority() -&gt; bool</span> · Open (task 046): who opens a box, for its memory's node; <code>SO_INCOMING_CPU</code> for pinned workers; what a placement does on fewer cores than threads</div>
+</section>
+
+<!-- ───────── N threads ───────── -->
+<section id="lanes-n">
+  <div class="sec-head">
+    <span class="status open">under discussion · goose-rest</span>
+    <h2>A lane of several threads</h2>
+    <p class="lede">With a real database (SQLite or Turso), splitting data by key barely matters. What remains is one concept: a lane is N threads, each with its own box and its own database connection. A job goes to the first thread with room, or, when a key is given, to the thread that key always picks. The writer is a lane of 1.</p>
+  </div>
+  <div class="pair">
+    <div class="pane"><div class="pane-head"><span class="label before">Now</span><span class="file">tutorial: "more threads, each with its own box"</span></div>
+<pre><code class="language-rust">// The app opens each thread's box and keeps every address.
+struct App { reports: http::MailAddress[..4] }
+
+fn main() {
+    var app = App { reports: [..4] };
+    for i in 4 {
+        let b, e = http::mail_open(REPORTS_SLOTS, 256);
+        http::exit_on_error(e);
+        app.reports.push(http::address(b, 0));
+        // ... spawn a reports thread on b, keep its id ...
+    }
+}
+
+fn project(cx) {
+    // ...
+    // The route picks a thread itself, and FULL on that one is a 503
+    // even when another thread is idle.
+    let to = cx.app.reports[project % cx.app.reports.len];
+    rest::ask(cx, to, TOTAL_ENTRIES, job, Waiting.ReportTotals);
+}</code></pre></div>
+    <div class="pane"><div class="pane-head"><span class="label after">After</span><span class="file">sketch</span></div>
+<pre><code class="language-rust">// A lane: N boxes of the same size, and their addresses.
+struct App { writer: rest::Lane, reports: rest::Lane, hasher: rest::Lane }
+
+fn main() {
+    // One writer: SQLite allows one. Four readers, each with its own
+    // read connection. Two hashers.
+    let writer = rest::lane_open(1, WRITER_SLOTS, 256);
+    let reports = rest::lane_open(4, REPORTS_SLOTS, 256);
+    let hasher = rest::lane_open(2, HASHER_SLOTS, 256);
+    // ... spawn one thread per box: writer.boxes[i], and so on ...
+}
+
+fn project(cx) {
+    // ...
+    // Any reader: the first whose box has room. 503 only when all are full.
+    rest::ask(cx, cx.app.reports, TOTAL_ENTRIES, job, Waiting.ReportTotals);
+}
+
+fn start(cx) {
+    // ...
+    // By key: one member's timer jobs always reach the same thread, so
+    // they run in the order they were sent.
+    rest::ask_by(cx, cx.app.writer, member, START_TIMER, job, Waiting.TimerStart);
+}</code></pre></div>
+  </div>
+  <div class="api">Candidates: <span class="chip">rest::Lane</span> <span class="chip">rest::lane_open(threads, slots, size)</span> <span class="chip">rest::ask(cx, lane, ...)</span> <span class="chip">rest::ask_by(cx, lane, key, ...)</span> · Kept: <span class="chip">rest::ask(cx, address, ...)</span> for one thread</div>
+</section>
+
+<!-- ───────── Batch ───────── -->
+<section id="batch">
+  <div class="sec-head">
+    <span class="status open">under discussion · goose-rest</span>
+    <h2>Group commit on the writer</h2>
+    <p class="lede">The writer takes every job waiting in its box, runs each in a savepoint of its own, and commits once. Then it sends the replies, so no route hears "created" before the data is durable. One fsync covers the whole group, which is the largest win on writes that SQLite allows. Goose has no SQLite binding yet, so <code>db::</code> is hypothetical here.</p>
+  </div>
+  <div class="pair">
+    <div class="pane"><div class="pane-head"><span class="label before">Now</span><span class="file">the writer, one transaction per job</span></div>
+<pre><code class="language-rust">thread_fn writer(box: http::Box) {
+    let conn = db::open("app.db");
+    rest::lane(box) { tag, bytes =&gt;
+        if tag == CREATE_ENTRY {
+            let a, ok = rest::asked&lt;entries::CreateJob&gt;(bytes);
+            if ok {
+                // BEGIN ... COMMIT inside the job: an fsync per entry.
+                rest::reply_value(a, entries::create_entry(conn, a.job));
+            }
+        }
+    };
+}</code></pre></div>
+    <div class="pane"><div class="pane-head"><span class="label after">After</span><span class="file">sketch</span></div>
+<pre><code class="language-rust">thread_fn writer(box: http::Box) {
+    let conn = db::open("app.db");
+    // Each wake: BEGIN, every job in the box, COMMIT, then the replies.
+    rest::lane_batch(box, conn) { tag, bytes =&gt;
+        if tag == CREATE_ENTRY {
+            let a, ok = rest::asked&lt;entries::CreateJob&gt;(bytes);
+            if ok {
+                // In a savepoint of its own: a job that fails rolls back
+                // alone, and the others still commit. reply_value holds
+                // the reply until the COMMIT returns.
+                rest::reply_value(a, entries::create_entry(conn, a.job));
+            }
+        }
+    };
+}
+// The job stays one use case and one unit of work; only the commit
+// is shared. A job's function doesn't change.</code></pre></div>
+  </div>
+  <div class="api">Candidate: <span class="chip">rest::lane_batch(box, conn) { tag, bytes =&gt; }</span> · Open: how goose-rest reaches SQLite's savepoints without depending on one binding</div>
+</section>
+
+<!-- ───────── None ───────── -->
+<section id="none">
+  <div class="sec-head">
+    <span class="status none">decided · no API change</span>
+    <h2>No API change</h2>
+  </div>
+  <div class="pair">
+    <div class="pane"><div class="pane-head"><span class="label before">Crashes</span><span class="file">docs only</span></div>
+<pre><code class="language-rust">// A crash in any thread, an index out of bounds in a lane's job say,
+// ends the whole process: Goose can't catch an abort (spec §9.3).
+// The service manager restarts it, after a delay, and gives up after
+// a few crashes in a row:
+//
+//   systemd     Restart=on-failure, RestartSec=1,
+//               StartLimitIntervalSec=60, StartLimitBurst=5
+//   Compose     restart: on-failure:5
+//   Kubernetes  restarts by default; CrashLoopBackOff spaces them
+//
+// No supervisor in the package, and no lanes as processes. A restart
+// per thread waits on Goose (goose-findings: "An abort ends every
+// thread of the program").</code></pre></div>
+    <div class="pane"><div class="pane-head"><span class="label before">Routes that wait</span><span class="file">unchanged</span></div>
+<pre><code class="language-rust">// Already Tina's model: ctx_call with a timeout, then WAIT_REPLY.
+enum Waiting {
+    None,
+    EntryCreate,               // entries::create
+    ReportTotals,              // reports::project
+    AuthPassword, AuthSession, // auth::sign_in
+}
+
+fn create(cx) {
+    // ...
+    // FULL is .mailbox_full: 503 at once.
+    rest::ask(cx, cx.app.writer, CREATE_ENTRY, CreateJob { input: input },
+              Waiting.EntryCreate);
+}
+
+// The reply's case. A late reply is TAG_CALL_TIMEOUT: 504.
+fn resume(w: Waiting.EntryCreate, cx) {
+    let r, ok = rest::read_reply&lt;CreateReply&gt;(cx);
+    guard ok else { rest::fail(cx, 502, "bad_reply"); }
+    check(r.err, cx);
+    rest::json(cx, 201, r.entry);
+}</code></pre></div>
+  </div>
+</section>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+try { if (window.hljs) { document.querySelectorAll('pre code').forEach(function (el) { window.hljs.highlightElement(el); }); } } catch (e) {}
+</script>

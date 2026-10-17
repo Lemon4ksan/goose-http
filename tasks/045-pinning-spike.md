@@ -36,6 +36,9 @@ latency: `/fast` at about 70% of what `over` serves alone, and the primes route 
 rate that keeps the lane about 80% busy. Each layout runs 5 times, alternating, 30 s
 each after a 5 s warm-up, on Linux, which has CPU affinity (macOS has none).
 
+Task 046 designs the placement API this spike measures, and may add layouts to the five
+above: a lane on a worker's SMT sibling, and a lane kept within a set of cores.
+
 ## Acceptance criteria
 
 - [ ] `http::pin_thread(core)` in the shim: `sched_setaffinity` on Linux,
