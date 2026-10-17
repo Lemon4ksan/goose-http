@@ -1,0 +1,17 @@
+set 7, error ""
+GOOSE_PLACE=[place/dev.place]
+DB_URL=[sqlite:dev.db]
+GREETING=[hello # not a comment]
+RAW=[a\nb]
+ESCAPED=[a	b"c"]
+EMPTY=[]
+HASH=[a#b]
+NOT_THERE unset
+again: set 1, error ""
+DB_URL=[sqlite:dev.db]
+NEW=[1]
+missing: set 0, error ""
+bad.env:1: NAME=VALUE, not "JUST_A_NAME"
+bad.env:1: a name with no spaces, not "TWO WORDS"
+bad.env:1: a quote that isn't closed
+bad.env:1: a name with no spaces, not ""

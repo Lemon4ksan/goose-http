@@ -14,6 +14,7 @@
 #define _GNU_SOURCE
 #endif
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define PLACE_WORDS 16
@@ -40,9 +41,10 @@
 #include <sys/sysctl.h>
 #endif
 
-/* A u64[:], packed as Goose packs it (spec C.2). */
+/* A u64[:] and a u8[:], packed as Goose packs them (spec C.2). */
 #pragma pack(push, 1)
 typedef struct { uint64_t *data; int64_t len; } place_u64s;
+typedef struct { const char *data; int64_t len; } place_bytes;
 #pragma pack(pop)
 
 #if defined(_MSC_VER)
@@ -153,6 +155,23 @@ int64_t place_next(int32_t role) {
 int32_t place_once(int32_t what) {
     if (what < 0 || what >= 32) return 0;
     return PLACE_ADD(&place_warned[what]) == 0;
+}
+
+/* Sets the environment variable name to value, for settings.goose's .env
+   loader, before any thread but main runs. */
+int32_t place_setenv(place_bytes name, place_bytes value) {
+    char n[256], v[4096];
+    if (name.len <= 0 || name.len >= (int64_t)sizeof n || value.len < 0 || value.len >= (int64_t)sizeof v)
+        return -PLACE_EINVAL;
+    memcpy(n, name.data, (size_t)name.len);
+    n[name.len] = 0;
+    memcpy(v, value.data, (size_t)value.len);
+    v[value.len] = 0;
+#ifdef _WIN32
+    return _putenv_s(n, v) == 0 ? 0 : -PLACE_EINVAL;
+#else
+    return setenv(n, v, 1) == 0 ? 0 : -PLACE_EINVAL;
+#endif
 }
 
 /* Has the kernel give listener fd the connections whose packets cpu
