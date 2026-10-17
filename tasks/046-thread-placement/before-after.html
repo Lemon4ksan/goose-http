@@ -105,9 +105,10 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <header>
   <div class="eyebrow">goose-http + goose-rest · task 046 · branch tina-alignment · 2026-10-17</div>
   <h1>Placement and lanes, before and after</h1>
-  <p class="lede">What the Tina-inspired proposals change in the API. Every "after" name is new, and
-  the code is a sketch that hasn't been compiled. Each section says whether its change is agreed,
-  depends on task 045's spike, or is for task 046's design to settle.</p>
+  <p class="lede">What the Tina-inspired proposals change in the API. Every "after" name is new.
+  The "after" code is the code as built on the <code>tina-alignment</code> branches of goose-http
+  and goose-rest (2026-10-17), except group commit's, which is still a sketch. Each section says
+  whether its change is built, depends on task 045's spike, or is open.</p>
   <nav class="toc" aria-label="Sections">
     <a href="#summary">Summary</a>
     <a href="#stop-http">Stopping a lane: goose-http</a>
@@ -125,10 +126,10 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <table>
     <thead><tr><th>Change</th><th>Package</th><th>Added</th><th>Removed or changed</th><th>Status</th></tr></thead>
     <tbody>
-      <tr><td>A stop a full box can't refuse</td><td>goose-http</td><td><code>http::mail_stop</code>, <code>http::mail_stopped</code></td><td>none; <code>mail_wait</code> keeps its meaning</td><td><span class="status agreed">agreed · task 044</span></td></tr>
-      <tr><td>The lane loop</td><td>goose-rest</td><td><code>rest::lane</code></td><td>the <code>STOP</code> tag and the hand-written loop, in docs and examples</td><td><span class="status agreed">agreed · task 044</span></td></tr>
-      <tr><td>Place workers and lanes: floating, one core each, a named core, or within a set; or a lane at low priority</td><td>goose-http, goose-rest</td><td><code>http::Place</code>, <code>Config.place</code>, <code>http::place_thread</code>, <code>http::low_priority</code>, a lane's <code>place</code></td><td>none; all opt-in</td><td><span class="status spike">design · task 046, measured · task 045</span></td></tr>
-      <tr><td>A lane of several threads</td><td>goose-rest</td><td><code>rest::Lane</code>, <code>rest::lane_open</code>, <code>rest::ask</code> takes a <code>Lane</code>, <code>rest::ask_by</code></td><td>apps stop picking a thread themselves</td><td><span class="status open">design · task 046</span></td></tr>
+      <tr><td>A stop a full box can't refuse</td><td>goose-http</td><td><code>http::mail_stop</code>, <code>http::mail_stopped</code></td><td>a send to a stopped box is <code>STALE</code>; <code>mail_wait</code> returns at a stop</td><td><span class="status agreed">built · task 044</span></td></tr>
+      <tr><td>The lane loop</td><td>goose-rest</td><td><code>rest::lane</code>, <code>rest::lane_stop</code></td><td>the <code>STOP</code> tag and the hand-written loop, in the tutorial's and best practices' programs</td><td><span class="status agreed">built · task 044</span></td></tr>
+      <tr><td>Place workers and lanes: floating, one core each, a named core, or within a set; or a lane at low priority</td><td>goose-http, goose-rest</td><td><code>http::place_load</code>, <code>http::Place</code>, <code>Config.place</code>, <code>Config.role</code>, <code>http::place_seat</code>, <code>http::take_seat</code>, <code>rest::lane_seat</code>; <code>http::env_load</code> for development</td><td>none; all opt-in</td><td><span class="status spike">built · task 046, measured · task 045 (pending)</span></td></tr>
+      <tr><td>A lane of several threads</td><td>goose-rest</td><td><code>rest::LaneConfig</code>, <code>rest::Lane</code>, <code>rest::lane_open</code>, <code>rest::ask</code> takes a <code>Lane</code>, <code>rest::ask_by</code>; <code>http::mail_queued</code></td><td>apps stop picking a thread themselves</td><td><span class="status agreed">built · task 046</span></td></tr>
       <tr><td>Group commit on the writer</td><td>goose-rest</td><td><code>rest::lane_batch</code></td><td>none</td><td><span class="status open">design · task 046</span></td></tr>
       <tr><td>A crash ends the process</td><td>both</td><td>nothing</td><td>nothing; docs only</td><td><span class="status none">decided · no API</span></td></tr>
       <tr><td><code>Waiting</code>, <code>resume</code>, <code>rest::ask</code> to one address</td><td>goose-rest</td><td>nothing</td><td>nothing</td><td><span class="status none">unchanged</span></td></tr>
@@ -140,7 +141,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <!-- ───────── Stop, goose-http ───────── -->
 <section id="stop-http">
   <div class="sec-head">
-    <span class="status agreed">agreed · task 044</span>
+    <span class="status agreed">built · task 044</span>
     <h2>Stopping a lane: goose-http</h2>
     <p class="lede">goose-http has no way to stop a lane today. <code>examples/later</code> never stops its lane, and the process ends around it. A program that does stop one sends a message, and a full box can refuse it.</p>
   </div>
@@ -203,13 +204,13 @@ fn main() {
     thread_wait(lane);
 }</code></pre></div>
   </div>
-  <div class="api">New: <span class="chip">http::mail_stop(b: Box)</span> <span class="chip">http::mail_stopped(b: Box) -&gt; bool</span> · Unchanged: <span class="chip">mail_wait</span>, whose <code>false</code> still means the time limit passed</div>
+  <div class="api">New: <span class="chip">http::mail_stop(b: Box)</span> <span class="chip">http::mail_stopped(b: Box) -&gt; bool</span> · Changed: a send to a stopped box returns <code>STALE</code>; <span class="chip">mail_wait</span> returns <code>false</code> at a stop too</div>
 </section>
 
 <!-- ───────── Stop, goose-rest ───────── -->
 <section id="stop-rest">
   <div class="sec-head">
-    <span class="status agreed">agreed · task 044</span>
+    <span class="status agreed">built · task 044</span>
     <h2>Stopping a lane: goose-rest</h2>
     <p class="lede">Every lane in the tutorial and the best practices writes the same loop by hand, with a <code>STOP</code> tag and a <code>running</code> flag. <code>rest::lane</code> replaces both.</p>
   </div>
@@ -244,8 +245,8 @@ fn main() {
     <div class="pane"><div class="pane-head"><span class="label after">After</span><span class="file">best-practices/lanes/main.goose</span></div>
 <pre><code class="language-rust">// No STOP tag: a stop isn't a job.
 
-thread_fn hasher(box: http::Box) {
-    // Each job in turn until the box is stopped and empty; then closes it.
+thread_fn hasher(box: http::Box, at: http::Seat) {
+    http::take_seat(at);
     rest::lane(box) { tag, bytes =>
         if tag == VERIFY_PASSWORD {
             let a, ok = rest::asked&lt;auth::SignInJob&gt;(bytes);
@@ -256,27 +257,31 @@ thread_fn hasher(box: http::Box) {
 
 fn main() {
     // ...
-    thread_wait(thread_spawn(worker, cfg, app));
-    http::mail_stop(hbox);
-    thread_wait(ht);
+    for id in ids { thread_wait(id); }
+    // A flag in each box, not a message: a full box can't refuse it.
+    rest::lane_stop(app.writer);
+    rest::lane_stop(app.reports);
+    rest::lane_stop(app.hasher);
+    for id in lanes { thread_wait(id); }
 }
 
-// In goose-rest: the loop each lane wrote by hand.
-fn lane(box: http::Box, body) {
+// In goose-rest (lane.goose): the loop each lane wrote by hand.
+fn lane&lt;F&gt;(box: http::Box) {
     while !http::mail_stopped(box) {
+        // No time limit: a stop wakes this wait too.
         http::mail_wait(box, -1);
-        http::mail_take(box) { key, tag, bytes => body(tag, bytes); };
+        http::mail_take(box) { key, tag, bytes => F(tag, bytes); };
     }
     http::mail_close(box);
 }</code></pre></div>
   </div>
-  <div class="api">New: <span class="chip">rest::lane(box) { tag, bytes =&gt; }</span> · Gone from apps: <span class="chip gone">STOP</span> <span class="chip gone">var running</span> <span class="chip gone">mail_wait(box, 1000)</span></div>
+  <div class="api">New: <span class="chip">rest::lane(box) { tag, bytes =&gt; }</span> <span class="chip">rest::lane_stop(lane)</span> · Gone from apps: <span class="chip gone">STOP</span> <span class="chip gone">var running</span> <span class="chip gone">mail_wait(box, 1000)</span></div>
 </section>
 
 <!-- ───────── Pinning ───────── -->
 <section id="pin">
   <div class="sec-head">
-    <span class="status spike">design · task 046, measured · task 045</span>
+    <span class="status spike">built · task 046, measured · task 045 (pending)</span>
     <h2>Placement</h2>
     <p class="lede">Tina names one core per shard in its boot spec (<code>target_core</code>). Here any thread, a worker or a lane, takes a placement: floating (today, and the default), one core each from a set, one named core, or anywhere within a set. A set is what lets a program plan around SMT siblings, L3 groups, and NUMA nodes. Only placements that beat floating on a short route's p99 by more than the runs' spread stay.</p>
   </div>
@@ -301,24 +306,33 @@ fn main() {
 <pre><code class="language-rust">// The code names roles and no cores. Run without a placement file,
 // every thread floats, as now.
 fn main() {
-    // --place place/api-eu-1.place, or GOOSE_PLACE=...; warnings for
-    // anything the machine can't do, and the start goes on.
+    // --place place/api-eu-1.place, or GOOSE_PLACE=...; a warning for
+    // anything the machine can't do, and the start goes on. A file that
+    // doesn't parse ends the program with exit code 2.
     let place = http::place_load();
-    let cfg = http::Config { port: 8080, place: place, role: "workers", .. };
 
     // A lane takes threads (1) and slots (64) by default, and a file may
     // give it at most max threads, which is threads unless written: a
     // lane grows only where its code allows it. SQLite allows one
     // writer, so the writer's defaults already say so.
-    let writer   = rest::lane_open(place, rest::LaneConfig { role: "writer", slots: WRITER_SLOTS, .. });
-    let reports  = rest::lane_open(place, rest::LaneConfig { role: "reports", threads: 2, max: 8,
-                                                             slots: REPORTS_SLOTS, .. });
-    let hasher   = rest::lane_open(place, rest::LaneConfig { role: "hasher", .. });
-    let checkout = rest::lane_open(place, rest::LaneConfig { role: "checkout", max: 2, .. });
+    let app = App {
+        writer: rest::lane_open(place, rest::LaneConfig { role: "writer", slots: WRITER_SLOTS, .. }),
+        reports: rest::lane_open(place, rest::LaneConfig { role: "reports", max: 4, slots: REPORTS_SLOTS, .. }),
+        hasher: rest::lane_open(place, rest::LaneConfig { role: "hasher", max: 2, slots: HASHER_SLOTS, .. }),
+    };
+    // The program spawns a lane's threads, one per box, each with its seat.
+    var lanes: i64[>..] = [];
+    for b, i in app.reports.boxes { lanes.push(thread_spawn(reports, b, rest::lane_seat(place, app.reports, i))); }
+    // ... the writer's and the hasher's the same way ...
+
+    // Config.role is "workers" unless written; each loop takes its seat
+    // as it starts, and the file's count, if it gives one, wins.
+    let cfg = http::Config { port: 8080, place: place, mail_slots: 64, max_waiting: 1024, .. };
+    for i in http::worker_count(cfg) { ids.push(thread_spawn(worker, cfg, app)); }
     // ...
 }
 
-thread_fn reader(box: http::Box, at: http::Seat) {
+thread_fn reports(box: http::Box, at: http::Seat) {
     // First, before the thread touches its own memory: Linux puts a
     // page on the NUMA node of the thread that first writes it.
     http::take_seat(at);
@@ -327,14 +341,14 @@ thread_fn reader(box: http::Box, at: http::Seat) {
 <pre><code class="language-ini"># One file per kind of machine: place/api-eu-1.place, place/batch.place, ...
 # place/desktop.place: the 8-core desktop; CPU n and n+8 share a core.
 # Which cores share an L3 or a node is ours to know: nothing is detected.
-set front = 0-3        exclusive   # no other set may use these
+set front = 0-3        exclusive   # a role that doesn't name it loses these
 set flows = 4-5                    # shared by the workflows
 set db    = 6-7, 12-15
 
-workers  = 4 each front            # one per core
+workers  = 4 each front incoming   # one per core; SO_INCOMING_CPU on Linux
 hasher   = 1 within flows
 checkout = 1 within flows          # 3 long steps; shares cores with hasher
-writer   = 1 core 7
+writer   = core 7                  # the code's count, 1
 reports  = 4 within db             # SQLite readers: CPU work, warm caches
 # Not named here: a lane keeps the code's default count, and floats on
 # the cores no exclusive set holds (4-15).
@@ -343,15 +357,15 @@ reports  = 4 within db             # SQLite readers: CPU work, warm caches
 workers  = 2
 hasher   = 1 low                   # nice + SCHED_BATCH; background QoS on macOS</code></pre></div>
   </div>
-  <div class="api">Candidates: <span class="chip">http::place_load()</span> <span class="chip">Config.role</span> <span class="chip">rest::LaneConfig { role, threads = 1, max = threads, slots = 64, size = 256 }</span> <span class="chip">rest::lane_open(place, LaneConfig)</span> <span class="chip">http::take_seat</span> <span class="chip">set NAME = cores [exclusive]</span> <span class="chip">each / within / core N / low</span> · Open (task 046): the file's format and the set's name; who opens a box; <code>SO_INCOMING_CPU</code> for pinned workers</div>
+  <div class="api">Built: <span class="chip">http::place_load()</span> <span class="chip">Config.place</span> <span class="chip">Config.role = "workers"</span> <span class="chip">rest::LaneConfig { role, threads = 1, max = threads, slots = 64, size = 256 }</span> <span class="chip">rest::lane_open(place, LaneConfig)</span> <span class="chip">rest::lane_seat(place, lane, i)</span> <span class="chip">http::place_seat(place, role, i)</span> <span class="chip">http::take_seat</span> <span class="chip">set NAME = cores [exclusive]</span> <span class="chip">[count] each / within / core N, low, incoming</span> <span class="chip">http::env_load(".env")</span> · Open: who opens a box on a NUMA machine (<code>main</code> still does); the measurements (task 045)</div>
 </section>
 
 <!-- ───────── N threads ───────── -->
 <section id="lanes-n">
   <div class="sec-head">
-    <span class="status open">under discussion · goose-rest</span>
+    <span class="status agreed">built · goose-rest</span>
     <h2>A lane of several threads</h2>
-    <p class="lede">With a real database (SQLite or Turso), splitting data by key barely matters. What remains is one concept: a lane is N threads, each with its own box and its own database connection. A job goes to the first thread with room, or, when a key is given, to the thread that key always picks. The writer is a lane of 1.</p>
+    <p class="lede">With a real database (SQLite or Turso), splitting data by key barely matters. What remains is one concept: a lane is N threads, each with its own box and its own database connection. A job goes to the least busy thread, the one whose box holds the fewest jobs, or, when a key is given, to the thread that key always picks. The writer is a lane of 1.</p>
   </div>
   <div class="pair">
     <div class="pane"><div class="pane-head"><span class="label before">Now</span><span class="file">tutorial: "more threads, each with its own box"</span></div>
@@ -375,33 +389,37 @@ fn project(cx) {
     let to = cx.app.reports[project % cx.app.reports.len];
     rest::ask(cx, to, TOTAL_ENTRIES, job, Waiting.ReportTotals);
 }</code></pre></div>
-    <div class="pane"><div class="pane-head"><span class="label after">After</span><span class="file">sketch</span></div>
-<pre><code class="language-rust">// A lane: N boxes of the same size, and their addresses.
+    <div class="pane"><div class="pane-head"><span class="label after">After</span><span class="file">best-practices/lanes</span></div>
+<pre><code class="language-rust">// A lane: one box per thread, and its role. Flat, so it crosses
+// thread_spawn in App.
 struct App { writer: rest::Lane, reports: rest::Lane, hasher: rest::Lane }
 
 fn main() {
-    // One writer: SQLite allows one. Four readers, each with its own
-    // read connection. Two hashers.
-    let writer = rest::lane_open(1, WRITER_SLOTS, 256);
-    let reports = rest::lane_open(4, REPORTS_SLOTS, 256);
-    let hasher = rest::lane_open(2, HASHER_SLOTS, 256);
-    // ... spawn one thread per box: writer.boxes[i], and so on ...
+    // One writer: SQLite allows one. One reader, or up to 4 where a
+    // placement file says so. Up to 2 hashers.
+    let place = http::place_load();
+    let app = App {
+        writer: rest::lane_open(place, rest::LaneConfig { role: "writer", slots: WRITER_SLOTS, .. }),
+        reports: rest::lane_open(place, rest::LaneConfig { role: "reports", max: 4, slots: REPORTS_SLOTS, .. }),
+        hasher: rest::lane_open(place, rest::LaneConfig { role: "hasher", max: 2, slots: HASHER_SLOTS, .. }),
+    };
+    // ... spawn one thread per box: app.writer.boxes[i], and so on ...
 }
 
 fn project(cx) {
     // ...
-    // Any reader: the first whose box has room. 503 only when all are full.
+    // Any reader: the least busy one. 503 only when every box is full.
     rest::ask(cx, cx.app.reports, TOTAL_ENTRIES, job, Waiting.ReportTotals);
 }
 
 fn start(cx) {
     // ...
-    // By key: one member's timer jobs always reach the same thread, so
-    // they run in the order they were sent.
-    rest::ask_by(cx, cx.app.writer, member, START_TIMER, job, Waiting.TimerStart);
+    // By key (a u64): one member's timer jobs always reach the same
+    // thread, so they run in the order they were sent.
+    rest::ask_by(cx, cx.app.writer, member as u64, START_TIMER, job, Waiting.TimerStart);
 }</code></pre></div>
   </div>
-  <div class="api">Candidates: <span class="chip">rest::Lane</span> <span class="chip">rest::lane_open(threads, slots, size)</span> <span class="chip">rest::ask(cx, lane, ...)</span> <span class="chip">rest::ask_by(cx, lane, key, ...)</span> · Kept: <span class="chip">rest::ask(cx, address, ...)</span> for one thread</div>
+  <div class="api">Built: <span class="chip">rest::Lane</span> <span class="chip">rest::lane_open(place, LaneConfig)</span> <span class="chip">rest::ask(cx, lane, ...)</span> <span class="chip">rest::ask_by(cx, lane, key, ...)</span> <span class="chip">http::mail_queued(address)</span> · Kept: <span class="chip">rest::ask(cx, address, ...)</span> for one thread</div>
 </section>
 
 <!-- ───────── Batch ───────── -->

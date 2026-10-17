@@ -1,6 +1,7 @@
 # 045: Pin threads to cores, as an option
 
-Status: todo
+Status: the spike is built (`bench/pinning.sh`) and smoke-tested in Docker; the
+measurement on bare metal is pending
 
 Tina pins each shard to a core of its own (its `docs/concepts/thread_per_core.md`, at
 `d129f67`). goose-http pins nothing. A worker runs on every hardware thread by default,
@@ -39,12 +40,34 @@ each after a 5 s warm-up, on Linux, which has CPU affinity (macOS has none).
 Task 046 designs the placement API this spike measures, and may add layouts to the five
 above: a lane on a worker's SMT sibling, and a lane kept within a set of cores.
 
+## As built (2026-10-17)
+
+Placement (task 046) replaced `http::pin_thread` and `Config.pin`: the spike gives each
+layout as a placement file, so that it measures the API that ships.
+`bench/pinning/pinning.goose` is the server, and `bench/pinning.sh` writes each layout's
+file from the cores the server may use, calibrates the two rates as above unless
+`FAST_RATE` and `PRIMES_RATE` are given, and writes `runs.tsv` and `summary.tsv` under
+`build/bench/pinning/`. Beyond the five layouts above, it runs task 046's: `sibling` (a
+worker on the first hardware thread of each core, the lane on worker 0's SMT sibling),
+`within` (the lane within the two cores the workers leave), and `incoming` (`pinned`, with
+`SO_INCOMING_CPU` on each worker's listener). `SERVER_CPUS` and `CLIENT_CPUS` keep the
+server and the clients apart with `taskset`.
+
+It ran once, for 3 s a layout, in Docker on macOS (arm64, 10 virtual CPUs, no SMT, so no
+`sibling`): every layout started, and the placement printed no warning. Docker's virtual
+CPUs are host threads that macOS moves between cores, so pinning in it pins nothing
+real, and no number from it is a result. macOS itself can't pin: there, the script runs
+`over`, `fewer`, and `nice`, which on Apple silicon puts the lane on the efficiency cores
+(the background QoS class).
+
 ## Acceptance criteria
 
-- [ ] `http::pin_thread(core)` in the shim: `sched_setaffinity` on Linux,
+- [x] `http::pin_thread(core)` in the shim: `sched_setaffinity` on Linux,
       `SetThreadAffinityMask` on Windows, and a result that says it did nothing on macOS;
-      `Config.pin` pins each worker to its own core
-- [ ] The spike's server and script under `bench/`, with the five layouts above
+      `Config.pin` pins each worker to its own core. Built as placement instead
+      (`http::take_seat`, `Config.place`). On Windows, `shim/place.c` compiles with
+      MinGW's gcc (`-Wall -Wextra`, no warnings); its MSVC branch and a run are pending
+- [x] The spike's server and script under `bench/`, with the five layouts above
 - [ ] Results on the benchmark desktop in this task: `/fast` p50, p99, and p99.9 (median
       of 5 and range), the primes route's completed rate, and its 503 and 504 counts, with
       machine, kernel, cores, connections, and run count

@@ -1,6 +1,7 @@
 # 046: Where threads run, and what lanes become, designed against Tina
 
-Status: todo
+Status: placement and lanes of N built on `tina-alignment` ("As built", below); group
+commit, the decisions in `docs/decisions.md`, and the measurements are open
 
 Tina (at `d129f67`) plans every thread's place before it starts: one shard per core,
 pinned, each named by `target_core` in a boot spec that doesn't change while it runs, and
@@ -92,6 +93,41 @@ thread of the program").
 - **Containers.** `hardware_threads()` already counts the affinity mask (Goose `92afe05`,
   in `v2026.2`). A CPU quota without a mask still says nothing about which cores the
   program may use.
+
+## As built (2026-10-17)
+
+The open points above, as the build settled them:
+
+- **The file's format** is the line format, read by `settings.goose`'s `each_setting`,
+  which the development `.env` loader, `http::env_load`, shares. The grammar is
+  `place.goose`'s opening comment; `test/place/place_parse.goose` covers it.
+- **The set's name** is `set`. A role may also name cores itself (`core 7`,
+  `within 4-5`), which become a set of its own.
+- **The environment variable** is `GOOSE_PLACE`, after `--place FILE` or
+  `--place=FILE`.
+- **Exclusive:** a role on cores an exclusive set it doesn't name holds loses them, with
+  a warning, and floats on the cores no exclusive set holds when none are left.
+- **Workers' count:** the file's wins over `Config.workers`, unbounded, since every
+  worker is the same; a lane's is bounded by its `max`.
+- **Workers' index:** a worker takes the next index of its role as its loop starts (a
+  counter per role in `shim/place.c`), so the spawn loop doesn't change.
+- **Connections to cores:** `incoming` in the file, on a role whose threads each have
+  one core, sets `SO_INCOMING_CPU` on each worker's listener (Linux).
+- **Who opens a box:** `main`, as before, through `rest::lane_open`: a NUMA machine's
+  first touch of a box is still `main`'s. Unmeasured, like every NUMA placement.
+- **API:** `http::place_load`, `Config.place` and `Config.role` (default `"workers"`),
+  `http::place_seat(place, role, i)` and `http::take_seat(seat)` for any other thread,
+  `http::place_threads`, and in goose-rest `rest::LaneConfig`, `rest::lane_open(place,
+  cfg)`, `rest::lane_seat`, `rest::lane_stop`, `rest::ask` to a `Lane`, and
+  `rest::ask_by`. The program spawns a lane's threads itself, one per box:
+  `thread_spawn` can't take a `thread_fn` passed through a generic in another module.
+- **Which thread `rest::ask` takes:** the box holding the fewest jobs, by
+  `http::mail_queued`, a snapshot any thread may read, then the others in turn while
+  each is full. "The first box with room", read literally, queues jobs behind a busy
+  thread while others are idle.
+- **Low priority:** nice 10 and `SCHED_BATCH` on Linux, the background QoS class on
+  macOS, which on Apple silicon runs on the efficiency cores only, and
+  `THREAD_PRIORITY_LOWEST` on Windows.
 
 ## Acceptance criteria
 
