@@ -42,9 +42,13 @@ thread of the program").
   hardware thread, SMT siblings included, and each lane has exactly the threads the
   program spawns for it. An idle lane thread takes no CPU, and a busy one at most one
   core, so a lane never uses more cores than it has threads; what a busy lane takes is
-  time from the workers on the cores it lands on. With placement, `lane_open` gives a
-  default and a maximum (a SQLite writer's is 1, since SQLite allows one writer), and the
-  file may pick any count up to it; a count above it is cut to it, with a warning. A lane
+  time from the workers on the cores it lands on. With placement, a lane opens from a
+  `rest::LaneConfig` literal, the way `http::Config` works: `role`, `threads` (1),
+  `max`, `slots` (64), and `size` (256), each left out takes its default (agreed
+  2026-10-17). The file may pick any count up to `max`, and a count above it is cut to
+  it, with a warning. `max` is `threads` unless written, so a lane grows only where its
+  code allows it, and a SQLite writer, which SQLite allows only one of, needs nothing
+  written. A lane
   the file doesn't name keeps the code's default and floats on the cores no exclusive set
   holds.
   Tina fixes its layout in a boot spec compiled into the program; Vx's machine files

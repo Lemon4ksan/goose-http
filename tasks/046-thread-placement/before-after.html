@@ -306,14 +306,15 @@ fn main() {
     let place = http::place_load();
     let cfg = http::Config { port: 8080, place: place, role: "workers", .. };
 
-    // The code gives each lane its default threads and a maximum; the
-    // file may choose up to the maximum, and is cut to it otherwise.
-    //                                   role        threads max  slots
-    let hasher   = rest::lane_open(place, "hasher",   1,      2,   HASHER_SLOTS);
-    // SQLite allows one writer: no file can give this lane two threads.
-    let writer   = rest::lane_open(place, "writer",   1,      1,   WRITER_SLOTS);
-    let reports  = rest::lane_open(place, "reports",  2,      8,   REPORTS_SLOTS);
-    let checkout = rest::lane_open(place, "checkout", 1,      2,   CHECKOUT_SLOTS);
+    // A lane takes threads (1) and slots (64) by default, and a file may
+    // give it at most max threads, which is threads unless written: a
+    // lane grows only where its code allows it. SQLite allows one
+    // writer, so the writer's defaults already say so.
+    let writer   = rest::lane_open(place, rest::LaneConfig { role: "writer", slots: WRITER_SLOTS, .. });
+    let reports  = rest::lane_open(place, rest::LaneConfig { role: "reports", threads: 2, max: 8,
+                                                             slots: REPORTS_SLOTS, .. });
+    let hasher   = rest::lane_open(place, rest::LaneConfig { role: "hasher", .. });
+    let checkout = rest::lane_open(place, rest::LaneConfig { role: "checkout", max: 2, .. });
     // ...
 }
 
@@ -342,7 +343,7 @@ reports  = 4 within db             # SQLite readers: CPU work, warm caches
 workers  = 2
 hasher   = 1 low                   # nice + SCHED_BATCH; background QoS on macOS</code></pre></div>
   </div>
-  <div class="api">Candidates: <span class="chip">http::place_load()</span> <span class="chip">Config.role</span> <span class="chip">rest::lane_open(place, role, ...)</span> <span class="chip">http::take_seat</span> <span class="chip">set NAME = cores [exclusive]</span> <span class="chip">each / within / core N / low</span> · Open (task 046): the file's format and the set's name; who opens a box; <code>SO_INCOMING_CPU</code> for pinned workers</div>
+  <div class="api">Candidates: <span class="chip">http::place_load()</span> <span class="chip">Config.role</span> <span class="chip">rest::LaneConfig { role, threads = 1, max = threads, slots = 64, size = 256 }</span> <span class="chip">rest::lane_open(place, LaneConfig)</span> <span class="chip">http::take_seat</span> <span class="chip">set NAME = cores [exclusive]</span> <span class="chip">each / within / core N / low</span> · Open (task 046): the file's format and the set's name; who opens a box; <code>SO_INCOMING_CPU</code> for pinned workers</div>
 </section>
 
 <!-- ───────── N threads ───────── -->
