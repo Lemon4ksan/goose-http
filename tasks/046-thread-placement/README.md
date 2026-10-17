@@ -31,10 +31,22 @@ thread of the program").
 
 ## Placement, as agreed on 2026-10-17
 
-- **Code names roles; a file per environment places them.** The program names its
-  workers and each lane. A placement file, chosen at startup (`--place prod.place`, or
-  an environment variable naming it), maps each role to cores. A program run without one
-  floats every thread, as today. Changing a machine changes the file, not the build.
+- **Code names roles; a file per machine places them.** The program names its
+  workers and each lane. A placement file, chosen at startup (`--place
+  place/api-eu-1.place`, or an environment variable naming it), maps each role to cores.
+  A repository holds as many as it has kinds of machine, and each deployment names its
+  own. A program run without one floats every thread, as today. Changing a machine
+  changes the file, not the build.
+- **Code bounds each lane's threads; the file chooses within the bounds.** Today the
+  code alone sets every count: `Config.workers`, 0 by default, starts one worker per
+  hardware thread, SMT siblings included, and each lane has exactly the threads the
+  program spawns for it. An idle lane thread takes no CPU, and a busy one at most one
+  core, so a lane never uses more cores than it has threads; what a busy lane takes is
+  time from the workers on the cores it lands on. With placement, `lane_open` gives a
+  default and a maximum (a SQLite writer's is 1, since SQLite allows one writer), and the
+  file may pick any count up to it; a count above it is cut to it, with a warning. A lane
+  the file doesn't name keeps the code's default and floats on the cores no exclusive set
+  holds.
   Tina fixes its layout in a boot spec compiled into the program; Vx's machine files
   (`vxc --machine`, [vxlang.org](https://vxlang.org/docs/machine-files.html)) describe
   hardware to the compiler. Here the file is read at run time and holds only cores.
