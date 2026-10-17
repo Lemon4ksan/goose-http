@@ -359,6 +359,19 @@ int64_t mail_pending(uint64_t key) {
     return b ? LOAD64_ACQUIRE(&b->pending) : 0;
 }
 
+/* The messages the box of to holds, for any thread, or -1 for a stale
+   address or a stopped box. A snapshot, protected against a close as a
+   send is: a sender picks the least busy of several boxes by it. */
+int64_t mail_queued(uint64_t to, uint64_t key) {
+    uint32_t i = (uint32_t)to;
+    if (i >= MAIL_MAX_BOXES) return -1;
+    ADD64(&mail_table[i].senders, 1);
+    mail_box *b = LOAD32_SEQ(&mail_table[i].gen) == (uint32_t)(to >> 32) ? mail_table[i].box : NULL;
+    int64_t n = b && !LOAD32_SEQ(&b->stopped) && mail_key_live(b, key) ? LOAD64_ACQUIRE(&b->pending) : -1;
+    ADD64(&mail_table[i].senders, -1);
+    return n;
+}
+
 /* The box's slot size, for the buffer mail_take_one copies into. */
 int32_t mail_size(uint64_t key) {
     mail_box *b = mail_own(key);

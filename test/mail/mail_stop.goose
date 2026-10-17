@@ -58,9 +58,12 @@ fn test_stop_full() {
     let b, err = http::mail_open_code(SLOTS, 8);
     assert(err == 0);
     let to = http::address(b, 0);
+    assert(http::mail_queued(to) == 0);
     for i in SLOTS { assert(http::mail_send(to, JOB, "") == http::SENT); }
+    assert(http::mail_queued(to) == SLOTS);
     http::mail_stop(b);
     assert(http::mail_send(to, JOB, "") == http::STALE);
+    assert(http::mail_queued(to) == -1);
     assert(!http::mail_stopped(b));
     thread_wait(thread_spawn(lane, b));
 }

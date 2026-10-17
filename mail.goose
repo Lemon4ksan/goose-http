@@ -54,6 +54,7 @@ extern "mail_take_one" fn mail_take_one_c(box: u64, out: u8[:], head: i64[:]) ->
 extern "mail_settle" fn mail_settle_c(box: u64, n: i64) -> i32;
 extern "mail_wait" fn mail_wait_c(box: u64, ms: i32) -> i32;
 extern "mail_stop" fn mail_stop_c(to: u64);
+extern "mail_queued" fn mail_queued_c(to: u64, key: u64) -> i64;
 extern "mail_stopped" fn mail_stopped_c(box: u64) -> i32;
 
 // A waker for a loop's epoll or kqueue instance ep: each wake makes the
@@ -97,6 +98,12 @@ fn mail_send(to: MailAddress, tag: i32, data: const u8[:]) -> i32 {
 // The most bytes a message to to's box may have, or -1 for an address that's
 // STALE. Any thread may call it.
 fn mail_slot_size(to: MailAddress) -> i32 { mail_slot_size_c(key_of(to.box), to.key) }
+
+// How many messages to's box holds, its owner's job in progress included
+// until its mail_take returns, or -1 for an address that's STALE or a box
+// that's stopped. Any thread may call it: a snapshot, for picking the least
+// busy of several boxes.
+fn mail_queued(to: MailAddress) -> i64 { mail_queued_c(key_of(to.box), to.key) }
 
 // Sends v, a flat value, with tag to to's box, as mail_send does: the image
 // to_bytes writes of a one-element array, which mail_value reads back. A
