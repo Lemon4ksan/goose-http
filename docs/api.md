@@ -431,6 +431,17 @@ macOS per performance core ([tuning](tuning.md#worker-count)), and
 `http::worker_count(cfg)` returns the count. `Config.place` and `Config.role` place the
 workers ([placement](#placement)).
 
+`http::run(cfg, worker)` spawns `http::worker_count(cfg)` workers, each a `thread_fn`
+that calls a loop with its own copy of `cfg`, and returns once every one has returned.
+Up to two of the program's values go between `cfg` and the worker, which takes them
+after its `Config`: `http::run(cfg, app, worker)` spawns
+`thread_fn worker(cfg: http::Config, app: App)`. The worker comes last because Goose
+passes a function value after a call's other arguments (spec §7.6). `run` sets each
+copy's `Config.worker` to the worker's index, from 0, which its seat goes by. A program
+that picks a loop for its workers at run time spawns them itself and sets
+`Config.worker`, as `server/app.goose` does; a placed worker without one floats, with
+a warning.
+
 `Config.address` is where to listen: empty for every IPv4 address (127.0.0.1 on
 Windows), an IPv4 or IPv6 address, `"::"` for every address, IPv4 too unless
 `Config.ipv6_only`, or `"unix:/run/app.sock"` for a Unix socket on Linux and macOS,
@@ -451,10 +462,7 @@ stderr and ends the process with status 1, and does nothing for code 0:
 ```rust
 fn main() {
     http::exit_on_error(http::stop_on_signals());
-    let cfg = http::Config { port: 8080, .. };
-    var ids: i64[>..] = [];
-    for i in http::worker_count(cfg) { ids.push(thread_spawn(worker, cfg)); }
-    for id in ids { thread_wait(id); }
+    http::run(http::Config { port: 8080, .. }, worker);
 }
 ```
 
@@ -477,11 +485,11 @@ grammar, and what each platform does: [tuning](tuning.md).
 - `Config.place = http::place_ref(place)` places the workers: an `http::PlaceRef`, a
   handle to the copy the shim holds, so a worker's `Config` stays small. The default
   places nothing. `Config.role` is the workers' role in the file, `"workers"` unless
-  written. Each loop takes the next seat of its role as it starts, in the order the
-  workers start, and sets `SO_INCOMING_CPU` on its listener where the seat asks for it.
+  written. Each loop takes the seat of its role's thread `Config.worker` as it starts,
+  and sets `SO_INCOMING_CPU` on its listener where the seat asks for it.
   `http::worker_count(cfg)` returns the file's count for the role where it gives one.
-  Workers of two servers that share a placement and a role take their seats from one
-  count, so give each server's `Config` a role of its own.
+  Workers of two servers that share a placement and a role take the same seats, so give
+  each server's `Config` a role of its own.
 - `http::place_seat(place, role, i)` returns thread `i`'s `http::Seat`, for a thread
   the program spawns, such as a lane's: core `i` of its set for `each`, wrapping
   around; any core of its set for `within` or `core`; otherwise the cores no exclusive

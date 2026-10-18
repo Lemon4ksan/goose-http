@@ -232,7 +232,7 @@ thread_fn backend(box: http::Box) {
 
 fn main() {
     // ...
-    for id in ids { thread_wait(id); }
+    http::run(cfg, http::address(b, 0), worker);   // returns once the workers have
     http::mail_stop(b);
     thread_wait(lane);
 }

@@ -20,7 +20,8 @@ The program spawns workers and passes each a flat `Config`. A `thread_fn` is com
 as its own program and copies the non-static globals it uses (§11.2). Spawning stays
 in the program because `thread_spawn` cannot take a `thread_fn` passed through a
 package function. Each worker runs one loop and owns its connections for their
-lifetime.
+lifetime. Where workers are spawned was replaced on 2026-10-18 by
+[the package spawns the workers](#the-package-spawns-the-workers).
 
 ## Connection slots and a spill pool
 
@@ -320,7 +321,8 @@ A worker takes the next index of its role from a counter per placement and role 
 `shim/place.c`, as its loop starts, so the program's spawn loop passes no index and
 doesn't change. Which worker gets which core is then arbitrary, which costs nothing,
 since every worker is the same. Two servers that share a placement and a role share
-the counter, so each needs a role of its own.
+the counter, so each needs a role of its own. Replaced on 2026-10-18 by
+[the package spawns the workers](#the-package-spawns-the-workers).
 
 ## An exclusive set takes its cores from other roles
 
@@ -341,6 +343,30 @@ Decided 2026-10-18, task 046.
 placement file's line reader, was built and dropped. No program called it, and in
 production systemd's `EnvironmentFile` and Compose's `env_file` already load one into
 the environment that `env` reads.
+
+## The package spawns the workers
+
+Decided 2026-10-18, task 048. Replaces the spawning in
+[workers own their connections](#workers-own-their-connections) and
+[a worker's seat goes by the order workers start](#a-workers-seat-goes-by-the-order-workers-start).
+
+`http::run(cfg, worker)` spawns the workers, with up to two values of the program's
+between `cfg` and the worker, and returns once every one has returned. It sets each
+worker's index in `Config.worker`, and the loop takes the seat of that index. Goose
+`fb5698125` lets a generic function spawn the `thread_fn` its caller binds, which made
+this possible; before it, every program wrote the same spawn loop, and the shim
+counted workers as they started, since none knew its index. The counter was global C
+state, and with it gone, `shim/place.c` keeps only the placements. Goose has no
+variadic parameters, so `run` has an overload for each count of values; two cover
+every program in goose-http and goose-rest. The worker comes last, as Goose passes a
+function value after a call's other arguments.
+
+A program that picks the loop for its workers at run time, such as `server/app.goose`,
+keeps its own spawn loop and sets `Config.worker`, rather than calling `run` once per
+loop. A placed worker spawned without `Config.worker` floats and prints a warning,
+rather than falling back to a counter, so that no C state stays for code that `run`
+replaces. Two servers that share a placement and a role now take the same seats, so
+each still needs a role of its own.
 
 ## Not yet decided
 

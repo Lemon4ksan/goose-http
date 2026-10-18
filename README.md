@@ -84,10 +84,7 @@ thread_fn worker(cfg: http::Config) {
 }
 
 fn main() {
-    let cfg = http::Config { port: 8080, .. };
-    var ids: i64[>..] = [];
-    for i in http::worker_count(cfg) { ids.push(thread_spawn(worker, cfg)); }
-    for id in ids { thread_wait(id); }
+    http::run(http::Config { port: 8080, .. }, worker);
 }
 ```
 
@@ -127,7 +124,7 @@ flowchart LR
     W1 & W2 & WN <-. mail .-> B["a thread of<br/>the program's"]
 ```
 
-- **Workers.** The program starts one thread per worker. Each worker runs an event loop
+- **Workers.** `http::run` starts one thread per worker. Each worker runs an event loop
   with the same handler and owns its connections. Workers share no memory; threads
   communicate by [mail](docs/patterns.md#mail-between-threads). A handler must never
   block its loop, so slow work runs on a lane, a thread of its own, while the handler

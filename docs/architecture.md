@@ -82,13 +82,14 @@ None of this is in a program that imports the package:
 
 ### Workers and connections
 
-The program spawns workers and passes each a flat `Config`. Each worker runs one loop
-and owns its connections for their lifetime. No worker takes another's connections, as a
-work-stealing scheduler would, so a connection's state stays in one thread's caches and
-idle workers don't contend for a shared run queue. Tina's author explains the trade in
+`http::run` spawns the program's worker, a `thread_fn` it takes as a generic parameter,
+once per worker, and passes each a flat `Config` of its own, with its index in
+`Config.worker`. Each worker runs one loop and owns its connections for their
+lifetime. No worker takes another's connections, as a work-stealing scheduler would, so
+a connection's state stays in one thread's caches and idle workers don't contend for a
+shared run queue. Tina's author explains the trade in
 [the work-stealing myth](https://pmbanugo.me/blog/why-async-await-complect-concurrency):
-fairness costs throughput. Spawning stays in the program because `thread_spawn` can't
-take a `thread_fn` passed through a package function.
+fairness costs throughput.
 
 `http::worker_count(cfg)` uses `Config.workers`, or the hardware thread count by
 default. On macOS it defaults to the performance-core count, and the loop sets
@@ -96,15 +97,12 @@ user-interactive QoS. Linux workers bind separate listeners with `SO_REUSEPORT`;
 macOS and Windows workers share a listener.
 
 A worker takes its seat in a placement first, as its loop starts: both loops call
-`place_worker`, which returns at once when `Config.place` is empty, before the worker
-opens its listener or touches its buffers, since Linux puts a page on the NUMA node of
-the thread that first writes it. The worker reads the `Place` from the shim into a
-local, takes the next index of `Config.role` from the shim's counter, pins itself and
-lowers its priority as that seat says, and keeps only the seat. After it opens its
-listener, it sets `SO_INCOMING_CPU` on it where the seat asks. The index goes by the
-order workers start, not by the order the program spawned them, so the spawn loop
-takes no index; every worker is the same, so which one gets which core doesn't matter.
-`Config` holds only the placement's handle, since `thread_spawn` and the loops copy
+`worker_seat`, which returns at once when `Config.place` is empty, and `take_seat`,
+before the worker opens its listener or touches its buffers, since Linux puts a page
+on the NUMA node of the thread that first writes it. The worker reads the `Place` from
+the shim into a local, takes the seat of thread `Config.worker` of `Config.role`, pins
+itself and lowers its priority as that seat says, and keeps only the seat. After it
+opens its listener, it sets `SO_INCOMING_CPU` on it where the seat asks. `Config` holds only the placement's handle, since `thread_spawn` and the loops copy
 `Config`, and a `Place` in it made each worker hold about three copies of 4.4 KB.
 Where placement helps and what each platform does: [tuning](tuning.md).
 

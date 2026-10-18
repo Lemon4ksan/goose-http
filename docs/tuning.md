@@ -9,8 +9,8 @@ far, no layout has beaten the default on the one machine measured
 
 ## Worker count
 
-`Config.workers` sets how many workers `http::worker_count(cfg)` returns, and the
-program spawns that many ([config and shutdown](api.md#config-and-shutdown)). The
+`Config.workers` sets how many workers `http::worker_count(cfg)` returns, and
+`http::run` spawns that many ([config and shutdown](api.md#config-and-shutdown)). The
 default, 0, depends on the platform:
 
 | Platform | Default workers |
@@ -67,7 +67,8 @@ file, not a new build.
 program that parses its own flags passes the path: `http::place_load(path)`. With no
 file named, every thread floats.
 
-The workers take their seats themselves, from `Config.place`. A lane's thread is the
+The workers take their seats themselves, from `Config.place` and the index `http::run`
+gives each in `Config.worker`. A lane's thread is the
 program's, so the program hands it its seat, and the thread takes it first, before it
 touches memory of its own: Linux puts a page on the NUMA node of the thread that first
 writes it.
@@ -89,9 +90,7 @@ fn main() {
     let b, err = http::mail_open(256, 64);
     http::exit_on_error(err);
     let lane = thread_spawn(hasher, b, http::place_seat(place, "hasher", 0));
-    var ids: i64[>..] = [];
-    for i in http::worker_count(cfg) { ids.push(thread_spawn(worker, cfg, http::address(b, 0))); }
-    for id in ids { thread_wait(id); }
+    http::run(cfg, http::address(b, 0), worker);
     http::mail_stop(b);
     thread_wait(lane);
 }
