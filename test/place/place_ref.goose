@@ -42,4 +42,11 @@ fn main() {
     next(http::PlaceRef { .. }, "workers");
     let back = http::place_of(ra);
     print("a, read back: ", back.roles.len, " roles, workers ", http::place_threads(back, "workers", 8));
+    // A place_parse result that nothing checked: place_register records the machine.
+    var q, err = http::place_parse("workers = 2 each 0-1\n", "unchecked.place");
+    assert(err.len == 0);
+    assert(http::cores_count(q.cpus) == 0);
+    http::place_register(q);
+    assert(http::cores_count(q.cpus) > 0);
+    print("unchecked, registered: ", http::cores_count(http::place_of(http::place_ref(q)).cpus) > 0);
 }

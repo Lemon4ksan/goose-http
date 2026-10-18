@@ -424,11 +424,25 @@ fn place_seat(p: const Place&, role: const u8[:], i: i64) -> Seat {
     return s;
 }
 
+// Checks p against this machine, with the warnings place_check prints.
+fn place_check_machine(p: Place&) {
+    var cpus = Cores { .. };
+    let pins = place_cpus_c(cpus.bits);
+    if pins < 0 {
+        place_warn(str("can't read the process's cores: error ", -pins, "; every thread floats"));
+    } else {
+        place_check(p, cpus, pins > 0);
+    }
+}
+
 // Hands p to the shim, which keeps a copy, and gives p the copy's handle, for
 // place_ref; place_load does it for the file it reads. A program does it
-// before it spawns the threads that use it. Past 8 placements, one warning,
-// and p places nothing.
+// before it spawns the threads that use it. A p that place_check hasn't
+// recorded the machine in, which it knows by cpus holding no core (a checked
+// p has at least one), is checked first, so a place_parse result pins. Past 8
+// placements, one warning, and p places nothing.
 fn place_register(p: Place&) {
+    if cores_count(p.cpus) == 0 { place_check_machine(p); }
     let one: Place[1] = [p];
     let id = place_keep_c(bytes_of(one));
     guard id > 0 else {
@@ -496,7 +510,8 @@ fn place_current() -> Cores {
 }
 
 // The placement file at path, checked against this machine and handed to the
-// shim (place_register), for place_ref. An empty path
+// shim, for place_ref, by place_register, which checks it against this machine
+// first. An empty path
 // is the file the command line names, with --place FILE or --place=FILE, or
 // else GOOSE_PLACE; a program that reads its own flags passes the path in.
 // With no file named, an empty placement, which floats every thread. A file
@@ -522,13 +537,6 @@ fn place_load(file: const u8[:] = "") -> Place {
     guard err.len == 0 else {
         place_warn(err);
         exit(2);
-    }
-    var cpus = Cores { .. };
-    let pins = place_cpus_c(cpus.bits);
-    if pins < 0 {
-        place_warn(str("can't read the process's cores: error ", -pins, "; every thread floats"));
-    } else {
-        place_check(p, cpus, pins > 0);
     }
     place_register(p);
     return p;

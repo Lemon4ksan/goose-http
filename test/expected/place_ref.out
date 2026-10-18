@@ -10,3 +10,4 @@ b:
 none:
   workers: floats
 a, read back: 2 roles, workers 2
+unchecked, registered: true

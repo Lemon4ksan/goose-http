@@ -492,7 +492,9 @@ grammar, and what each platform does: [tuning](tuning.md).
 - `http::place_listener(seat, fd)` sets `SO_INCOMING_CPU` on a listener of the
   program's own, where `seat` asks for it. The loops call it for theirs.
 - `http::place_register(place)` hands a `Place` to the shim and gives it the handle
-  `place_ref` returns; `place_load` calls it. The shim holds 8 at most: past them, it
+  `place_ref` returns; `place_load` calls it. A `Place` from `place_parse` that no
+  `place_check` has recorded the machine in is checked first, so it pins. The shim
+  holds 8 at most: past them, it
   prints a warning, and the placement places nothing.
 
 ### Event loops
