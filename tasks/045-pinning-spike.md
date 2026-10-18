@@ -1,7 +1,8 @@
 # 045: Pin threads to cores, as an option
 
 Status: the spike is built (`bench/pinning.sh`) and smoke-tested in Docker; the
-measurement on bare metal is pending
+measurement on a bare-metal Linux machine is pending. Not WSL2, whose pins are virtual
+CPUs, nor Windows natively (task 047, 2026-10-18)
 
 Tina pins each shard to a core of its own (its `docs/concepts/thread_per_core.md`, at
 `d129f67`). goose-http pins nothing. A worker runs on every hardware thread by default,
@@ -96,7 +97,7 @@ waits for bare-metal Linux, where the pinned layouts can run.
       and clang-cl, `test/place/place_seat.goose` reads each pinned seat back, and
       `bench/pinning/pinning.goose` runs with a placement file, at `cb66ab09` (task 047)
 - [x] The spike's server and script under `bench/`, with the five layouts above
-- [ ] Results on the benchmark desktop in this task: `/fast` p50, p99, and p99.9 (median
+- [ ] Results on a bare-metal Linux machine in this task: `/fast` p50, p99, and p99.9 (median
       of 5 and range), the primes route's completed rate, and its 503 and 504 counts, with
       machine, kernel, cores, connections, and run count
 - [ ] The decision, recorded in `docs/decisions.md`: pinning workers, pinning a lane, or

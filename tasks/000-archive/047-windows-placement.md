@@ -1,6 +1,6 @@
 # 047: The lane stop and placement on Windows, under MSVC
 
-Status: in progress
+Status: done
 
 Tasks 044 and 046 added C that every Windows build compiles and every worker runs, on
 the `tina-alignment` branch: `shim/place.c`, which `http.build` lists under
@@ -140,10 +140,15 @@ a wake for every message, which costs far more than a locked load.
 
 ## Measuring placement on Windows
 
-Task 045's spike measures the pinned layouts, which macOS can't run. WSL2 pins virtual
-CPUs, so the desktop's real cores are pinned only natively. This contradicts
-`docs/development.md` ("Windows isn't for benchmarks"): record the decision there if the
-spike runs natively. `bench/pinning.sh` as written needs Linux for three things: the
+Decided (2026-10-18): the pinned layouts are measured on bare-metal Linux, in task 045,
+not on Windows. WSL2 pins virtual CPUs, which Windows moves across the real cores, so a
+pinned layout there measures about as floating does. Natively, Windows pins real cores,
+but the server runs on IOCP, 2 to 2.7 times slower than io_uring, and
+`docs/development.md` keeps Windows out of benchmarks. WSL2 stays useful as a smoke test
+of `bench/pinning.sh` and its layouts.
+
+What a native Windows run would have needed, for the record: `bench/pinning.sh` needs
+Linux for three things: the
 server's cores (`taskset -cp`), `SERVER_CPUS` and `CLIENT_CPUS` (`taskset -c`), and
 `sibling` (`/sys/.../thread_siblings_list`). The placement files themselves work on
 Windows. A native run needs those three from Windows: the core count from `nproc` in Git
@@ -168,6 +173,8 @@ be written down instead).
 - [x] `mail_send`'s two loads, and `mail_wait`'s reads of `stopped`, read with
       `LOAD32_ACQUIRE` under MSVC, kept only if it measures faster beyond the runs'
       spread, and recorded here either way
-- [ ] Tasks 044 and 045's Windows criteria ticked, or what failed recorded there
-- [ ] If task 045's spike runs natively: `bench/pinning.sh` runs there, and the
-      decision to measure on Windows is in `docs/development.md`
+- [x] Tasks 044 and 045's Windows criteria ticked, or what failed recorded there: at
+      `cb66ab09`
+- [x] If task 045's spike runs natively: `bench/pinning.sh` runs there, and the
+      decision to measure on Windows is in `docs/development.md`. It doesn't: task 045
+      measures on bare-metal Linux ("Measuring placement on Windows", 2026-10-18)

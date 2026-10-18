@@ -69,9 +69,8 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 | 034: Goose releases | goose-http and goose-rest build and pass from the release on every platform; goose-compress and our own packages remain. |
 | 043: `later` without waiting configured | Confirm with a test that `later` gets no `TIMEOUT` when `mail_slots` and `max_waiting` are 0, then fix it. |
 | 044: lane stop | Done on `tina-alignment`, with its docs, and tested on macOS, Linux, and Windows; the merge remains. |
-| 045: pinning | Spike built; on an M1 Pro no layout beats `over`. The pinned layouts' measurement on real cores remains. |
+| 045: pinning | Spike built; on an M1 Pro no layout beats `over`. The pinned layouts' measurement on a bare-metal Linux machine remains. |
 | 046: placement and lanes | Placement and lanes of N built on `tina-alignment`; group commit, the decisions, and the measurements remain. |
-| 047: Windows placement | Build and run tasks 044 and 046's C with MSVC; each Windows shortfall warns and runs on. |
 | 048: packages spawn threads | Agree the open questions, then `http::run` and `lane_open` spawning; waits for a Goose release with `fb5698125`. |
 
 Tasks 013 and 018 have completed acceptance criteria and are archived with the other
