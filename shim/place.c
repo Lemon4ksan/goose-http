@@ -115,6 +115,11 @@ int32_t place_current(place_u64s out) {
     place_clear(out);
 #if defined(__linux__)
     return place_affinity(out);
+#elif defined(_WIN32)
+    GROUP_AFFINITY ga;
+    if (!GetThreadGroupAffinity(GetCurrentThread(), &ga)) return -PLACE_EINVAL;
+    if (ga.Group == 0 && out.len > 0) out.data[0] = (uint64_t)ga.Mask;
+    return 0;
 #else
     return place_cpus(out) < 0 ? -PLACE_EINVAL : 0;
 #endif
@@ -185,6 +190,15 @@ int32_t place_get(int32_t id, void *out) {
 int64_t place_next(int32_t id, int32_t role) {
     if (id < 1 || id > PLACE_KEPT || role < 0 || role >= 32) return 0;
     return PLACE_ADD(&place_kept[id - 1].counts[role]);
+}
+
+/* 1 where place_incoming can work: SO_INCOMING_CPU is Linux's. */
+int32_t place_has_incoming(void) {
+#if defined(__linux__)
+    return 1;
+#else
+    return 0;
+#endif
 }
 
 /* Has the kernel give listener fd the connections whose packets cpu

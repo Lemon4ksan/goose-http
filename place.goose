@@ -19,8 +19,8 @@
 // Nothing about the hardware stops the start: cores the process can't use,
 // more threads than a set's cores (they wrap around), cores an exclusive set
 // holds (dropped), exclusive sets that hold every core, incoming on a thread
-// with more than one core, and a platform with no affinity (macOS) each
-// print a warning. A file that doesn't parse does stop it.
+// with more than one core or off Linux, and a platform with no affinity
+// (macOS) each print a warning. A file that doesn't parse does stop it.
 //
 // A # starts a comment at the start of a line or after a space or tab. The
 // calls are the shim's (shim/place.c). Nothing here knows HTTP, so that it
@@ -89,6 +89,7 @@ extern "place_self" fn place_self_c(cores: const u64[:]) -> i32;
 extern "place_low" fn place_low_c() -> i32;
 extern "place_next" fn place_next_c(id: i32, role: i32) -> i64;
 extern "place_incoming" fn place_incoming_c(fd: i32, cpu: i32) -> i32;
+extern "place_has_incoming" fn place_has_incoming_c() -> i32;
 
 // place_keep copies image, a Place's bytes, and keeps the copy for the
 // process's life, beyond the call; it returns the copy's handle, from 1, or
@@ -366,7 +367,12 @@ fn place_check(p: Place&, cpus: Cores, pins: bool) {
     for r in p.roles {
         guard r.incoming else { continue; }
         let s = place_seat(p, r.name, 0);
-        guard s.incoming < 0 else { continue; }
+        if s.incoming >= 0 {
+            if place_has_incoming_c() == 0 {
+                place_warn(str("role ", r.name, ": incoming needs Linux's SO_INCOMING_CPU; it does nothing here"));
+            }
+            continue;
+        }
         let runs = if cores_count(s.cores) == 0 { str("they float") } else { str("each runs on ", s.cores) };
         place_warn(str("role ", r.name, ": incoming needs a thread on one core, and ", runs, "; it does nothing"));
     }
@@ -474,9 +480,10 @@ fn take_seat(s: Seat) {
 }
 
 // Gives listener fd the connections whose interrupts s's core takes, where s
-// asks for it. A failure prints a warning from the worker.
+// asks for it and the platform can. A failure prints a warning from the
+// worker; place_check has warned where the platform can't.
 fn place_listener(s: Seat, fd: i32) {
-    guard s.incoming >= 0;
+    guard s.incoming >= 0 && place_has_incoming_c() != 0;
     let e = place_incoming_c(fd, s.incoming as i32);
     if e < 0 { place_warn(str("can't set SO_INCOMING_CPU on core ", s.incoming, ": error ", -e)); }
 }
