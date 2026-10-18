@@ -25,9 +25,13 @@ without that, the JIT library's symbol table picks up the unpacked release's std
       example (2026-10-15).
 - [x] The HttpArena image builds from the release; on arm64 Docker, which has no
       release archive, from the release's tag (2026-10-15, Docker Desktop on the Mac).
-- [ ] `scripts/test.sh` passes with the release in WSL and in Git Bash on Windows.
+- [x] `scripts/test.sh` passes with the release in WSL and in Git Bash on Windows:
+      `v2026.2`, in WSL2 at `2bf3134e` and in Git Bash with MSVC and clang-cl at
+      `cb66ab09` (2026-10-18).
 - [ ] goose-compress builds from the pinned release the same way.
-- [ ] goose-rest builds from the pinned release the same way.
+- [x] goose-rest builds from the pinned release the same way: its `scripts/goose.sh`
+      pins `v2026.2`, and its `scripts/test.sh` passes with it in WSL2 and in Git Bash
+      at goose-rest `5e1a4e3` (2026-10-18).
 - [ ] Decide what "our own packages" means and record it: release archives built by a
       workflow, as Goose's, or tags that `import ... from "github.com/kaitk/...@vX"`
       already resolves. Then implement it.
