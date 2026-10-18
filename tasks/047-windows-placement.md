@@ -1,0 +1,84 @@
+# 047: The lane stop and placement on Windows, under MSVC
+
+Status: todo
+
+Tasks 044 and 046 added C that every Windows build compiles and every worker runs, on
+the `tina-alignment` branch: `shim/place.c`, which `http.build` lists under
+`c_sources_windows`, and in `shim/mail.c` the stop flag, `mail_stop`, `mail_stopped`,
+and `mail_queued`. Each loop calls `place_worker` as it starts, which returns at once
+when no placement is loaded. So a compile error in either file breaks every Windows
+program, whether it places threads or not. None of it has been built with MSVC or run on
+Windows yet (2026-10-17).
+
+The goal (2026-10-18): MSVC builds every feature, and each one works on Windows. Where a
+Windows API can't do what a feature asks, the feature prints one warning and the program
+runs without it, as placement already does on macOS. Only a placement file that doesn't
+parse stops the start (task 046).
+
+## What was checked without Windows (2026-10-17)
+
+- `shim/place.c` and `shim/mail.c` compile with MinGW-w64's gcc, `-std=c11 -Wall
+  -Wextra`, with no warnings ([Check the Windows shims without
+  Windows](../docs/development.md#check-the-windows-shims-without-windows)).
+- `shim/place.c` with `-D_MSC_VER=1930` under the same gcc: its MSVC branch, the
+  `Interlocked*` counters, compiles. That is gcc with MinGW's headers, not `cl.exe`.
+- `mail.c`'s new code uses only the atomics macros its MSVC branch already defines
+  (`LOAD32_SEQ`, `STORE32_SEQ`, `LOAD64_SEQ`, `LOAD64_ACQUIRE`, `ADD64`), and the
+  platform's `net_waker_wake`, an IOCP completion packet on Windows.
+
+## What each feature does on Windows, as written
+
+| Feature | Windows call | Where it can fall short |
+|---|---|---|
+| `mail_stop`, `mail_stopped`, `mail_queued` | none of its own; the wake is `net_waker_wake` | none known; `test/mail/mail_stop.goose` covers a stop that wakes a sleeping lane |
+| Pin a thread (`take_seat`) | `SetThreadAffinityMask` on processor group 0 | a core above 63 returns `-EINVAL`: one warning, and the thread floats |
+| The process's cores (`place_cpus`) | `GetProcessAffinityMask`, group 0 | a machine with more than 64 logical CPUs, or several groups, shows only group 0's, so a file naming the others warns that they "aren't the process's" |
+| `low` | `SetThreadPriority(THREAD_PRIORITY_LOWEST)` | none known |
+| `incoming` | none: `SO_INCOMING_CPU` is Linux's | one warning; the listener is left as it is |
+| `env_load` (`.env`) | `_putenv_s` | Goose's `env` must read the same environment: see below |
+| Workers' index, warn-once | `InterlockedExchangeAdd64` | none known |
+
+## Known problems to fix
+
+- **`test/place/place_seat.goose` will fail.** `place_current`, the readback, returns
+  the calling thread's cores only on Linux; elsewhere it returns the process's. On macOS
+  nothing pins, so the test skips the comparison; on Windows threads pin, so it compares
+  a one-core seat with the process's mask and prints `1 of 3`. Windows has no
+  `GetThreadAffinityMask`: `SetThreadAffinityMask` returns the previous mask, so setting
+  it to the mask it returns reads it. Do that in `place_current`'s Windows branch.
+- **`.env` and `env`:** check that the release's `gs_os_getenv`
+  (`src/runtime/runtime_os.h` in the pinned Goose) reads what `_putenv_s` writes. If it
+  calls `GetEnvironmentVariableW`, `_putenv_s` may not reach it; set the variable with
+  `SetEnvironmentVariableW` as well, from the UTF-8 name and value.
+  `test/place/env_load.goose` shows which.
+- **clangd's "Unterminated `#pragma pack`"** on `shim/place.c` is a false report: the
+  file pops it after its two structs, as `mail.c` does.
+
+## Measuring placement on Windows
+
+Task 045's spike measures the pinned layouts, which macOS can't run. WSL2 pins virtual
+CPUs, so the desktop's real cores are pinned only natively. This contradicts
+`docs/development.md` ("Windows isn't for benchmarks"): record the decision there if the
+spike runs natively. `bench/pinning.sh` as written needs Linux for three things: the
+server's cores (`taskset -cp`), `SERVER_CPUS` and `CLIENT_CPUS` (`taskset -c`), and
+`sibling` (`/sys/.../thread_siblings_list`). The placement files themselves work on
+Windows. A native run needs those three from Windows: the core count from `nproc` in Git
+Bash, `start /affinity` or the placement file for the clients, and SMT siblings from
+`GetLogicalProcessorInformationEx` (on the 5800X3D, CPU n and n+8 share a core, which can
+be written down instead).
+
+## Acceptance criteria
+
+- [ ] `scripts/test.sh` passes in Git Bash with MSVC (`CC=msvc`, the default) on the
+      branch, the mail and placement tests included, and with `CC=clang-cl`
+- [ ] `place_current` reads the thread's own mask on Windows, and `place_seat` prints
+      `3 of 3 threads read their seats back` there
+- [ ] `env_load` sets what `env` then reads, on Windows
+- [ ] Each Windows shortfall in the table above prints one warning and runs on without
+      the feature, checked with a placement file that names a core above 63 and one
+      that uses `incoming`; any other shortfall found is added to the table
+- [ ] goose-rest's tests pass with the branch's goose-http, as its
+      `docs/development.md` runs them on Windows
+- [ ] Tasks 044 and 045's Windows criteria ticked, or what failed recorded there
+- [ ] If task 045's spike runs natively: `bench/pinning.sh` runs there, and the
+      decision to measure on Windows is in `docs/development.md`
