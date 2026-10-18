@@ -273,14 +273,16 @@ void mail_mark(uint64_t box, uint64_t key, int32_t live) {
     else CAS64(&b->live[i], (int64_t)key, 0);
 }
 
-/* A snapshot, protected against a concurrent close as a send is. A key
-   cleared after this read can still have a send in flight or queued. */
+/* Whether a send would pass the address check: 0 for a stale address, a
+   stopped box, or a tracked key not marked live. A snapshot, protected against
+   a concurrent close as a send is. A key cleared after this read can still
+   have a send in flight or queued. */
 int32_t mail_live(uint64_t to, uint64_t key) {
     uint32_t i = (uint32_t)to;
     if (i >= MAIL_MAX_BOXES) return 0;
     ADD64(&mail_table[i].senders, 1);
     mail_box *b = LOAD32_SEQ(&mail_table[i].gen) == (uint32_t)(to >> 32) ? mail_table[i].box : NULL;
-    int32_t live = b && mail_key_live(b, key);
+    int32_t live = b && !LOAD32_SEQ(&b->stopped) && mail_key_live(b, key);
     ADD64(&mail_table[i].senders, -1);
     return live;
 }
@@ -384,14 +386,15 @@ int32_t mail_size(uint64_t key) {
     return b ? (int32_t)b->size : 0;
 }
 
-/* The slot size for any thread, or -1 for a stale address. It checks the
-   box and key as mail_send does, holding off a close while it reads. */
+/* The slot size for any thread, or -1 for a stale address or a stopped box. It
+   checks the box, stop flag, and key as mail_send does, holding off a close
+   while it reads. */
 int32_t mail_slot_size(uint64_t to, uint64_t key) {
     uint32_t i = (uint32_t)to;
     if (i >= MAIL_MAX_BOXES) return -1;
     ADD64(&mail_table[i].senders, 1);
     mail_box *b = LOAD32_SEQ(&mail_table[i].gen) == (uint32_t)(to >> 32) ? mail_table[i].box : NULL;
-    int32_t size = b && mail_key_live(b, key) ? (int32_t)b->size : -1;
+    int32_t size = b && !LOAD32_SEQ(&b->stopped) && mail_key_live(b, key) ? (int32_t)b->size : -1;
     ADD64(&mail_table[i].senders, -1);
     return size;
 }

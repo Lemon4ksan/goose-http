@@ -85,7 +85,7 @@ fn address(b: Box, key: u64) -> MailAddress { MailAddress { box: b.handle, key: 
 // it still matches. Does nothing for an untracked box or an invalid key.
 fn mail_mark(b: Box, key: u64, live: bool) { mail_mark_c(key_of(b.handle), key, if live { 1 } else { 0 }); }
 
-// Any thread: whether the box is open and accepts this key now. A snapshot:
+// Any thread: whether the box is open, not stopped, and accepts this key now. A snapshot:
 // the owner may clear it before a following send, which then returns STALE.
 // A send already in flight or queued may still arrive after a clear.
 fn mail_live(to: MailAddress) -> bool { mail_live_c(key_of(to.box), to.key) != 0 }
@@ -96,7 +96,7 @@ fn mail_send(to: MailAddress, tag: i32, data: const u8[:]) -> i32 {
 }
 
 // The most bytes a message to to's box may have, or -1 for an address that's
-// STALE. Any thread may call it.
+// STALE, including a stopped box. Any thread may call it.
 fn mail_slot_size(to: MailAddress) -> i32 { mail_slot_size_c(key_of(to.box), to.key) }
 
 // How many messages to's box holds, or -1 for an address that's STALE or a

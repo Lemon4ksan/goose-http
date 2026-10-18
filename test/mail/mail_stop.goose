@@ -61,7 +61,11 @@ fn test_stop_full() {
     assert(http::mail_queued(to) == 0);
     for i in SLOTS { assert(http::mail_send(to, JOB, "") == http::SENT); }
     assert(http::mail_queued(to) == SLOTS);
+    assert(http::mail_live(to));
+    assert(http::mail_slot_size(to) == 8);
     http::mail_stop(b);
+    assert(!http::mail_live(to));
+    assert(http::mail_slot_size(to) == -1);
     assert(http::mail_send(to, JOB, "") == http::STALE);
     assert(http::mail_queued(to) == -1);
     assert(!http::mail_stopped(b));

@@ -307,7 +307,8 @@ else { http::respond(out, 503, "text/plain", "busy"); return; }
   and an `http::Error`, `http::mail_wait(box, ms)`, `http::mail_take(box) { key, tag, bytes => }`. `http::mail_send(address, tag,
   bytes)` returns `SENT`, `FULL` (no slot free), `TOO_LONG` (longer than a slot), or
   `STALE` at once, from any thread, and never blocks. `http::mail_slot_size(address)`
-  gives a sender the box's slot size, or -1 for a `STALE` address.
+  gives a sender the box's slot size, or -1 for a `STALE` address, a stopped box
+  included; `mail_live` is false for a stopped box too.
 - `http::mail_stop(box)` stops a box, from any thread. The stop is a flag in the box,
   not a message, so a full box can't refuse it, and it wakes the owner's `mail_wait`.
   From then on, sends return `STALE`, and what the box already holds is still taken.
