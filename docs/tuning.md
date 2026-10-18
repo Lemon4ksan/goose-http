@@ -33,6 +33,10 @@ on.
 Placement decides which cores each thread runs on, and at what priority. It's opt-in:
 without a placement file, every thread floats, and the OS decides where it runs.
 
+Placement is experimental: it's opt-in and free when unused, but not yet measured to
+help on real cores (only macOS has been measured, with no gain), so its grammar and
+calls may be trimmed or removed once measured.
+
 Placement may help a dedicated machine with cores to spare, where a lane does CPU work
 beside workers whose short requests need a low tail latency: the lane gets cores of its
 own, or a low priority, so short requests don't wait behind it. Whether it does is

@@ -460,6 +460,10 @@ fn main() {
 
 ### Placement
 
+Placement is experimental: it's opt-in and free when unused, but not yet measured to
+help on real cores (only macOS has been measured, with no gain), so its grammar and
+calls may be trimmed or removed once measured.
+
 Shown in `bench/pinning/pinning.goose`. When placement helps, the placement file's
 grammar, and what each platform does: [tuning](tuning.md).
 
