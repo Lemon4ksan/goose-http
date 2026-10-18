@@ -93,6 +93,27 @@ fn test_exclusive_and_max() {
     print("threads: reports ", http::place_threads(p, "reports", 1, 2));
 }
 
+// Exclusive sets that hold every core leave a role the file doesn't name
+// nowhere of its own, so it floats onto them; incoming on a role whose
+// threads have several cores, or none, can't apply. Each warns. A negative
+// index is taken as 0.
+fn test_warnings() {
+    var p, err = http::place_parse("""
+        set front = 0-3 exclusive
+        set back = 4-7 exclusive
+        workers = 4 each front
+        hasher = 1 within back incoming
+        writer = core 2 incoming
+        reports = 2 incoming
+        """, "full.place");
+    assert(err.len == 0);
+    http::place_check(p, cores("0-7"), true);
+    print("seats with every core exclusive:");
+    seat(p, "other", 0);
+    seat(p, "writer", 0);
+    seat(p, "workers", -1);
+}
+
 // macOS: no affinity, so one warning and every thread floats; low stays.
 fn test_no_affinity() {
     var p, err = http::place_parse(DESKTOP, "desktop.place");
@@ -152,6 +173,7 @@ fn main() {
     test_desktop();
     test_small_machine();
     test_exclusive_and_max();
+    test_warnings();
     test_no_affinity();
     test_dev();
     test_crlf_and_tabs();

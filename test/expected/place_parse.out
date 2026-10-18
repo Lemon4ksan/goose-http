@@ -31,6 +31,10 @@ seats with an exclusive set:
   reports 0: 4-5
   other 0: 4-7
 threads: reports 2
+seats with every core exclusive:
+  other 0: floats
+  writer 0: floats
+  workers -1: 0
 seats where threads can't be pinned:
   workers 0: floats
   checkout 0: floats low

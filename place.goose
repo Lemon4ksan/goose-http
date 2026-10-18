@@ -13,12 +13,14 @@
 // each and within take a set's name or cores (4-5, 8). incoming: a thread on
 // one core is given the connections whose interrupts that core takes
 // (SO_INCOMING_CPU, Linux). A role the file doesn't name floats on the cores
-// no exclusive set holds.
+// no exclusive set holds, or on any core where the exclusive sets hold them
+// all.
 //
 // Nothing about the hardware stops the start: cores the process can't use,
 // more threads than a set's cores (they wrap around), cores an exclusive set
-// holds (dropped), and a platform with no affinity (macOS) each print a
-// warning. A file that doesn't parse does stop it.
+// holds (dropped), exclusive sets that hold every core, incoming on a thread
+// with more than one core, and a platform with no affinity (macOS) each
+// print a warning. A file that doesn't parse does stop it.
 //
 // A # starts a comment at the start of a line or after a space or tab. The
 // calls are the shim's (shim/place.c). Nothing here knows HTTP, so that it
@@ -347,6 +349,19 @@ fn place_check(p: Place&, cpus: Cores, pins: bool) {
             place_warn(str("role ", r.name, ": cores ", taken, " belong to an exclusive set; it floats"));
         }
     }
+    var exclusive = false;
+    for s in p.sets { if s.exclusive { exclusive = true; } }
+    if exclusive && cores_count(cores_minus(cpus, place_exclusive(p, -1))) == 0 {
+        place_warn(str("the exclusive sets hold every core the process may use (", cpus,
+                       "): a role the file doesn't name, or whose cores they hold, floats on any core, theirs included"));
+    }
+    for r in p.roles {
+        guard r.incoming else { continue; }
+        let s = place_seat(p, r.name, 0);
+        guard s.incoming < 0 else { continue; }
+        let runs = if cores_count(s.cores) == 0 { str("they float") } else { str("each runs on ", s.cores) };
+        place_warn(str("role ", r.name, ": incoming needs a thread on one core, and ", runs, "; it does nothing"));
+    }
 }
 
 // The threads role gets: the file's count, or the code's, threads, where the
@@ -371,8 +386,9 @@ fn place_threads(p: const Place&, role: const u8[:], threads: i64, max: i64 = 0)
 
 // The seat of role's thread i: its set's core i (wrapping around) for each,
 // any of its cores for within, and otherwise the cores no exclusive set
-// holds, or none where that's every core.
+// holds, or none where that's every core. A negative i is taken as 0.
 fn place_seat(p: const Place&, role: const u8[:], i: i64) -> Seat {
+    let index = max(i, 0);
     var s = Seat { .. };
     let at = place_role_at(p, role);
     if at >= 0 {
@@ -385,7 +401,7 @@ fn place_seat(p: const Place&, role: const u8[:], i: i64) -> Seat {
         c = cores_minus(p.cpus, place_exclusive(p, -1));
         if cores_same(c, p.cpus) { c = Cores { .. }; }
     } else if p.roles[at].how == PLACE_EACH {
-        let core = cores_nth(c, i % k);
+        let core = cores_nth(c, index % k);
         c = Cores { .. };
         cores_add(c, core);
     }
