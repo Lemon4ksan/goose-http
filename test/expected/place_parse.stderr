@@ -5,3 +5,4 @@ place: role writer: cores 2 belong to an exclusive set; it floats
 place: role reports: cores 2-3 belong to an exclusive set; it runs on 4-5
 place: role reports: 3 threads cut to the code's most, 2
 place: this platform can't pin threads: every thread floats
+place: role workers: incoming needs a pinned thread; it does nothing here

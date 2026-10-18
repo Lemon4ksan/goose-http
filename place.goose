@@ -312,6 +312,11 @@ fn place_check(p: Place&, cpus: Cores, pins: bool) {
     for r in p.roles { if r.set >= 0 { places = true; } }
     guard pins else {
         if places { place_warn("this platform can't pin threads: every thread floats"); }
+        for r in p.roles {
+            if r.incoming {
+                place_warn(str("role ", r.name, ": incoming needs a pinned thread; it does nothing here"));
+            }
+        }
         return;
     }
     for s in p.sets {
