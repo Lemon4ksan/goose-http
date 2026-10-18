@@ -232,10 +232,5 @@ fn main() {
     let n = http::worker_count(cfg);
     print("listening on port ", cfg.port, ", ", n, if n == 1 { " worker" } else { " workers" }, ", ",
           name, " loop", ring, if board_gpio_simulated() { ", GPIO simulated" } else { "" });
-    var ids: i64[>..] = [];
-    for i in n {
-        cfg.worker = i;
-        ids.push(if b.epoll { thread_spawn(worker_epoll, cfg, b) } else { thread_spawn(worker, cfg, b) });
-    }
-    for id in ids { thread_wait(id); }
+    if b.epoll { http::run(cfg, b, worker_epoll) } else { http::run(cfg, b, worker) }
 }
