@@ -1,6 +1,6 @@
 # 047: The lane stop and placement on Windows, under MSVC
 
-Status: todo
+Status: in progress
 
 Tasks 044 and 046 added C that every Windows build compiles and every worker runs, on
 the `tina-alignment` branch: `shim/place.c`, which `http.build` lists under
@@ -26,27 +26,53 @@ parse stops the start (task 046).
   (`LOAD32_SEQ`, `STORE32_SEQ`, `LOAD64_SEQ`, `LOAD64_ACQUIRE`, `ADD64`), and the
   platform's `net_waker_wake`, an IOCP completion packet on Windows.
 
-## What each feature does on Windows, as written
+## What was checked on Windows (2026-10-18)
+
+On the desktop (Ryzen 7 5800X3D, Windows 11 Pro 10.0.26300), in Git Bash, with MSVC
+19.51 and clang-cl:
+
+- Both shims compile under MSVC and clang-cl, and `test/run_tests.py` passes with each,
+  the mail and placement tests included.
+- `place_seat` failed as predicted, `0 of 3` rather than `1 of 3`. `place_current`'s
+  Windows branch now reads the thread's own mask with `GetThreadGroupAffinity`, which
+  Windows 7 and later have, and the test prints `3 of 3`.
+- `bench/pinning/pinning.goose` with this placement starts, warns, and answers `/fast`
+  and `/primes/N`:
+
+  ```text
+  set far = 1, 70
+  workers = 4 each far incoming
+  lane = 1 within 2 low
+  ```
+
+  ```text
+  place: set far: cores 70 aren't the process's (0-15); skipped
+  place: role workers: incoming needs Linux's SO_INCOMING_CPU; it does nothing here
+  place: role workers: 4 threads on 1 cores; they share them
+  ```
+
+  `incoming` used to warn only when a listener failed (`can't set SO_INCOMING_CPU`),
+  from each worker. `place_check` now warns once per role where the shim says the
+  platform has no `SO_INCOMING_CPU` (`place_has_incoming`), and `place_listener` skips
+  the call there.
+- `scripts/test-http.sh` doesn't build `build/server.exe`: run it after
+  `scripts/build.sh`, as `scripts/test.sh` does, or it tests an old server. One run
+  against a server from 2026-10-14 failed `later`, which the current build passes.
+
+## What each feature does on Windows
 
 | Feature | Windows call | Where it can fall short |
 |---|---|---|
-| `mail_stop`, `mail_stopped`, `mail_queued` | none of its own; the wake is `net_waker_wake` | none known; `test/mail/mail_stop.goose` covers a stop that wakes a sleeping lane |
-| Pin a thread (`take_seat`) | `SetThreadAffinityMask` on processor group 0 | a core above 63 returns `-EINVAL`, and the thread floats. Each thread that fails warns on its own (warn-once was dropped, 2026-10-18), so a file naming cores above 63 would print a line per worker: have `place_check` warn about them once at load on Windows instead |
+| `mail_stop`, `mail_stopped`, `mail_queued` | none of its own; the wake is `net_waker_wake` | none found; `test/mail/mail_stop.goose` passes |
+| Pin a thread (`take_seat`) | `SetThreadAffinityMask` on processor group 0 | a core above 63 never reaches it: `place_check` warns once at load that it isn't the process's and drops it from its set, so no worker warns |
+| Read a thread's cores (`place_current`) | `GetThreadGroupAffinity` | a thread outside group 0 reads as no cores |
 | The process's cores (`place_cpus`) | `GetProcessAffinityMask`, group 0 | a machine with more than 64 logical CPUs, or several groups, shows only group 0's, so a file naming the others warns that they "aren't the process's" |
-| `low` | `SetThreadPriority(THREAD_PRIORITY_LOWEST)` | none known |
-| `incoming` | none: `SO_INCOMING_CPU` is Linux's | one warning; the listener is left as it is |
-| Workers' index | `InterlockedExchangeAdd64` | none known |
+| `low` | `SetThreadPriority(THREAD_PRIORITY_LOWEST)` | none found |
+| `incoming` | none: `SO_INCOMING_CPU` is Linux's | one warning per role at load; `place_listener` skips the call, so no worker warns |
+| Workers' index | `InterlockedExchangeAdd64` | none found |
 
-## Known problems to fix
-
-- **`test/place/place_seat.goose` will fail.** `place_current`, the readback, returns
-  the calling thread's cores only on Linux; elsewhere it returns the process's. On macOS
-  nothing pins, so the test skips the comparison; on Windows threads pin, so it compares
-  a one-core seat with the process's mask and prints `1 of 3`. Windows has no
-  `GetThreadAffinityMask`: `SetThreadAffinityMask` returns the previous mask, so setting
-  it to the mask it returns reads it. Do that in `place_current`'s Windows branch.
-- **clangd's "Unterminated `#pragma pack`"** on `shim/place.c` is a false report: the
-  file pops it after its two structs, as `mail.c` does.
+clangd's "Unterminated `#pragma pack`" on `shim/place.c` is a false report: the file
+pops it after its two structs, as `mail.c` does.
 
 ## A cost on every send under MSVC
 
@@ -75,6 +101,25 @@ mail tests' ping-pong, and `bench/oha.sh` with a program that replies through `l
 with and without the change, on the IOCP loop. Task 017 owns IOCP's speed and its
 baseline.
 
+### Measured: no gain, not kept (2026-10-18)
+
+`bench/pinning/pinning.goose`'s `/primes/2`, where every worker mails one lane box and
+the lane mails each reply back, under oha 1.16.0: `oha --no-tui -n 300000 -c 256`, a
+fresh server per run, MSVC 19.51, `goose build --standalone`, the default 16 workers,
+nothing pinned, old and new builds alternating with 15 s between runs for TIME_WAIT.
+Ryzen 7 5800X3D, Windows 11 Pro 10.0.26300, Git Bash. Every response was 200.
+
+| Change | Runs | Requests/s, min to max | Mean |
+|---|---|---|---|
+| none | 7 | 191,893 to 204,055 | 194,266 |
+| `mail_send`'s two loads and `mail_wait`'s two reads of `stopped` with `ReadAcquire` | 7 | 190,462 to 201,776 | 194,569 |
+
+An earlier set of 5 runs each, with only `mail_send`'s two loads changed and before
+`mail_stopped` waited out in-flight calls, gave 206,572 to 216,798 (mean 212,089) and
+214,491 to 220,213 (mean 216,801): overlapping too. Neither is faster beyond the runs'
+spread, so `mail.c` keeps `LOAD32_SEQ`. The ping-pong wasn't measured apart: it waits on
+a wake for every message, which costs far more than a locked load.
+
 ## Measuring placement on Windows
 
 Task 045's spike measures the pinned layouts, which macOS can't run. WSL2 pins virtual
@@ -90,16 +135,16 @@ be written down instead).
 
 ## Acceptance criteria
 
-- [ ] `scripts/test.sh` passes in Git Bash with MSVC (`CC=msvc`, the default) on the
+- [x] `scripts/test.sh` passes in Git Bash with MSVC (`CC=msvc`, the default) on the
       branch, the mail and placement tests included, and with `CC=clang-cl`
-- [ ] `place_current` reads the thread's own mask on Windows, and `place_seat` prints
+- [x] `place_current` reads the thread's own mask on Windows, and `place_seat` prints
       `3 of 3 threads read their seats back` there
-- [ ] Each Windows shortfall in the table above prints one warning and runs on without
+- [x] Each Windows shortfall in the table above prints one warning and runs on without
       the feature, checked with a placement file that names a core above 63 and one
       that uses `incoming`; any other shortfall found is added to the table
 - [ ] goose-rest's tests pass with the branch's goose-http, as its
       `docs/development.md` runs them on Windows
-- [ ] `mail_send`'s two loads, and `mail_wait`'s reads of `stopped`, read with
+- [x] `mail_send`'s two loads, and `mail_wait`'s reads of `stopped`, read with
       `LOAD32_ACQUIRE` under MSVC, kept only if it measures faster beyond the runs'
       spread, and recorded here either way
 - [ ] Tasks 044 and 045's Windows criteria ticked, or what failed recorded there
