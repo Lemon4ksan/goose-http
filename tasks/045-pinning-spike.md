@@ -92,8 +92,9 @@ waits for bare-metal Linux, where the pinned layouts can run.
 - [x] `http::pin_thread(core)` in the shim: `sched_setaffinity` on Linux,
       `SetThreadAffinityMask` on Windows, and a result that says it did nothing on macOS;
       `Config.pin` pins each worker to its own core. Built as placement instead
-      (`http::take_seat`, `Config.place`). On Windows, `shim/place.c` compiles with
-      MinGW's gcc (`-Wall -Wextra`, no warnings); its MSVC branch and a run are pending
+      (`http::take_seat`, `Config.place`). On Windows, `shim/place.c` builds with MSVC
+      and clang-cl, `test/place/place_seat.goose` reads each pinned seat back, and
+      `bench/pinning/pinning.goose` runs with a placement file, at `cb66ab09` (task 047)
 - [x] The spike's server and script under `bench/`, with the five layouts above
 - [ ] Results on the benchmark desktop in this task: `/fast` p50, p99, and p99.9 (median
       of 5 and range), the primes route's completed rate, and its 503 and 504 counts, with
