@@ -2,6 +2,35 @@
 
 What each tag adds. Each release names the Goose compiler it was built and tested with.
 
+## v0.3.7 (unreleased)
+
+A lane stops with a flag a full box can't refuse, and threads can be placed on cores
+from a file per machine, as an experiment. Goose `v2026.2` (`3ee3871`).
+
+- `http::mail_stop(b)` stops a box from any thread, and `http::mail_stopped(b)` tells
+  its owner that it is stopped and empty, with every message sent before the stop
+  taken. A send to a stopped box returns `STALE`, `mail_live` is false, and
+  `mail_slot_size` is -1. After a stop, `mail_wait` returns at once: true while
+  messages are pending, false once the box is empty
+  ([api](docs/api.md#answers-that-wait)). `examples/later` stops its lane.
+- `http::mail_queued(to)` gives how many messages a box holds, from any thread, for
+  picking the least busy of several.
+- Placement, experimental until measured on real cores: a placement file, read by
+  `http::place_load()` from `--place`, `--place=`, or `GOOSE_PLACE`, or from a path the
+  program gives, maps roles to cores, `each` core of a set, `within` a set, or one
+  `core`, with `exclusive` sets, `low` priority, and `incoming` (`SO_INCOMING_CPU`).
+  Workers take their seats from `Config.place`, `http::place_ref(place)`, by
+  `Config.role`, `"workers"` by default, and any other thread with
+  `http::place_seat` and `http::take_seat`. A file's count for the workers' role
+  replaces `Config.workers`. Nothing about the hardware stops the start: each
+  shortfall prints a warning and the program runs without it; a file that doesn't
+  parse ends it with exit code 2. Without a file, nothing changes
+  ([tuning](docs/tuning.md)).
+- `docs/tuning.md` covers worker counts, placement files, what each platform does, and
+  what has been measured: on an M1 Pro, no layout beat the default.
+- `bench/pinning.sh` measures a short route's latency beside a busy CPU lane in each
+  layout of workers and lane.
+
 ## v0.3.6 (2026-10-16)
 
 The store reads numbers and records by value, and the release builds with Goose
