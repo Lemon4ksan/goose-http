@@ -65,6 +65,11 @@ stop's argument is in `mail_stopped`'s comment, and the generation's in the file
 opening comment. Say in a comment beside the macro that the MSVC branch relies on the
 barrier.
 
+`mail_wait`'s spin reads `stopped` with `LOAD32_SEQ` too, beside `pending`, in each of
+its 2,000 turns and again on each pass of the kernel wait, so under MSVC each of those
+`InterlockedOr`s takes the box's cache line from the senders writing to it. `LOAD32_ACQUIRE` is enough there: no ordering hangs on that read, and a
+flag the spin misses falls through to the kernel wait, which `mail_stop`'s wake ends.
+
 Measure it before keeping it, as a change made for speed (AGENTS.md, "Benchmarks"): the
 mail tests' ping-pong, and `bench/oha.sh` with a program that replies through `later`,
 with and without the change, on the IOCP loop. Task 017 owns IOCP's speed and its
@@ -94,8 +99,9 @@ be written down instead).
       that uses `incoming`; any other shortfall found is added to the table
 - [ ] goose-rest's tests pass with the branch's goose-http, as its
       `docs/development.md` runs them on Windows
-- [ ] `mail_send`'s two loads read with `LOAD32_ACQUIRE` under MSVC, kept only if it
-      measures faster beyond the runs' spread, and recorded here either way
+- [ ] `mail_send`'s two loads, and `mail_wait`'s reads of `stopped`, read with
+      `LOAD32_ACQUIRE` under MSVC, kept only if it measures faster beyond the runs'
+      spread, and recorded here either way
 - [ ] Tasks 044 and 045's Windows criteria ticked, or what failed recorded there
 - [ ] If task 045's spike runs natively: `bench/pinning.sh` runs there, and the
       decision to measure on Windows is in `docs/development.md`

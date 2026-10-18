@@ -343,14 +343,20 @@ void mail_stop(uint64_t to) {
 
 /* For the owner: 1 once the box is stopped and holds nothing, so that a lane
    ends with every message sent before the stop taken. A send that read the
-   flag before the stop raised the senders count first (seq_cst both), so it
-   is either still counted or already pending. */
+   flag before the stop raised the senders count first (seq_cst both), so
+   once the owner has read the flag set, that send is either still counted or
+   already pending. The count also holds every other call in flight on the
+   table's entry, mail_live, mail_slot_size, mail_queued, and sends that
+   return STALE, so the owner waits it out here, yielding, rather than
+   return 0 to a lane that would only call again at once; then pending,
+   read after the count reaches 0, holds every send from before the stop. */
 int32_t mail_stopped(uint64_t key) {
     mail_box *b = mail_own(key);
     if (!b) return 1;
     uint32_t i = (uint32_t)key;
-    return LOAD32_SEQ(&b->stopped) && LOAD64_SEQ(&mail_table[i].senders) == 0 &&
-           LOAD64_SEQ(&b->pending) == 0;
+    if (!LOAD32_SEQ(&b->stopped) || LOAD64_SEQ(&b->pending) != 0) return 0;
+    while (LOAD64_SEQ(&mail_table[i].senders) != 0) YIELD();
+    return LOAD64_SEQ(&b->pending) == 0;
 }
 
 /* The messages the box of key has counted and not yet settled: one load. */

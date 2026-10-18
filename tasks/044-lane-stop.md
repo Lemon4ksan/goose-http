@@ -12,8 +12,9 @@ crowd them out (its `docs/concepts/backpressure_and_drops.md`, at `d129f67`).
 
 A stop becomes a flag in the box, not a message in a slot: `http::mail_stop(box)` sets
 it and wakes the thread that waits, and `http::mail_stopped(box)` is true once the box
-is stopped and empty. `mail_wait` keeps its meaning, since its `false` already means the
-time limit passed, so a lane can wait with no limit (`-1`) and still wake for the stop.
+is stopped and empty. `mail_wait` with no limit (`-1`) wakes for the stop: once the box
+is stopped, it returns at once on every call, `false` when nothing is pending, so a lane
+that waits checks `mail_stopped` (2026-10-18).
 Jobs queued before the stop still run, and their replies go
 `STALE` once the workers have stopped. goose-rest then wraps the loop every lane writes
 by hand in `rest::lane(box) { tag, bytes => ... }`, which also closes the box.
@@ -21,7 +22,10 @@ by hand in `rest::lane(box) { tag, bytes => ... }`, which also closes the box.
 As built (2026-10-17): a send to a stopped box returns `STALE`, so that a lane that
 finds its box stopped and empty can close it without dropping a job sent after the stop.
 `mail_stopped` also waits out a send in flight across the stop: it reads the table's
-senders count, as a close does. `test/mail/mail_stop.goose` shows the lost `STOP` (its
+senders count, as a close does. Once the box is stopped and nothing is pending, it waits
+inside the shim, yielding, until that count is 0, then reads pending again (2026-10-18):
+`mail_live`, `mail_slot_size`, `mail_queued`, and `STALE` sends raise the count too, and
+a lane that got `false` back while workers polled spun at 100% CPU. `test/mail/mail_stop.goose` shows the lost `STOP` (its
 lane gives up after three empty waits, where a real one waits forever), then a stop of
 the same full box, a `STALE` send after it, and a stop that wakes a lane asleep in
 `mail_wait(box, -1)`.

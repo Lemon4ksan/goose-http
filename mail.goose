@@ -99,9 +99,10 @@ fn mail_send(to: MailAddress, tag: i32, data: const u8[:]) -> i32 {
 // STALE. Any thread may call it.
 fn mail_slot_size(to: MailAddress) -> i32 { mail_slot_size_c(key_of(to.box), to.key) }
 
-// How many messages to's box holds, its owner's job in progress included
-// until its mail_take returns, or -1 for an address that's STALE or a box
-// that's stopped. Any thread may call it: a snapshot, for picking the least
+// How many messages to's box holds, or -1 for an address that's STALE or a
+// box that's stopped. Those its owner's mail_take has taken stay counted
+// until it settles them, after each run of the box's messages it finds, so
+// the job in progress may be counted too. Any thread may call it: a snapshot, for picking the least
 // busy of several boxes.
 fn mail_queued(to: MailAddress) -> i64 { mail_queued_c(key_of(to.box), to.key) }
 
@@ -130,7 +131,9 @@ fn mail_pending(b: Box) -> bool { mail_pending_c(key_of(b.handle)) > 0 }
 
 // Waits up to ms milliseconds (-1: no limit) for a message, in b's owner when
 // b has no loop's waker. Returns whether one is pending: false at the time
-// limit, once b is stopped, or after a wake whose message was taken already.
+// limit, or after a wake whose message was taken already. Once b is stopped,
+// it returns at once on every call, false when nothing is pending, so a loop
+// that waits checks mail_stopped.
 fn mail_wait(b: Box, ms: i32) -> bool { mail_wait_c(key_of(b.handle), ms) > 0 }
 
 // Stops b, from any thread: sends to it return STALE from then on, and a
