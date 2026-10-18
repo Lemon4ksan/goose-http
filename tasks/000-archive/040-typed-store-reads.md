@@ -1,7 +1,7 @@
 # 040: Typed reads from the shared store
 
-Status: in-progress (asked for 2026-10-15; done on macOS 2026-10-16, the Linux and
-Windows test runs are still to do)
+Status: done (asked for 2026-10-15; done on macOS 2026-10-16, run on Linux and
+Windows 2026-10-18)
 
 `http::store`'s one read is `store_append(b, from, to, out)`, which copies a range of a
 blob into a growable buffer. A program that keeps numbers in the store, such as a column
@@ -34,8 +34,10 @@ program declares a C function per record type. Which is cheaper is measured here
 - [x] Tests for each, in the store's tests, and `docs/api.md` documents them beside
       `store_append`
 - [x] The cost per read, against `store_append` into a buffer, measured with how
-- [ ] `test/run_tests.py store` on Linux and on Windows (MSVC), where the test's own C
-      and the struct returns haven't run yet
+- [x] `test/run_tests.py store` on Linux and on Windows (MSVC), where the test's own C
+      and the struct returns haven't run yet: passes at -O0 and -O2 in WSL2 with Clang
+      21.1.8 at `2bf3134e`, and in Git Bash with MSVC 19.51 and clang-cl at `cb66ab09`
+      (2026-10-18)
 
 ## What changed
 

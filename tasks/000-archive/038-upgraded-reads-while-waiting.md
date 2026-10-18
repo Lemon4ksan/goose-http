@@ -1,7 +1,7 @@
 # 038: Read an upgraded connection while its exchange waits
 
-Status: in-progress (found in goose-rest's task 023, 2026-10-15; the io_uring and IOCP
-runs are still to do)
+Status: done (found in goose-rest's task 023, 2026-10-15; run on every loop
+2026-10-18)
 
 While an exchange waits with `http::later`, the loop doesn't read its connection. For a
 request that's right: the next request waits its turn. An upgraded connection is a
@@ -15,10 +15,11 @@ records the limit.
 - [x] On an upgraded connection, `BODY` events keep coming while the exchange waits
       with `http::later`, and `WAKE` or `TIMEOUT` comes when the reply does
 - [x] A connection that isn't upgraded still isn't read while it waits
-- [ ] Both loops, with a test that sends bytes while a reply is pending: passes on
+- [x] Both loops, with a test that sends bytes while a reply is pending: passes on
       macOS for the epoll loop over kqueue and the ring loop over its kqueue emulation;
-      still to run on Linux (io_uring, and the emulation over epoll) and on Windows
-      (IOCP)
+      on Linux in WSL2 for io_uring, the emulation over epoll, and epoll, at
+      `2bf3134e`; and on Windows for IOCP, with MSVC and clang-cl, at `cb66ab09`
+      (`test-http.sh`'s `later`, 2026-10-18)
 - [x] `docs/api.md` says what an upgraded exchange gets while it waits
 
 ## What changed

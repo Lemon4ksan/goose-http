@@ -66,10 +66,7 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 | 030: 32-bit ARM | Unblock execution after the two recorded Goose bugs are fixed. |
 | 031: shared REST application | Split is on `main` and checked in Docker; recheck idle memory on the desktop against task 025's tables. |
 | 032: shared benchmark harness | Reuse one harness across scripts and document external server integration. |
-| 034: Goose releases | goose-http builds from the release; WSL and Windows test runs, goose-compress, goose-rest, and our own packages remain. |
-| 038: upgraded reads while waiting | Done on macOS; run the tests on Linux (io_uring, epoll) and Windows (IOCP). |
-| 040: typed store reads | Done on macOS; run the store's tests on Linux and Windows. |
-| 041: Goose's test convention | Done on macOS; run `test/run_tests.py` and `scripts/test.sh` on Linux and Windows. |
+| 034: Goose releases | goose-http and goose-rest build and pass from the release on every platform; goose-compress and our own packages remain. |
 | 043: `later` without waiting configured | Confirm with a test that `later` gets no `TIMEOUT` when `mail_slots` and `max_waiting` are 0, then fix it. |
 | 044: lane stop | Done on `tina-alignment`, with its docs, and tested on macOS, Linux, and Windows; the merge remains. |
 | 045: pinning | Spike built; on an M1 Pro no layout beats `over`. The pinned layouts' measurement on real cores remains. |

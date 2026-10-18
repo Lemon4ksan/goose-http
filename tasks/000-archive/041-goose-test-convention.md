@@ -1,7 +1,7 @@
 # 041: Move goose-http's tests to Goose's test convention
 
-Status: in-progress (asked for 2026-10-15; done on macOS 2026-10-15, Linux and Windows
-to run)
+Status: done (asked for 2026-10-15; done on macOS 2026-10-15, run on Linux and Windows
+2026-10-18)
 
 Tests follow Goose's own convention in goose-http, goose-rest, and goose-compress
 ([decisions](../docs/decisions.md#tests-follow-gooses-convention), 2026-10-15): a
@@ -31,8 +31,9 @@ in Python, modeled on Goose's, with no package or script shared between reposito
       compile time
 - [x] `scripts/test.sh` calls the runner in place of the programs it runs by name, and
       keeps its other steps (the examples, the client tests, each platform's loops)
-- [ ] The tests pass on Linux, macOS, and Windows, as `scripts/test.sh` does now
-      (macOS: passed 2026-10-15; Linux and Windows not yet run)
+- [x] The tests pass on Linux, macOS, and Windows, as `scripts/test.sh` does now
+      (macOS: passed 2026-10-15; Linux in WSL2 at `2bf3134e`, and Windows in Git Bash
+      with MSVC and clang-cl at `cb66ab09`, passed 2026-10-18)
 - [x] `docs/development.md` says how to run the tests, one test, and one area, and how
       to bless a changed golden file
 
