@@ -22,7 +22,7 @@ WSL2 loopback runs through a VM; its kernel cost differs from bare metal. Runs t
 goose-http's steps of goose-rest's `bench/all.sh`, run alone in the same order, measured
 the Goose servers on the desktop, machine name Tiamat, in session `2026-10-16T1422`:
 the tests, the Goose builds, `bench/run.sh`, `bench/files.sh`, and
-`bench/instructions.sh`. The server is `3785950e`, `v0.3.6`. The compiler is the Goose
+`bench/instructions.sh`. goose-rest's steps followed ([below](#rest-tiers-a-to-d-at-v20262)). The server is `3785950e`, `v0.3.6`. The compiler is the Goose
 release `v2026.2` (`3ee3871`), Linux archive SHA-256
 `8f6d3e883f9d6ea655263b445da02bd4f6c85b4a7bbd3ca5c268bcabd7aff296`. Kernel
 6.18.54.1-microsoft-standard-WSL2, gcc 15.2.0 at `-O2`. Against the
@@ -109,6 +109,48 @@ the most: with 1 worker, 5.6% on epoll, 3.4% on io_uring, and 3.6% on the emulat
 each below the earlier range. At 1 MB with 4 workers wrk again used 80.1-80.2 s of CPU
 in each 10 s run, the client's limit. Every cell had zero errors.
 
+### REST tiers A to D at v2026.2
+
+```sh
+SERVERS="goose-uring goose-epoll goose-uring-rest goose-epoll-rest" \
+    EXTRA="goose-uring-rest goose-epoll-rest" \
+    RATE_A=100000 RATE_B=24000 RATE_C=1700 bench/rest.sh run   # from goose-rest
+```
+
+Right after the steps above, goose-rest's steps of its `bench/all.sh` ran at goose-rest
+`0080549`, `v0.1.2`, which imports this repository at `v0.3.6`: its tests, the Goose
+builds, `bench/rest.sh check`, `bench/rest.sh run`, and `bench/rest.sh count`, in
+session `2026-10-16T1525`. Before it began, the 1-minute load average settled at 0.26
+and Windows CPU at 7%. The settings of the
+[morning's run](#rest-tiers-a-to-d); no framework ran
+([summary](https://github.com/kaitk/goose-rest/blob/main/bench/results/2026-10-16T1525-rest-Tiamat/summary.md)).
+Every server passed its checks and reached every fixed rate with zero errors. Since the
+morning, this server's application moved into `bench/rest/goose/app.goose`, the store
+reads scalars and fixed-size records by value, and the compiler moved to `v2026.2`.
+This server's medians, serialized, against the morning's at `f875101a`:
+
+| Loop | A | B | C | C, templates | Uploads alone |
+|---|---:|---:|---:|---:|---:|
+| io_uring, `f875101a` | 602 K/s | 311 K/s | 62.4 K/s | 148 K/s | 1,135/s |
+| io_uring, `3785950e` | 588 K/s | 311 K/s | 62.1 K/s | 147 K/s | 1,152/s |
+| epoll, `f875101a` | 450 K/s | 243 K/s | 61.2 K/s | 138 K/s | 1,134/s |
+| epoll, `3785950e` | 429 K/s | 240 K/s | 61.4 K/s | 136 K/s | 1,180/s |
+
+Tier A fell 2.5% on io_uring and 4.7% on epoll, each below the morning's range, and
+tier B's templated cells, not in this table, fell 4.4% on io_uring, from 398 K to
+380 K, and 3.5% on epoll, from 299 K to 289 K, also below. The other cells moved by
+-1.3% to +0.3%, within the morning's ranges or near them. Uploads alone rose 1.5% on
+io_uring and 4.1% on epoll, from 1,131-1,153 to 1,174-1,189 a second. Which of the
+three changes moved which cell isn't measured.
+
+Peak RSS over the three runs, in MB, A, B, C, C templated, and uploads alone: io_uring
+12.5, 30.2, 70.5, 57.6, and 70.7; epoll 7.5, 28.8, 69.0, 57.7, and 69.1, each within
+0.4 MB of the morning's. Tier D beside forms: io_uring 175-178 uploads a second with
+forms at 7.7-7.8 K/s; epoll 124-126 uploads a second with forms at 8.1-8.3 K/s.
+
+Tier C's reads at 1,700 a second: beside uploads, the io_uring loop's p99 is
+4.95-7.92 ms against epoll's 0.39-1.34 ms, and 0.14-0.86 ms on both loops alone.
+
 ## 2026-10-16: v0.3.4, Goose builds only
 
 goose-rest's `bench/all.sh` measured the Goose servers on the desktop, machine name
@@ -128,7 +170,7 @@ and dusty in the same session. Before it began, the 1-minute load average settle
 [environment](../bench/results/2026-10-16T0547-Tiamat/session-env.txt) are kept;
 goose-rest's own results are in its
 [benchmarks](https://github.com/kaitk/goose-rest/blob/main/docs/benchmarks.md). Its
-plaintext, JSON, instruction, and static file runs are superseded by the
+plaintext, JSON, instruction, static file, and Goose REST runs are superseded by the
 [afternoon's session](#2026-10-16-v036-at-goose-v20262-goose-builds-only), which
 compares against them.
 

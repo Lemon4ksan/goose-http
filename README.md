@@ -179,9 +179,9 @@ APIs [below](#rest-apis) are closer to a real application.
 
 Three APIs and an upload workload. All servers use the same routes and records, load
 the records at startup, and compute each response per request, without a framework.
-goose-http's and dusty's rates are measured in one session at `v0.3.4` with Goose
-`v2026.1`, xitca-web's in an earlier session on the same machine, and goose-http's
-reads p99 on an earlier build.
+goose-http's rates are measured at `v0.3.6` with Goose `v2026.2`, dusty's and
+xitca-web's in earlier sessions on the same machine, and goose-http's reads p99 on an
+earlier build.
 
 - **A** is [HttpArena](https://github.com/MDA2AV/HttpArena)'s `production-stack` API.
 - **B** and **C** come from a time tracker and a clinic, with larger, more deeply nested JSON.
@@ -190,16 +190,16 @@ reads p99 on an earlier build.
 
 | Workload | goose-http | xitca-web (Rust) | dusty (Zig)\* |
 |---|---:|---:|---:|
-| [A](docs/benchmarks.md#tier-a): HttpArena's items, 0.2 KB | **602k req/s** | 407k | 353k |
+| [A](docs/benchmarks.md#tier-a): HttpArena's items, 0.2 KB | **588k req/s** | 407k | 353k |
 | [B](docs/benchmarks.md#tier-b): sessions and time entries, 0.3-13 KB | **311k req/s** | 235k | 164k |
-| [C](docs/benchmarks.md#tier-c): schedules and records, up to 728 KB | **62.4k req/s** | 38.2k | 25.4k |
-| C, templates | **148k req/s** | 113k | 130k |
-| [Uploads](docs/benchmarks.md#uploads): CSVs and multipart files, up to 8 MB | **1,135 req/s** | 1,016 | 1,131 |
+| [C](docs/benchmarks.md#tier-c): schedules and records, up to 728 KB | **62.1k req/s** | 38.2k | 25.4k |
+| C, templates | **147k req/s** | 113k | 130k |
+| [Uploads](docs/benchmarks.md#uploads): CSVs and multipart files, up to 8 MB | **1,180 req/s** | 1,016 | 1,131 |
 | Reads p99 beside uploads | **1.8-2.6 ms** | 2.4-4.6 ms | 6.7-42 ms |
 
 \* A framework; its counterpart is [goose-rest](https://github.com/kaitk/goose-rest).
 
-Goose uses io_uring, except for reads p99, which uses epoll. Results for
+Goose uses io_uring, except for uploads and reads p99, which use epoll. Results for
 every server and both Goose event loops: [docs/benchmarks.md](docs/benchmarks.md#rest-apis).
 
 ## What isn't Goose
