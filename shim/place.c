@@ -69,7 +69,6 @@ static struct {
     place_a64 counts[32];
 } place_kept[PLACE_KEPT];
 static place_a64 place_kept_count;
-static place_a64 place_warned[32];
 
 static void place_clear(place_u64s out) {
     for (int64_t i = 0; i < out.len; i++) out.data[i] = 0;
@@ -186,12 +185,6 @@ int32_t place_get(int32_t id, void *out) {
 int64_t place_next(int32_t id, int32_t role) {
     if (id < 1 || id > PLACE_KEPT || role < 0 || role >= 32) return 0;
     return PLACE_ADD(&place_kept[id - 1].counts[role]);
-}
-
-/* 1 the first time for what, so that a thread's failure warns once. */
-int32_t place_once(int32_t what) {
-    if (what < 0 || what >= 32) return 0;
-    return PLACE_ADD(&place_warned[what]) == 0;
 }
 
 /* Has the kernel give listener fd the connections whose packets cpu

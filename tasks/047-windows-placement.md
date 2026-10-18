@@ -31,11 +31,11 @@ parse stops the start (task 046).
 | Feature | Windows call | Where it can fall short |
 |---|---|---|
 | `mail_stop`, `mail_stopped`, `mail_queued` | none of its own; the wake is `net_waker_wake` | none known; `test/mail/mail_stop.goose` covers a stop that wakes a sleeping lane |
-| Pin a thread (`take_seat`) | `SetThreadAffinityMask` on processor group 0 | a core above 63 returns `-EINVAL`: one warning, and the thread floats |
+| Pin a thread (`take_seat`) | `SetThreadAffinityMask` on processor group 0 | a core above 63 returns `-EINVAL`, and the thread floats. Each thread that fails warns on its own (warn-once was dropped, 2026-10-18), so a file naming cores above 63 would print a line per worker: have `place_check` warn about them once at load on Windows instead |
 | The process's cores (`place_cpus`) | `GetProcessAffinityMask`, group 0 | a machine with more than 64 logical CPUs, or several groups, shows only group 0's, so a file naming the others warns that they "aren't the process's" |
 | `low` | `SetThreadPriority(THREAD_PRIORITY_LOWEST)` | none known |
 | `incoming` | none: `SO_INCOMING_CPU` is Linux's | one warning; the listener is left as it is |
-| Workers' index, warn-once | `InterlockedExchangeAdd64` | none known |
+| Workers' index | `InterlockedExchangeAdd64` | none known |
 
 ## Known problems to fix
 

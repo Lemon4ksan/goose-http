@@ -152,6 +152,11 @@ The open points above, as the build settled them:
 - **Low priority:** nice 10 and `SCHED_BATCH` on Linux, the background QoS class on
   macOS, which on Apple silicon runs on the efficiency cores only, and
   `THREAD_PRIORITY_LOWEST` on Windows.
+- **Warnings from threads:** the hardware's warnings print once, from `place_check` in
+  `main`. A pin, a priority, or `SO_INCOMING_CPU` that fails as a thread takes its seat
+  warns from that thread; a counter that printed it once per process was dropped
+  (2026-10-18), since `place_check` has already cut each set to the process's cores and
+  such a failure is rare.
 
 ## Acceptance criteria
 

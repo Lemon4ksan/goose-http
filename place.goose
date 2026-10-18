@@ -83,13 +83,11 @@ struct Seat { cores: Cores, low: bool, incoming: i64 = -1 }
 // calling thread to cores, and place_low lowers its priority: 0 or -code.
 // place_next returns the next index, from 0, of role in the placement of
 // handle id, for threads that take their seats in the order they start.
-// place_once is true the first time for what.
 extern "place_cpus" fn place_cpus_c(out: u64[:]) -> i32;
 extern "place_current" fn place_current_c(out: u64[:]) -> i32;
 extern "place_self" fn place_self_c(cores: const u64[:]) -> i32;
 extern "place_low" fn place_low_c() -> i32;
 extern "place_next" fn place_next_c(id: i32, role: i32) -> i64;
-extern "place_once" fn place_once_c(what: i32) -> i32;
 extern "place_incoming" fn place_incoming_c(fd: i32, cpu: i32) -> i32;
 
 // place_keep copies image, a Place's bytes, and keeps the copy for the
@@ -98,11 +96,6 @@ extern "place_incoming" fn place_incoming_c(fd: i32, cpu: i32) -> i32;
 // 0 or -code.
 extern "place_keep" fn place_keep_c(image: const u8[:]) -> i32;
 extern "place_get" fn place_get_c(id: i32, out: Place&) -> i32;
-
-// What place_once tracks: a warning that a thread, not place_load, prints.
-let PLACE_ONCE_PIN: i32 = 0;
-let PLACE_ONCE_LOW: i32 = 1;
-let PLACE_ONCE_INCOMING: i32 = 2;
 
 fn cores_has(c: Cores, n: i64) -> bool { (c.bits[n >> 6] >> (n % 64)) & 1 != 0 }
 fn cores_add(c: Cores&, n: i64) { c.bits[n >> 6] |= (1 as u64) << (n % 64); }
@@ -466,25 +459,26 @@ fn place_next_seat(ref: PlaceRef, role: const u8[:]) -> Seat {
 
 // Puts the calling thread on its seat: a thread calls it first, before it
 // touches memory of its own, since Linux puts a page on the NUMA node of the
-// thread that first writes it. A failure prints one warning per process, and
-// the thread goes on where it is.
+// thread that first writes it. A failure prints a warning from the thread,
+// which goes on where it is: place_check has already cut each set to the
+// process's cores, so one is rare.
 fn take_seat(s: Seat) {
     if cores_count(s.cores) > 0 {
         let e = place_self_c(s.cores.bits);
-        if e < 0 && place_once_c(PLACE_ONCE_PIN) != 0 { place_warn(str("can't pin a thread to ", s.cores, ": error ", -e)); }
+        if e < 0 { place_warn(str("can't pin a thread to ", s.cores, ": error ", -e)); }
     }
     if s.low {
         let e = place_low_c();
-        if e < 0 && place_once_c(PLACE_ONCE_LOW) != 0 { place_warn(str("can't lower a thread's priority: error ", -e)); }
+        if e < 0 { place_warn(str("can't lower a thread's priority: error ", -e)); }
     }
 }
 
 // Gives listener fd the connections whose interrupts s's core takes, where s
-// asks for it. A failure prints one warning per process.
+// asks for it. A failure prints a warning from the worker.
 fn place_listener(s: Seat, fd: i32) {
     guard s.incoming >= 0;
     let e = place_incoming_c(fd, s.incoming as i32);
-    if e < 0 && place_once_c(PLACE_ONCE_INCOMING) != 0 { place_warn(str("can't set SO_INCOMING_CPU: error ", -e)); }
+    if e < 0 { place_warn(str("can't set SO_INCOMING_CPU on core ", s.incoming, ": error ", -e)); }
 }
 
 // The cores the calling thread may run on, for a test to read a seat back.
