@@ -142,8 +142,9 @@ be written down instead).
 - [x] Each Windows shortfall in the table above prints one warning and runs on without
       the feature, checked with a placement file that names a core above 63 and one
       that uses `incoming`; any other shortfall found is added to the table
-- [ ] goose-rest's tests pass with the branch's goose-http, as its
-      `docs/development.md` runs them on Windows
+- [x] goose-rest's tests pass with the branch's goose-http, as its
+      `docs/development.md` runs them on Windows: its `scripts/test.sh`, natively in
+      Git Bash and in WSL, at goose-http `d0e3fd4` (2026-10-18)
 - [x] `mail_send`'s two loads, and `mail_wait`'s reads of `stopped`, read with
       `LOAD32_ACQUIRE` under MSVC, kept only if it measures faster beyond the runs'
       spread, and recorded here either way
