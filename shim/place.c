@@ -18,6 +18,8 @@
 #include <string.h>
 
 #define PLACE_WORDS 16
+#define PLACE_ENOMEM 12
+#define PLACE_EMFILE 24
 #define PLACE_EINVAL 22
 #define PLACE_EOPNOTSUPP 95
 
@@ -41,9 +43,10 @@
 #include <sys/sysctl.h>
 #endif
 
-/* A u64[:], packed as Goose packs it (spec C.2). */
+/* A u64[:] and a u8[:], packed as Goose packs them (spec C.2). */
 #pragma pack(push, 1)
 typedef struct { uint64_t *data; int64_t len; } place_u64s;
+typedef struct { const unsigned char *data; int64_t len; } place_bytes;
 #pragma pack(pop)
 
 #if defined(_MSC_VER)
@@ -55,7 +58,17 @@ typedef _Atomic int64_t place_a64;
 #define PLACE_ADD(p) atomic_fetch_add((p), 1)
 #endif
 
-static place_a64 place_counts[32];
+/* The placements place_keep holds, for the process's life: each a copy of a
+   Goose Place's bytes, and the next index of each of its 32 roles. An entry
+   is written once, before its handle is returned, and a thread gets the
+   handle only after that, so reading it needs no lock. */
+#define PLACE_KEPT 8
+static struct {
+    unsigned char *image;
+    int64_t len;
+    place_a64 counts[32];
+} place_kept[PLACE_KEPT];
+static place_a64 place_kept_count;
 static place_a64 place_warned[32];
 
 static void place_clear(place_u64s out) {
@@ -147,11 +160,32 @@ int32_t place_low(void) {
 #endif
 }
 
-/* The next index of role, from 0: threads that take their seats as they
-   start, such as workers, each get their own. */
-int64_t place_next(int32_t role) {
-    if (role < 0 || role >= 32) return 0;
-    return PLACE_ADD(&place_counts[role]);
+/* Keeps a copy of image, a Place's bytes, and returns its handle, from 1. */
+int32_t place_keep(place_bytes image) {
+    if (image.len <= 0) return -PLACE_EINVAL;
+    int64_t n = PLACE_ADD(&place_kept_count);
+    if (n >= PLACE_KEPT) return -PLACE_EMFILE;
+    unsigned char *copy = malloc((size_t)image.len);
+    if (!copy) return -PLACE_ENOMEM;
+    memcpy(copy, image.data, (size_t)image.len);
+    place_kept[n].image = copy;
+    place_kept[n].len = image.len;
+    return (int32_t)n + 1;
+}
+
+/* Copies the Place that handle id holds into out, a Place of the program
+   that kept it, so of the same size. */
+int32_t place_get(int32_t id, void *out) {
+    if (id < 1 || id > PLACE_KEPT || !place_kept[id - 1].image) return -PLACE_EINVAL;
+    memcpy(out, place_kept[id - 1].image, (size_t)place_kept[id - 1].len);
+    return 0;
+}
+
+/* The next index of role in the placement of handle id, from 0: threads that
+   take their seats as they start, such as workers, each get their own. */
+int64_t place_next(int32_t id, int32_t role) {
+    if (id < 1 || id > PLACE_KEPT || role < 0 || role >= 32) return 0;
+    return PLACE_ADD(&place_kept[id - 1].counts[role]);
 }
 
 /* 1 the first time for what, so that a thread's failure warns once. */

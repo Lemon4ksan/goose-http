@@ -108,18 +108,38 @@ The open points above, as the build settled them:
 - **The set's name** is `set`. A role may also name cores itself (`core 7`,
   `within 4-5`), which become a set of its own.
 - **The environment variable** is `GOOSE_PLACE`, after `--place FILE` or
-  `--place=FILE`.
+  `--place=FILE`. A program that reads its own flags passes the path:
+  `http::place_load(path)` reads it directly (2026-10-18).
 - **Exclusive:** a role on cores an exclusive set it doesn't name holds loses them, with
-  a warning, and floats on the cores no exclusive set holds when none are left.
+  a warning, and floats on the cores no exclusive set holds when none are left. Where
+  the exclusive sets hold every core the process may use, such a role, and one the file
+  doesn't name, floats on any core, the exclusive ones included, and `place_check` warns
+  once (2026-10-18).
 - **Workers' count:** the file's wins over `Config.workers`, unbounded, since every
   worker is the same; a lane's is bounded by its `max`.
 - **Workers' index:** a worker takes the next index of its role as its loop starts (a
-  counter per role in `shim/place.c`), so the spawn loop doesn't change.
+  counter per placement and role in `shim/place.c`), so the spawn loop doesn't change.
+- **The shim holds the placement, not `Config`** (2026-10-18). `place_load` hands the
+  parsed, checked `Place` to `shim/place.c`, which keeps a copy, and `Config.place` is
+  its handle, `http::place_ref(place)`: a `PlaceRef` of one `i32`. A worker reads the
+  `Place` from the shim into a local as its loop starts and keeps only its `Seat`. With
+  the `Place` itself in `Config` (4.4 KB), every worker held about three copies of it,
+  as `thread_spawn` and the loops take `Config` by value. Measured on an M1 Pro
+  (macOS 26.3.1, Darwin 25.3.0), `examples/hello` built with `goose build -O2`, its
+  default 8 workers, run under `/usr/bin/time -l` with `oha -z 2s -c 64` against it, 3
+  runs each: peak RSS 3.56 to 3.82 MB (6 runs) with the `Place` in `Config`, at
+  `3a506d68`, and 3.26 to 3.34 MB with the handle; `main` (`ef03716b`), before
+  placement, 3.29 to 3.41 MB. `sizeof(Config)` in the generated C (`goose -o out.c`)
+  went from 4,757 bytes to 390. `http::place_register(p)` hands over a `Place` a
+  program parses itself, as the tests do; the shim holds 8 at most.
 - **Connections to cores:** `incoming` in the file, on a role whose threads each have
-  one core, sets `SO_INCOMING_CPU` on each worker's listener (Linux).
+  one core, sets `SO_INCOMING_CPU` on each worker's listener (Linux). On a role whose
+  threads have several cores, or float, it can't apply, and `place_check` warns
+  (2026-10-18).
 - **Who opens a box:** `main`, as before, through `rest::lane_open`: a NUMA machine's
   first touch of a box is still `main`'s. Unmeasured, like every NUMA placement.
-- **API:** `http::place_load`, `Config.place` and `Config.role` (default `"workers"`),
+- **API:** `http::place_load`, `Config.place` (`http::place_ref(place)`) and
+  `Config.role` (default `"workers"`), `http::place_register`,
   `http::place_seat(place, role, i)` and `http::take_seat(seat)` for any other thread,
   `http::place_threads`, and in goose-rest `rest::LaneConfig`, `rest::lane_open(place,
   cfg)`, `rest::lane_seat`, `rest::lane_stop`, `rest::ask` to a `Lane`, and

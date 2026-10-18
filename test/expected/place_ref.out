@@ -1,0 +1,12 @@
+handles: true true true
+a:
+  workers: 0
+  workers: 1
+  workers: 0
+  hasher: 4
+b:
+  workers: 6
+  other: floats
+none:
+  workers: floats
+a, read back: 2 roles, workers 2

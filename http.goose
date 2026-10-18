@@ -49,10 +49,10 @@ struct Config {
     // 0 for one per hardware thread, or on macOS one per performance core
     // (worker_count). A placement that names role sets the count instead.
     workers: i64 = 0,
-    // Where the workers run (place.goose): a placement, as place_load reads
-    // it, and the workers' role in it. Each loop takes its seat first. The
-    // default places nothing.
-    place: Place = Place { .. },
+    // Where the workers run (place.goose): the placement place_load read, by
+    // its handle (place_ref), and the workers' role in it. Each loop takes
+    // its seat first. The default places nothing.
+    place: PlaceRef = PlaceRef { .. },
     role: u8[..32] = "workers",
     backlog: i32 = 4096,
     // The most connections one worker holds. The default lets one worker take
@@ -149,13 +149,15 @@ fn worker_count(cfg: Config) -> i64 {
         n = net_default_workers();
         if n <= 0 { n = max(1, hardware_threads()); }
     }
-    return place_threads(cfg.place, cfg.role, n);
+    guard cfg.place.id > 0 else { return n; }
+    let p = place_of(cfg.place);
+    return place_threads(p, cfg.role, n);
 }
 
 // Puts the calling worker on its seat in cfg.place, as the next of cfg.role
 // to start, and returns the seat for its listener (place_listener).
 fn place_worker(cfg: const Config&) -> Seat {
-    guard cfg.place.sets.len > 0 || cfg.place.roles.len > 0 else { return Seat { .. }; }
+    guard cfg.place.id > 0 else { return Seat { .. }; }
     let s = place_next_seat(cfg.place, cfg.role);
     take_seat(s);
     return s;

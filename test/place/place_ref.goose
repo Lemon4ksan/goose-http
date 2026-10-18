@@ -1,0 +1,45 @@
+// Placements the shim holds (place.goose): a registered placement's handle,
+// the seats its workers take in the order they start, counted for each
+// placement and role, and a handle of none, which places nothing. The
+// machine is given, so the output is the same everywhere. The package is
+// declared by place.goose alone; the sidecar beside it names the C.
+import std;
+import os;
+import place from "../../";
+
+fn cores(text: const u8[:]) -> http::Cores {
+    let p, err = http::place_parse(str("set c = ", text), "cores");
+    assert(err.len == 0);
+    return p.sets[0].cores;
+}
+
+fn placed(text: const u8[:]) -> http::Place {
+    var p, err = http::place_parse(text, "ref.place");
+    assert(err.len == 0);
+    http::place_check(p, cores("0-7"), true);
+    http::place_register(p);
+    return p;
+}
+
+fn next(ref: http::PlaceRef, role: const u8[:]) {
+    let s = http::place_next_seat(ref, role);
+    print("  ", role, ": ", if http::cores_count(s.cores) == 0 { str("floats") } else { str(s.cores) });
+}
+
+fn main() {
+    let a = placed("workers = 2 each 0-1\nhasher = 2 each 4-5\n");
+    let b = placed("workers = 2 each 6-7\n");
+    let ra = http::place_ref(a);
+    let rb = http::place_ref(b);
+    print("handles: ", ra.id > 0, " ", rb.id > 0, " ", ra.id != rb.id);
+    print("a:");
+    for i in 3 { next(ra, "workers"); }
+    next(ra, "hasher");
+    print("b:");
+    next(rb, "workers");
+    next(rb, "other");
+    print("none:");
+    next(http::PlaceRef { .. }, "workers");
+    let back = http::place_of(ra);
+    print("a, read back: ", back.roles.len, " roles, workers ", http::place_threads(back, "workers", 8));
+}

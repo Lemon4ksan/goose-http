@@ -1,0 +1,4 @@
+// The C a placement test needs, since it declares the package by place.goose,
+// which has no sidecar of its own. Each placement test has a copy, named
+// after it.
+c_sources = ["../../shim/place.c"];

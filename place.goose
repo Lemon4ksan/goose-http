@@ -56,15 +56,22 @@ struct PlaceRole {
     incoming: bool,
 }
 
-// A placement file's contents, flat, so that it crosses thread_spawn in a
-// Config. cpus are the cores the process may use, and pins whether the
-// platform pins threads, which place_load sets for this machine.
+// A placement file's contents, flat, so that the shim can keep a copy. cpus
+// are the cores the process may use, and pins whether the platform pins
+// threads, which place_load sets for this machine. id is the copy's handle
+// once place_register hands it to the shim, and 0 before.
 struct Place {
     sets: PlaceSet[..16],
     roles: PlaceRole[..32],
     cpus: Cores,
     pins: bool,
+    id: i32,
 }
+
+// A placement the shim holds, by its handle, for a Config: 0 for none. A
+// worker reads the placement from the shim as its loop starts, so that no
+// worker holds a copy of its own.
+struct PlaceRef { id: i32 = 0 }
 
 // Where one thread runs: its cores, none for wherever the OS puts it, its
 // priority, and its one core for SO_INCOMING_CPU, or -1.
@@ -74,15 +81,23 @@ struct Seat { cores: Cores, low: bool, incoming: i64 = -1 }
 // returns 1 where threads can be pinned, 0 where they can't (macOS), or
 // -code; place_current writes the calling thread's. place_self pins the
 // calling thread to cores, and place_low lowers its priority: 0 or -code.
-// place_next returns role's next index, from 0, for threads that take their
-// seats in the order they start. place_once is true the first time for what.
+// place_next returns the next index, from 0, of role in the placement of
+// handle id, for threads that take their seats in the order they start.
+// place_once is true the first time for what.
 extern "place_cpus" fn place_cpus_c(out: u64[:]) -> i32;
 extern "place_current" fn place_current_c(out: u64[:]) -> i32;
 extern "place_self" fn place_self_c(cores: const u64[:]) -> i32;
 extern "place_low" fn place_low_c() -> i32;
-extern "place_next" fn place_next_c(role: i32) -> i64;
+extern "place_next" fn place_next_c(id: i32, role: i32) -> i64;
 extern "place_once" fn place_once_c(what: i32) -> i32;
 extern "place_incoming" fn place_incoming_c(fd: i32, cpu: i32) -> i32;
+
+// place_keep copies image, a Place's bytes, and keeps the copy for the
+// process's life, beyond the call; it returns the copy's handle, from 1, or
+// -code, with 8 at most. place_get copies the Place of handle id into out:
+// 0 or -code.
+extern "place_keep" fn place_keep_c(image: const u8[:]) -> i32;
+extern "place_get" fn place_get_c(id: i32, out: Place&) -> i32;
 
 // What place_once tracks: a warning that a thread, not place_load, prints.
 let PLACE_ONCE_PIN: i32 = 0;
@@ -410,12 +425,43 @@ fn place_seat(p: const Place&, role: const u8[:], i: i64) -> Seat {
     return s;
 }
 
-// The seat of role's next thread to start, for threads that don't know their
-// index, such as workers.
-fn place_next_seat(p: const Place&, role: const u8[:]) -> Seat {
+// Hands p to the shim, which keeps a copy, and gives p the copy's handle, for
+// place_ref; place_load does it for the file it reads. A program does it
+// before it spawns the threads that use it. Past 8 placements, one warning,
+// and p places nothing.
+fn place_register(p: Place&) {
+    let one: Place[1] = [p];
+    let id = place_keep_c(bytes_of(one));
+    guard id > 0 else {
+        place_warn(str("can't keep a placement: error ", -id, "; its threads float"));
+        return;
+    }
+    p.id = id;
+}
+
+// The handle a Config takes for p, which place_register has handed to the
+// shim:
+//
+//   let place = http::place_load();
+//   let cfg = http::Config { place: http::place_ref(place), .. };
+fn place_ref(p: const Place&) -> PlaceRef { PlaceRef { id: p.id } }
+
+// The placement ref names, as the shim holds it, or an empty one for none.
+fn place_of(ref: PlaceRef) -> Place {
+    var p = Place { .. };
+    if ref.id > 0 && place_get_c(ref.id, p) < 0 { p = Place { .. }; }
+    return p;
+}
+
+// The seat of role's next thread to start in the placement ref names, for
+// threads that don't know their index, such as workers: the shim counts them
+// for each placement and role.
+fn place_next_seat(ref: PlaceRef, role: const u8[:]) -> Seat {
+    guard ref.id > 0 else { return Seat { .. }; }
+    let p = place_of(ref);
     let at = place_role_at(p, role);
     guard at >= 0 else { return place_seat(p, role, 0); }
-    return place_seat(p, role, place_next_c(at as i32));
+    return place_seat(p, role, place_next_c(ref.id, at as i32));
 }
 
 // Puts the calling thread on its seat: a thread calls it first, before it
@@ -448,7 +494,8 @@ fn place_current() -> Cores {
     return c;
 }
 
-// The placement file at path, checked against this machine. An empty path
+// The placement file at path, checked against this machine and handed to the
+// shim (place_register), for place_ref. An empty path
 // is the file the command line names, with --place FILE or --place=FILE, or
 // else GOOSE_PLACE; a program that reads its own flags passes the path in.
 // With no file named, an empty placement, which floats every thread. A file
@@ -482,5 +529,6 @@ fn place_load(file: const u8[:] = "") -> Place {
     } else {
         place_check(p, cpus, pins > 0);
     }
+    place_register(p);
     return p;
 }

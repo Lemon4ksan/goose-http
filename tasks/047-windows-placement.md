@@ -46,7 +46,7 @@ parse stops the start (task 046).
   `GetThreadAffinityMask`: `SetThreadAffinityMask` returns the previous mask, so setting
   it to the mask it returns reads it. Do that in `place_current`'s Windows branch.
 - **clangd's "Unterminated `#pragma pack`"** on `shim/place.c` is a false report: the
-  file pops it after its struct, as `mail.c` does.
+  file pops it after its two structs, as `mail.c` does.
 
 ## A cost on every send under MSVC
 

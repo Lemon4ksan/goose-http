@@ -89,7 +89,7 @@ fn main() {
     }
     http::exit_on_error(http::stop_on_signals());
     let place = http::place_load();
-    let cfg = http::Config { port: port as i32, place: place, mail_slots: 256, max_waiting: 4096, .. };
+    let cfg = http::Config { port: port as i32, place: http::place_ref(place), mail_slots: 256, max_waiting: 4096, .. };
     let b, err = http::mail_open(256, JOB_SIZE);
     http::exit_on_error(err);
     let lt = thread_spawn(lane, b, http::place_seat(place, "lane", 0));
