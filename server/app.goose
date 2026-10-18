@@ -109,6 +109,7 @@ fn serve_http(given: http::Config, default_loop: const u8[:]) {
               if cfg.address.len > 0 { " at " } else { "" }, cfg.address, ", ", name, " loop", ring);
         var ids: i64[>..] = [];
         for i in n {
+            cfg.worker = i;
             ids.push(if epoll { thread_spawn(worker_epoll, cfg) } else { thread_spawn(worker, cfg) });
         }
         for id in ids { thread_wait(id); }

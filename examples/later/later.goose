@@ -98,9 +98,7 @@ fn main() {
     http::exit_on_error(err);
     let lane = thread_spawn(backend, b);
     print("listening on port ", cfg.port);
-    var ids: i64[>..] = [];
-    for i in http::worker_count(cfg) { ids.push(thread_spawn(worker, cfg, http::address(b, 0))); }
-    for id in ids { thread_wait(id); }
+    http::run(cfg, http::address(b, 0), worker);
     // A flag in the box, not a message in a slot: a full box can't refuse it.
     http::mail_stop(b);
     thread_wait(lane);

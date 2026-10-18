@@ -95,9 +95,7 @@ fn main() {
     let lt = thread_spawn(lane, b, http::place_seat(place, "lane", 0));
     let n = http::worker_count(cfg);
     print("listening on port ", cfg.port, " with ", n, " workers");
-    var ids: i64[>..] = [];
-    for i in n { ids.push(thread_spawn(worker, cfg, http::address(b, 0))); }
-    for id in ids { thread_wait(id); }
+    http::run(cfg, http::address(b, 0), worker);
     http::mail_stop(b);
     thread_wait(lt);
 }

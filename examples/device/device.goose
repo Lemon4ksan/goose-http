@@ -234,6 +234,7 @@ fn main() {
           name, " loop", ring, if board_gpio_simulated() { ", GPIO simulated" } else { "" });
     var ids: i64[>..] = [];
     for i in n {
+        cfg.worker = i;
         ids.push(if b.epoll { thread_spawn(worker_epoll, cfg, b) } else { thread_spawn(worker, cfg, b) });
     }
     for id in ids { thread_wait(id); }

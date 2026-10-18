@@ -69,7 +69,5 @@ fn main() {
     http::exit_on_error(http::stop_on_signals());
     let cfg = http::Config { port: 8080, .. };
     print("listening on port ", cfg.port);
-    var ids: i64[>..] = [];
-    for i in http::worker_count(cfg) { ids.push(thread_spawn(worker, cfg)); }
-    for id in ids { thread_wait(id); }
+    http::run(cfg, worker);
 }

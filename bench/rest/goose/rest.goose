@@ -842,7 +842,7 @@ fn main() {
     }
     var loop_name: u8[>..] = [];
     let epoll = env("LOOP", loop_name) && loop_name == "epoll";
-    let cfg = http::Config { port: port, workers: n, max_body: if writes { IMPORT_LIMIT } else { http::MAX_BODY }, .. };
+    var cfg = http::Config { port: port, workers: n, max_body: if writes { IMPORT_LIMIT } else { http::MAX_BODY }, .. };
     http::exit_on_error(http::stop_on_signals());
     let count = http::worker_count(cfg);
     mallopt(M_MMAP_THRESHOLD, 131072);
@@ -852,6 +852,7 @@ fn main() {
     var ids: i64[>..] = [];
     for i in count {
         qget<Ready>();
+        cfg.worker = i;
         ids.push(if writes && epoll { thread_spawn(worker_writes_epoll, cfg) }
                  else if writes { thread_spawn(worker_writes, cfg) }
                  else if epoll { thread_spawn(worker_epoll, cfg) }

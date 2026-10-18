@@ -81,13 +81,10 @@ struct Seat { cores: Cores, low: bool, incoming: i64 = -1 }
 // returns 1 where threads can be pinned, 0 where they can't (macOS), or
 // -code; place_current writes the calling thread's. place_self pins the
 // calling thread to cores, and place_low lowers its priority: 0 or -code.
-// place_next returns the next index, from 0, of role in the placement of
-// handle id, for threads that take their seats in the order they start.
 extern "place_cpus" fn place_cpus_c(out: u64[:]) -> i32;
 extern "place_current" fn place_current_c(out: u64[:]) -> i32;
 extern "place_self" fn place_self_c(cores: const u64[:]) -> i32;
 extern "place_low" fn place_low_c() -> i32;
-extern "place_next" fn place_next_c(id: i32, role: i32) -> i64;
 extern "place_incoming" fn place_incoming_c(fd: i32, cpu: i32) -> i32;
 extern "place_has_incoming" fn place_has_incoming_c() -> i32;
 
@@ -464,17 +461,6 @@ fn place_of(ref: PlaceRef) -> Place {
     var p = Place { .. };
     if ref.id > 0 && place_get_c(ref.id, p) < 0 { p = Place { .. }; }
     return p;
-}
-
-// The seat of role's next thread to start in the placement ref names, for
-// threads that don't know their index, such as workers: the shim counts them
-// for each placement and role.
-fn place_next_seat(ref: PlaceRef, role: const u8[:]) -> Seat {
-    guard ref.id > 0 else { return Seat { .. }; }
-    let p = place_of(ref);
-    let at = place_role_at(p, role);
-    guard at >= 0 else { return place_seat(p, role, 0); }
-    return place_seat(p, role, place_next_c(ref.id, at as i32));
 }
 
 // Puts the calling thread on its seat: a thread calls it first, before it

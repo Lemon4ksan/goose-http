@@ -59,14 +59,13 @@ typedef _Atomic int64_t place_a64;
 #endif
 
 /* The placements place_keep holds, for the process's life: each a copy of a
-   Goose Place's bytes, and the next index of each of its 32 roles. An entry
-   is written once, before its handle is returned, and a thread gets the
-   handle only after that, so reading it needs no lock. */
+   Goose Place's bytes. An entry is written once, before its handle is
+   returned, and a thread gets the handle only after that, so reading it
+   needs no lock. */
 #define PLACE_KEPT 8
 static struct {
     unsigned char *image;
     int64_t len;
-    place_a64 counts[32];
 } place_kept[PLACE_KEPT];
 static place_a64 place_kept_count;
 
@@ -183,13 +182,6 @@ int32_t place_get(int32_t id, void *out) {
     if (id < 1 || id > PLACE_KEPT || !place_kept[id - 1].image) return -PLACE_EINVAL;
     memcpy(out, place_kept[id - 1].image, (size_t)place_kept[id - 1].len);
     return 0;
-}
-
-/* The next index of role in the placement of handle id, from 0: threads that
-   take their seats as they start, such as workers, each get their own. */
-int64_t place_next(int32_t id, int32_t role) {
-    if (id < 1 || id > PLACE_KEPT || role < 0 || role >= 32) return 0;
-    return PLACE_ADD(&place_kept[id - 1].counts[role]);
 }
 
 /* 1 where place_incoming can work: SO_INCOMING_CPU is Linux's. */
