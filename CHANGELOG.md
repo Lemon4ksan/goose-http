@@ -2,7 +2,7 @@
 
 What each tag adds. Each release names the Goose compiler it was built and tested with.
 
-## v0.3.7 (unreleased)
+## v0.3.7 (2026-10-19)
 
 A lane stops with a flag a full box can't refuse, and threads can be placed on cores
 from a file per machine, as an experiment. Goose `v2026.2` (`3ee3871`).
