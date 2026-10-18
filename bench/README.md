@@ -17,6 +17,7 @@ bench/httparena.sh     # HttpArena's harness, in Docker, with Goose as an entry
 bench/run-macos.sh     # a short matrix natively on macOS, into bench/results/<date>-<machine>/
 bench/files.sh         # static files, and /bytes from memory, against nginx and Caddy
 bench/oha.sh           # Goose builds with oha, on Windows (Git Bash) or Linux, for IOCP
+bench/pinning.sh       # task 045's spike: /fast's latency beside a CPU lane, per placement
 bench/rest.sh          # task 021's REST tiers, 9 servers: build, then run (about 2 h 25 min)
 bench/table.py         # README.md's plaintext and JSON table from run.sh's runs.tsv files
 ```
@@ -46,6 +47,14 @@ memory measurements.
 Rust servers that build there, and records wrk's rate and peak RSS only. macOS's
 loopback caps every server at the same rate, so its numbers show that a build works and
 what it uses, and don't rank the servers (task 012).
+
+`bench/pinning.sh` runs on Linux and macOS, with oha and curl from the
+[development setup](../docs/development.md#build-and-test). It gives
+`bench/pinning/pinning.goose` each layout as a placement file
+([tuning](../docs/tuning.md)), and writes `runs.tsv` and `summary.tsv` under
+`build/bench/pinning/`. macOS can't pin threads, so there it runs only `over`, `fewer`,
+and `nice`. A VM's virtual CPUs pin nothing real, so a pinned layout's result counts
+only from bare metal.
 
 ## Toolchain
 
