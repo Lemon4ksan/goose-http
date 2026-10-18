@@ -256,7 +256,7 @@ be restarted after it fails. Running each lane as a child process would give tha
 boundary, but it needs boxes and wakes that work across processes on Linux, macOS, and
 Windows, and a second way to start the program on Windows, which has no `fork`. That
 cost is rejected. A crash restart per thread waits on Goose
-([findings](goose-findings.md#an-abort-ends-every-thread-of-the-program)).
+([aardappel/goose#38](https://github.com/aardappel/goose/pull/38)).
 
 ## A stop is a flag in the box, not a message
 
