@@ -71,7 +71,7 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 | 040: typed store reads | Done on macOS; run the store's tests on Linux and Windows. |
 | 041: Goose's test convention | Done on macOS; run `test/run_tests.py` and `scripts/test.sh` on Linux and Windows. |
 | 043: `later` without waiting configured | Confirm with a test that `later` gets no `TIMEOUT` when `mail_slots` and `max_waiting` are 0, then fix it. |
-| 044: lane stop | Built on `tina-alignment` and tested on macOS and Linux; Windows (task 047) and the docs, after review, remain. |
+| 044: lane stop | Done on `tina-alignment`, with its docs, and tested on macOS, Linux, and Windows; the merge remains. |
 | 045: pinning | Spike built; on an M1 Pro no layout beats `over`. The pinned layouts' measurement on real cores remains. |
 | 046: placement and lanes | Placement and lanes of N built on `tina-alignment`; group commit, the decisions, and the measurements remain. |
 | 047: Windows placement | Build and run tasks 044 and 046's C with MSVC; each Windows shortfall warns and runs on. |

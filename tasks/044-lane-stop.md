@@ -1,6 +1,6 @@
 # 044: A stop a full box can't refuse
 
-Status: built on `tina-alignment`, with its docs; the Windows run is pending
+Status: done on `tina-alignment`, with its docs, and run on Windows; the merge remains
 
 A lane learns to stop from a message: goose-rest's best-practices `lanes/` program sends
 each lane `STOP` with `http::mail_send` and ignores the result. When the box is full at
@@ -33,17 +33,19 @@ the same full box, a `STALE` send after it, and a stop that wakes a lane asleep 
 
 - [x] A test shows the hang today: a box filled to its slots, a `STOP` sent to it,
       and a lane that never returns
-- [ ] `http::mail_stop` in `mail.goose` and the shim, on every loop and platform: it
+- [x] `http::mail_stop` in `mail.goose` and the shim, on every loop and platform: it
       never fails for a full box, and wakes a thread blocked in `mail_wait`. Done in
-      `shim/mail.c`, which every platform shares, and tested on macOS and on Linux
-      (io_uring, the ring over epoll, epoll, in Docker); Windows pending
+      `shim/mail.c`, which every platform shares, and tested on macOS, on Linux
+      (io_uring, the ring over epoll, epoll, in Docker), and on Windows (IOCP, MSVC and
+      clang-cl, at `cb66ab09`; task 047)
 - [x] `http::mail_stopped` is true only once the box is stopped and empty, and the test
       above returns with every queued job taken
 - [x] `docs/api.md` ("Answers that wait") and `docs/architecture.md` ("Mail between
       threads") describe the stop; `docs/patterns.md` ("Slow work") shows a lane that
       stops. Done in 92c547c3, 1f5eec0b, and b0e2e6d9; `examples/later` stops its lane
-- [ ] `scripts/test.sh` passes on Linux (io_uring, epoll), macOS, and Windows: passes on
-      macOS and on Linux in Docker on macOS (arm64); Windows pending
+- [x] `scripts/test.sh` passes on Linux (io_uring, epoll), macOS, and Windows: passes on
+      macOS and on Linux in Docker on macOS (arm64), and on Windows in Git Bash with MSVC
+      and with clang-cl at `cb66ab09` (task 047)
 - [x] goose-rest: `rest::lane`, and the tutorial's and best practices' lanes use it and
       `http::mail_stop` in place of a `STOP` tag (its branch `tina-alignment`).
       Chapter 13's reports thread works between messages with a time limit, so it
