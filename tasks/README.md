@@ -75,6 +75,7 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 | 045: pinning | Spike built; on an M1 Pro no layout beats `over`. The pinned layouts' measurement on real cores remains. |
 | 046: placement and lanes | Placement and lanes of N built on `tina-alignment`; group commit, the decisions, and the measurements remain. |
 | 047: Windows placement | Build and run tasks 044 and 046's C with MSVC; each Windows shortfall warns and runs on. |
+| 048: packages spawn threads | Agree the open questions, then `http::run` and `lane_open` spawning; waits for a Goose release with `fb5698125`. |
 
 Tasks 013 and 018 have completed acceptance criteria and are archived with the other
 completed work. Compression subtasks stay with their open parent. Completed platform
