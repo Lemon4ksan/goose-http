@@ -8,7 +8,7 @@ Experimental: tested and benchmarked, but not yet used in production. The API st
 changes between tags.
 
 [Examples](examples/README.md) · [Patterns](docs/patterns.md) · [API](docs/api.md) ·
-[Benchmarks](docs/benchmarks.md) ·
+[Benchmarks](docs/benchmarks.md) · [Tuning](docs/tuning.md) ·
 [Architecture](docs/architecture.md) · [Embedded Linux](docs/embedded.md) ·
 [Development](docs/development.md) · [Changelog](CHANGELOG.md)
 
@@ -146,6 +146,10 @@ flowchart LR
   ([why](docs/api.md#handler)).
 - **`http::Config`** holds the address, limits, timeouts, and buffer sizes, all with
   defaults. `http::stop_on_signals()` stops the loops gracefully on Ctrl+C or `SIGTERM`.
+- **Placement is opt-in.** A placement file per kind of machine can pin workers and
+  lanes to cores, or lower a lane's priority; without one, the OS places every thread.
+  No layout has yet beaten that default in a measurement
+  ([tuning](docs/tuning.md)).
 - **Errors are values.** A loop returns an `http::Error` identifying the failed call
   and its error code. `http::exit_on_error` prints the error and ends the process.
 
@@ -222,3 +226,8 @@ thread-per-core framework in Odin, and its author's post
   immediately, without blocking or growing the box.
 - The sender directs work to a worker's address rather than a shared queue.
 - Every wait requires a time limit (`http::later`).
+
+Two more come from Tina: a lane's stop can't be crowded out by traffic, as Tina reserves
+messages for shutdown (here a flag in the box, `http::mail_stop`), and a plan of which
+cores each thread runs on, as its boot spec's `target_core` (here an opt-in
+[placement file](docs/tuning.md) per machine).
