@@ -116,6 +116,14 @@ fn test_dev() {
     seat(p, "hasher", 0);
 }
 
+// A file written on Windows, with CRLF line ends, and tabs between words and
+// before a comment.
+fn test_crlf_and_tabs() {
+    let p, err = http::place_parse("# crlf.place\r\nset\tfront = 0-1,\t3\texclusive\t# a comment\r\n\r\nworkers\t=\t2\teach front\r\nhasher = 1 low\r\n", "crlf.place");
+    print("crlf and tabs: error \"", err, "\"");
+    show(p);
+}
+
 fn test_errors() {
     let bad = [
         "workers 4",
@@ -146,5 +154,6 @@ fn main() {
     test_exclusive_and_max();
     test_no_affinity();
     test_dev();
+    test_crlf_and_tabs();
     test_errors();
 }

@@ -35,7 +35,6 @@ parse stops the start (task 046).
 | The process's cores (`place_cpus`) | `GetProcessAffinityMask`, group 0 | a machine with more than 64 logical CPUs, or several groups, shows only group 0's, so a file naming the others warns that they "aren't the process's" |
 | `low` | `SetThreadPriority(THREAD_PRIORITY_LOWEST)` | none known |
 | `incoming` | none: `SO_INCOMING_CPU` is Linux's | one warning; the listener is left as it is |
-| `env_load` (`.env`) | `_putenv_s` | Goose's `env` must read the same environment: see below |
 | Workers' index, warn-once | `InterlockedExchangeAdd64` | none known |
 
 ## Known problems to fix
@@ -46,13 +45,8 @@ parse stops the start (task 046).
   a one-core seat with the process's mask and prints `1 of 3`. Windows has no
   `GetThreadAffinityMask`: `SetThreadAffinityMask` returns the previous mask, so setting
   it to the mask it returns reads it. Do that in `place_current`'s Windows branch.
-- **`.env` and `env`:** check that the release's `gs_os_getenv`
-  (`src/runtime/runtime_os.h` in the pinned Goose) reads what `_putenv_s` writes. If it
-  calls `GetEnvironmentVariableW`, `_putenv_s` may not reach it; set the variable with
-  `SetEnvironmentVariableW` as well, from the UTF-8 name and value.
-  `test/place/env_load.goose` shows which.
 - **clangd's "Unterminated `#pragma pack`"** on `shim/place.c` is a false report: the
-  file pops it after its two structs, as `mail.c` does.
+  file pops it after its struct, as `mail.c` does.
 
 ## A cost on every send under MSVC
 
@@ -95,7 +89,6 @@ be written down instead).
       branch, the mail and placement tests included, and with `CC=clang-cl`
 - [ ] `place_current` reads the thread's own mask on Windows, and `place_seat` prints
       `3 of 3 threads read their seats back` there
-- [ ] `env_load` sets what `env` then reads, on Windows
 - [ ] Each Windows shortfall in the table above prints one warning and runs on without
       the feature, checked with a placement file that names a core above 63 and one
       that uses `incoming`; any other shortfall found is added to the table

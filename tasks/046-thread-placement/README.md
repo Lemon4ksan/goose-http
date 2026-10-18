@@ -98,9 +98,13 @@ thread of the program").
 
 The open points above, as the build settled them:
 
-- **The file's format** is the line format, read by `settings.goose`'s `each_setting`,
-  which the development `.env` loader, `http::env_load`, shares. The grammar is
-  `place.goose`'s opening comment; `test/place/place_parse.goose` covers it.
+- **The file's format** is the line format, which `place_parse` reads. The grammar is
+  `place.goose`'s opening comment; `test/place/place_parse.goose` covers it, CRLF line
+  ends and tabs included.
+- **No `.env` loader:** `http::env_load`, which put a development `.env` file into the
+  environment through the same line reader, was built and then dropped (2026-10-18). No
+  program called it, and systemd's `EnvironmentFile` and Compose's `env_file` load one
+  in production.
 - **The set's name** is `set`. A role may also name cores itself (`core 7`,
   `within 4-5`), which become a set of its own.
 - **The environment variable** is `GOOSE_PLACE`, after `--place FILE` or

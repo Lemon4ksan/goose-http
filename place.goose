@@ -20,14 +20,13 @@
 // holds (dropped), and a platform with no affinity (macOS) each print a
 // warning. A file that doesn't parse does stop it.
 //
-// The calls are the shim's (shim/place.c), and the lines are read as a .env
-// file's are (settings.goose). Nothing here knows HTTP, so that it can move
-// to a package of its own unchanged, as mail.goose can.
+// A # starts a comment at the start of a line or after a space or tab. The
+// calls are the shim's (shim/place.c). Nothing here knows HTTP, so that it
+// can move to a package of its own unchanged, as mail.goose can.
 namespace http;
 
 import std;
 import os;
-import settings;
 
 // The most cores a placement names, as Linux's CPU_SETSIZE.
 let PLACE_CPUS: i64 = 1024;
@@ -261,10 +260,11 @@ fn place_parse(text: const u8[:], name: const u8[:]) -> Place, u8[] {
         p.roles.push(r);
     }
 
-    fn line_of(name: const u8[:], value: const u8[:], eq: bool) {
-        guard eq else { fail("NAME = ..., or set NAME = cores"); }
-        let left = words(name);
-        let right = words(value);
+    fn line_of(line: const u8[:]) {
+        let eq = find(line, "=");
+        guard eq >= 0 else { fail("NAME = ..., or set NAME = cores"); }
+        let left = words(line[..eq]);
+        let right = words(line[eq + 1..]);
         if left.len == 2 && left[0] == "set" {
             set_line(left[1], right);
         } else if left.len == 1 {
@@ -274,11 +274,20 @@ fn place_parse(text: const u8[:], name: const u8[:]) -> Place, u8[] {
         }
     }
 
-    each_setting(text) { line, name, value, eq =>
-        n = line;
-        line_of(name, value, eq);
+    each_split(text, '\n') {
+        n++;
+        let line = trim(place_uncomment(it));
+        if line.len > 0 { line_of(line); }
     };
     return p, "";
+}
+
+// line with its comment, if it has one, cut off.
+fn place_uncomment(line: const u8[:]) -> const u8[:] {
+    for c, i in line {
+        if c == '#' && (i == 0 || is_space(line[i - 1])) { return line[..i]; }
+    }
+    return line;
 }
 
 // The exclusive sets' cores but set's own.
