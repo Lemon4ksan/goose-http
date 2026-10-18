@@ -99,22 +99,31 @@ feature: what this change makes unneeded is removed, not kept beside the new way
 ## Acceptance criteria
 
 - [x] Agreed answers to the open questions, recorded here (2026-10-18)
-- [ ] The answers in each repository's `docs/decisions.md`, with the reason
-- [ ] goose-http: `http::run` with 0, 1, and 2 extra values, `Config.worker`, and the
+- [x] The answers in each repository's `docs/decisions.md`, with the reason (goose-http
+      `a4111c9`, goose-rest `6ff6e18`)
+- [x] goose-http: `http::run` with 0, 1, and 2 extra values, `Config.worker`, and the
       loops taking their seat from it; the arrival counter and `place_next` removed
-      from `shim/place.c`, or kept per the first question
-- [ ] goose-http: every example, `server/`, and `bench/pinning/pinning.goose` use
+      from `shim/place.c`, or kept per the first question (`da3d11d`). The worker comes
+      last, `http::run(cfg, app, worker)`, not as proposed: Goose takes a function value
+      only after a call's other arguments (spec §7.6)
+- [x] goose-http: every example, `server/`, and `bench/pinning/pinning.goose` use
       `run`; programs that keep their own loop set `Config.worker`; tests for `run`
       (workers' indexes, each gets its own seat, `run` returns after the last worker)
-- [ ] goose-rest: `rest::lane_open(place, cfg, W)` with 0 and 1 extra values,
+      (`da3d11d`, `test/server/run.goose`)
+- [x] goose-rest: `rest::lane_open(place, cfg, W)` with 0 and 1 extra values,
       `Lane` keeping its thread ids, `lane_stop` waiting for them, and `lane_seat`
       removed; the tutorial's and best practices' programs, their pages' quoted blocks,
-      and `test/lane/` moved to them
-- [ ] Docs: goose-http's `docs/api.md` ("Running a server"), `docs/tuning.md`, and
+      and `test/lane/` moved to them (goose-rest `7212c4e` pin, `6ff6e18`, `99238fe`;
+      `Lane.role` went too, as only `lane_seat` read it)
+- [x] Docs: goose-http's `docs/api.md` ("Running a server"), `docs/tuning.md`, and
       `README.md`'s quick start; goose-rest's tutorial chapters that spawn threads,
-      `docs/best-practices/lanes.md`, and `docs/reference.md`
+      `docs/best-practices/lanes.md`, and `docs/reference.md` (`a4111c9`, goose-rest
+      `6ff6e18` and `99238fe`)
 - [ ] Built and tested with `GOOSE_COMMIT=fb5698125d6b366cff3b7aebc877fe0148c698a2` on a
-      branch stacked on `tina-alignment`; merged only after a Goose release has the
-      commit, with the pin moved to that release first
+      branch stacked on `tina-alignment` (both repositories' `spawn-threads`, 2026-10-18);
+      merged only after a Goose release has the commit, with the pin moved to that
+      release first
 - [ ] `scripts/test.sh` passes in both repositories on macOS, Linux (io_uring, epoll),
-      and Windows (MSVC)
+      and Windows (MSVC): goose-http on macOS and in arm64 Linux Docker (io_uring,
+      epoll, and the emulated ring), goose-rest on macOS, 2026-10-18; Linux for
+      goose-rest and Windows for both not yet run
