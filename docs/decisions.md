@@ -258,6 +258,90 @@ Windows, and a second way to start the program on Windows, which has no `fork`. 
 cost is rejected. A crash restart per thread waits on Goose
 ([findings](goose-findings.md#an-abort-ends-every-thread-of-the-program)).
 
+## A stop is a flag in the box, not a message
+
+Decided 2026-10-17, task 044; `mail_stopped`'s wait, 2026-10-18.
+
+`http::mail_stop(box)` sets a flag in the box and wakes its owner, and
+`http::mail_stopped(box)` is true once the box is stopped and empty. A `STOP` message
+needs a free slot: to a full box at shutdown, its send returns `FULL`, the stop is
+lost, and the lane waits forever, which goose-rest's lanes did. Tina reserves part of
+its message pool for shutdown, timers, and restarts for that reason; a flag needs no
+reserve, since traffic can't crowd it out. A send to a stopped box returns `STALE`, so
+a lane that finds its box stopped and empty can close it without dropping a job sent
+after. `mail_stopped` waits, yielding in the shim, for the sends in
+flight across the stop, since returning `false` to a lane whose box workers were
+polling made it spin at 100% CPU. The cost is one more load of the flag on every send,
+a locked instruction under MSVC (task 047).
+
+## Placement is opt-in, and a file per machine places the code's roles
+
+Decided 2026-10-17, task 046; the exclusive and `incoming` rules, 2026-10-18.
+
+The code names roles, the workers (`Config.role`) and each lane, and a placement file,
+one per kind of machine, maps them to cores, a priority, and `SO_INCOMING_CPU`
+([tuning](tuning.md)). Without a file, every thread floats, as before. A machine that
+changes needs a new file, not a new build. Tina fixes each shard's core in a boot spec
+compiled into the program; here the file is read at startup and holds only cores, and
+the operator writes down which share an L3 cache or a NUMA node, since the package
+reads no topology. The file is a line format that `place.goose` parses, as Goose has no
+TOML or YAML parser.
+
+Nothing about the hardware stops the start: cores the process can't use, more threads
+than a set's cores, an overlap with an exclusive set, and a platform with no affinity
+each print a warning, and the program runs with what it could apply. A file that
+doesn't parse ends it with exit code 2, as any malformed configuration does. The cost
+is that a wrong file runs, placed otherwise than written, with only stderr to say so.
+
+Placement took the place of `http::pin_thread` and `Config.pin`, built first for task
+045's spike and never released; neither had an entry here. Whether any placement beats
+floating on real cores is unmeasured: task 045's pinned layouts wait for bare-metal
+Linux, and only those that beat floating by more than the runs' spread are to stay.
+
+## The shim holds the placement, and Config a handle
+
+Decided 2026-10-18, task 046.
+
+`place_load` hands the parsed `Place` to `shim/place.c`, which keeps a copy, and
+`Config.place` is its handle, an `http::PlaceRef` of one `i32`. A worker reads the
+`Place` into a local as its loop starts and keeps only its seat. With the `Place`
+itself in `Config`, every worker held about three copies of it, since `thread_spawn`
+and the loops take `Config` by value: `sizeof(Config)` in the generated C went from
+4,757 bytes to 390, and `examples/hello`'s peak RSS from 3.56-3.82 MB back to
+3.26-3.34 MB, within `main`'s 3.29-3.41 MB before placement (machine and method in
+task 046). The cost is a C call and a copy as each worker starts, and a limit of 8
+placements a process.
+
+## A worker's seat goes by the order workers start
+
+Decided 2026-10-17, task 046.
+
+A worker takes the next index of its role from a counter per placement and role in
+`shim/place.c`, as its loop starts, so the program's spawn loop passes no index and
+doesn't change. Which worker gets which core is then arbitrary, which costs nothing,
+since every worker is the same. Two servers that share a placement and a role share
+the counter, so each needs a role of its own.
+
+## An exclusive set takes its cores from other roles
+
+Decided 2026-10-18, task 046.
+
+A role whose cores an exclusive set it doesn't name holds loses them, with a warning,
+and floats on the cores no exclusive set holds when none are left. Where the exclusive
+sets hold every core the process may use, such a role, and one the file doesn't name,
+floats on any core, the exclusive ones included, with one warning. Refusing the file
+would break the rule that hardware doesn't stop the start, and the same file runs on a
+smaller machine. The cost is that a role can run on fewer cores than its line says.
+
+## No .env loader
+
+Decided 2026-10-18, task 046.
+
+`http::env_load`, which put a development `.env` file into the environment through the
+placement file's line reader, was built and dropped. No program called it, and in
+production systemd's `EnvironmentFile` and Compose's `env_file` already load one into
+the environment that `env` reads.
+
 ## Not yet decided
 
 ### Compression in an optional module
