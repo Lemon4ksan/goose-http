@@ -206,8 +206,8 @@ role it does nothing.
 | The process's cores | Its affinity mask (`sched_getaffinity`) | Every logical CPU (`hw.logicalcpu`) | Its affinity mask in processor group 0 (`GetProcessAffinityMask`), cores 0-63 |
 | `each`, `within`, `core` | `sched_setaffinity` | Nothing: one warning, and every thread floats | `SetThreadAffinityMask`, within group 0 |
 | `low` | nice 10 and `SCHED_BATCH` | The background QoS class | `THREAD_PRIORITY_LOWEST` |
-| `incoming` | `SO_INCOMING_CPU` | Nothing: one warning | Nothing: a warning from each worker |
-| Tested | In Docker on macOS (arm64) | Natively | Compiled with MinGW-w64's gcc only; not yet built with MSVC or run (task 047) |
+| `incoming` | `SO_INCOMING_CPU` | Nothing: one warning | Nothing: one warning per role |
+| Tested | In Docker on macOS (arm64), and in WSL2 | Natively | Natively, built with MSVC and with clang-cl |
 
 On macOS, each worker sets the user-interactive QoS class first and then takes its seat,
 so `low` on the workers' role replaces it with the background class.
@@ -223,7 +223,7 @@ can't do, then runs with what it could apply:
 - A role on cores an exclusive set holds: it runs on the rest, or floats.
 - Exclusive sets that hold every core the process may use.
 - `incoming` on a role whose threads have several cores or float, or on a platform that
-  can't pin.
+  can't pin or has no `SO_INCOMING_CPU` (Windows).
 - A platform that can't pin threads (macOS): every thread floats.
 - More threads than a role's `each` set has cores: they share them.
 - A lane's count above the code's most: it's cut to it.
@@ -262,7 +262,7 @@ included.
 
 The layouts that pin threads, each worker on its own core, a lane on a core of its own,
 on a worker's SMT sibling, or within a set, and `incoming`, haven't been measured on
-real cores yet. They need bare-metal Linux, or Windows natively, and that run is
-pending (tasks 045 and 047). Until it's done, no measurement shows that pinning helps.
+real cores yet. They need bare-metal Linux, and that run is pending (task 045). Until
+it's done, no measurement shows that pinning helps.
 To measure a machine of your own, run `bench/pinning.sh`
 ([benchmark scripts](../bench/README.md)).
