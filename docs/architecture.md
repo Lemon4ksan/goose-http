@@ -28,6 +28,7 @@ compilation:
 | `shim/ring_epoll.c` | Linux, macOS | The ring emulated over epoll or kqueue, where io_uring is blocked, and always on macOS |
 | `shim/mail.c` | all | The boxes' bounded queue, and the list of loop wakers that `http::stop` wakes |
 | `shim/store.c` | all | The store's blobs, written once at startup and read by every thread |
+| `shim/place.c` | all | Placement: the process's cores, a thread's affinity and priority, `SO_INCOMING_CPU`, and the placements a program registers, each with a counter per role |
 
 Each is C for one of four reasons:
 
@@ -44,7 +45,13 @@ Each is C for one of four reasons:
   and each platform's waker ends a loop's wait.
 - **Memory every thread reads.** Goose shares only static data between threads, and
   copies every other global a worker uses when it's spawned. `shim/store.c` holds
-  byte blobs a program writes once, before its workers read them.
+  byte blobs a program writes once, before its workers read them. `shim/place.c` holds
+  up to 8 placements, each a copy of a Goose `Place`'s bytes, and beside each an
+  atomic counter per role that hands each worker its index as it starts.
+
+`shim/place.c` is also C for the first reason: Goose has no call for a thread's
+affinity or priority, or for `SO_INCOMING_CPU`. Parsing the placement file, checking it
+against the machine, and choosing each thread's seat are Goose, in `place.goose`.
 
 Each C file is a separate translation unit and declares the layouts it shares with
 Goose; the [C interop guide](c-interop.md) describes them. Goose has no runtime
@@ -87,6 +94,19 @@ take a `thread_fn` passed through a package function.
 default. On macOS it defaults to the performance-core count, and the loop sets
 user-interactive QoS. Linux workers bind separate listeners with `SO_REUSEPORT`;
 macOS and Windows workers share a listener.
+
+A worker takes its seat in a placement first, as its loop starts: both loops call
+`place_worker`, which returns at once when `Config.place` is empty, before the worker
+opens its listener or touches its buffers, since Linux puts a page on the NUMA node of
+the thread that first writes it. The worker reads the `Place` from the shim into a
+local, takes the next index of `Config.role` from the shim's counter, pins itself and
+lowers its priority as that seat says, and keeps only the seat. After it opens its
+listener, it sets `SO_INCOMING_CPU` on it where the seat asks. The index goes by the
+order workers start, not by the order the program spawned them, so the spawn loop
+takes no index; every worker is the same, so which one gets which core doesn't matter.
+`Config` holds only the placement's handle, since `thread_spawn` and the loops copy
+`Config`, and a `Place` in it made each worker hold about three copies of 4.4 KB.
+Where placement helps and what each platform does: [tuning](tuning.md).
 
 A connection is a slot in its worker's pool, and the slot is the event tag. Read and
 write buffers belong to the worker; an incomplete request or output not yet sent goes
@@ -217,6 +237,19 @@ A send never blocks: it returns `SENT`, `FULL`, `TOO_LONG`, or `STALE`, the last
 an exchange that no longer waits. `mail_live` checks whether the address is still live
 without sending. A send that saw a key live just before it was cleared can still be
 queued, so the loop checks each delivered key and drops a message no exchange waits for.
+
+A lane stops on a flag in its box, which `mail_stop` sets and then wakes the owner. A
+stop sent as a message would need a free slot: to a full box at shutdown, the send
+returns `FULL`, the stop is lost, and the lane waits forever. A send reads the flag after it raises
+the table entry's senders count, and returns `STALE` once it's set, so a lane that
+finds its box stopped and empty can close it without dropping a job sent after it
+looked. `mail_stopped` closes the remaining gap, a send that read the flag before the
+stop and hasn't yet queued its message: once the box is stopped and nothing is
+pending, it waits, yielding, inside the shim until the senders count is 0, then reads
+pending again. The count also covers `mail_live`, `mail_slot_size`, `mail_queued`, and
+`STALE` sends, which finish at once, so the wait is short; returning `false` to the
+lane instead made it spin at 100% CPU while workers polled the box. `mail_wait`
+returns at once on a stopped box, so the lane's loop reaches `mail_stopped` again.
 
 A waiting exchange holds back the requests after it, which must wait their turn. An
 upgraded connection is a stream both ways, so the loops go on reading it, and the
