@@ -59,6 +59,24 @@ On the desktop (Ryzen 7 5800X3D, Windows 11 Pro 10.0.26300), in Git Bash, with M
   `scripts/build.sh`, as `scripts/test.sh` does, or it tests an old server. One run
   against a server from 2026-10-14 failed `later`, which the current build passes.
 
+### Before the merge (2026-10-18)
+
+The same desktop, at goose-http `cb66ab09`, after `shim/mail.c` and `place.goose`
+changed (`mail_live` and `mail_slot_size` see a stopped box, `place_register` checks the
+machine, a worker takes its seat after `net_worker_start`, no once-only warning
+counter), and goose-rest `5e1a4e3`, which pins goose-http `746f9567`; goose-http's
+commits after it change only docs. Nothing failed, and nothing changed.
+
+| Suite | Shell, compiler | Result |
+|---|---|---|
+| goose-http `scripts/test.sh` | Git Bash, MSVC 19.51 | passes: 41 tests at -O0 and -O2, `test-http.sh` and `test-echo.sh` on the IOCP loop, `test-examples.sh` |
+| goose-http `scripts/test.sh` | Git Bash, `CC=clang-cl` | passes, the same steps |
+| goose-rest `scripts/test.sh` | Git Bash, MSVC 19.51 | passes: 73 tests at -O0 and -O2 and 4 error fixtures, 27 generator refusals, every example and docs program, 87 and 42 docs excerpts, the spikes |
+| goose-rest `scripts/test.sh` | WSL2 Ubuntu 26.04, kernel 6.18.54.1, Clang 21.1.8 | passes, the same steps, on io_uring |
+
+The placement above, run again with `bench/pinning/pinning.goose` at `cb66ab09`, prints
+the same three warnings, once each, and no worker warns.
+
 ## What each feature does on Windows
 
 | Feature | Windows call | Where it can fall short |
@@ -136,7 +154,8 @@ be written down instead).
 ## Acceptance criteria
 
 - [x] `scripts/test.sh` passes in Git Bash with MSVC (`CC=msvc`, the default) on the
-      branch, the mail and placement tests included, and with `CC=clang-cl`
+      branch, the mail and placement tests included, and with `CC=clang-cl`: at
+      `d0e3fd4` and again at `cb66ab09`
 - [x] `place_current` reads the thread's own mask on Windows, and `place_seat` prints
       `3 of 3 threads read their seats back` there
 - [x] Each Windows shortfall in the table above prints one warning and runs on without
@@ -144,7 +163,8 @@ be written down instead).
       that uses `incoming`; any other shortfall found is added to the table
 - [x] goose-rest's tests pass with the branch's goose-http, as its
       `docs/development.md` runs them on Windows: its `scripts/test.sh`, natively in
-      Git Bash and in WSL, at goose-http `d0e3fd4` (2026-10-18)
+      Git Bash and in WSL, at goose-http `d0e3fd4`, and at goose-rest `5e1a4e3`
+      with goose-http `746f9567` (2026-10-18)
 - [x] `mail_send`'s two loads, and `mail_wait`'s reads of `stopped`, read with
       `LOAD32_ACQUIRE` under MSVC, kept only if it measures faster beyond the runs'
       spread, and recorded here either way
