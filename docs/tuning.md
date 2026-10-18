@@ -205,8 +205,8 @@ role it does nothing.
 | `incoming` | `SO_INCOMING_CPU` | Nothing: one warning | Nothing: a warning from each worker |
 | Tested | In Docker on macOS (arm64) | Natively | Compiled with MinGW-w64's gcc only; not yet built with MSVC or run (task 047) |
 
-On macOS, each worker sets the user-interactive QoS class after it takes its seat, so
-`low` on the workers' role has no effect there.
+On macOS, each worker sets the user-interactive QoS class first and then takes its seat,
+so `low` on the workers' role replaces it with the background class.
 
 ## Warnings and errors
 

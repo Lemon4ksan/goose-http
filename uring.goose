@@ -46,8 +46,9 @@ fn serve<H>(cfg: Config) -> Error {
 // serve(cfg), with a handler H that's called for each Event of a request,
 // with the request's state, which starts as fresh.
 fn serve<S, H>(cfg: Config, fresh: S) -> Error {
-    let seat = place_worker(cfg);
     net_worker_start();
+    // After net_worker_start, which would otherwise override a `low` QoS class.
+    let seat = place_worker(cfg);
     guard is_field_value(cfg.server) else { return Error { call: "server", code: EINVAL }; }
     var lfd, listening = listen_on(cfg);
     guard lfd >= 0 else { return listening; }
