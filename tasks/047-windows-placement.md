@@ -54,6 +54,28 @@ parse stops the start (task 046).
 - **clangd's "Unterminated `#pragma pack`"** on `shim/place.c` is a false report: the
   file pops it after its two structs, as `mail.c` does.
 
+## A cost on every send under MSVC
+
+`mail_send` reads the box's stop flag (`LOAD32_SEQ(&b->stopped)`) on every send, beside
+the table's generation (`LOAD32_SEQ(&mail_table[i].gen)`), which it already read before
+task 044. Every reply to a worker's box is a send. With GCC and Clang, `LOAD32_SEQ` is a
+plain load on x86-64 and `ldar` on arm64. Under MSVC it is `InterlockedOr(p, 0)`, a
+locked read-modify-write, which takes the cache line for itself, so senders to the same
+box contend for it. Task 044 added the second of these per send.
+
+Both can be `LOAD32_ACQUIRE` (`ReadAcquire`), a plain load on x64, without breaking
+the ordering they exist for. Each comes right after `ADD64(&...senders, 1)`, an
+`InterlockedExchangeAdd64`, which is a full barrier under MSVC on x64 and arm64, so no
+later load moves before it; that is what the seq_cst loads give with C11 atomics. The
+stop's argument is in `mail_stopped`'s comment, and the generation's in the file's
+opening comment. Say in a comment beside the macro that the MSVC branch relies on the
+barrier.
+
+Measure it before keeping it, as a change made for speed (AGENTS.md, "Benchmarks"): the
+mail tests' ping-pong, and `bench/oha.sh` with a program that replies through `later`,
+with and without the change, on the IOCP loop. Task 017 owns IOCP's speed and its
+baseline.
+
 ## Measuring placement on Windows
 
 Task 045's spike measures the pinned layouts, which macOS can't run. WSL2 pins virtual
@@ -79,6 +101,8 @@ be written down instead).
       that uses `incoming`; any other shortfall found is added to the table
 - [ ] goose-rest's tests pass with the branch's goose-http, as its
       `docs/development.md` runs them on Windows
+- [ ] `mail_send`'s two loads read with `LOAD32_ACQUIRE` under MSVC, kept only if it
+      measures faster beyond the runs' spread, and recorded here either way
 - [ ] Tasks 044 and 045's Windows criteria ticked, or what failed recorded there
 - [ ] If task 045's spike runs natively: `bench/pinning.sh` runs there, and the
       decision to measure on Windows is in `docs/development.md`
