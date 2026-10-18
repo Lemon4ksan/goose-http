@@ -1,6 +1,6 @@
 # 048: The packages spawn their own threads
 
-Status: todo; waits for a Goose release with `fb5698125`
+Status: in progress; merges after a Goose release with `fb5698125`
 
 `thread_spawn` couldn't name a `thread_fn` passed into a generic from another module, so
 neither package could start a thread of the program's: every program spawns its own
@@ -68,6 +68,18 @@ rest::lane_stop(reports);           // stops every box, then waits for its threa
 `Lane` keeps its threads' ids beside its boxes. `rest::lane_seat` goes, since the
 lane hands each thread its seat.
 
+## Decided (2026-10-18)
+
+Each open question below takes its proposal: no arrival counter, and a placed worker
+spawned outside `run` warns once and floats; a program that chooses a loop per worker
+keeps its own spawn loop and sets `Config.worker`; `lane_stop` waits for the lane's
+threads; the names are `http::run` and `Config.worker`.
+
+The API and the code are to be as simple as they can be without giving up speed or a
+feature: what this change makes unneeded is removed, not kept beside the new way
+(`lane_seat`, the arrival counter, `place_next`, `place_next_seat`, and anything else
+`run` and `lane_open` make redundant).
+
 ## Open questions
 
 - **Keep the program's own spawn loop for workers?** Retiring the arrival counter
@@ -86,8 +98,8 @@ lane hands each thread its seat.
 
 ## Acceptance criteria
 
-- [ ] Agreed answers to the open questions, recorded here, and in each repository's
-      `docs/decisions.md` with the reason
+- [x] Agreed answers to the open questions, recorded here (2026-10-18)
+- [ ] The answers in each repository's `docs/decisions.md`, with the reason
 - [ ] goose-http: `http::run` with 0, 1, and 2 extra values, `Config.worker`, and the
       loops taking their seat from it; the arrival counter and `place_next` removed
       from `shim/place.c`, or kept per the first question
