@@ -432,16 +432,20 @@ fn place_current() -> Cores {
     return c;
 }
 
-// The placement file the command line names, with --place FILE or
-// --place=FILE, or else GOOSE_PLACE, checked against this machine; an empty
-// placement, which floats every thread, when neither names one. A file that
-// can't be read or doesn't parse ends the program with exit code 2.
-fn place_load() -> Place {
+// The placement file at path, checked against this machine. An empty path
+// is the file the command line names, with --place FILE or --place=FILE, or
+// else GOOSE_PLACE; a program that reads its own flags passes the path in.
+// With no file named, an empty placement, which floats every thread. A file
+// that can't be read or doesn't parse ends the program with exit code 2.
+fn place_load(file: const u8[:] = "") -> Place {
     var path: u8[>..] = [];
+    path.append(file);
     let a = args();
-    for w, i in a {
-        if w == "--place" && i + 1 < a.len { path.append(a[i + 1]); break; }
-        if starts_with(w, "--place=") { path.append(w[8..]); break; }
+    if path.len == 0 {
+        for w, i in a {
+            if w == "--place" && i + 1 < a.len { path.append(a[i + 1]); break; }
+            if starts_with(w, "--place=") { path.append(w[8..]); break; }
+        }
     }
     if path.len == 0 { env(PLACE_ENV, path); }
     guard path.len > 0 else { return Place { .. }; }
