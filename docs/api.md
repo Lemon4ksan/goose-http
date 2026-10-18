@@ -308,6 +308,28 @@ else { http::respond(out, 503, "text/plain", "busy"); return; }
   bytes)` returns `SENT`, `FULL` (no slot free), `TOO_LONG` (longer than a slot), or
   `STALE` at once, from any thread, and never blocks. `http::mail_slot_size(address)`
   gives a sender the box's slot size, or -1 for a `STALE` address.
+- `http::mail_stop(box)` stops a box, from any thread. The stop is a flag in the box,
+  not a message, so a full box can't refuse it, and it wakes the owner's `mail_wait`.
+  From then on, sends return `STALE`, and what the box already holds is still taken.
+  Once the box is stopped, `mail_wait` returns at once on every call, `false` when
+  nothing is pending, so a lane ends its loop on `http::mail_stopped(box)`. In the
+  owner, `mail_stopped` is true once the box is stopped and holds nothing, or is
+  closed. It first waits out a send in flight across the stop, so a job sent before
+  the stop is never left behind. A second stop does nothing. As `later/` does:
+
+  ```rust
+  while !http::mail_stopped(box) {
+      http::mail_wait(box, -1);
+      http::mail_take(box) { key, tag, bytes => /* ... */ };
+  }
+  http::mail_close(box);
+  ```
+
+- `http::mail_queued(address)` gives any thread how many messages the box holds, to
+  pick the least busy of several lane threads' boxes, or -1 for a `STALE` address or
+  a stopped box. It's a snapshot, and counts the messages the owner's `mail_take` has
+  taken until it settles them, after each run it finds, so the job in progress may be
+  counted.
 - A box's slot count is a power of two of at least 2. `mail_open` refuses any other
   count with `EINVAL`, including 1: the ring tells a full slot from a free one by its
   sequence number, which takes at least two slots.
@@ -403,7 +425,10 @@ from its `store_append` image with `from_bytes` costs four times the C read
 The stop on Ctrl+C is shown in `routes/`.
 
 `http::Config`: address, port, workers, limits, timeouts, buffer sizes. All have
-defaults.
+defaults. `Config.workers`, 0 by default, gives one worker per hardware thread, or on
+macOS per performance core ([tuning](tuning.md#worker-count)), and
+`http::worker_count(cfg)` returns the count. `Config.place` and `Config.role` place the
+workers ([placement](#placement)).
 
 `Config.address` is where to listen: empty for every IPv4 address (127.0.0.1 on
 Windows), an IPv4 or IPv6 address, `"::"` for every address, IPv4 too unless
@@ -431,6 +456,43 @@ fn main() {
     for id in ids { thread_wait(id); }
 }
 ```
+
+### Placement
+
+Shown in `bench/pinning/pinning.goose`. When placement helps, the placement file's
+grammar, and what each platform does: [tuning](tuning.md).
+
+- `http::place_load(path = "")` reads the placement file at `path`, checks it against
+  this machine, hands it to the shim, and returns it as an `http::Place`. An empty
+  `path` is the file the command line names with `--place FILE` or `--place=FILE`, or
+  else `GOOSE_PLACE`. With no file named, the placement is empty, and every thread
+  floats. It prints a warning for each thing the machine can't do and goes on. A file
+  that can't be read or doesn't parse ends the program with exit code 2. Call it in
+  `main`, before the threads it places start.
+- `Config.place = http::place_ref(place)` places the workers: an `http::PlaceRef`, a
+  handle to the copy the shim holds, so a worker's `Config` stays small. The default
+  places nothing. `Config.role` is the workers' role in the file, `"workers"` unless
+  written. Each loop takes the next seat of its role as it starts, in the order the
+  workers start, and sets `SO_INCOMING_CPU` on its listener where the seat asks for it.
+  `http::worker_count(cfg)` returns the file's count for the role where it gives one.
+  Workers of two servers that share a placement and a role take their seats from one
+  count, so give each server's `Config` a role of its own.
+- `http::place_seat(place, role, i)` returns thread `i`'s `http::Seat`, for a thread
+  the program spawns, such as a lane's: core `i` of its set for `each`, wrapping
+  around; any core of its set for `within` or `core`; otherwise the cores no exclusive
+  set holds. A negative `i` is 0. On a platform that can't pin, the seat only lowers
+  the priority, where the file says `low`.
+- `http::take_seat(seat)` pins the calling thread and lowers its priority, as `seat`
+  says. Call it first in the thread, before it touches memory of its own. A failure
+  prints a warning, and the thread runs on where it is.
+- `http::place_threads(place, role, threads, max = 0)` returns a role's thread count:
+  the file's, or `threads` where the file gives none, cut to `max` with a warning when
+  `max` is above 0.
+- `http::place_listener(seat, fd)` sets `SO_INCOMING_CPU` on a listener of the
+  program's own, where `seat` asks for it. The loops call it for theirs.
+- `http::place_register(place)` hands a `Place` to the shim and gives it the handle
+  `place_ref` returns; `place_load` calls it. The shim holds 8 at most: past them, it
+  prints a warning, and the placement places nothing.
 
 ### Event loops
 
