@@ -461,6 +461,10 @@ fn place_load(file: const u8[:] = "") -> Place {
     }
     var cpus = Cores { .. };
     let pins = place_cpus_c(cpus.bits);
-    place_check(p, cpus, pins > 0);
+    if pins < 0 {
+        place_warn(str("can't read the process's cores: error ", -pins, "; every thread floats"));
+    } else {
+        place_check(p, cpus, pins > 0);
+    }
     return p;
 }

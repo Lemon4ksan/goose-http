@@ -62,8 +62,21 @@ static void place_clear(place_u64s out) {
     for (int64_t i = 0; i < out.len; i++) out.data[i] = 0;
 }
 
+#if defined(__linux__)
+/* Writes the calling thread's cores into out: the process's when main
+   calls it before any thread is pinned. */
+static int32_t place_affinity(place_u64s out) {
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    if (sched_getaffinity(0, sizeof set, &set) != 0) return -errno;
+    for (int i = 0; i < CPU_SETSIZE && i / 64 < out.len; i++)
+        if (CPU_ISSET(i, &set)) out.data[i / 64] |= (uint64_t)1 << (i % 64);
+    return 0;
+}
+#endif
+
 /* Writes the process's cores into out. Returns 1 where threads can be
-   pinned, 0 where they can't. */
+   pinned, 0 where they can't, or -code where the cores can't be read. */
 int32_t place_cpus(place_u64s out) {
     place_clear(out);
 #ifdef _WIN32
@@ -72,12 +85,8 @@ int32_t place_cpus(place_u64s out) {
     if (out.len > 0) out.data[0] = (uint64_t)proc;
     return 1;
 #elif defined(__linux__)
-    cpu_set_t set;
-    CPU_ZERO(&set);
-    if (sched_getaffinity(0, sizeof set, &set) != 0) return -errno;
-    for (int i = 0; i < CPU_SETSIZE && i / 64 < out.len; i++)
-        if (CPU_ISSET(i, &set)) out.data[i / 64] |= (uint64_t)1 << (i % 64);
-    return 1;
+    int32_t e = place_affinity(out);
+    return e < 0 ? e : 1;
 #elif defined(__APPLE__)
     int n = 0;
     size_t size = sizeof n;
@@ -93,12 +102,7 @@ int32_t place_cpus(place_u64s out) {
 int32_t place_current(place_u64s out) {
     place_clear(out);
 #if defined(__linux__)
-    cpu_set_t set;
-    CPU_ZERO(&set);
-    if (sched_getaffinity(0, sizeof set, &set) != 0) return -errno;
-    for (int i = 0; i < CPU_SETSIZE && i / 64 < out.len; i++)
-        if (CPU_ISSET(i, &set)) out.data[i / 64] |= (uint64_t)1 << (i % 64);
-    return 0;
+    return place_affinity(out);
 #else
     return place_cpus(out) < 0 ? -PLACE_EINVAL : 0;
 #endif
