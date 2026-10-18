@@ -47,7 +47,8 @@ struct Config {
     ipv6_only: bool = false,
     port: i32 = 8080,
     // 0 for one per hardware thread, or on macOS one per performance core
-    // (worker_count). A placement that names role sets the count instead.
+    // (worker_count). A placement that gives role a count sets it instead;
+    // one that names the role without a count leaves this.
     workers: i64 = 0,
     // Where the workers run (place.goose): the placement place_load read, by
     // its handle (place_ref), and the workers' role in it. Each loop takes
