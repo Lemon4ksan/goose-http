@@ -149,12 +149,16 @@ struct Error { call: const u8[:], code: i64 }
 //   http::run(cfg, worker);             // thread_fn worker(cfg: http::Config)
 //   http::run(cfg, app, worker);        // thread_fn worker(cfg: http::Config, app: App)
 //
-// A program that spawns its workers itself, to choose a loop for each, sets
-// each one's Config.worker:
+// A program that chooses its loop at run time calls run once per choice:
+//
+//   if epoll { http::run(cfg, worker_epoll) } else { http::run(cfg, worker) }
+//
+// Only a program that must interleave spawning with other work spawns its workers
+// itself, and then sets each one's Config.worker:
 //
 //   for i in http::worker_count(cfg) {
 //       cfg.worker = i;
-//       ids.push(if epoll { thread_spawn(worker_epoll, cfg) } else { thread_spawn(worker, cfg) });
+//       ids.push(thread_spawn(worker, cfg));
 //   }
 fn run<W>(cfg: Config) { spawn_workers(cfg) { c => thread_spawn(W, c) }; }
 fn run<W>(cfg: Config, a) { spawn_workers(cfg) { c => thread_spawn(W, c, a) }; }

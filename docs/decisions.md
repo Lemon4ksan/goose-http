@@ -362,8 +362,9 @@ every program in goose-http and goose-rest. The worker comes last, as Goose pass
 function value after a call's other arguments.
 
 A program that picks the loop for its workers at run time, such as `server/app.goose`,
-keeps its own spawn loop and sets `Config.worker`, rather than calling `run` once per
-loop. A placed worker spawned without `Config.worker` floats and prints a warning,
+calls `run` once per choice (2026-10-18). Only a program that must interleave spawning
+with other work, such as the REST benchmark servers with their startup handshake, keeps
+its own spawn loop and sets `Config.worker`. A placed worker spawned without `Config.worker` floats and prints a warning,
 rather than falling back to a counter, so that no C state stays for code that `run`
 replaces. Two servers that share a placement and a role now take the same seats, so
 each still needs a role of its own.

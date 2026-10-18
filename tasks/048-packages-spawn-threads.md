@@ -71,9 +71,10 @@ lane hands each thread its seat.
 ## Decided (2026-10-18)
 
 Each open question below takes its proposal: no arrival counter, and a placed worker
-spawned outside `run` warns once and floats; a program that chooses a loop per worker
-keeps its own spawn loop and sets `Config.worker`; `lane_stop` waits for the lane's
-threads; the names are `http::run` and `Config.worker`.
+spawned outside `run` warns once and floats; a program that chooses a loop per run
+calls `run` once per choice, and only a program that must interleave spawning with
+other work keeps its own loop and sets `Config.worker` (changed 2026-10-18);
+`lane_stop` waits for the lane's threads; the names are `http::run` and `Config.worker`.
 
 The API and the code are to be as simple as they can be without giving up speed or a
 feature: what this change makes unneeded is removed, not kept beside the new way

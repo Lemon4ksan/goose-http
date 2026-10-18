@@ -438,9 +438,9 @@ after its `Config`: `http::run(cfg, app, worker)` spawns
 `thread_fn worker(cfg: http::Config, app: App)`. The worker comes last because Goose
 passes a function value after a call's other arguments (spec §7.6). `run` sets each
 copy's `Config.worker` to the worker's index, from 0, which its seat goes by. A program
-that picks a loop for its workers at run time spawns them itself and sets
-`Config.worker`, as `server/app.goose` does; a placed worker without one floats, with
-a warning.
+that picks a loop at run time calls `run` once per choice, as `server/app.goose` does.
+Only a program that must interleave spawning with other work spawns its workers itself
+and sets `Config.worker`; a placed worker without one floats, with a warning.
 
 `Config.address` is where to listen: empty for every IPv4 address (127.0.0.1 on
 Windows), an IPv4 or IPv6 address, `"::"` for every address, IPv4 too unless
