@@ -216,6 +216,32 @@ sequenceDiagram
   takes minutes is better as a background task, which the client asks about after a
   `202 Accepted`.
 
+A lane stops when `main` stops its box, once the workers have returned. The stop is a
+flag in the box, not a message, so a full box can't refuse it. The lane takes every
+job queued before the stop, then `http::mail_stopped` ends its loop, and `main`'s
+`thread_wait` returns. As `later/` does:
+
+```rust
+thread_fn backend(box: http::Box) {
+    while !http::mail_stopped(box) {
+        http::mail_wait(box, -1);   // a stop wakes it too
+        http::mail_take(box) { key, tag, bytes => /* the job */ };
+    }
+    http::mail_close(box);
+}
+
+fn main() {
+    // ...
+    for id in ids { thread_wait(id); }
+    http::mail_stop(b);
+    thread_wait(lane);
+}
+```
+
+Replies to jobs that finish after the workers have stopped return `STALE`. Which cores
+a lane runs on, beside the workers, and at what priority, a placement file can set:
+[tuning](tuning.md).
+
 Waiting is off until `Config.mail_slots` and `Config.max_waiting` are set. The calls,
 and every limit: [API, answers that wait](api.md#answers-that-wait). With goose-rest:
 [work that waits](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/11-waiting.md).
