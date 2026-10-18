@@ -1,7 +1,6 @@
 # 044: A stop a full box can't refuse
 
-Status: built on `tina-alignment`; the docs wait for review (2026-10-17), and the
-Windows run is pending
+Status: built on `tina-alignment`, with its docs; the Windows run is pending
 
 A lane learns to stop from a message: goose-rest's best-practices `lanes/` program sends
 each lane `STOP` with `http::mail_send` and ignores the result. When the box is full at
@@ -40,10 +39,9 @@ the same full box, a `STALE` send after it, and a stop that wakes a lane asleep 
       (io_uring, the ring over epoll, epoll, in Docker); Windows pending
 - [x] `http::mail_stopped` is true only once the box is stopped and empty, and the test
       above returns with every queued job taken
-- [ ] `docs/api.md` ("Answers that wait") and `docs/architecture.md` ("Mail between
+- [x] `docs/api.md` ("Answers that wait") and `docs/architecture.md` ("Mail between
       threads") describe the stop; `docs/patterns.md` ("Slow work") shows a lane that
-      stops. Postponed until the code is reviewed (2026-10-17); `examples/later` stops
-      its lane
+      stops. Done in 92c547c3, 1f5eec0b, and b0e2e6d9; `examples/later` stops its lane
 - [ ] `scripts/test.sh` passes on Linux (io_uring, epoll), macOS, and Windows: passes on
       macOS and on Linux in Docker on macOS (arm64); Windows pending
 - [x] goose-rest: `rest::lane`, and the tutorial's and best practices' lanes use it and
