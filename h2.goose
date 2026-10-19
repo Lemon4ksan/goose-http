@@ -137,7 +137,7 @@ fn h2_conn(cfg: const Config&, now: i64) -> H2Conn {
 // generation, and its index in the stream pool (decisions, "An h2 stream is
 // an exchange").
 fn h2_key(slot: i64, gen: u64, index: i64) -> u64 {
-    return ((slot as u64) << 44) | ((gen & 0xFFFFFF) << 20) | ((index as u64) & 0xFFFFF);
+    return later_base(slot, gen) | ((index as u64) & 0xFFFFF);
 }
 fn h2_key_index(key: u64) -> i64 { (key & 0xFFFFF) as i64 }
 

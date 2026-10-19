@@ -294,9 +294,9 @@ grep -E '\[200\]' "$out"
 echo "load: ok"
 
 # h2c, on the port the epoll loop serves it on (H2C_PORT, the port + 2):
-# responses through curl with prior knowledge, a body larger than a stream's
-# window both ways, a file, and a short h2load run. h2spec is
-# scripts/test-h2spec.sh's.
+# responses through curl with prior knowledge, /delay's TIMEOUT at once
+# without waiting configured, a body larger than a stream's window both ways,
+# a file, and a short h2load run. h2spec is scripts/test-h2spec.sh's.
 h2c=$(sed -n 's/.*, h2c on port \([0-9]*\),.*/\1/p' "$log" | head -n 1)
 if [ -z "$h2c" ]; then
     echo "h2c: not served by this loop"
@@ -313,6 +313,10 @@ else
     [ "$version" = 2 ] || fail "h2c answered in HTTP/$version"
     status=$(h2get -o /dev/null -w '%{http_code}' "$h2url/missing")
     [ "$status" = 404 ] || fail "h2c /missing: $status"
+    for q in "" "?open=1"; do
+        body=$(h2get --max-time 3 "$h2url/delay/10000$q") || fail "h2c /delay/10000$q: no TIMEOUT at once"
+        [ "$body" = 10000 ] || fail "h2c /delay/10000$q: $body"
+    done
     head -c 300000 /dev/urandom >"$files/h2c.bin"
     h2get --data-binary "@$files/h2c.bin" -H 'Content-Type: application/octet-stream' \
         -o "$files/h2c.echo" "$h2url/echo"
