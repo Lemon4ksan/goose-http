@@ -34,7 +34,6 @@ import form;
 import forwarded;
 import timers;
 import mail;
-import place;
 
 // The server's settings. Each worker gets a copy, as thread_spawn copies
 // flat values.
@@ -47,17 +46,8 @@ struct Config {
     ipv6_only: bool = false,
     port: i32 = 8080,
     // 0 for one per hardware thread, or on macOS one per performance core
-    // (worker_count). A placement that gives role a count sets it instead;
-    // one that names the role without a count leaves this.
+    // (worker_count).
     workers: i64 = 0,
-    // Where the workers run (place.goose): the placement place_load read, by
-    // its handle (place_ref), and the workers' role in it. Each loop takes
-    // its worker's seat first. The default places nothing.
-    place: PlaceRef = PlaceRef { .. },
-    role: u8[..32] = "workers",
-    // This worker's index among the workers, from 0, for its seat: run sets
-    // it. A placed worker without one floats, with a warning.
-    worker: i64 = -1,
     backlog: i32 = 4096,
     // The most connections one worker holds. The default lets one worker take
     // TechEmpower's largest run, 16,384 connections, alone.
@@ -143,8 +133,8 @@ struct Config {
 struct Error { call: const u8[:], code: i64 }
 
 // Spawns worker_count(cfg) workers, each the thread_fn W, which calls a loop,
-// with its own copy of cfg, whose worker is its index, and the values after
-// cfg, up to two. Returns once every worker has returned.
+// with its own copy of cfg and the values after cfg, up to two. Returns once
+// every worker has returned.
 //
 //   http::run(cfg, worker);             // thread_fn worker(cfg: http::Config)
 //   http::run(cfg, app, worker);        // thread_fn worker(cfg: http::Config, app: App)
@@ -152,14 +142,6 @@ struct Error { call: const u8[:], code: i64 }
 // A program that chooses its loop at run time calls run once per choice:
 //
 //   if epoll { http::run(cfg, worker_epoll) } else { http::run(cfg, worker) }
-//
-// Only a program that must interleave spawning with other work spawns its workers
-// itself, and then sets each one's Config.worker:
-//
-//   for i in http::worker_count(cfg) {
-//       cfg.worker = i;
-//       ids.push(thread_spawn(worker, cfg));
-//   }
 fn run<W>(cfg: Config) { spawn_workers(cfg) { c => thread_spawn(W, c) }; }
 fn run<W>(cfg: Config, a) { spawn_workers(cfg) { c => thread_spawn(W, c, a) }; }
 fn run<W>(cfg: Config, a, b) { spawn_workers(cfg) { c => thread_spawn(W, c, a, b) }; }
@@ -167,36 +149,15 @@ fn run<W>(cfg: Config, a, b) { spawn_workers(cfg) { c => thread_spawn(W, c, a, b
 // run's loop: SPAWN starts a worker with its Config and returns its id.
 fn spawn_workers<SPAWN>(cfg: Config) {
     var ids: i64[>..] = [];
-    for i in worker_count(cfg) {
-        var c = cfg;
-        c.worker = i;
-        ids.push(SPAWN(c));
-    }
+    for i in worker_count(cfg) { ids.push(SPAWN(cfg)); }
     for id in ids { thread_wait(id); }
 }
 
 // The number of workers cfg asks for, which run spawns.
 fn worker_count(cfg: Config) -> i64 {
-    var n = cfg.workers;
-    if n <= 0 {
-        n = net_default_workers();
-        if n <= 0 { n = max(1, hardware_threads()); }
-    }
-    guard cfg.place.id > 0 else { return n; }
-    let p = place_of(cfg.place);
-    return place_threads(p, cfg.role, n);
-}
-
-// The seat of worker cfg.worker of cfg.role in cfg.place, which its loop
-// takes: none without a placement, or for a worker whose index no one set.
-fn worker_seat(cfg: const Config&) -> Seat {
-    guard cfg.place.id > 0 else { return Seat { .. }; }
-    guard cfg.worker >= 0 else {
-        place_warn(str("role ", cfg.role, ": a worker without Config.worker floats; http::run sets it"));
-        return Seat { .. };
-    }
-    let p = place_of(cfg.place);
-    return place_seat(p, cfg.role, cfg.worker);
+    guard cfg.workers <= 0 else { return cfg.workers; }
+    let n = net_default_workers();
+    return if n > 0 { n } else { max(1, hardware_threads()) };
 }
 
 // Opens a worker's listener where cfg.address says. Returns its fd, or the

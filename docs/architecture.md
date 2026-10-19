@@ -28,7 +28,6 @@ compilation:
 | `shim/ring_epoll.c` | Linux, macOS | The ring emulated over epoll or kqueue, where io_uring is blocked, and always on macOS |
 | `shim/mail.c` | all | The boxes' bounded queue, and the list of loop wakers that `http::stop` wakes |
 | `shim/store.c` | all | The store's blobs, written once at startup and read by every thread |
-| `shim/place.c` | all | Placement: the process's cores, a thread's affinity and priority, `SO_INCOMING_CPU`, and the placements a program registers, each with a counter per role |
 
 Each is C for one of four reasons:
 
@@ -45,13 +44,7 @@ Each is C for one of four reasons:
   and each platform's waker ends a loop's wait.
 - **Memory every thread reads.** Goose shares only static data between threads, and
   copies every other global a worker uses when it's spawned. `shim/store.c` holds
-  byte blobs a program writes once, before its workers read them. `shim/place.c` holds
-  up to 8 placements, each a copy of a Goose `Place`'s bytes, and beside each an
-  atomic counter per role that hands each worker its index as it starts.
-
-`shim/place.c` is also C for the first reason: Goose has no call for a thread's
-affinity or priority, or for `SO_INCOMING_CPU`. Parsing the placement file, checking it
-against the machine, and choosing each thread's seat are Goose, in `place.goose`.
+  byte blobs a program writes once, before its workers read them.
 
 Each C file is a separate translation unit and declares the layouts it shares with
 Goose; the [C interop guide](c-interop.md) describes them. Goose has no runtime
@@ -83,8 +76,7 @@ None of this is in a program that imports the package:
 ### Workers and connections
 
 `http::run` spawns the program's worker, a `thread_fn` it takes as a generic parameter,
-once per worker, and passes each a flat `Config` of its own, with its index in
-`Config.worker`. Each worker runs one loop and owns its connections for their
+once per worker, and passes each a flat `Config` of its own. Each worker runs one loop and owns its connections for their
 lifetime. No worker takes another's connections, as a work-stealing scheduler would, so
 a connection's state stays in one thread's caches and idle workers don't contend for a
 shared run queue. Tina's author explains the trade in
@@ -95,16 +87,6 @@ fairness costs throughput.
 default. On macOS it defaults to the performance-core count, and the loop sets
 user-interactive QoS. Linux workers bind separate listeners with `SO_REUSEPORT`;
 macOS and Windows workers share a listener.
-
-A worker takes its seat in a placement first, as its loop starts: both loops call
-`worker_seat`, which returns at once when `Config.place` is empty, and `take_seat`,
-before the worker opens its listener or touches its buffers, since Linux puts a page
-on the NUMA node of the thread that first writes it. The worker reads the `Place` from
-the shim into a local, takes the seat of thread `Config.worker` of `Config.role`, pins
-itself and lowers its priority as that seat says, and keeps only the seat. After it
-opens its listener, it sets `SO_INCOMING_CPU` on it where the seat asks. `Config` holds only the placement's handle, since `thread_spawn` and the loops copy
-`Config`, and a `Place` in it made each worker hold about three copies of 4.4 KB.
-Where placement helps and what each platform does: [tuning](tuning.md).
 
 A connection is a slot in its worker's pool, and the slot is the event tag. Read and
 write buffers belong to the worker; an incomplete request or output not yet sent goes

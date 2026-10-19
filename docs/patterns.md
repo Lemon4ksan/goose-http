@@ -238,9 +238,7 @@ fn main() {
 }
 ```
 
-Replies to jobs that finish after the workers have stopped return `STALE`. Which cores
-a lane runs on, beside the workers, and at what priority, a placement file can set:
-[tuning](tuning.md).
+Replies to jobs that finish after the workers have stopped return `STALE`.
 
 Waiting is off until `Config.mail_slots` and `Config.max_waiting` are set. The calls,
 and every limit: [API, answers that wait](api.md#answers-that-wait). With goose-rest:

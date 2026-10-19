@@ -1,8 +1,10 @@
 # 045: Pin threads to cores, as an option
 
-Status: the spike is built (`bench/pinning.sh`) and smoke-tested in Docker; the
-measurement on a bare-metal Linux machine is pending. Not WSL2, whose pins are virtual
-CPUs, nor Windows natively (task 047, 2026-10-18)
+Status: parked on 2026-10-19, after an independent review: the spike and placement are
+off `main`, on the branch `placement`, since no layout has been measured to beat
+floating ([decision](../docs/decisions.md#placement-is-removed-until-it-is-measured-to-help)).
+The bare-metal Linux measurement, from that branch, decides whether it returns. Not
+WSL2, whose pins are virtual CPUs, nor Windows natively (task 047, 2026-10-18)
 
 Tina pins each shard to a core of its own (its `docs/concepts/thread_per_core.md`, at
 `d129f67`). goose-http pins nothing. A worker runs on every hardware thread by default,

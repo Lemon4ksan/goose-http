@@ -1,7 +1,11 @@
 # 046: Where threads run, and what lanes become, designed against Tina
 
-Status: placement and lanes of N built on `tina-alignment` ("As built", below); group
-commit, the decisions in `docs/decisions.md`, and the measurements are open
+Status: placement parked on 2026-10-19, after an independent review: it is off `main`,
+on the branch `placement`, until task 045 measures a gain on bare-metal Linux, and must
+then be invisible to programs
+([decision](../../docs/decisions.md#placement-is-removed-until-it-is-measured-to-help)).
+Lanes of N moved into goose-http as `http::Lane`, without seats or roles. Group commit
+is open. "As built", below, describes the branch.
 
 Tina (at `d129f67`) plans every thread's place before it starts: one shard per core,
 pinned, each named by `target_core` in a boot spec that doesn't change while it runs, and

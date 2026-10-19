@@ -376,7 +376,22 @@ with other work, such as the REST benchmark servers with their startup handshake
 its own spawn loop and sets `Config.worker`. A placed worker spawned without `Config.worker` floats and prints a warning,
 rather than falling back to a counter, so that no C state stays for code that `run`
 replaces. Two servers that share a placement and a role now take the same seats, so
-each still needs a role of its own.
+each still needs a role of its own. `Config.worker` went with placement on 2026-10-19
+(the next entry), and with it the own spawn loop's index.
+
+## Placement is removed until it is measured to help
+
+Decided 2026-10-19, after an independent review; replaces the four placement entries
+above, from 2026-10-17 and 2026-10-18.
+
+Placement, the file per machine, `Config.place`, `Config.role`, `Config.worker`, seats,
+`place.goose`, and `shim/place.c`, is off `main`, parked on the branch `placement` in
+goose-http and goose-rest. It was never measured to help: on an M1 Pro no layout beat
+the OS's own (task 045), and a `low` lane lost about 40% of its rate. It returns only
+when bare-metal Linux measures a gain beyond the runs' spread, and then invisible to
+programs: the library reads the file, or `GOOSE_PLACE`, and applies it inside `run`
+and `lane_open`, with no seat or role in a program's code. A porter from Hono, Elysia,
+or Axum shouldn't learn a concept that buys nothing measured.
 
 ## Not yet decided
 

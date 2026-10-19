@@ -426,21 +426,21 @@ from its `store_append` image with `from_bytes` costs four times the C read
 The stop on Ctrl+C is shown in `routes/`.
 
 `http::Config`: address, port, workers, limits, timeouts, buffer sizes. All have
-defaults. `Config.workers`, 0 by default, gives one worker per hardware thread, or on
-macOS per performance core ([tuning](tuning.md#worker-count)), and
-`http::worker_count(cfg)` returns the count. `Config.place` and `Config.role` place the
-workers ([placement](#placement)).
+defaults. `http::worker_count(cfg)` returns the worker count: `Config.workers`, or for
+0, the default, one worker per hardware thread the process may use, which `taskset` or
+a cpuset lowers. On macOS the default is one per performance core's logical CPU (8 on
+an M1 Pro), and each worker takes the user-interactive QoS class. A CPU quota without a
+mask, such as Docker's `--cpus` or a Kubernetes CPU limit, leaves the count at the
+host's hardware threads, so set `Config.workers` to the quota.
 
 `http::run(cfg, worker)` spawns `http::worker_count(cfg)` workers, each a `thread_fn`
 that calls a loop with its own copy of `cfg`, and returns once every one has returned.
 Up to two of the program's values go between `cfg` and the worker, which takes them
 after its `Config`: `http::run(cfg, app, worker)` spawns
 `thread_fn worker(cfg: http::Config, app: App)`. The worker comes last because Goose
-passes a function value after a call's other arguments (spec §7.6). `run` sets each
-copy's `Config.worker` to the worker's index, from 0, which its seat goes by. A program
-that picks a loop at run time calls `run` once per choice, as `server/app.goose` does.
-Only a program that must interleave spawning with other work spawns its workers itself
-and sets `Config.worker`; a placed worker without one floats, with a warning.
+passes a function value after a call's other arguments (spec §7.6). A program that picks
+a loop at run time calls `run` once per choice, as `server/app.goose` does. An abort in
+any thread ends the process ([crashes](patterns.md#a-crash-ends-the-process)).
 
 `Config.address` is where to listen: empty for every IPv4 address (127.0.0.1 on
 Windows), an IPv4 or IPv6 address, `"::"` for every address, IPv4 too unless
@@ -465,49 +465,6 @@ fn main() {
     http::run(http::Config { port: 8080, .. }, worker);
 }
 ```
-
-### Placement
-
-Placement is experimental: it's opt-in and free when unused, but not yet measured to
-help on real cores (only macOS has been measured, with no gain), so its grammar and
-calls may be trimmed or removed once measured.
-
-Shown in `bench/pinning/pinning.goose`. When placement helps, the placement file's
-grammar, and what each platform does: [tuning](tuning.md).
-
-- `http::place_load(path = "")` reads the placement file at `path`, checks it against
-  this machine, hands it to the shim, and returns it as an `http::Place`. An empty
-  `path` is the file the command line names with `--place FILE` or `--place=FILE`, or
-  else `GOOSE_PLACE`. With no file named, the placement is empty, and every thread
-  floats. It prints a warning for each thing the machine can't do and goes on. A file
-  that can't be read or doesn't parse ends the program with exit code 2. Call it in
-  `main`, before the threads it places start.
-- `Config.place = http::place_ref(place)` places the workers: an `http::PlaceRef`, a
-  handle to the copy the shim holds, so a worker's `Config` stays small. The default
-  places nothing. `Config.role` is the workers' role in the file, `"workers"` unless
-  written. Each loop takes the seat of its role's thread `Config.worker` as it starts,
-  and sets `SO_INCOMING_CPU` on its listener where the seat asks for it.
-  `http::worker_count(cfg)` returns the file's count for the role where it gives one.
-  Workers of two servers that share a placement and a role take the same seats, so give
-  each server's `Config` a role of its own.
-- `http::place_seat(place, role, i)` returns thread `i`'s `http::Seat`, for a thread
-  the program spawns, such as a lane's: core `i` of its set for `each`, wrapping
-  around; any core of its set for `within` or `core`; otherwise the cores no exclusive
-  set holds. A negative `i` is 0. On a platform that can't pin, the seat only lowers
-  the priority, where the file says `low`.
-- `http::take_seat(seat)` pins the calling thread and lowers its priority, as `seat`
-  says. Call it first in the thread, before it touches memory of its own. A failure
-  prints a warning, and the thread runs on where it is.
-- `http::place_threads(place, role, threads, max = 0)` returns a role's thread count:
-  the file's, or `threads` where the file gives none, cut to `max` with a warning when
-  `max` is above 0.
-- `http::place_listener(seat, fd)` sets `SO_INCOMING_CPU` on a listener of the
-  program's own, where `seat` asks for it. The loops call it for theirs.
-- `http::place_register(place)` hands a `Place` to the shim and gives it the handle
-  `place_ref` returns; `place_load` calls it. A `Place` from `place_parse` that no
-  `place_check` has recorded the machine in is checked first, so it pins. The shim
-  holds 8 at most: past them, it
-  prints a warning, and the placement places nothing.
 
 ### Event loops
 
