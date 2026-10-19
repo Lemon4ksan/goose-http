@@ -1,8 +1,8 @@
-// The benchmark server's worker thread for /later and /events: it owns a box
-// of its own, takes jobs from the HTTP workers, and answers each, after a
-// delay its own timer table keeps, by mail to the exchange's address
-// (http::later). A job asks for count replies, one every delay milliseconds:
-// one for /later, as many as the events for /events.
+// The benchmark server's lane for /later and /events: its thread takes jobs
+// from the HTTP workers, and answers each, after a delay its own timer table
+// keeps, by mail to the exchange's address (http::later). A job asks for
+// count replies, one every delay milliseconds: one for /later, as many as
+// the events for /events.
 import std;
 import os;
 import http;
@@ -14,7 +14,7 @@ let REPLY_MORE: i32 = 1;
 let REPLY_LAST: i32 = 2;
 
 // A job as the backend keeps it, and as it crosses a box
-// (http::mail_send_value).
+// (http::lane_send_value).
 struct Job { reply: http::MailAddress, delay: i64, count: i64, sent: i64, id: u8[..32] }
 
 // The most bytes a job takes in a box: its image, which holds id's whole
@@ -24,8 +24,10 @@ let JOB_SIZE: i32 = 80;
 // number.
 let REPLY_SIZE: i32 = 64;
 
-// Takes jobs from box until a job of no kind it knows, keeping up to
-// capacity at once; a job past that is answered at once with "busy".
+// Takes jobs from box until the lane is stopped and its box is empty,
+// keeping up to capacity at once; a job past that is answered at once with
+// "busy". It writes the loop http::lane is, since its wait ends at its next
+// timer as well.
 thread_fn backend(box: http::Box, capacity: i64) {
     var check: u8[>..] = [];
     let check_stale = env("MAIL_CHECK_STALE", check) && check == "1";
@@ -37,7 +39,6 @@ thread_fn backend(box: http::Box, capacity: i64) {
         free.push(capacity - 1 - i);
     }
     var reply: u8[>..] = [];
-    var running = true;
 
     // Sends job i its next reply, and frees it after the last.
     fn answer(i: i64, now: i64) {
@@ -66,7 +67,7 @@ thread_fn backend(box: http::Box, capacity: i64) {
         else { http::arm(timers, i as u64, now + j.delay); }
     }
 
-    while running {
+    while !http::mail_stopped(box) {
         let now = http::net_clock_ms();
         let due, any = http::next_due(timers);
         http::mail_wait(box, if any { min(max(due - now, 0), 1000) as i32 } else { 1000 });
@@ -78,7 +79,7 @@ thread_fn backend(box: http::Box, capacity: i64) {
             j.count = max(j.count, 1);
             j.sent = 0;
             if tag != JOB_LATER && tag != JOB_EVENTS || !ok {
-                running = false;
+                // Not a job: dropped.
             } else if free.len == 0 {
                 http::mail_send(j.reply, REPLY_LAST, "busy");
             } else {

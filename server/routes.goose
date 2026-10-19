@@ -16,9 +16,9 @@ import http.compression;
 import backend;
 import dataset;
 
-// The backend thread's box, which app.goose sets before it spawns the
-// workers, which copy it; none while waiting is off (MAIL_SLOTS).
-var backend_box: http::MailAddress;
+// The backend lane, which app.goose opens before it spawns the workers,
+// which copy it; none while waiting is off (MAIL_SLOTS).
+var backend_lane: http::Lane;
 
 // The most bytes /bytes and /stream send.
 let MAX_BYTES = 1000000000;
@@ -271,7 +271,7 @@ fn wait_for_backend(req: http::Request, events: bool, st: Transfer&, out: http::
         st.route = LATER;
     }
     j.reply = http::later(out, ms);
-    guard http::mail_send_value(backend_box, if events { JOB_EVENTS } else { JOB_LATER }, j) == http::SENT else {
+    guard http::lane_send_value(backend_lane, if events { JOB_EVENTS } else { JOB_LATER }, j) == http::SENT else {
         if events { http::end_compressed(out, st.coded); } else { http::respond(out, 503, "text/plain", "busy"); }
         return;
     };
@@ -286,7 +286,7 @@ fn upgraded_later(req: http::Request, out: http::Reply) {
     let id, has = http::query_of(req.target, "id");
     if has && id.len <= 32 { j.id.append(id); }
     j.reply = http::later(out, query_or(req.target, "ms", 5000));
-    if http::mail_send_value(backend_box, JOB_LATER, j) != http::SENT { http::end(out); }
+    if http::lane_send_value(backend_lane, JOB_LATER, j) != http::SENT { http::end(out); }
 }
 
 // /delay/MS, HttpArena's async profile: MS, as text, after MS milliseconds

@@ -264,7 +264,7 @@ Shown in `files/`, and in `server/`: `/files/NAME` serves the directory in `FILE
 A handler with state can hand a request to another thread, or wait for a timer, and
 answer later without blocking its worker. How to shape that work, with a diagram of
 `later/`: [slow work](patterns.md#slow-work). Shown in `later/`, and in `server/`:
-`/later` and `/events` wait for a worker thread with a box and a timer table of its own
+`/later` and `/events` wait for a lane with a timer table of its own
 (`server/backend.goose`), with `MAIL_SLOTS` set, as does `/upgrade?delay=D` once
 upgraded, and `/delay/MS` waits for a timer.
 
@@ -274,10 +274,10 @@ then a loop opens no box and arms no timer.
 ```rust
 // At REQUEST: the reply's address, with a time limit the handler must give.
 let job = Job { reply: http::later(out, 5000), .. };
-guard http::mail_send_value(worker, JOB, job) == http::SENT
+guard http::lane_send_value(lane, JOB, job) == http::SENT
 else { http::respond(out, 503, "text/plain", "busy"); return; }
 
-// At WAKE: ev.data and ev.tag are what the worker sent to reply.
+// At WAKE: ev.data and ev.tag are what the lane sent to reply.
 // At TIMEOUT: the limit passed first; answer 504.
 ```
 
@@ -303,7 +303,7 @@ else { http::respond(out, 503, "text/plain", "busy"); return; }
   handler calls `later` again, so a reply can go in pieces back to back; it is
   cleared once the handler returns without waiting, and before `TIMEOUT` or
   `CLOSED`.
-- A worker thread owns a box: `http::mail_open(slots, size)`, which returns the box
+- A thread owns a box: `http::mail_open(slots, size)`, which returns the box
   and an `http::Error`, `http::mail_wait(box, ms)`, `http::mail_take(box) { key, tag, bytes => }`. `http::mail_send(address, tag,
   bytes)` returns `SENT`, `FULL` (no slot free), `TOO_LONG` (longer than a slot), or
   `STALE` at once, from any thread, and never blocks. `http::mail_slot_size(address)`
@@ -313,24 +313,10 @@ else { http::respond(out, 503, "text/plain", "busy"); return; }
   not a message, so a full box can't refuse it, and it wakes the owner's `mail_wait`.
   From then on, sends return `STALE`, and what the box already holds is still taken.
   Once the box is stopped, `mail_wait` returns at once on every call, `false` when
-  nothing is pending, so a lane ends its loop on `http::mail_stopped(box)`. In the
+  nothing is pending, so a lane's loop ends on `http::mail_stopped(box)`. In the
   owner, `mail_stopped` is true once the box is stopped and holds nothing, or is
   closed. It first waits out a send in flight across the stop, so a job sent before
-  the stop is never left behind. A second stop does nothing. As `later/` does:
-
-  ```rust
-  while !http::mail_stopped(box) {
-      http::mail_wait(box, -1);
-      http::mail_take(box) { key, tag, bytes => /* ... */ };
-  }
-  http::mail_close(box);
-  ```
-
-- `http::mail_queued(address)` gives any thread how many messages the box holds, to
-  pick the least busy of several lane threads' boxes, or -1 for a `STALE` address or
-  a stopped box. It's a snapshot, and counts the messages the owner's `mail_take` has
-  taken until it settles them, after each run it finds, so the job in progress may be
-  counted.
+  the stop is never left behind. A second stop does nothing.
 - A box's slot count is a power of two of at least 2. `mail_open` refuses any other
   count with `EINVAL`, including 1: the ring tells a full slot from a free one by its
   sequence number, which takes at least two slots.
@@ -348,6 +334,53 @@ else { http::respond(out, 503, "text/plain", "busy"); return; }
 - A worker's own box, which replies come to, has `Config.mail_slots` slots of
   `Config.mail_size` bytes, 256 by default. A `Config.mail_slots` that `mail_open`
   refuses stops the loop with that error.
+
+### Lanes
+
+A lane is the threads that do one kind of slow work, each with a box of its own. `main`
+opens it before `http::run`, passes it to the workers, and stops it once `run` returns,
+as `later/` does:
+
+```rust
+thread_fn counter(box: http::Box) {
+    http::lane(box) { tag, bytes => /* the job */ };
+}
+
+fn main() {
+    let primes = http::lane_open(http::LaneConfig { threads: 2, .. }, counter);
+    http::run(cfg, primes, worker);
+    http::lane_stop(primes);
+}
+```
+
+- `http::lane_open(cfg, thread)` spawns `cfg.threads` threads, 1 by default and 64 at
+  most, each the `thread_fn` `thread(box: http::Box)` with a box of `cfg.slots` slots
+  of `cfg.size` bytes, 64 of 256 by default. `http::lane_open(cfg, a, thread)` passes
+  `a` too, to `thread(box: http::Box, a: A)`. A box that fails to open ends the
+  program. The `http::Lane` it returns is flat, so it crosses `thread_spawn` and
+  `http::run`.
+- `http::lane(box) { tag, bytes => }` is the thread's loop: it calls the block with
+  each job, in the order sent, until the lane is stopped and its box empty, then closes
+  the box.
+- `http::lane_send(lane, tag, bytes)` and `http::lane_send_value(lane, tag, v)` send a
+  job from any thread to the least busy of the lane's threads, and to the others in turn
+  while each is full. Each returns at once: `SENT`, `FULL` when every box is full,
+  `TOO_LONG`, or `STALE` once the lane is stopped.
+- `http::lane_stop(lane)` stops every box and waits for the threads, each of which
+  first takes what its box holds. The stop is a flag in each box, not a message, so a
+  full box can't refuse it.
+
+A lane thread that does work of its own between jobs, such as `server/backend.goose`'s
+timers, writes the loop that `http::lane` is, with its own time limit on the wait:
+
+```rust
+while !http::mail_stopped(box) {
+    http::mail_wait(box, ms);
+    http::mail_take(box) { key, tag, bytes => /* the job */ };
+    // the thread's own work
+}
+http::mail_close(box);
+```
 
 ## The store
 

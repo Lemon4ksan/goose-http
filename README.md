@@ -129,9 +129,9 @@ flowchart LR
 - **Workers.** The program starts one thread per worker. Each worker runs an event loop
   with the same handler and owns its connections. Workers share no memory; threads
   communicate by [mail](docs/patterns.md#mail-between-threads). A handler must never
-  block its loop, so slow work runs on a lane, a thread of its own, while the handler
-  waits for the reply: the half-sync/half-async pattern
-  ([slow work](docs/patterns.md#slow-work)).
+  block its loop, so slow work runs on a lane, threads of its own that
+  `http::lane_open` starts, while the handler waits for the reply: the
+  half-sync/half-async pattern ([slow work](docs/patterns.md#slow-work)).
 - **Two kinds of handler.** `{ req, body, out => }` receives a complete request and
   responds once, which is enough for most routes. `{ ev, st, out => }` runs for each
   event in an exchange and keeps program-defined state per connection. Use it for large
@@ -147,6 +147,9 @@ flowchart LR
   defaults. `http::stop_on_signals()` stops the loops gracefully on Ctrl+C or `SIGTERM`.
 - **Errors are values.** A loop returns an `http::Error` identifying the failed call
   and its error code. `http::exit_on_error` prints the error and ends the process.
+- **An abort ends the process**, as an index out of bounds does in any thread. Run the
+  server under systemd, Docker, or Kubernetes, which restarts it
+  ([crashes](docs/patterns.md#a-crash-ends-the-process)).
 
 For the API organized by topic, with examples, see [docs/api.md](docs/api.md).
 

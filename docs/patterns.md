@@ -153,8 +153,9 @@ How the boxes work: [architecture](architecture.md#mail-between-threads).
 ## Slow work
 
 A handler runs to its end on the worker, and the worker's other connections wait until it
-does. Two kinds of work therefore leave the handler for a lane, a thread of its own that
-does one kind of slow work. The handler mails the lane a job, and waits for the reply
+does. Two kinds of work therefore leave the handler for a lane, one or more threads of
+their own that do one kind of slow work (`http::lane_open`,
+[API](api.md#lanes)). The handler mails the lane a job, and waits for the reply
 without blocking the worker:
 
 - **I/O-bound work**, such as a query to a database server, moves to a lane however short
@@ -191,10 +192,10 @@ sequenceDiagram
     participant B as Lane
     C->>W: GET /primes/1000000
     Note over W: REQUEST: later(out, 2000)<br/>returns the reply's address
-    W->>B: mail_send_value(backend, JOB, job)
+    W->>B: lane_send_value(primes, JOB, job)
     Note over W: FULL instead of SENT:<br/>answer 503 at once
     Note over W: serves other connections
-    B->>B: mail_wait, mail_take,<br/>mail_live: still waited for? count
+    B->>B: lane: the next job<br/>mail_live: still waited for? count
     alt within 2 s
         B->>W: mail_send(job.reply, 0, count)
         W->>C: WAKE: 200 and the count
@@ -209,32 +210,28 @@ sequenceDiagram
   time limit if need be. Check `http::mail_live(reply)` before starting, as `later/`
   does, and between the steps of a long job.
 - **One thread runs its jobs one at a time.** A job queued behind a long one can time
-  out before it starts. For more at once, start several threads, each with its own box,
-  and send each job to one of them.
+  out before it starts. For more at once, give the lane several threads
+  (`LaneConfig.threads`): each has its own box, and a send goes to the least busy.
 - **A wait isn't free.** It holds the connection, a timer, and any requests pipelined
   behind it, and a worker waits for at most `Config.max_waiting` at once. Work that
   takes minutes is better as a background task, which the client asks about after a
   `202 Accepted`.
 
-A lane stops when `main` stops its box, once the workers have returned. The stop is a
-flag in the box, not a message, so a full box can't refuse it. The lane takes every
-job queued before the stop, then `http::mail_stopped` ends its loop, and `main`'s
-`thread_wait` returns. As `later/` does:
+`main` opens the lane, hands it to the workers, and stops it once they have returned.
+The stop is a flag in each box, not a message, so a full box can't refuse it. Each
+thread takes every job queued before the stop, then its `http::lane` returns, and
+`lane_stop` returns once every thread has. As `later/` does:
 
 ```rust
-thread_fn backend(box: http::Box) {
-    while !http::mail_stopped(box) {
-        http::mail_wait(box, -1);   // a stop wakes it too
-        http::mail_take(box) { key, tag, bytes => /* the job */ };
-    }
-    http::mail_close(box);
+thread_fn counter(box: http::Box) {
+    http::lane(box) { tag, bytes => /* the job */ };
 }
 
 fn main() {
     // ...
-    http::run(cfg, http::address(b, 0), worker);   // returns once the workers have
-    http::mail_stop(b);
-    thread_wait(lane);
+    let primes = http::lane_open(http::LaneConfig { slots: 256, size: JOB_SIZE, .. }, counter);
+    http::run(cfg, primes, worker);   // returns once the workers have
+    http::lane_stop(primes);
 }
 ```
 

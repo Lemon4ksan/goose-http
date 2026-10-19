@@ -85,13 +85,9 @@ fn serve_http(given: http::Config, default_loop: const u8[:]) {
     }
     let n = http::worker_count(cfg);
     load_dataset();
-    // The backend thread of /later and /events, for every worker, with a box
-    // of its own, which lives as long as the process.
+    // The backend lane of /later and /events, one thread for every worker.
     if cfg.mail_slots > 0 {
-        let b, e = http::mail_open(256, JOB_SIZE);
-        http::exit_on_error(e);
-        backend_box = http::address(b, 0);
-        thread_spawn(backend, b, 4096);
+        backend_lane = http::lane_open(http::LaneConfig { slots: 256, size: JOB_SIZE, .. }, 4096, backend);
     }
     // Where io_uring is blocked, the uring loop runs over an emulation, and
     // says so.
@@ -109,6 +105,7 @@ fn serve_http(given: http::Config, default_loop: const u8[:]) {
               if cfg.address.len > 0 { " at " } else { "" }, cfg.address, ", ", name, " loop", ring);
         if epoll { http::run(cfg, worker_epoll) } else { http::run(cfg, worker) }
     }
+    http::lane_stop(backend_lane);
 }
 
 // The environment variable name, a positive number, or otherwise without it.

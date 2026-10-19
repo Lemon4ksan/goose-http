@@ -393,6 +393,20 @@ programs: the library reads the file, or `GOOSE_PLACE`, and applies it inside `r
 and `lane_open`, with no seat or role in a program's code. A porter from Hono, Elysia,
 or Axum shouldn't learn a concept that buys nothing measured.
 
+## Lanes are goose-http's, and the one way to a pool
+
+Decided 2026-10-19, after an independent review, with goose-rest.
+
+`http::Lane`, `lane_open`, `lane`, `lane_send`, and `lane_stop` moved here from
+goose-rest's `rest::lane`, so that goose-http's own programs and goose-rest's open,
+run, and stop a lane the same way, whether it has one thread or several. A lane is the
+one mechanism for threads that do slow work: the typed-queue pool of task 051 and
+goose-rest's `ask_by`, which sent one key's jobs to one thread, went, so each thing is
+done one way. `LaneConfig` keeps only `threads`, `slots`, and `size`. A thread that does
+its own timed work between jobs, as `server/backend.goose` and goose-rest's reports
+tutorial do, writes the four-line loop that `lane` is; a timed `lane` would add a
+concept for two programs. `mail_queued` stays for `lane_send`, outside the user docs.
+
 ## Not yet decided
 
 ### Compression in an optional module

@@ -34,6 +34,7 @@ import form;
 import forwarded;
 import timers;
 import mail;
+import lane;
 
 // The server's settings. Each worker gets a copy, as thread_spawn copies
 // flat values.

@@ -218,6 +218,13 @@ an exchange that no longer waits. `mail_live` checks whether the address is stil
 without sending. A send that saw a key live just before it was cleared can still be
 queued, so the loop checks each delivered key and drops a message no exchange waits for.
 
+A lane (`lane.goose`) is Goose over boxes. `lane_open` opens a box per thread and
+spawns the program's `thread_fn` with it, as `run` spawns workers, and keeps the boxes
+and thread ids in a flat `Lane` of at most 64 of each. `lane_send` reads each box's
+count with `mail_queued`, sends to the box that holds the fewest, and tries the others
+in turn while each is full. Each send starts its scan one box further on, from a
+counter per thread, so ties don't all go to one box.
+
 A lane stops on a flag in its box, which `mail_stop` sets and then wakes the owner. A
 stop sent as a message would need a free slot: to a full box at shutdown, the send
 returns `FULL`, the stop is lost, and the lane waits forever. A send reads the flag after it raises
