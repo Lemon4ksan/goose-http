@@ -31,6 +31,10 @@ response behind them. `scripts/test-http.sh` ignores wrk's timeouts for that rea
   another checkout writes its own there) with the shims `http.build` lists, `-I` the
   Goose checkout's `src/runtime`, `-O2 -g -fno-omit-frame-pointer -no-pie`, and
   `-luring -lm -pthread`, then resolve `perf script`'s addresses with `addr2line -f -i`.
+- A Unix socket can't listen on `/mnt/c`: `listen` fails with `Operation not
+  supported`. `test/outbound/outbound_loop.goose` listens on Unix sockets in its own
+  directory, so `scripts/test.sh` fails it when the checkout is under `/mnt/c` and
+  passes it from a clone on WSL's own filesystem (2026-10-19).
 - Docker Desktop's host network is the Docker VM's, not WSL's loopback. HttpArena's
   readiness probes and cgroup reads use helper containers; published ports reach WSL.
 
