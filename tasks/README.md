@@ -54,7 +54,7 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 |---|---|
 | 006: platform ports | Platform subtasks are done; the optional conditional-compilation goal remains unresolved. |
 | 012: macOS benchmarks | Complete the Docker matrix; retain the platform and client limits. |
-| 014: HTTP/2 and TLS | h2's split is decided; agree TLS's, review the h2c loop design, then implement and measure. |
+| 014: HTTP/2 and TLS | h2c serves from the epoll loop (014.01); io_uring, Linux measurements, and TLS's split remain. |
 | 016: worker memory | Finish source accounting, reductions, and the Goose-side question. |
 | 017: IOCP speed | Read the kernel trace and evaluate candidates against the recorded baseline. |
 | 022: compression | Record approval of the implemented boundary and finish outstanding platform validation. |
