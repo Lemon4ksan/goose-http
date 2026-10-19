@@ -17,6 +17,144 @@ WSL2 loopback runs through a VM; its kernel cost differs from bare metal. Runs t
 2026-10-12 use kernel 6.18.40.1-microsoft-standard-WSL2. The 2026-10-14 runs use
 6.18.54.1-microsoft-standard-WSL2. Each run's `env.txt` records the environment.
 
+## 2026-10-18: v0.3.7, Goose builds only
+
+goose-rest's `bench/all.sh` measured both repositories' Goose servers on the desktop,
+machine name Tiamat, in session `2026-10-18T2118`: both test suites, the Goose builds,
+goose-rest's `bench/rest.sh check`, `bench/run.sh`, `bench/files.sh`, goose-rest's
+`bench/rest.sh run`, `bench/instructions.sh`, and goose-rest's `bench/rest.sh count`.
+The server is `edd83c4b`, `v0.3.7`. The compiler is the Goose release `v2026.2`
+(`3ee3871`), Linux archive SHA-256
+`8f6d3e883f9d6ea655263b445da02bd4f6c85b4a7bbd3ca5c268bcabd7aff296`. Kernel
+6.18.54.1-microsoft-standard-WSL2, gcc 15.2.0 at `-O2`. Against the
+[2026-10-16 session](#2026-10-16-v036-at-goose-v20262-goose-builds-only), the compiler
+is the same, and so is the request path: `v0.3.7` adds placement, which does nothing
+without a placement file, and a stop for mail boxes. The cells below moved by up to
++6.4% all the same, so they measure the session as much as the code. No competitor of
+this repository's ran; their comparisons use the
+[2026-10-14 field run](#2026-10-14-main-after-tasks-02203-025-and-027) on the same
+machine and kernel. Before it began, the 1-minute load average settled at 0.26 and
+Windows CPU at 9%. The session's
+[steps](../bench/results/2026-10-18T2118-Tiamat/session-steps.txt) and
+[environment](../bench/results/2026-10-18T2118-Tiamat/session-env.txt) are kept.
+
+### Plaintext and JSON at v0.3.7
+
+```sh
+SERVERS="goose goose-uring" bench/run.sh
+```
+
+The settings of the [earlier run](#plaintext-and-json-at-v20262). 4 workers, from the
+[summary](../bench/results/2026-10-18T2118-Tiamat/summary.md), against `3785950e`'s
+cells:
+
+| Loop | Test | Conns | `v0.3.6` | `v0.3.7` | Change |
+|---|---|---:|---:|---:|---:|
+| io_uring | plaintext | 256 | 6.73 M (6.63-6.81) | 7.10 M (6.91-7.17) | +5.5% |
+| io_uring | plaintext | 1,024 | 6.62 M (6.62-6.74) | 7.04 M (6.84-7.04) | +6.4% |
+| io_uring | plaintext | 4,096 | 6.20 M (6.14-6.21) | 6.42 M (6.34-6.52) | +3.5% |
+| io_uring | JSON | 256 | 495 K (456-498) | 517 K (509-519) | +4.4% |
+| io_uring | JSON | 1,024 | 491 K (487-500) | 510 K (500-511) | +3.9% |
+| epoll | plaintext | 256 | 5.22 M (5.21-5.27) | 5.44 M (5.39-5.54) | +4.2% |
+| epoll | plaintext | 1,024 | 5.18 M (5.16-5.19) | 5.38 M (5.31-5.48) | +3.9% |
+| epoll | plaintext | 4,096 | 5.06 M (4.97-5.08) | 5.25 M (5.24-5.29) | +3.7% |
+| epoll | JSON | 256 | 402 K (394-403) | 411 K (411-411) | +2.2% |
+| epoll | JSON | 1,024 | 397 K (394-401) | 408 K (402-409) | +2.8% |
+
+Every cell rose 2.2-6.4%, each above or at the top of the earlier range. Peak RSS is
+4.0-4.9 MB on epoll and 10.2-16.3 MB on io_uring with 4 workers, against 4.0-4.9 MB and
+10.1-13.0 MB; the 16.3 MB is plaintext at 4,096 connections, 12.8 MB before. Every cell
+had zero errors and no clock steps.
+
+### Instruction counts at v0.3.7
+
+```sh
+bench/instructions.sh goose goose-uring
+```
+
+The settings of the [earlier counts](#instruction-counts-at-v20262)
+([counts](../bench/results/2026-10-18T2118-Tiamat/instructions.txt)):
+
+| Loop | Instructions/req | User instructions/req | Cycles/req | Peak RSS |
+|---|---:|---:|---:|---:|
+| epoll, `v0.3.6` | 2,475-2,517 | 1,553-1,580 | 2,067-2,085 | 3.5 MB |
+| epoll, `v0.3.7` | 2,540-2,551 | 1,598-1,604 | 2,040-2,047 | 3.4-3.5 MB |
+| io_uring, `v0.3.6` | 2,600-2,628 | 1,633-1,650 | 1,784-1,816 | 5.6-5.8 MB |
+| io_uring, `v0.3.7` | 2,601-2,632 | 1,634-1,653 | 1,757-1,769 | 5.9 MB |
+
+At the medians, user instructions per request rise 2.8% on epoll, from 1,556 to 1,599,
+beyond the earlier range and beyond the 1,538-1,586 the same epoll code has counted
+across runs, and fall 0.2% on io_uring, from 1,650 to 1,646. Which change moved
+epoll's count isn't measured. Cycles per request fall 1.6% on epoll and 2.5% on
+io_uring, both beyond the earlier ranges. The runs served 1.75-1.81 M and 2.06-2.08 M
+requests a second, against 1.57-1.60 M and 1.87-1.90 M on 2026-10-16.
+
+### Static files at v0.3.7
+
+```sh
+SERVERS="goose goose-uring goose-uring-epoll" bench/files.sh
+```
+
+The settings of the [earlier run](#static-files-at-v20262)
+([summary](../bench/results/2026-10-18T2118-Tiamat-files/summary.md)):
+
+| Server | 4 KB, 1 worker | 4 KB, 4 | 64 KB, 1 | 64 KB, 4 | 1 MB, 1 | 1 MB, 4 |
+|---|---:|---:|---:|---:|---:|---:|
+| Goose epoll | 55.9 K/s | 195 K/s | 2.15 GB/s | 8.10 GB/s | 10.8 GB/s | 22.3 GB/s |
+| Goose io_uring | 86.0 K/s | 238 K/s | 2.04 GB/s | 6.97 GB/s | 10.7 GB/s | 21.9 GB/s |
+| Goose, emulated ring | 77.8 K/s | 221 K/s | 2.82 GB/s | 8.45 GB/s | 12.4 GB/s | 22.3 GB/s |
+
+Against `3785950e`'s medians, the 4 KB cells rose 2.3-5.9%, the 64 KB cells 0.6-2.1%,
+and the 1 MB cells moved by -1.5% to +0.3%. At 1 MB with 4 workers wrk again used
+80.2 s of CPU in each 10 s run, the client's limit. Every cell had zero errors.
+
+### REST tiers A to D at v0.3.7
+
+```sh
+SERVERS="goose-uring goose-epoll goose-uring-rest goose-epoll-rest" \
+    EXTRA="goose-uring-rest goose-epoll-rest" \
+    RATE_A=100000 RATE_B=24000 RATE_C=1700 bench/rest.sh run   # from goose-rest
+SERVERS="axum actix-web ntex dusty-routes dusty hyper" \
+    EXTRA="axum actix-web ntex dusty-routes" \
+    RATE_A=100000 RATE_B=24000 RATE_C=1700 bench/rest.sh run   # from goose-rest
+```
+
+The first command is the session's own step, at goose-rest `e478ca2`, which imports
+this repository at `v0.3.7`
+([summary](https://github.com/kaitk/goose-rest/blob/main/bench/results/2026-10-18T2118-rest-Tiamat/summary.md)).
+The second ran right after the session, from 23:55Z, once the machine was idle again,
+with dusty and hyper among goose-rest's frameworks
+([summary](https://github.com/kaitk/goose-rest/blob/main/bench/results/2026-10-18T2118-rest-Tiamat-frameworks/summary.md)).
+The settings of the [earlier run](#rest-tiers-a-to-d-at-v20262). Every server passed its
+checks and reached every fixed rate with zero errors, but for 2 upload errors on dusty
+beside forms. Medians, serialized, against `3785950e`'s and the 2026-10-16 morning's
+dusty and hyper:
+
+| Server | A | B | C | C, templates | Uploads alone |
+|---|---:|---:|---:|---:|---:|
+| io_uring, `3785950e` | 588 K/s | 311 K/s | 62.1 K/s | 147 K/s | 1,152/s |
+| io_uring, `edd83c4b` | 608 K/s | 316 K/s | 64.0 K/s | 153 K/s | 1,182/s |
+| epoll, `3785950e` | 429 K/s | 240 K/s | 61.4 K/s | 136 K/s | 1,180/s |
+| epoll, `edd83c4b` | 469 K/s | 247 K/s | 62.9 K/s | 145 K/s | 1,192/s |
+| dusty, 2026-10-16 | 353 K/s | 164 K/s | 25.4 K/s | 130 K/s | 1,131/s |
+| dusty, 2026-10-18 | 359 K/s | 177 K/s | 25.7 K/s | 136 K/s | 1,151/s |
+| hyper, 2026-10-16 | 278 K/s | 154 K/s | 33.2 K/s | 124 K/s | 1,128/s |
+| hyper, 2026-10-18 | 285 K/s | 157 K/s | 33.7 K/s | 125 K/s | 1,159/s |
+
+The Goose cells rose 1.6-9.4% with the request path unchanged, the most on epoll's
+tier A, 9.4%, and each serialized cell above the earlier range. hyper's rose 0.8-2.5%, and dusty's
+1.2-7.9%, so the session explains some of the rise but not all of epoll's; which part
+isn't measured. Uploads alone rose 2.6% on io_uring and 1.0% on epoll.
+
+Peak RSS over the three runs, in MB, A, B, C, C templated, and uploads alone: io_uring
+12.6, 30.3, 70.6, 57.6, and 70.6; epoll 7.6, 28.9, 69.3, 57.7, and 69.1, each within
+0.3 MB of `3785950e`'s. Tier D beside forms: io_uring 168-169 uploads a second with
+forms at 7.5-7.6 K/s, against 175-178 and 7.7-7.8 K/s; epoll 123-124 uploads a second
+with forms at 7.8-7.9 K/s, against 124-126 and 8.1-8.3 K/s.
+
+Tier C's reads at 1,700 a second: beside uploads, the io_uring loop's p99 is
+5.18-8.36 ms against epoll's 0.38-1.29 ms, and 0.14-0.94 ms on both loops alone.
+
 ## 2026-10-16: v0.3.6 at Goose v2026.2, Goose builds only
 
 goose-http's steps of goose-rest's `bench/all.sh`, run alone in the same order, measured
@@ -34,7 +172,9 @@ competitor ran; their comparisons use the
 machine and kernel, and sessions have drifted by up to 5%. Before it began, the
 1-minute load average settled at 0.21 and Windows CPU at 5%. The session's
 [steps](../bench/results/2026-10-16T1422-Tiamat/session-steps.txt) and
-[environment](../bench/results/2026-10-16T1422-Tiamat/session-env.txt) are kept.
+[environment](../bench/results/2026-10-16T1422-Tiamat/session-env.txt) are kept. Its
+runs are superseded by the [2026-10-18 session](#2026-10-18-v037-goose-builds-only),
+which compares against them.
 
 ### Plaintext and JSON at v2026.2
 
