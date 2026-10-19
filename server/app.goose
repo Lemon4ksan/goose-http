@@ -85,13 +85,12 @@ fn serve_http(given: http::Config, default_loop: const u8[:]) {
     }
     let n = http::worker_count(cfg);
     load_dataset();
-    // The backend thread of /later and /events, for every worker, with a box
-    // of its own, which lives as long as the process.
+    // The backend thread of /later and /events, for every worker, which lives
+    // as long as the process and takes jobs from a bounded queue.
     if cfg.mail_slots > 0 {
-        let b, e = http::mail_open(256, JOB_SIZE);
-        http::exit_on_error(e);
-        backend_box = http::address(b, 0);
-        thread_spawn(backend, b, 4096);
+        qlimit<Job>(JOBS_QUEUED);
+        backend_on = true;
+        thread_spawn(backend, 4096);
     }
     // Where io_uring is blocked, the uring loop runs over an emulation, and
     // says so.
