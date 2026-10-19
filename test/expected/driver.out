@@ -21,6 +21,18 @@ a response in pieces, through MORE:
   DATA 1 5 'more '
   DATA 1 5 'more '
   DATA 1 0 '' END_STREAM
+a response's fields lowercased, HTTP/1.1's connection fields dropped, and a head held open:
+  SETTINGS 0 4 values
+  WINDOW_UPDATE 0 +983041
+  SETTINGS 0 ACK 0 values
+  HEADERS 1 :status=200 server=goose x-mixed-case=1 upgrades=kept content-location=/kept content-length=2
+  DATA 1 2 'ok' END_STREAM
+  HEADERS 5 :status=200 server=goose x-f0=v x-f1=v x-f2=v x-f3=v x-f4=v x-f5=v x-f6=v x-f7=v x-f8=v x-f9=v x-f10=v x-f11=v x-f12=v x-f13=v x-f14=v x-f15=v x-f16=v x-f17=v x-f18=v x-f19=v x-f20=v x-f21=v x-f22=v x-f23=v x-f24=v x-f25=v x-f26=v x-f27=v x-f28=v x-f29=v x-f30=v x-f31=v x-f32=v x-f33=v content-length=4
+  DATA 5 4 'long' END_STREAM
+  HEADERS 3 :status=200 server=goose x-held=yes
+  DATA 3 5 'more '
+  DATA 3 5 'more '
+  DATA 3 0 '' END_STREAM
 a stream window of 10, then WINDOW_UPDATEs:
   SETTINGS 0 4 values
   WINDOW_UPDATE 0 +983041

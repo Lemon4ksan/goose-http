@@ -403,6 +403,13 @@ and the writers stay as they are, for a parse of a head the package just wrote. 
 that emit HPACK themselves for an h2 `Reply` are to be built only if a measurement
 shows the translation matters.
 
+The measurement did (2026-10-19): on HttpArena's baseline-h2c, the translation took
+16-17% of the server's samples beyond HPACK's own encoding, so it was made cheaper
+instead, and a cache of the last head's block per connection comes next. The writers
+stay an option, looked at only if a large share remains after the cache: each writer
+would gain an h2 branch, and a head that `begin` holds open can't be encoded as it's
+written (task 014.01, answers 10 and 11).
+
 ## An h2 connection's state is outside its slot
 
 Decided 2026-10-19, task 014.01.
