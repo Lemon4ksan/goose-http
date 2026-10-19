@@ -1,0 +1,39 @@
+preface: whole, followed by SETTINGS, in part, and an HTTP/1.1 request
+round trips: DATA, HEADERS, PRIORITY, RST_STREAM, SETTINGS and its ACK, PUSH_PROMISE, PING, GOAWAY, WINDOW_UPDATE
+padding and priorities: padded DATA, padded HEADERS with a priority, the reserved bit, an unknown type
+a 40000-byte field block: HEADERS and 2 CONTINUATIONs, the last with END_HEADERS; PUSH_PROMISE's leaves room for the promised stream
+incomplete: every prefix of a frame asks for more
+errors:
+  DATA longer than SETTINGS_MAX_FRAME_SIZE: FRAME_SIZE_ERROR, connection
+  DATA on stream 0: PROTOCOL_ERROR, connection
+  DATA padded past its end: PROTOCOL_ERROR, connection
+  DATA padded with no pad length: FRAME_SIZE_ERROR, connection
+  HEADERS on stream 0: PROTOCOL_ERROR, connection
+  HEADERS too short for its priority: FRAME_SIZE_ERROR, connection
+  HEADERS depending on itself: PROTOCOL_ERROR, stream
+  PRIORITY on stream 0: PROTOCOL_ERROR, connection
+  PRIORITY of 4 bytes: FRAME_SIZE_ERROR, stream
+  PRIORITY depending on itself: PROTOCOL_ERROR, stream
+  RST_STREAM on stream 0: PROTOCOL_ERROR, connection
+  RST_STREAM of 3 bytes: FRAME_SIZE_ERROR, connection
+  SETTINGS on stream 1: PROTOCOL_ERROR, connection
+  SETTINGS ACK with parameters: FRAME_SIZE_ERROR, connection
+  SETTINGS of 5 bytes: FRAME_SIZE_ERROR, connection
+  PUSH_PROMISE on stream 0: PROTOCOL_ERROR, connection
+  PUSH_PROMISE too short for its stream: FRAME_SIZE_ERROR, connection
+  PING on stream 1: PROTOCOL_ERROR, connection
+  PING of 7 bytes: FRAME_SIZE_ERROR, connection
+  GOAWAY on stream 1: PROTOCOL_ERROR, connection
+  GOAWAY of 7 bytes: FRAME_SIZE_ERROR, connection
+  WINDOW_UPDATE of 3 bytes: FRAME_SIZE_ERROR, connection
+  WINDOW_UPDATE of 0 on the connection: PROTOCOL_ERROR, connection
+  WINDOW_UPDATE of 0 on a stream: PROTOCOL_ERROR, stream
+  CONTINUATION on stream 0: PROTOCOL_ERROR, connection
+settings refused:
+  setting 0002 = 00000002: PROTOCOL_ERROR
+  setting 0004 = 80000000: FLOW_CONTROL_ERROR
+  setting 0005 = 00003fff: PROTOCOL_ERROR
+  setting 0005 = 01000000: PROTOCOL_ERROR
+  setting 0008 = 00000002: PROTOCOL_ERROR
+  setting 0009 = 00000002: PROTOCOL_ERROR
+settings: unknown ones ignored, the last of a repeated one kept, the limits taken

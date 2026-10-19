@@ -22,7 +22,7 @@ generation from OpenAPI, see [goose-rest](https://github.com/kaitk/goose-rest).
 |---|---|---|
 | 🟢 | HTTP/1.1 | Keep-alive, pipelining, chunked bodies, trailers, and `Expect: 100-continue`. Also supports HTTP/1.0. |
 | 🟢 | Compression | Files compressed with Brotli, Zstandard, or gzip; on-the-fly gzip, deflate, and Zstandard with [goose-compress](https://github.com/kaitk/goose-compress). |
-| 🟡 | HTTP/2 | Planned next. |
+| 🟡 | HTTP/2 | Planned next, in this package, starting with h2c. HPACK and the frames are written; no loop serves HTTP/2 yet. |
 | 🟡 | TLS | Planned next, likely as a separate package. |
 | 🔴 | WebSocket | Currently out of scope; `Upgrade` hands the connection to the program ([API](docs/api.md#streaming)). |
 | ⚪ | HTTP/3 | Deferred until QUIC on Linux matures; it currently uses more CPU than TCP for the same traffic. |

@@ -192,6 +192,27 @@ optional `http.compression` module, over goose-compress's encoders, which are Go
 and import nothing of HTTP. Negotiation and response framing stay in `http`, so a
 program that doesn't import the module needs no codec. TLS is outside this package.
 
+## HTTP/2
+
+HTTP/2 is being built in Goose, as modules of `http`
+([decisions](decisions.md#http2-is-modules-of-http-written-in-goose)). Two exist, on
+bytes alone, and no loop serves HTTP/2 yet:
+
+- `http.hpack` (`hpack.goose`) is HPACK (RFC 7541): integers, strings, the static
+  table, a dynamic table with its size updates, and Huffman coding. A table is a flat
+  value of 9 KB: entries' bytes in a buffer twice the 4,096-byte table size, so the
+  live ones move to the front at most once per 4,096 bytes added, and a ring of up to
+  128 entries. Huffman decoding goes four bits at a time through a table of 4,096
+  steps that each worker builds from the code at startup. The decoder hands each field
+  to a block, pointing into the field block, the table, or a scratch buffer, rather
+  than build a list. The encoder takes a field whole from either table by index, and
+  Huffman-codes a literal unless that would lengthen it.
+- `http.h2frame` (`h2frame.goose`) parses and writes each frame type of RFC 9113 §6,
+  with the connection preface and the settings. A parse returns the frame, its size,
+  and what it breaks: nothing, a stream, or the connection. It keeps no state, so
+  sequencing rules, such as CONTINUATION following its HEADERS, belong to the
+  connection.
+
 ## Mail between threads
 
 A handler that waits for another thread calls `http::later`, which needs a time limit
