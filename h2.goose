@@ -224,13 +224,33 @@ fn h2_value_ok(value: const u8[:]) -> bool {
     return a != ' ' && a != '\t' && z != ' ' && z != '\t';
 }
 
-// Appends the HPACK of an HTTP/1.1 response head, its status line and field
-// lines, through enc, and returns its status: the fields' names lowercased
-// in head itself, and those of HTTP/1.1's connection dropped (§8.2.2).
-fn h2_head_block(enc: HpackTable&, fb: u8[>..]&, head: u8[:]) -> i32 {
+// How many of a response head's line ends h2_head_block keeps from its
+// search for the blank line; it searches again for any past them.
+let H2_HEAD_LINES = 16;
+
+// Appends the HPACK of the HTTP/1.1 response head at text's front, its status
+// line and field lines, through enc, once the head is whole: the fields'
+// names lowercased in text itself, and those of HTTP/1.1's connection
+// dropped (§8.2.2). Returns the head's length with its blank line, or -1,
+// with nothing appended, while the head isn't whole, as begin's isn't until
+// its first send: a field can't be taken back from the table.
+fn h2_head_block(enc: HpackTable&, fb: u8[>..]&, text: u8[:]) -> i64 {
+    var ends: i32[..H2_HEAD_LINES] = [];
+    var start = 0;
+    var at = 0;
+    loop {
+        let nl = position(text[at..], '\n');
+        guard nl >= 0 else { return -1; }
+        let e = at + nl;
+        at = e + 1;
+        guard e > start && text[e - 1] == '\r' else { continue; }
+        if e - 1 == start { break; }
+        if ends.len < H2_HEAD_LINES { ends.push((e - 1) as i32); }
+        start = at;
+    }
+    let size = at;
     hpack_begin(enc, fb);
-    let eol = find(head, "\r\n");
-    let line = if eol < 0 { head } else { head[..eol] };
+    let line = if ends.len > 0 { text[..ends[0] as i64] } else { text[..0] };
     var status: i32 = 500;
     if line.len >= 12 && is_digit(line[9]) && is_digit(line[10]) && is_digit(line[11]) {
         let d0: i32 = line[9] - '0';
@@ -241,12 +261,13 @@ fn h2_head_block(enc: HpackTable&, fb: u8[>..]&, head: u8[:]) -> i32 {
     var digits: u8[..3] = [];
     format(digits, status);
     hpack_encode(enc, fb, ":status", digits);
-    var pos = if eol < 0 { head.len } else { eol + 2 };
-    while pos < head.len {
-        let rest = head[pos..];
-        let end = find(rest, "\r\n");
-        let l = if end < 0 { rest } else { rest[..end] };
-        pos += if end < 0 { rest.len } else { end + 2 };
+    var i = 1;
+    var pos = line.len + 2;
+    while pos < size - 2 {
+        let cr = if i < ends.len { ends[i] as i64 } else { pos + find(text[pos..], "\r\n") };
+        i++;
+        let l = text[pos..cr];
+        pos = cr + 2;
         let colon = position(l, ':');
         if colon <= 0 { continue; }
         let name = l[..colon];
@@ -255,7 +276,7 @@ fn h2_head_block(enc: HpackTable&, fb: u8[>..]&, head: u8[:]) -> i32 {
            name == "transfer-encoding" || name == "upgrade" { continue; }
         hpack_encode(enc, fb, name, trim(l[colon + 1..]));
     }
-    return status;
+    return size;
 }
 
 // Answers what connection c, an h2c one in slot, has in rbuf[..rlen], into
@@ -405,13 +426,10 @@ fn h2_answer<S, H, C>(c: C&, slot: i64, h: H2Conn&, streams: H2Stream<S>[>..]&, 
         st.out_end = st.out_end || end;
     }
 
-    // A whole response head in text, and the body bytes after it: HEADERS,
+    // A whole response head, in bfb, and the body bytes after it: HEADERS,
     // with END_STREAM where the response ended with no body, then DATA.
-    fn head_done(k: i64, text: u8[:], e: i64, ended: bool) {
+    fn head_done(k: i64, body: const u8[:], ended: bool) {
         let st .= streams[k];
-        let body = text[e + 4..];
-        bfb.clear();
-        h2_head_block(h.enc, bfb, text[..e + 2]);
         h2_write_headers(wbuf, st.id, bfb, ended && body.len == 0, h.peer.max_frame_size);
         st.headers_sent = true;
         if ended && body.len == 0 {
@@ -434,9 +452,10 @@ fn h2_answer<S, H, C>(c: C&, slot: i64, h: H2Conn&, streams: H2Stream<S>[>..]&, 
             return;
         }
         if st.head.len == 0 {
-            let e = find(bytes, "\r\n\r\n");
-            if e >= 0 {
-                head_done(k, bytes, e, ended);
+            bfb.clear();
+            let size = h2_head_block(h.enc, bfb, bytes);
+            if size >= 0 {
+                head_done(k, bytes[size..], ended);
                 return;
             }
             // begin's head, open until the first send.
@@ -449,12 +468,13 @@ fn h2_answer<S, H, C>(c: C&, slot: i64, h: H2Conn&, streams: H2Stream<S>[>..]&, 
         let had = st.head.len;
         st.head = spill.realloc_slice(st.head, had + bytes.len);
         copy_into(st.head[had..], bytes);
-        let e = find(st.head, "\r\n\r\n");
-        guard e >= 0 else { return; }
+        bfb.clear();
+        let size = h2_head_block(h.enc, bfb, st.head);
+        guard size >= 0 else { return; }
         // The head leaves the stream before head_done, which may close it.
         let text = st.head;
         st.head = st.head[..0];
-        head_done(k, text, e, ended);
+        head_done(k, text[size..], ended);
         spill.free_slice(text);
     }
 
@@ -504,9 +524,8 @@ fn h2_answer<S, H, C>(c: C&, slot: i64, h: H2Conn&, streams: H2Stream<S>[>..]&, 
     fn refuse_new(id: i64, status: i32, end_stream: bool) {
         bout.clear();
         refuse(bout, status, common);
-        let e = find(bout, "\r\n\r\n");
         bfb.clear();
-        h2_head_block(h.enc, bfb, bout[..e + 2]);
+        h2_head_block(h.enc, bfb, bout);
         h2_write_headers(wbuf, id, bfb, true, h.peer.max_frame_size);
         bout.clear();
         if !end_stream {

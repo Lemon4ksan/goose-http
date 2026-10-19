@@ -88,6 +88,12 @@ fn handle(ev: http::Event, st: St&, out: http::Reply) {
         http::field(out, "Upgrades", "kept");
         http::field(out, "Content-Location", "/kept");
         http::finish(out, http::NO_TYPE, "ok");
+    } else if path == "/long" {
+        // More lines than h2_head_block keeps the ends of.
+        http::start(out, 200);
+        for i in 34 { http::field(out, str("X-F", i), "v"); }
+        http::field(out, "Connection", "close");
+        http::finish(out, http::NO_TYPE, "long");
     } else if path == "/held" {
         // The head stays open until MORE's first send.
         http::begin(out, 200, -1);
@@ -254,6 +260,7 @@ fn translation() {
     opening(input, http::H2Settings { .. });
     request(input, 1, "GET", "/fields", "", true);
     request(input, 3, "GET", "/held", "", true);
+    request(input, 5, "GET", "/long", "", true);
     feed(input);
 }
 
