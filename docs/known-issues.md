@@ -118,6 +118,9 @@ intermediate shell can otherwise expand variables before bash sees them.
 - The REST server, `bench/rest/goose/rest.goose`, doesn't link natively on macOS: it
   calls glibc's `mallopt`. `goose check` still type-checks it; build it and run
   `bench/rest/check.py` against it in an arm64 Linux container (2026-10-16).
+- The VM's wall clock can step forward mid-run. `http_client.py` times with
+  `time.time()`, and a step during `later` failed a 0.2 s reply as taking 1160 s
+  (2026-10-19). Rerun the suite when a time check fails by minutes.
 
 ## Windows
 
