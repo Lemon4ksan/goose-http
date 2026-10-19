@@ -649,10 +649,9 @@ fn answer<S, H, ROOM, C>(c: C&, rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, common: 
         x.served++;
         x.keep_alive = req.keep_alive && !stopping && (max_requests <= 0 || x.served < max_requests);
         x.state = fresh;
-        // The exchange's address for later, where the loop has a box.
-        if x.stream.later.box.slot >= 0 {
-            x.stream.later.key = (x.stream.later.key & ~0xFFFFF) | ((x.served & 0xFFFFF) as u64);
-        }
+        // The exchange's address for later. Without a box the key still
+        // finds the exchange for its TIMEOUT.
+        x.stream.later.key = (x.stream.later.key & ~0xFFFFF) | ((x.served & 0xFFFFF) as u64);
         let before = wbuf.len;
         H(Event { kind: REQUEST, req: req, data: data, whole: whole, trailers: trailers }, &x.state,
           Reply { buf: wbuf, common: common, keep_alive: x.keep_alive, minor: req.minor,

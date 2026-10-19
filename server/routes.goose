@@ -37,7 +37,7 @@ fn digits() -> u8[PIECE + 10] {
 struct Transfer {
     route: u8 = NONE,
     count: i64 = 0,     // /upload: body bytes so far; /bytes, /stream: bytes sent
-    left: i64 = 0,      // /bytes, /stream: bytes still to send
+    left: i64 = 0,      // /bytes, /stream: bytes still to send; /delay: 1 for an open response
     sum: u64 = 0,       // /upload: the sum of the body's bytes
     file: http::FileBody = http::FileBody { .. },   // /files/
     coded: http::Compressed = http::Compressed { .. },  // /zstream, /events: the encoder, if compressed
@@ -83,8 +83,13 @@ inline fn handle(ev: http::Event, st: Transfer&, out: http::Reply) {
         if ev.kind == http::TIMEOUT {
             var text: u8[..24] = [];
             format(text, st.count);
-            http::start(out, 200);
-            http::finish(out, http::TEXT,text);
+            if st.left == 1 {
+                http::send(out, text);
+                http::end(out);
+            } else {
+                http::start(out, 200);
+                http::finish(out, http::TEXT,text);
+            }
         }
     } else if st.route == EVENTS {
         if ev.kind == http::WAKE {
@@ -218,7 +223,7 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
     } else if get && (path == "/later" || path == "/events") {
         wait_for_backend(req, path == "/events", st, out);
     } else if get && starts_with(path, "/delay/") {
-        delay(path[7..], st, out);
+        delay(req, path[7..], st, out);
     } else if get && starts_with(path, "/json/") {
         json_items(req, path[6..], out);
     } else if req.target == "*" {
@@ -291,8 +296,9 @@ fn upgraded_later(req: http::Request, out: http::Reply) {
 
 // /delay/MS, HttpArena's async profile: MS, as text, after MS milliseconds
 // on the worker's timer table, with no other thread. Needs waiting on
-// (MAIL_SLOTS); without it the timer runs out at once.
-fn delay(ms: const u8[:], st: Transfer&, out: http::Reply) {
+// (MAIL_SLOTS); without it the timer runs out at once. With open, the
+// response begins at once, chunked, and MS comes as its body.
+fn delay(req: http::Request, ms: const u8[:], st: Transfer&, out: http::Reply) {
     let n, ok = parse_int(ms);
     guard ok && n >= 0 && n <= 3600000 else {
         http::start(out, 404);
@@ -301,6 +307,13 @@ fn delay(ms: const u8[:], st: Transfer&, out: http::Reply) {
     }
     st.route = DELAY;
     st.count = n;
+    let _, open = http::query_of(req.target, "open");
+    if open {
+        st.left = 1;
+        http::begin(out, 200, -1);
+        http::field(out, "Content-Type", "text/plain");
+        http::send(out, "");
+    }
     http::later(out, n);
 }
 

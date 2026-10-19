@@ -269,7 +269,8 @@ answer later without blocking its worker. How to shape that work, with a diagram
 upgraded, and `/delay/MS` waits for a timer.
 
 `Config.mail_slots` and `Config.max_waiting` turn waiting on; both are 0 by default, and
-then a loop opens no box and arms no timer.
+then a loop opens no box and arms no timer: each `later` gets `TIMEOUT` at once, on the
+loop's next pass, and its address takes no message.
 
 ```rust
 // At REQUEST: the reply's address, with a time limit the handler must give.

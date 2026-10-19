@@ -127,7 +127,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         let c .= conns[i];
         c.tag = (generation << 32) | (i as u64);
         c.x.stream.direct = true;
-        if waiting { c.x.stream.later = MailAddress { box: box.handle, key: later_base(i, generation) }; }
+        c.x.stream.later = MailAddress { box: box.handle, key: later_base(i, generation) };
         ring_recv(r, fd, c.tag);
         open++;
         if open == cfg.max_conns && accepting { ring_cancel(r, RING_LISTENER); }
@@ -415,12 +415,11 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
                 let ok = if cq.send { sent(c, cq.res) } else { received(c, cq) };
                 if ok { touch(c); } else { close_conn(i); }
             }
-            if waiting {
-                expire(timers, now) { key => timed_out(key, true); };
-                let owed = overdue.len;
-                for k in owed { timed_out(overdue[k], false); }
-                drop_first(overdue, owed);
-            }
+            if waiting { expire(timers, now) { key => timed_out(key, true); }; }
+            // With or without a box: without one, every later is owed its TIMEOUT.
+            let owed = overdue.len;
+            for k in owed { timed_out(overdue[k], false); }
+            drop_first(overdue, owed);
             let tick = now >= next_sweep;
             if tick {
                 sweep();

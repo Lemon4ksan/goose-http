@@ -22,7 +22,8 @@
     http_client.py PORT max-conns N one worker with MAX_CONNS=N: the next waits
     http_client.py PORT later       answers that wait: /later and /events, for a
                                     server started with MAIL_SLOTS
-    http_client.py PORT later-off   /later's 503, for a server without them
+    http_client.py PORT later-off   /later's 503 and /delay's TIMEOUT at once, for a
+                                    server without them
     http_client.py PORT listen ADDRESS [v6only]
                                     a server started with ADDRESS (and IPV6_ONLY):
                                     "::" over IPv6 and IPv4, or a Unix socket
@@ -1308,13 +1309,33 @@ def listen_where(port, address, v6only):
 
 def later_off(port):
     """Against a server without MAIL_SLOTS: /later can't hand its job on, and
-    answers 503 at once."""
+    answers 503 at once; /delay's TIMEOUT comes at once to each connection
+    that asks, at REQUEST or on an open response, and to no other, with more
+    connections than workers."""
     c = Conn(port)
     c.send(request(b"/later?id=x&delay=100"))
     r = c.response()
     if r.status != 503:
         fail(f"/later without waiting: {r.status} {r.body!r}")
     c.close()
+
+    idle = [Conn(port, timeout=2) for _ in range(8)]
+    asking = [Conn(port, timeout=2) for _ in range(24)]
+    for k, a in enumerate(asking):
+        a.send(request(b"/delay/%d%s" % (1000 + k, b"?open=1" if k % 2 else b"")))
+    for k, a in enumerate(asking):
+        try:
+            r = a.response()
+        except socket.timeout:
+            fail(f"/delay without waiting: connection {k} got no TIMEOUT")
+        if r.status != 200 or r.body != b"%d" % (1000 + k):
+            fail(f"/delay without waiting, connection {k}: {r.status} {r.body!r}")
+    for k, c in enumerate(idle + asking):
+        c.send(request(b"/plaintext"))
+        r = c.response()
+        if r.status != 200 or r.body != b"Hello, World!":
+            fail(f"after /delay without waiting, connection {k}: {r.status} {r.body!r}")
+        c.close()
     print("later-off: ok")
 
 

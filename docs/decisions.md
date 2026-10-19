@@ -341,6 +341,19 @@ its own timed work between jobs, as `server/backend.goose` and goose-rest's repo
 tutorial do, writes the four-line loop that `lane` is; a timed `lane` would add a
 concept for two programs. `mail_queued` stays for `lane_send`, outside the user docs.
 
+## Without waiting configured, later gets TIMEOUT at once
+
+Decided 2026-10-19, task 043.
+
+With `Config.mail_slots` or `Config.max_waiting` at 0, `later` finds no timer cell, and
+its exchange gets `TIMEOUT` on the loop's next pass, as one past `max_waiting` does. The
+loops drain their owed timeouts whether or not they have a box, and every connection's
+address has a key of its own, so the `TIMEOUT` reaches the exchange that asked. This
+matches what the docs said of a full timer table, and lets a handler that waits run,
+degraded, on a server that turns waiting off. Refusing `later` without the configuration
+was rejected: a handler would need a second path for the same outcome, which a
+`TIMEOUT` already gives it.
+
 ## Not yet decided
 
 ### Compression in an optional module

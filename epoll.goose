@@ -132,10 +132,8 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
                 conns.free(i);
                 continue;
             }
-            if waiting {
-                generation = generation % 0xFFFFFF + 1;
-                conns[i].x.stream.later = MailAddress { box: box.handle, key: later_base(i, generation) };
-            }
+            generation = generation % 0xFFFFFF + 1;
+            conns[i].x.stream.later = MailAddress { box: box.handle, key: later_base(i, generation) };
             open++;
         }
     }
@@ -429,12 +427,11 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
             if conns[i].fd >= 0 && conns[i].ready { go(i, true, none); }
         }
         drop_first(turns, listed);
-        if waiting {
-            expire(timers, now) { key => timed_out(key, true); };
-            let owed = overdue.len;
-            for k in owed { timed_out(overdue[k], false); }
-            drop_first(overdue, owed);
-        }
+        if waiting { expire(timers, now) { key => timed_out(key, true); }; }
+        // With or without a box: without one, every later is owed its TIMEOUT.
+        let owed = overdue.len;
+        for k in owed { timed_out(overdue[k], false); }
+        drop_first(overdue, owed);
         if now >= next_sweep {
             sweep();
             next_sweep = now + 1000;
