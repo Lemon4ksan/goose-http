@@ -4,7 +4,7 @@
 // printed as the frames the server sent back.
 import std;
 import http from "../../";
-import hash from "github.com/kaitk/goose-hash@v0.0.2";
+import hash from "github.com/kaitk/goose-hash@v0.0.4";
 import http.websocket;
 import check from "../";
 

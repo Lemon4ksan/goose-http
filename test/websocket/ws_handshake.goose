@@ -2,7 +2,7 @@
 // 6455's example, the 101, and the answers to requests that can't upgrade.
 import std;
 import http from "../../";
-import hash from "github.com/kaitk/goose-hash@v0.0.2";
+import hash from "github.com/kaitk/goose-hash@v0.0.4";
 import http.websocket;
 import check from "../";
 

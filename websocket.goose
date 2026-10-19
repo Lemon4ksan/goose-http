@@ -4,7 +4,7 @@
 // file names:
 //
 //   import http from "github.com/kaitk/goose-http@<tag>";
-//   import hash from "github.com/kaitk/goose-hash@v0.0.2";
+//   import hash from "github.com/kaitk/goose-hash@v0.0.4";
 //   import http.websocket;
 //
 // An echo, with a WebSocket in the handler's state:
@@ -21,7 +21,7 @@ namespace http;
 
 import std;
 import base64;
-import hash from "github.com/kaitk/goose-hash@v0.0.2";
+import hash from "github.com/kaitk/goose-hash@v0.0.4";
 import message;
 
 // A message's opcode, as ws_read gives it and ws_send takes it.

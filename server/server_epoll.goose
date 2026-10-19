@@ -4,7 +4,7 @@
 import http from "../";
 import compress from "github.com/kaitk/goose-compress@v0.1.1";
 import tls from "github.com/kaitk/goose-tls@v0.0.1";
-import hash from "github.com/kaitk/goose-hash@v0.0.2";
+import hash from "github.com/kaitk/goose-hash@v0.0.4";
 import app;
 import https;
 

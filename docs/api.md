@@ -242,7 +242,7 @@ goose-hash, which a program that imports the module declares in its root file:
 
 ```rust
 import http from "github.com/kaitk/goose-http@<tag>";
-import hash from "github.com/kaitk/goose-hash@v0.0.2";
+import hash from "github.com/kaitk/goose-hash@v0.0.4";
 import http.websocket;
 
 struct St { ws: http::WebSocket = http::WebSocket { limit: 1 << 16, .. } }
