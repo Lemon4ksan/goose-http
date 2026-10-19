@@ -78,7 +78,9 @@ On 2026-10-19, at Goose `dcc2747`, the pin:
 
 - `scripts/test.sh` on macOS (M1 Pro, kqueue) and in an arm64 `ubuntu:26.04` container
   on it (Docker Desktop, `--security-opt seccomp=unconfined`, epoll and native
-  io_uring): all passed, `test/outbound/` included.
+  io_uring): all passed, `test/outbound/` included, both before and after the branch
+  was rebased onto `main` with h2c on io_uring merged (`37aa7030`). `wait_socket` on
+  `serve` still fails with `ENOSYS` there: only `epoll_loop` binds a poller for it.
 - `shim/net_win.c` compiles with `zig cc -target x86_64-windows-gnu`; nothing ran on
   Windows.
 - goose-postgres's protocol over the blocking calls against `postgres:18` in Docker
