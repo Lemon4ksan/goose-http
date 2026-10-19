@@ -3,8 +3,9 @@
 # typecheck of the server's and the examples' root files, the tests in test/
 # (test/run_tests.py, which typechecks and runs each one and reports every
 # failure among them), then each loop's build of the server
-# (scripts/build.sh) with scripts/test-http.sh against it,
-# scripts/test-echo.sh, and scripts/test-examples.sh, which builds each
+# (scripts/build.sh) with scripts/test-http.sh against it, and
+# scripts/test-h2spec.sh against the epoll build where h2spec has a binary,
+# then scripts/test-echo.sh, and scripts/test-examples.sh, which builds each
 # example and requests each of its routes on port 8080.
 #
 # The loops are uring and epoll on Linux and macOS, where the uring build is
@@ -60,6 +61,16 @@ for loop in $loops; do
     drain
     step "test-http.sh, $loop loop"
     LOOP=$loop "$root/scripts/test-http.sh"
+    if [ "$loop" = epoll ]; then
+        step "test-h2spec.sh, epoll loop"
+        if [ "$os" = Darwin ] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+            echo "skipped: h2spec's macOS build is x86-64, and Rosetta 2 isn't installed"
+        elif [ "$os" = Linux ] && [ "$(uname -m)" != x86_64 ]; then
+            echo "skipped: h2spec has no build for Linux on $(uname -m)"
+        else
+            "$root/scripts/test-h2spec.sh"
+        fi
+    fi
     if [ "$loop" = uring ] && [ "$os" = Linux ]; then
         drain
         step "test-http.sh, uring loop over epoll"

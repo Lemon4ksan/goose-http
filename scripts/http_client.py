@@ -745,6 +745,16 @@ def graceful_stop(port, send):
     partial.send(b"GET /plaintext HTTP/1.1\r\nHost: x\r\n")
     big = Conn(port, timeout=30, rcvbuf=4096)
     big.send(request(b"/stream?n=20000000"))
+    # An idle h2c connection, where the server serves h2c on port + 2 (the
+    # epoll loop's default), which the stop sends a GOAWAY and closes.
+    ports = [port]
+    h2 = None
+    try:
+        h2 = socket.create_connection((HOST, port + 2), 1)
+        ports.append(port + 2)
+        h2.sendall(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" + bytes([0, 0, 0, 4, 0, 0, 0, 0, 0]))
+    except OSError:
+        pass
     # Long enough for the server to accept them, and to fill big's socket.
     time.sleep(0.5)
     send()
@@ -754,18 +764,42 @@ def graceful_stop(port, send):
     # Each loop's waker ends its wait at the stop (http::stop).
     if time.time() - t0 > 0.5:
         fail(f"the idle connection closed {time.time() - t0:.2f} s after the stop")
-    # Every worker's listener closes within a second or so. Windows refuses a
+    if h2 is not None:
+        got = b""
+        h2.settimeout(2)
+        try:
+            while True:
+                b = h2.recv(65536)
+                if not b:
+                    break
+                got += b
+        except OSError:
+            fail("an idle h2c connection stayed open after the stop")
+        # The frames: 9 bytes of head each, type at 3; GOAWAY is type 7, its
+        # error code the payload's second word.
+        goaway = False
+        at = 0
+        while at + 9 <= len(got):
+            n = int.from_bytes(got[at:at + 3], "big")
+            if got[at + 3] == 7 and got[at + 13:at + 17] == b"\0\0\0\0":
+                goaway = True
+            at += 9 + n
+        if not goaway:
+            fail("an idle h2c connection closed at the stop without a GOAWAY of NO_ERROR")
+        h2.close()
+    # Every worker's listeners close within a second or so. Windows refuses a
     # connection to a closed port only after retrying for about 2 s, so a
     # timeout counts as refused, and on Linux a connection queued on a
     # listener as it closes is reset.
-    while True:
-        try:
-            socket.create_connection((HOST, port), 1).close()
-        except (ConnectionRefusedError, ConnectionResetError, TimeoutError):
-            break
-        if time.time() - t0 > 3:
-            fail("the server still accepts 3 s after the stop")
-        time.sleep(0.1)
+    for p in ports:
+        while True:
+            try:
+                socket.create_connection((HOST, p), 1).close()
+            except (ConnectionRefusedError, ConnectionResetError, TimeoutError):
+                break
+            if time.time() - t0 > 3:
+                fail(f"the server still accepts on port {p} 3 s after the stop")
+            time.sleep(0.1)
     partial.send(b"\r\n")
     r = partial.response()
     if r.status != 200 or r.header("connection") != "close" or not partial.closed():

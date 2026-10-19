@@ -293,6 +293,43 @@ grep -q '\[200\] 500000 responses' "$out" || { cat "$out"; fail "oha"; }
 grep -E '\[200\]' "$out"
 echo "load: ok"
 
+# h2c, on the port the epoll loop serves it on (H2C_PORT, the port + 2):
+# responses through curl with prior knowledge, a body larger than a stream's
+# window both ways, a file, and a short h2load run. h2spec is
+# scripts/test-h2spec.sh's.
+h2c=$(sed -n 's/.*, h2c on port \([0-9]*\),.*/\1/p' "$log" | head -n 1)
+if [ -z "$h2c" ]; then
+    echo "h2c: not served by this loop"
+elif ! curl -V | grep -q HTTP2; then
+    echo "h2c: skipped, this curl has no HTTP/2"
+else
+    h2url=http://127.0.0.1:$h2c
+    h2get() { curl -sS --http2-prior-knowledge "$@"; }
+    body=$(h2get "$h2url/plaintext")
+    [ "$body" = "Hello, World!" ] || fail "h2c /plaintext: $body"
+    body=$(h2get "$h2url/json")
+    [ "$body" = '{"message":"Hello, World!"}' ] || fail "h2c /json: $body"
+    version=$(h2get -o /dev/null -w '%{http_version}' "$h2url/plaintext")
+    [ "$version" = 2 ] || fail "h2c answered in HTTP/$version"
+    status=$(h2get -o /dev/null -w '%{http_code}' "$h2url/missing")
+    [ "$status" = 404 ] || fail "h2c /missing: $status"
+    head -c 300000 /dev/urandom >"$files/h2c.bin"
+    h2get --data-binary "@$files/h2c.bin" -H 'Content-Type: application/octet-stream' \
+        -o "$files/h2c.echo" "$h2url/echo"
+    cmp -s "$files/h2c.bin" "$files/h2c.echo" || fail "h2c /echo didn't return the body"
+    h2get -o "$files/h2c.file" "$h2url/files/h2c.bin"
+    cmp -s "$files/h2c.bin" "$files/h2c.file" || fail "h2c /files/ didn't send the file"
+    size=$(h2get "$h2url/bytes?n=1000000" | wc -c | tr -d ' ')
+    [ "$size" = 1000000 ] || fail "h2c /bytes sent $size bytes"
+    rm -f "$files/h2c.bin" "$files/h2c.echo" "$files/h2c.file"
+    h2load -c 64 -m 100 -n 200000 "$h2url/plaintext" >"$out"
+    grep -q 'succeeded, 0 failed, 0 errored, 0 timeout' "$out" || { cat "$out"; fail "h2load h2c"; }
+    grep -q 'status codes: 200000 2xx, 0 3xx, 0 4xx, 0 5xx' "$out" || { cat "$out"; fail "h2load h2c"; }
+    grep -q 'Application protocol: h2c' "$out" || { cat "$out"; fail "h2load didn't speak h2c"; }
+    grep -E '^requests:' "$out"
+    echo "h2c: ok"
+fi
+
 kill -0 "$pid" || fail "the server died"
 stop
 echo "The server's output:"

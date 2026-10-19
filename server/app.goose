@@ -83,17 +83,21 @@ fn serve_http(given: http::Config, default_loop: const u8[:]) {
         write_stderr("LOOP must be epoll, uring, uring-epoll, or iocp\n");
         exit(2);
     }
-    // With H2C_PORT, the epoll loop also serves h2c, HTTP/2 with prior
-    // knowledge, there, as HttpArena's 8082 is beside 8080. Not by default:
-    // on macOS a worker's shared listener is one (shim/kqueue.c), so with
-    // two, a stop leaves the first open (task 014.01).
+    // The epoll loop also serves h2c, HTTP/2 with prior knowledge, on
+    // H2C_PORT, by default the port + 2, as HttpArena's 8082 is beside 8080.
+    // H2C_PORT=0 turns it off.
     var also: u8[>..] = [];
-    let p = positive("H2C_PORT", 0);
-    if epoll && p > 0 && !starts_with(cfg.address, "unix:") {
-        guard p < 65536 else {
-            write_stderr("H2C_PORT must be below 65536\n");
+    var h2c_port: u8[>..] = [];
+    var p: i64 = cfg.port as i64 + 2;
+    if env("H2C_PORT", h2c_port) {
+        let n, ok = parse_int(h2c_port);
+        guard ok && n >= 0 && n < 65536 else {
+            write_stderr("H2C_PORT must be a port number, or 0 for none\n");
             exit(2);
         }
+        p = n;
+    }
+    if epoll && p > 0 && p < 65536 && !starts_with(cfg.address, "unix:") {
         cfg.listeners.push(http::Listener { port: p as i32, h2c: true });
         format(also, ", h2c on port ", p);
     }

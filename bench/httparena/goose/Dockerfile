@@ -27,7 +27,8 @@ RUN apt-get update -qq && \
     apt-get install -y -qq --no-install-recommends liburing2 && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=build /server/build/server /server
-EXPOSE 8080
+# HTTP/1.1 on 8080, and h2c with prior knowledge on 8082, the port + 2.
+EXPOSE 8080 8082
 # One worker per CPU of the container's cpuset, which nproc reads. Waiting
 # on, for the async profile's /delay: up to 16,384 timers a worker, as many
 # as its connections. It left plaintext's instructions per request unchanged.

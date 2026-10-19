@@ -105,6 +105,10 @@ build/server echo-blocking 8080   # an echo server that serves one client at a t
 build/server echo-epoll 8080      # an echo server on one edge-triggered epoll loop
 ```
 
+With the epoll loop, the HTTP server also serves h2c, HTTP/2 with prior knowledge, on
+the port + 2 (8082 beside 8080, as HttpArena has them). `H2C_PORT` names another port,
+and `H2C_PORT=0` turns it off. The uring loop serves HTTP/1.1 only.
+
 ### Run every test
 
 `scripts/test.sh` runs the whole suite, and stops at the first failure:
@@ -114,7 +118,10 @@ build/server echo-epoll 8080      # an echo server on one edge-triggered epoll l
 2. `test/run_tests.py`: the tests in `test/` ([below](#run-the-tests-in-test)).
 3. For each loop, `scripts/build.sh` and then `scripts/test-http.sh`: uring and epoll on
    Linux and macOS, with `LOOP=uring-epoll` against the uring build on Linux too, and
-   iocp on Windows.
+   iocp on Windows. After the epoll build's, `scripts/test-h2spec.sh`, which fetches
+   h2spec v2.6.0 into `build/` and runs it against the h2c port. h2spec's only builds
+   are x86-64: on macOS it needs Rosetta 2, and on Linux on arm64 the step is skipped,
+   with a note.
 4. `scripts/test-echo.sh`, against the last build.
 5. `scripts/test-examples.sh`: builds the examples and requests their routes on port 8080,
    including the device example with simulated hardware. ARM builds are checked
@@ -411,6 +418,9 @@ it runs:
   client addresses, and the access log.
 - Limits, timeouts, many connections, and graceful stop and restart.
 - Load checks and fd exhaustion on platforms that support them.
+- On the epoll loop's h2c port: responses through `curl --http2-prior-knowledge`, a body
+  and a file larger than a stream's window, a short `h2load` run, and a GOAWAY to an
+  idle h2c connection at a stop.
 
 The script and `scripts/http_client.py` define the individual modes and requests;
 use them for the exact coverage. File checks verify that interrupted downloads leave

@@ -191,8 +191,8 @@ static int32_t net_open_listener(struct sockaddr_storage *ss, socklen_t len, int
    of it, which it gives back with net_close. The last one back closes the
    listener and frees the entry, so a loop started again opens a new one.
 
-   This table, and the thread-local fields below that tie a worker to its
-   entry, are the only state the shim keeps between calls. */
+   This table, and the thread-local records below that tie a worker to its
+   entries, are the only state the shim keeps between calls. */
 #define NET_MAX_SHARED 16
 static pthread_mutex_t net_shared_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct {
@@ -202,19 +202,33 @@ static struct {
     _Atomic int64_t accepted;
 } net_shared[NET_MAX_SHARED];
 static int net_shared_count;
-/* The calling worker's fd for a shared listener, its entry, and how many
-   connections it has accepted. A worker serves one port. */
-static _Thread_local int32_t net_my_lfd = -1;
-static _Thread_local int net_my_entry;
-static _Thread_local int64_t net_my_accepted;
-/* The accepted count the worker last declined at, and since when. */
-static _Thread_local int64_t net_my_seen, net_my_seen_ms;
+/* The calling worker's record of each shared listener it serves, found by
+   its fd: the entry, how many connections the worker has accepted from it,
+   the accepted count it last declined at and since when, the kqueue and tag
+   it watches the listener with, and whether net_accept disabled that watch
+   at the fd limit. A worker serves up to NET_MAX_MINE ports at once, more
+   than http::MAX_LISTENERS + 1. */
+#define NET_MAX_MINE 8
 #define NET_STALL_MS 2
-/* The kqueue and tag the worker watches its listener with, and whether
-   net_accept disabled that watch at the fd limit. */
-static _Thread_local int32_t net_my_kq = -1;
-static _Thread_local uint64_t net_my_tag;
-static _Thread_local int net_my_paused;
+struct net_mine {
+    int32_t lfd;    /* -1: a free record */
+    int entry;
+    int64_t accepted, seen, seen_ms;
+    int32_t kq;
+    uint64_t tag;
+    int paused;
+};
+static _Thread_local struct net_mine net_mine[NET_MAX_MINE];
+static _Thread_local int net_mine_count;
+
+/* The calling worker's record for fd, or NULL when fd isn't a shared
+   listener of its own. */
+static struct net_mine *net_mine_of(int32_t fd) {
+    if (fd < 0) return NULL;
+    for (int i = 0; i < net_mine_count; i++)
+        if (net_mine[i].lfd == fd) return &net_mine[i];
+    return NULL;
+}
 
 /* A listener where addr, port, and flags say (src/sys.goose). macOS copies
    TCP_NODELAY and O_NONBLOCK from the listener to each accepted socket. With
@@ -227,6 +241,9 @@ int32_t net_listen(net_bytes addr, int32_t port, int32_t backlog, int32_t flags)
     int err = net_sockaddr(addr, port, flags, &ss, &len);
     if (err) return -net_err(err);
     if (!(flags & NET_REUSEPORT)) return net_open_listener(&ss, len, backlog, flags);
+    int k = 0;
+    while (k < net_mine_count && net_mine[k].lfd >= 0) k++;
+    if (k == NET_MAX_MINE) return -net_err(ENOBUFS);
     pthread_mutex_lock(&net_shared_lock);
     int32_t r = 0;
     int i = 0;
@@ -256,10 +273,8 @@ int32_t net_listen(net_bytes addr, int32_t port, int32_t backlog, int32_t flags)
     }
     if (r >= 0) {
         net_shared[i].sharers++;
-        net_my_lfd = r;
-        net_my_entry = i;
-        net_my_accepted = 0;
-        net_my_paused = 0;
+        net_mine[k] = (struct net_mine){ .lfd = r, .entry = i, .kq = -1 };
+        if (k == net_mine_count) net_mine_count++;
     }
     pthread_mutex_unlock(&net_shared_lock);
     return r;
@@ -267,11 +282,11 @@ int32_t net_listen(net_bytes addr, int32_t port, int32_t backlog, int32_t flags)
 
 int64_t net_clock_ms(void);
 
-/* Changes the calling worker's watch of its shared listener. */
-static void net_watch_listener(uint16_t flags) {
+/* Changes the calling worker's watch of one of its shared listeners. */
+static void net_watch_listener(struct net_mine *m, uint16_t flags) {
     struct kevent ch;
-    EV_SET(&ch, net_my_lfd, EVFILT_READ, flags, 0, 0, (void *)net_my_tag);
-    kevent(net_my_kq, &ch, 1, NULL, 0, NULL);
+    EV_SET(&ch, m->lfd, EVFILT_READ, flags, 0, 0, (void *)m->tag);
+    kevent(m->kq, &ch, 1, NULL, 0, NULL);
 }
 
 /* The highest fd accept has returned, and the fds a check (below) allows
@@ -299,22 +314,22 @@ static pthread_mutex_t net_fd_lock = PTHREAD_MUTEX_INITIALIZER;
    at once on every wait, so it's disabled until the worker's next try. */
 int32_t net_accept(int32_t fd, int32_t flags) {
     (void)flags;
-    int shared = fd == net_my_lfd;
-    if (shared) {
-        if (net_my_paused) {
-            net_watch_listener(EV_ENABLE);
-            net_my_paused = 0;
+    struct net_mine *m = net_mine_of(fd);
+    if (m) {
+        if (m->paused) {
+            net_watch_listener(m, EV_ENABLE);
+            m->paused = 0;
         }
-        int64_t n = net_shared[net_my_entry].sharers;
-        int64_t total = atomic_load_explicit(&net_shared[net_my_entry].accepted,
+        int64_t n = net_shared[m->entry].sharers;
+        int64_t total = atomic_load_explicit(&net_shared[m->entry].accepted,
                                              memory_order_relaxed);
-        if (net_my_accepted * n > total + n) {
+        if (m->accepted * n > total + n) {
             int64_t now = net_clock_ms();
-            if (total != net_my_seen) {
-                net_my_seen = total;
-                net_my_seen_ms = now;
+            if (total != m->seen) {
+                m->seen = total;
+                m->seen_ms = now;
             }
-            if (now - net_my_seen_ms < NET_STALL_MS) return -net_err(EAGAIN);
+            if (now - m->seen_ms < NET_STALL_MS) return -net_err(EAGAIN);
         }
     }
     static _Atomic int32_t limit;
@@ -330,9 +345,9 @@ int32_t net_accept(int32_t fd, int32_t flags) {
         if (spare < 0) {
             int err = errno;
             pthread_mutex_unlock(&net_fd_lock);
-            if (shared && net_my_kq >= 0) {
-                net_watch_listener(EV_DISABLE);
-                net_my_paused = 1;
+            if (m && m->kq >= 0) {
+                net_watch_listener(m, EV_DISABLE);
+                m->paused = 1;
             }
             return -net_err(err);
         }
@@ -346,9 +361,9 @@ int32_t net_accept(int32_t fd, int32_t flags) {
     while (r > high && !atomic_compare_exchange_weak_explicit(&net_high_fd, &high, r,
                                                               memory_order_relaxed,
                                                               memory_order_relaxed)) {}
-    if (shared) {
-        net_my_accepted++;
-        atomic_fetch_add_explicit(&net_shared[net_my_entry].accepted, 1, memory_order_relaxed);
+    if (m) {
+        m->accepted++;
+        atomic_fetch_add_explicit(&net_shared[m->entry].accepted, 1, memory_order_relaxed);
     }
     if (fcntl(r, F_SETFD, FD_CLOEXEC) < 0) {
         int err = errno;
@@ -398,17 +413,18 @@ int32_t net_peer(int32_t fd, net_bytes out) {
 
 /* A worker's fd for a shared listener goes back to the table (above). */
 int32_t net_close(int32_t fd) {
-    if (fd == net_my_lfd) {
+    struct net_mine *m = net_mine_of(fd);
+    if (m) {
         pthread_mutex_lock(&net_shared_lock);
-        if (--net_shared[net_my_entry].sharers == 0) {
-            close(net_shared[net_my_entry].fd);
-            if (net_shared[net_my_entry].addr.ss_family == AF_UNIX)
-                unlink(((struct sockaddr_un *)&net_shared[net_my_entry].addr)->sun_path);
-            net_shared[net_my_entry].fd = -1;
+        if (--net_shared[m->entry].sharers == 0) {
+            close(net_shared[m->entry].fd);
+            if (net_shared[m->entry].addr.ss_family == AF_UNIX)
+                unlink(((struct sockaddr_un *)&net_shared[m->entry].addr)->sun_path);
+            net_shared[m->entry].fd = -1;
         }
         pthread_mutex_unlock(&net_shared_lock);
-        net_my_lfd = -1;
-        net_my_kq = -1;
+        m->lfd = -1;
+        m->kq = -1;
     }
     return close(fd) < 0 ? -net_err(errno) : 0;
 }
@@ -426,16 +442,16 @@ int32_t net_epoll_create(void) {
 
 /* An epoll registration as kevent changes: IN is EVFILT_READ, OUT is
    EVFILT_WRITE, and ET is EV_CLEAR on both, except on the worker's shared
-   listener, which is always level-triggered (net_listen). kqueue reports a
+   listeners, which are always level-triggered (net_listen). kqueue reports a
    peer's close unasked, so RDHUP needs no filter. A filter not asked for is
    deleted, and deleting one that isn't registered is no error. */
 int32_t net_epoll_ctl(int32_t ep, int32_t op, int32_t fd, uint32_t events, uint64_t tag) {
-    int listener = fd == net_my_lfd;
-    if (listener) {
-        net_my_kq = op == NET_CTL_DEL ? -1 : ep;
-        net_my_tag = tag;
+    struct net_mine *m = net_mine_of(fd);
+    if (m) {
+        m->kq = op == NET_CTL_DEL ? -1 : ep;
+        m->tag = tag;
     }
-    uint16_t add = EV_ADD | EV_RECEIPT | (events & NET_ET && !listener ? EV_CLEAR : 0);
+    uint16_t add = EV_ADD | EV_RECEIPT | (events & NET_ET && !m ? EV_CLEAR : 0);
     uint16_t del = EV_DELETE | EV_RECEIPT;
     struct kevent ch[2], res[2];
     if (op != NET_CTL_ADD && op != NET_CTL_DEL && op != NET_CTL_MOD) return -net_err(EINVAL);

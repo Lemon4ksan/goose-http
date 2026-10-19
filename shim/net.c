@@ -131,7 +131,9 @@ static int32_t net_open_listener(struct sockaddr_storage *ss, socklen_t len, int
 /* Linux has no SO_REUSEPORT for Unix sockets, so with NET_REUSEPORT the
    workers share one per path, as on macOS, each with an fd of its own for
    it. The table holds the listener's own fd, and the last worker's net_close
-   closes it and removes the socket's file. A worker serves one listener. */
+   closes it and removes the socket's file. A worker shares one listener at
+   most: the loops refuse Config.listeners with a Unix address, and TCP
+   listeners have SO_REUSEPORT and aren't shared. */
 #define NET_MAX_SHARED 16
 static pthread_mutex_t net_shared_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct {
