@@ -17,6 +17,7 @@ http.goose     the package's entry: settings, errors, what both loops share
 *.goose        other modules, all namespace http: parser and response writers
                (message.goose), loops (uring.goose, epoll.goose), router
                (router.goose), files (file.goose), shim functions (sys.goose, ring.goose),
+               HTTP/2's HPACK (hpack.goose) and frames (h2frame.goose),
                and with nothing of HTTP in them, mail between threads (mail.goose), the timer table
                (timers.goose), handles (handle.goose), and the store (store.goose)
 http.build     the package's sidecar: each platform's shim

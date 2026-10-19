@@ -17,6 +17,7 @@
 namespace http;
 
 import std;
+import dictionary;
 
 // The most a table holds (§4.1): SETTINGS_HEADER_TABLE_SIZE's initial value,
 // and the most this side advertises or takes from a peer, so a table is a
@@ -478,13 +479,19 @@ fn hpack_begin(t: HpackTable&, out: u8[>..]&) {
 // in the static and dynamic tables' index space; 0 where there's none.
 fn hpack_find(t: const HpackTable&, name: const u8[:], value: const u8[:]) -> i64, i64 {
     var named = 0;
-    for s, k in HPACK_STATIC {
-        if s.name.len == name.len && s.name == name {
-            if s.value == value { return k + 1, k + 1; }
-            if named == 0 { named = k + 1; }
+    let first = HPACK_STATIC_NAMES.get(name);
+    if first {
+        named = first;
+        // A name's entries in the static table are next to each other.
+        for k in first - 1..HPACK_STATIC_COUNT {
+            let s = HPACK_STATIC[k];
+            guard s.name == name else { break; }
+            if s.value == value { return k + 1, named; }
         }
     }
     for i in 1..t.count + 1 {
+        let e = t.ents[(t.first + t.count - i) % HPACK_MAX_ENTRIES];
+        guard e.name == name.len else { continue; }
         let n, v = hpack_entry(t, i);
         if n == name {
             if v == value { return HPACK_STATIC_COUNT + i, named; }
@@ -492,6 +499,17 @@ fn hpack_find(t: const HpackTable&, name: const u8[:], value: const u8[:]) -> i6
         }
     }
     return 0, named;
+}
+
+// Each name of the static table, and its first index.
+let HPACK_STATIC_NAMES = hpack_static_names();
+
+fn hpack_static_names() -> dictionary<const u8[:], i64> {
+    var d = dictionary<const u8[:], i64> {};
+    for s, k in HPACK_STATIC {
+        if !d.contains(s.name) { d.insert(s.name, k + 1); }
+    }
+    return d;
 }
 
 // Appends the field name: value through the encoder's table t: as an index
