@@ -7,6 +7,14 @@ HTTP/2 and HTTPS are out of scope in `README.md`. A server behind snowtime-nativ
 HttpArena's TLS and h2 profiles, needs both. This task decides where they live, then
 builds them in phases, each measured against the competitors as tasks 004 and 005 were.
 
+goose-rest's HttpArena plan (its task 047, 2026-10-19) takes TLS first: phase 2 adds
+json-tls and 8gbit to the HTTP/1.1 board. Phase 4, h2c, needs no TLS and can run beside
+it. goose-tls (`github.com/kaitk/goose-tls`) is OpenSSL 3 under a Goose API, with the
+server side, kTLS, and client TLS. snowtime-native also needs SNI, certificates swapped
+while running, and ACME in the process: goose-tls has the first two and ACME's hooks,
+and ACME is a package of its own (goose-rest's task 049). Aegon, the C++ framework that leads HttpArena's h2 profiles, does
+h2 through nghttp2, which this task's phase 4 should weigh (goose-rest's task 048).
+
 ## How the competitors split it
 
 | Project | HTTP/1.1 and HTTP/2 | TLS |
