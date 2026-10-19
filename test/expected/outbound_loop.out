@@ -1,0 +1,6 @@
+/ping: HTTP/1.1 200 OK: pongpong
+/large: HTTP/1.1 200 OK: closed after "4194304"
+/closes: HTTP/1.1 200 OK: closed after ""
+/refused: HTTP/1.1 502 Bad Gateway: connect refused
+/timeout: HTTP/1.1 504 Gateway Timeout: connect timed out
+/ping: HTTP/1.1 502 Bad Gateway: wait_socket ENOSYS

@@ -339,7 +339,10 @@ docker run --rm -v /tmp/work:/work -w /work ubuntu:26.04 sh -c '
 ```
 
 It expects two warnings ([known issues](known-issues.md#mingw-w64)). It doesn't check
-MSVC's paths. MinGW's headers lack `winnt.h`'s `ReadAcquire`, `ReadNoFence`,
+MSVC's paths. Without Docker, Zig's C compiler has MinGW's headers too:
+`zig cc -target x86_64-windows-gnu -std=c11 -Wall -Wextra -c shim/net_win.c -o /dev/null`,
+whose headers lack `SOMAXCONN_HINT`, one error in `net_open_listener` to ignore
+(Zig 0.17.0, 2026-10-19). MinGW's headers lack `winnt.h`'s `ReadAcquire`, `ReadNoFence`,
 `WriteRelease`, and `ReadAcquire64`, which `shim/mail.c`'s atomics use under MSVC, so
 MinGW builds `mail.c`'s C11 atomics. To type-check the MSVC branch, compile a file that
 defines those four with the SDK's signatures, defines `_MSC_VER`, and includes

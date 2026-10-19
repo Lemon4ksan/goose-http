@@ -445,6 +445,92 @@ while !http::mail_stopped(box) {
 http::mail_close(box);
 ```
 
+## Outbound connections
+
+Connections the program opens to another server, such as a database: TCP, or a Unix
+socket on Linux and macOS. Not yet in a tag. Shown in `test/outbound/`:
+`outbound_blocking.goose` for a lane's thread, `outbound_loop.goose` for a handler on
+`serve_epoll`.
+
+An `http::Socket` is the connection, `fd` -1 for none. A host is `localhost`, an IPv4
+or IPv6 address, bracketed or not, or `unix:PATH`, whose port is ignored. Any other
+name fails with `ENOSYS` from `resolve`: resolving one blocks, and a resolver off the
+loop is still to come.
+
+### On a thread without a loop
+
+A lane's job blocks on the socket, each call up to a time limit in milliseconds, -1 for
+none:
+
+```rust
+let s, e = http::connect("127.0.0.1", 5432, 5000);
+guard e.code == 0 else { /* e.call, e.code: ECONNREFUSED, ETIMEDOUT, ... */ }
+let sent = http::send_all(s, request, 5000);
+let n = http::recv(s, buf, 5000);   // bytes into buf; 0: the server closed
+http::hangup(s);
+```
+
+- `http::connect(host, port, ms)` returns the socket, connected, or `Socket { fd: -1 }`
+  and an `http::Error`: `connect`'s `ECONNREFUSED`, `ETIMEDOUT` past `ms`, and the like,
+  or `dial`'s.
+- `http::send_all(s, data, ms)` sends all of `data` within `ms` in all, and returns an
+  `http::Error` whose code is 0, `ETIMEDOUT`, or the send's, such as `EPIPE` once the
+  server has closed.
+- `http::recv(s, buf, ms)` waits up to `ms` for bytes and puts up to `buf.len` into
+  `buf`: how many, 0 once the server has closed its side, `-ETIMEDOUT`, or `-code`.
+- `http::hangup(s)` closes the socket and sets `s.fd` to -1; it does nothing for a
+  socket already closed.
+
+### On the worker's loop
+
+A handler with state on `serve_epoll` drives a socket without blocking: the worker that
+asked owns it, and the exchange waits for it as it waits for mail
+([answers that wait](#answers-that-wait)), so `Config.mail_slots` and
+`Config.max_waiting` must turn waiting on:
+
+```rust
+// At REQUEST:
+let s, e = http::dial("127.0.0.1", 5432);
+guard e.code == 0 else { /* refused at once, or a host it can't take */ }
+st.s = s;
+http::wait_socket(out, st.s, http::WRITABLE, 1000);
+
+// At WAKE, with ev.tag == http::SOCKET_READY:
+let c = http::connected(st.s);           // once, after the connect's WAKE
+let n = http::send(st.s, query);         // what the socket took, or -EAGAIN
+let n = http::recv(st.s, buf);           // what it held, 0, or -EAGAIN
+http::wait_socket(out, st.s, http::READABLE, 1000);
+
+// At TIMEOUT: the limit passed first. At CLOSED: http::hangup(st.s).
+```
+
+- `http::dial(host, port)` starts a connect and returns the socket without waiting.
+  Its connect may still be going on; an `http::Error` for a host it can't take, or a
+  connect that failed at once, which a refused one on loopback can be.
+- `http::wait_socket(out, s, events, ms)` makes the exchange wait, after this call to
+  the handler, until `s` is ready for `http::READABLE`, `http::WRITABLE`, or both, or
+  for at most `ms`. The handler is then called with `WAKE`, whose `ev.tag` is
+  `http::SOCKET_READY`, or with `TIMEOUT`. A message to the exchange's address ends the
+  wait too, as after `later`. Its `http::Error` is 0, or `ENOSYS` on `serve`'s loop,
+  where the exchange doesn't wait and the handler answers.
+- `SOCKET_READY` means the socket was ready: by the time the handler reads, it may not
+  be, so `recv` and `send` can still give `-EAGAIN`, and the handler waits again. A
+  socket closed or failed is readable, and its `recv` gives 0 or `-code`. Keep
+  `SOCKET_READY` out of the program's own mail tags.
+- `http::connected(s)`: how `dial`'s connect went, once the socket is writable: code
+  0, `EINPROGRESS` while it goes on, or its error, such as `ECONNREFUSED`, reported
+  once.
+- `http::recv(s, buf)` and `http::send(s, data)` take and give what the socket has now:
+  a count, `recv`'s 0 once the server has closed, `-EAGAIN` when it would wait, or
+  `-code`, such as `-EPIPE`.
+- The program owns the socket, and closes it with `http::hangup`: at `CLOSED`, at
+  `TIMEOUT`, or when the loop returns, for one kept across requests, such as a pool's.
+  A socket kept between requests is read by whichever exchange waits on it next; the
+  loop reads nothing of it meanwhile.
+
+`http::serve`'s loops, io_uring, its emulation, and IOCP, don't watch sockets yet:
+`wait_socket` fails with `ENOSYS` there, and only the blocking calls work.
+
 ## The store
 
 Used by the benchmarks' REST server, `bench/rest/goose/rest.goose`.

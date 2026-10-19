@@ -31,7 +31,8 @@
 _Static_assert(EINTR == 4 && EAGAIN == 11 && EPIPE == 32 && ECONNABORTED == 103 &&
                ECONNRESET == 104 && EADDRINUSE == 98 && EMFILE == 24 && ENFILE == 23 &&
                EINVAL == 22 && ENOENT == 2 && EACCES == 13 && ENOTDIR == 20 && EISDIR == 21 &&
-               ENAMETOOLONG == 36 && EAFNOSUPPORT == 97,
+               ENAMETOOLONG == 36 && EAFNOSUPPORT == 97 && ENOTCONN == 107 && ETIMEDOUT == 110 &&
+               ECONNREFUSED == 111 && EINPROGRESS == 115,
                "errno values differ from src/sys.goose");
 _Static_assert(EPOLLIN == 0x001 && EPOLLOUT == 0x004 && EPOLLERR == 0x008 &&
                EPOLLHUP == 0x010 && EPOLLRDHUP == 0x2000 && EPOLLET == 1u << 31,
@@ -246,6 +247,87 @@ int32_t net_peer(int32_t fd, net_bytes out) {
         return ntohs(a->sin6_port);
     }
     return -EAFNOSUPPORT;
+}
+
+/* The local port of socket fd, as bound. */
+int32_t net_port(int32_t fd) {
+    struct sockaddr_storage ss;
+    socklen_t len = sizeof ss;
+    if (getsockname(fd, (struct sockaddr *)&ss, &len) < 0) return -errno;
+    if (ss.ss_family == AF_INET) return ntohs(((struct sockaddr_in *)&ss)->sin_port);
+    if (ss.ss_family == AF_INET6) return ntohs(((struct sockaddr_in6 *)&ss)->sin6_port);
+    return -EAFNOSUPPORT;
+}
+
+/* A non-blocking socket connecting to what addr, port, and NET_UNIX in flags
+   name, as net_listen's do, but for an empty addr, which names no peer. A TCP
+   one has TCP_NODELAY, as libpq's has. Returns the fd once connect has
+   started or finished; net_connected says which, and how it ended. */
+int32_t net_connect(net_bytes addr, int32_t port, int32_t flags) {
+    struct sockaddr_storage ss;
+    socklen_t len;
+    if (addr.len == 0) return -EINVAL;
+    int err = net_sockaddr(addr, port, flags & NET_UNIX, &ss, &len);
+    if (err) return -err;
+    int fd = socket(ss.ss_family, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+    if (fd < 0) return -errno;
+    int one = 1;
+    if ((ss.ss_family != AF_UNIX && setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one) < 0) ||
+        (connect(fd, (struct sockaddr *)&ss, len) < 0 && errno != EINPROGRESS)) {
+        err = errno;
+        close(fd);
+        return -err;
+    }
+    return fd;
+}
+
+/* How net_connect's connect on fd ended: 0 once connected, -EINPROGRESS
+   while it goes on, or its error, which SO_ERROR gives once: a second call
+   after a failure finds the socket unconnected and returns -ENOTCONN. */
+int32_t net_connected(int32_t fd) {
+    int err = 0;
+    socklen_t len = sizeof err;
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) < 0) return -errno;
+    if (err) return -err;
+    struct sockaddr_storage ss;
+    len = sizeof ss;
+    if (getpeername(fd, (struct sockaddr *)&ss, &len) == 0) return 0;
+    if (errno != ENOTCONN) return -errno;
+    /* A connect still going on leaves the socket unwritable. */
+    struct pollfd p = { .fd = fd, .events = POLLOUT };
+    return poll(&p, 1, 0) == 0 ? -EINPROGRESS : -ENOTCONN;
+}
+
+/* Waits up to ms (-1: no limit) for fd to be ready for events, epoll's IN
+   and OUT bits, which poll's share on Linux. Returns the bits it is ready
+   for, with ERR and HUP, or 0 at the time limit; EINTR is 0 too, and the
+   caller waits again for what's left of its limit. */
+int32_t net_poll(int32_t fd, uint32_t events, int32_t ms) {
+    struct pollfd p = { .fd = fd, .events = (short)(events & (POLLIN | POLLOUT)) };
+    int n = poll(&p, 1, ms);
+    if (n < 0) return errno == EINTR ? 0 : -errno;
+    return n > 0 ? p.revents : 0;
+}
+
+/* The epoll instance of the loop the calling thread runs, which net_arm adds
+   to: epoll_loop sets it while it runs, and -1 after. */
+static _Thread_local int32_t net_loop_ep = -1;
+
+void net_loop_bind(int32_t ep) {
+    net_loop_ep = ep;
+}
+
+/* Watches fd on the calling thread's loop for events once: its next event
+   carries tag, and then fd raises none until it is armed again. Level-
+   triggered, so a socket ready already raises it at once. -ENOSYS on a
+   thread that runs no epoll loop. */
+int32_t net_arm(int32_t fd, uint32_t events, uint64_t tag) {
+    if (net_loop_ep < 0) return -ENOSYS;
+    struct epoll_event ev = { .events = (events & (EPOLLIN | EPOLLOUT)) | EPOLLRDHUP | EPOLLONESHOT,
+                              .data.u64 = tag };
+    if (epoll_ctl(net_loop_ep, EPOLL_CTL_MOD, fd, &ev) == 0) return 0;
+    if (errno != ENOENT) return -errno;
+    return epoll_ctl(net_loop_ep, EPOLL_CTL_ADD, fd, &ev) < 0 ? -errno : 0;
 }
 
 int32_t net_epoll_create(void) {

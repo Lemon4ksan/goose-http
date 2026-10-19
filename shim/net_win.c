@@ -300,6 +300,81 @@ int32_t net_close(int32_t fd) {
     return closesocket(net_socket(fd)) ? -net_win_err(WSAGetLastError()) : 0;
 }
 
+/* The local port of socket fd, as bound. */
+int32_t net_port(int32_t fd) {
+    SOCKADDR_STORAGE ss;
+    int len = sizeof ss;
+    if (getsockname(net_socket(fd), (struct sockaddr *)&ss, &len))
+        return -net_win_err(WSAGetLastError());
+    if (ss.ss_family == AF_INET) return ntohs(((struct sockaddr_in *)&ss)->sin_port);
+    if (ss.ss_family == AF_INET6) return ntohs(((struct sockaddr_in6 *)&ss)->sin6_port);
+    return -97;
+}
+
+/* A non-blocking socket connecting to what addr and port name, as shim/net.c's:
+   no Unix socket (EAFNOSUPPORT), and no empty addr, which names no peer. */
+int32_t net_connect(net_bytes addr, int32_t port, int32_t flags) {
+    int32_t r = net_win_init();
+    if (r < 0) return r;
+    if (flags & NET_UNIX) return -97;
+    if (addr.len == 0) return -22;
+    struct sockaddr_storage ss;
+    int len;
+    int err = net_sockaddr(addr, port, &ss, &len);
+    if (err) return -net_win_err(err);
+    SOCKET s = WSASocketW(ss.ss_family, SOCK_STREAM, IPPROTO_TCP, NULL, 0,
+                          WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
+    if (s == INVALID_SOCKET) return -net_win_err(WSAGetLastError());
+    BOOL one = TRUE;
+    u_long nb = 1;
+    if (setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof one) ||
+        ioctlsocket(s, FIONBIO, &nb) ||
+        (connect(s, (struct sockaddr *)&ss, len) && WSAGetLastError() != WSAEWOULDBLOCK)) {
+        err = WSAGetLastError();
+        closesocket(s);
+        return -net_win_err(err);
+    }
+    return (int32_t)s;
+}
+
+/* How net_connect's connect on fd ended, as shim/net.c's: 0, -EINPROGRESS,
+   or its error, which SO_ERROR gives. */
+int32_t net_connected(int32_t fd) {
+    SOCKET s = net_socket(fd);
+    int err = 0, len = sizeof err;
+    if (getsockopt(s, SOL_SOCKET, SO_ERROR, (char *)&err, &len)) return -net_win_err(WSAGetLastError());
+    if (err) return -net_win_err(err);
+    SOCKADDR_STORAGE ss;
+    len = sizeof ss;
+    if (getpeername(s, (struct sockaddr *)&ss, &len) == 0) return 0;
+    err = WSAGetLastError();
+    if (err != WSAENOTCONN) return -net_win_err(err);
+    WSAPOLLFD p = { .fd = s, .events = POLLWRNORM };
+    return WSAPoll(&p, 1, 0) == 0 ? -115 : -107;
+}
+
+/* Waits up to ms (-1: no limit) for fd to be ready for events, epoll's IN
+   (1) and OUT (4) bits, as shim/net.c's. Returns those it is ready for, with
+   ERR (8) and HUP (16), or 0 at the time limit. */
+int32_t net_poll(int32_t fd, uint32_t events, int32_t ms) {
+    WSAPOLLFD p = { .fd = net_socket(fd),
+                    .events = (SHORT)((events & 1 ? POLLRDNORM : 0) | (events & 4 ? POLLWRNORM : 0)) };
+    int n = WSAPoll(&p, 1, ms);
+    if (n == SOCKET_ERROR) return -net_win_err(WSAGetLastError());
+    if (n == 0) return 0;
+    return (p.revents & POLLRDNORM ? 1 : 0) | (p.revents & POLLWRNORM ? 4 : 0) |
+           (p.revents & (POLLERR | POLLNVAL) ? 8 : 0) | (p.revents & POLLHUP ? 16 : 0);
+}
+
+/* Windows has no epoll loop, so no socket is watched on one: http::serve's
+   completion loop doesn't watch outbound sockets yet. */
+void net_loop_bind(int32_t ep) { (void)ep; }
+
+int32_t net_arm(int32_t fd, uint32_t events, uint64_t tag) {
+    (void)fd, (void)events, (void)tag;
+    return -NET_ENOSYS;
+}
+
 int32_t net_epoll_create(void) { return -NET_ENOSYS; }
 
 int32_t net_epoll_ctl(int32_t ep, int32_t op, int32_t fd, uint32_t events, uint64_t tag) {

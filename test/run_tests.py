@@ -229,9 +229,12 @@ def find_tests(names):
     """test/<area>/*.goose, or those of them whose area or name is in `names`."""
     tests = sorted(p for p in HERE.glob("*/*.goose") if p.parent != EXPECTED)
     # test/tls/'s programs import goose-tls, which builds with OpenSSL, not yet
-    # set up on Windows (docs/development.md, "OpenSSL").
+    # set up on Windows (docs/development.md, "OpenSSL"). test/outbound/'s
+    # haven't run on Windows yet: the loop's listens on a Unix socket and
+    # serves on serve_epoll, which Windows lacks, and Windows may refuse a
+    # connect to a full backlog where the blocking one expects a time-out.
     if WINDOWS:
-        tests = [t for t in tests if t.parent.name != "tls"]
+        tests = [t for t in tests if t.parent.name not in ("tls", "outbound")]
     stems = {}
     for t in tests:
         if t.stem in stems:

@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdatomic.h>
@@ -427,6 +428,103 @@ int32_t net_close(int32_t fd) {
         m->kq = -1;
     }
     return close(fd) < 0 ? -net_err(errno) : 0;
+}
+
+/* The local port of socket fd, as bound. */
+int32_t net_port(int32_t fd) {
+    struct sockaddr_storage ss;
+    socklen_t len = sizeof ss;
+    if (getsockname(fd, (struct sockaddr *)&ss, &len) < 0) return -net_err(errno);
+    if (ss.ss_family == AF_INET) return ntohs(((struct sockaddr_in *)&ss)->sin_port);
+    if (ss.ss_family == AF_INET6) return ntohs(((struct sockaddr_in6 *)&ss)->sin6_port);
+    return -net_err(EAFNOSUPPORT);
+}
+
+/* A non-blocking socket connecting to what addr, port, and NET_UNIX in flags
+   name, as net_listen's do, but for an empty addr, which names no peer. A TCP
+   one has TCP_NODELAY, as libpq's has. Returns the fd once connect has
+   started or finished; net_connected says which, and how it ended. It counts
+   toward the highest fd, which net_accept's check near the limit reads. */
+int32_t net_connect(net_bytes addr, int32_t port, int32_t flags) {
+    struct sockaddr_storage ss;
+    socklen_t len;
+    if (addr.len == 0) return -net_err(EINVAL);
+    int err = net_sockaddr(addr, port, flags & NET_UNIX, &ss, &len);
+    if (err) return -net_err(err);
+    int fd = socket(ss.ss_family, SOCK_STREAM, 0);
+    if (fd < 0) return -net_err(errno);
+    int one = 1;
+    if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0 || fcntl(fd, F_SETFL, O_NONBLOCK) < 0 ||
+        (ss.ss_family != AF_UNIX && setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one) < 0) ||
+        (connect(fd, (struct sockaddr *)&ss, len) < 0 && errno != EINPROGRESS)) {
+        err = errno;
+        close(fd);
+        return -net_err(err);
+    }
+    int32_t high = atomic_load_explicit(&net_high_fd, memory_order_relaxed);
+    while (fd > high && !atomic_compare_exchange_weak_explicit(&net_high_fd, &high, fd,
+                                                               memory_order_relaxed,
+                                                               memory_order_relaxed)) {}
+    return fd;
+}
+
+/* How net_connect's connect on fd ended: 0 once connected, -EINPROGRESS
+   while it goes on, or its error, which SO_ERROR gives once: a second call
+   after a failure finds the socket unconnected and returns -ENOTCONN. */
+int32_t net_connected(int32_t fd) {
+    int err = 0;
+    socklen_t len = sizeof err;
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) < 0) return -net_err(errno);
+    if (err) return -net_err(err);
+    struct sockaddr_storage ss;
+    len = sizeof ss;
+    if (getpeername(fd, (struct sockaddr *)&ss, &len) == 0) return 0;
+    if (errno != ENOTCONN) return -net_err(errno);
+    /* A connect still going on leaves the socket unwritable. */
+    struct pollfd p = { .fd = fd, .events = POLLOUT };
+    return poll(&p, 1, 0) == 0 ? -net_err(EINPROGRESS) : -net_err(ENOTCONN);
+}
+
+/* Waits up to ms (-1: no limit) for fd to be ready for events, epoll's IN
+   and OUT bits. Returns the bits it is ready for, with ERR and HUP, or 0 at
+   the time limit; EINTR is 0 too, and the caller waits again for what's left
+   of its limit. */
+int32_t net_poll(int32_t fd, uint32_t events, int32_t ms) {
+    struct pollfd p = { .fd = fd, .events = (short)((events & NET_IN ? POLLIN : 0) |
+                                                    (events & NET_OUT ? POLLOUT : 0)) };
+    int n = poll(&p, 1, ms);
+    if (n < 0) return errno == EINTR ? 0 : -net_err(errno);
+    if (n == 0) return 0;
+    return (p.revents & POLLIN ? NET_IN : 0) | (p.revents & POLLOUT ? NET_OUT : 0) |
+           (p.revents & (POLLERR | POLLNVAL) ? NET_ERR : 0) | (p.revents & POLLHUP ? NET_HUP : 0);
+}
+
+/* The kqueue of the loop the calling thread runs, which net_arm adds to:
+   epoll_loop sets it while it runs, and -1 after. */
+static _Thread_local int32_t net_loop_kq = -1;
+
+void net_loop_bind(int32_t ep) {
+    net_loop_kq = ep;
+}
+
+/* Watches fd on the calling thread's loop for events once: EV_ONESHOT
+   filters, whose next event carries tag, and which go once it fires. A
+   socket ready already raises it at once. A filter not asked for is
+   deleted. -ENOSYS on a thread that runs no kqueue loop. */
+int32_t net_arm(int32_t fd, uint32_t events, uint64_t tag) {
+    if (net_loop_kq < 0) return -net_err(ENOSYS);
+    struct kevent ch[2], res[2];
+    uint16_t add = EV_ADD | EV_ONESHOT | EV_RECEIPT, del = EV_DELETE | EV_RECEIPT;
+    EV_SET(&ch[0], fd, EVFILT_READ, events & NET_IN ? add : del, 0, 0, (void *)tag);
+    EV_SET(&ch[1], fd, EVFILT_WRITE, events & NET_OUT ? add : del, 0, 0, (void *)tag);
+    int got = kevent(net_loop_kq, ch, 2, res, 2, NULL);
+    if (got < 0) return -net_err(errno);
+    for (int i = 0; i < got; i++) {
+        int err = res[i].flags & EV_ERROR ? (int)res[i].data : 0;
+        int asked = res[i].filter == EVFILT_READ ? events & NET_IN : events & NET_OUT;
+        if (err && (asked || err != ENOENT)) return -net_err(err);
+    }
+    return 0;
 }
 
 int32_t net_epoll_create(void) {

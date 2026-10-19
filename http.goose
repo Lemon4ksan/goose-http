@@ -35,6 +35,7 @@ import forwarded;
 import timers;
 import mail;
 import lane;
+import socket;
 
 // A listener beside Config.port's, at Config.address: its port, and whether
 // it serves h2c, HTTP/2 with prior knowledge (h2.goose), or HTTP/1.1 over

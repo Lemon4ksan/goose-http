@@ -123,6 +123,8 @@ fn epoll_loop<S, H>(cfg: Config, fresh: S, tls) -> Error {
         return opened;
     }
     let waiting = box.handle.slot >= 0;
+    // For wait_socket, which watches outbound sockets on ep.
+    net_loop_bind(ep);
     var timers = timer_table(if waiting { cfg.max_waiting } else { 0 });
     // Exchanges owed TIMEOUT for want of a timer, by their keys.
     var overdue: u64[>..] = [];
@@ -601,6 +603,11 @@ fn epoll_loop<S, H>(cfg: Config, fresh: S, tls) -> Error {
                 if waiting { mail_take(box) { key, tag, bytes => delivered(key, tag, bytes); }; }
                 continue;
             }
+            // An outbound socket that wait_socket armed with its exchange's key.
+            if waiting && ev.tag >= SOCKET_KEYS {
+                delivered(ev.tag, SOCKET_READY, "");
+                continue;
+            }
             let i = ev.tag as i64;
             // A WAKE earlier in the batch may have closed it.
             if conns[i].fd < 0 { continue; }
@@ -632,6 +639,7 @@ fn epoll_loop<S, H>(cfg: Config, fresh: S, tls) -> Error {
     for i in conns.len {
         if conns[i].fd >= 0 { close_conn(i); }
     }
+    net_loop_bind(-1);
     close_waiting(box, waker);
     net_close(ep);
     close_listeners();

@@ -160,7 +160,10 @@ without blocking the worker:
 
 - **I/O-bound work**, such as a query to a database server, moves to a lane however short
   it is. In the handler, the core sits idle during the wait: a 20 ms query limits a
-  worker to 50 such requests a second.
+  worker to 50 such requests a second. A lane's job can block on its own connection
+  ([outbound connections](api.md#on-a-thread-without-a-loop)), so a use case of several
+  queries reads top to bottom. A single query can instead wait on the worker's loop,
+  without a lane (the table below).
 - **Long CPU-bound work** moves to a lane when it holds up the worker's other requests.
   Moving it adds no throughput when the workers use every core, but short requests stop
   waiting behind it, which keeps the tail latency down. How long is too long depends on
@@ -173,6 +176,7 @@ Short CPU-bound work, including a query on embedded SQLite, stays in the handler
 |---|---|---|
 | Short and CPU-bound: parse, look up, format, query embedded SQLite | In the handler | `routes/`, `api/` |
 | I/O-bound, or long and CPU-bound | A lane; the handler waits with `http::later` | `later/`, which counts primes |
+| One request to another server, such as a single query, on `serve_epoll` | In the handler, on a socket the worker owns; it waits with `http::wait_socket` | `test/outbound/outbound_loop.goose` ([outbound connections](api.md#on-the-workers-loop)) |
 | Either, going on with results as they come | The same, with the response sent in pieces | `device/`'s `/api/events` |
 | Minutes of either | A background task: answer `202 Accepted` with its ID at once, and let the client ask for the result | goose-rest's [background tasks](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/13-limits.md#background-tasks) |
 

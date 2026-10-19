@@ -509,6 +509,64 @@ Autobahn's sections 12 and 13 test; WebSocket over HTTP/2 (RFC 8441); and a stri
 UTF-8 check of a single frame before it is whole, which Autobahn scores NON-STRICT in
 cases 6.4.3 and 6.4.4.
 
+## Outbound connections: blocking on a lane, readiness on the worker's loop
+
+Decided 2026-10-19, task 053. The names are proposed, not yet agreed.
+
+A program opens TCP or Unix-socket connections to other servers through
+`socket.goose`, in two ways, for the two places goose-postgres's decisions run database
+work:
+
+- **Blocking, on a thread that runs no loop.** A lane job that runs several queries
+  calls `http::connect(host, port, ms)`, `http::send_all(s, bytes, ms)`, and
+  `http::recv(s, buf, ms)`, each of which waits up to its time limit, and
+  `http::hangup(s)`. This is the transport goose-postgres's blocking facade takes.
+- **Non-blocking, on `serve_epoll`'s loop.** A handler starts a connect with
+  `http::dial`, and `http::wait_socket(out, s, events, ms)` makes its exchange wait
+  until the socket is readable or writable, as `later` waits for mail: the handler is
+  called with `WAKE`, tag `http::SOCKET_READY`, or `TIMEOUT`. It then reads and writes
+  with `http::recv(s, buf)` and `http::send(s, bytes)`, which never block, and learns how
+  a connect ended with `http::connected(s)`. This is what goose-postgres's pool for
+  HttpArena's `/async-db` builds on, one connection's bytes at a time.
+
+One socket type serves both: a non-blocking fd, which the blocking calls wait on with
+`poll`. The C is four thin functions per platform (`net_connect`, `net_connected`,
+`net_poll`, and `net_arm`), beside the listener's; Goose's stdlib has no sockets.
+
+**The worker that asked owns the socket.** `wait_socket` adds it to that worker's own
+epoll instance or kqueue, with the waiting exchange's key as its tag, once
+(`EPOLLONESHOT`, `EV_ONESHOT`), and the loop hands the event to the exchange through the
+path mail takes, which finds an h2 stream as it finds an HTTP/1.1 exchange. A query
+then never crosses threads, which is the point of the worker's loop for single queries;
+a lane that held one pool for every worker would add two queue hops to each query, which
+goose-postgres's decisions reject for `/async-db`. The cost: each worker holds its own
+share of a pool, `DATABASE_MAX_CONN` divided by the workers, and an idle connection on
+one worker can't serve another's request.
+
+**Readiness, not bytes.** The loop tells the handler that the socket is ready, and the
+program reads into its own buffers, such as `pg::Conn`'s input, rather than the loop
+reading into the worker's buffers and handing bytes over as events, as it does for
+accepted connections. The protocol packages own their buffers already; the loop copies
+nothing and holds nothing for a connection, so an idle pooled connection costs one fd,
+and bytes that arrive while no exchange waits wait in the kernel, not in a buffer of the
+loop's that someone must drain. The cost is the readiness pattern's: a `WAKE` may find
+nothing to read, so a handler treats `SOCKET_READY` as "try again".
+
+**Where it doesn't run yet.** `serve`'s completion loops, io_uring (`IORING_OP_CONNECT`
+and its receives into provided buffers), the emulated ring, and IOCP (`ConnectEx`), fail
+`wait_socket` with `ENOSYS`, as they did h2c and TLS at first, and the exchange doesn't
+wait. The blocking calls work on every platform, Windows included, where a Unix socket
+is `EAFNOSUPPORT`.
+
+**Names.** A host is `localhost`, an IPv4 or IPv6 literal, or `unix:PATH`; any other
+name fails with `ENOSYS` from `resolve`, since `getaddrinfo` blocks. A resolver off the
+loop comes later.
+
+Rejected: a lane that holds every worker's pool (above); the loop reading outbound
+sockets as it reads accepted ones (above); a blocking socket with `SO_RCVTIMEO` and
+`SO_SNDTIMEO`, which has no time limit for the connect; and a socket module separate
+from the loops, which the worker's half needs anyway.
+
 ## Not yet decided
 
 ### Compression in an optional module

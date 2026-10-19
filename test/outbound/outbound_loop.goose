@@ -1,0 +1,254 @@
+// Outbound connections on serve_epoll's loop (socket.goose): each route
+// dials a backend thread in the program, waits with wait_socket, and answers
+// with what came back: a round trip, a large send, a backend that closes, a
+// refused connect, and a connect that times out against a full backlog. On
+// serve's loop, wait_socket fails with ENOSYS. The loops listen on Unix
+// sockets in the test's own directory, so parallel runs share no port.
+import std;
+import http from "../../";
+
+let LARGE = 4 << 20;
+
+// Where the loops listen, and the ports a route dials: the backend, one
+// nothing listens on, and one whose backlog is full.
+struct Ports { backend: i32, refused: i32, full: i32 }
+
+fn listener(backlog: i32) -> i32, i32 {
+    let a, ok = http::address("127.0.0.1");
+    assert(ok);
+    let fd = http::net_listen(a.ip, 0, backlog, 0);
+    assert(fd >= 0);
+    return fd, http::net_port(fd);
+}
+
+fn send_text(fd: i32, text: const u8[:]) {
+    var at = 0;
+    while at < text.len {
+        let n = http::net_send(fd, text[at..]);
+        assert(n > 0);
+        at += n;
+    }
+}
+
+// The backend, blocking, one connection after another, by the first byte
+// each sends: p answers pong to each p, c counts the bytes until the client
+// shuts its side and answers the count, x closes at once, and q ends.
+thread_fn backend(lfd: i32) {
+    var buf: u8[>..] = [];
+    buf.resize(65536, 0);
+    loop {
+        let fd = http::net_accept(lfd, 0);
+        assert(fd >= 0);
+        var quit = false;
+        var counting = false;
+        var count = 0;
+        loop {
+            let n = http::net_recv(fd, buf);
+            if n <= 0 { break; }
+            if counting {
+                count += n;
+                continue;
+            }
+            let cmd = buf[0];
+            if cmd == 'q' { quit = true; break; }
+            if cmd == 'x' { break; }
+            if cmd == 'p' {
+                for i in n { send_text(fd, "pong"); }
+            } else if cmd == 'c' {
+                counting = true;
+                count = n;
+            }
+        }
+        if counting {
+            var text: u8[>..] = [];
+            format(text, count);
+            send_text(fd, text);
+        }
+        http::net_close(fd);
+        if quit { break; }
+    }
+    http::net_close(lfd);
+}
+
+let PING: u8 = 1;
+let LARGE_SEND: u8 = 2;
+let CLOSES: u8 = 3;
+
+// A request's state: its backend socket, what it's doing, and what it got.
+struct St {
+    s: http::Socket = http::Socket { .. },
+    route: u8 = 0,
+    connecting: bool = false,
+    sent: i64 = 0,
+    got: u8[..32] = [],
+}
+
+fn answer(st: St&, out: http::Reply, status: i32, body: const u8[:]) {
+    http::hangup(st.s);
+    http::respond(out, status, "text/plain", body);
+}
+
+fn failed(st: St&, out: http::Reply, e: http::Error) {
+    var text: u8[>..] = [];
+    format(text, e.call, " ");
+    if e.code == http::ECONNREFUSED { text.append("refused"); }
+    else if e.code == http::ENOSYS { text.append("ENOSYS"); }
+    else { format(text, e.code); }
+    answer(st, out, 502, text);
+}
+
+fn handle(ev: http::Event, st: St&, out: http::Reply, ports: Ports, large: const u8[:]) {
+    if ev.kind == http::REQUEST {
+        let path = http::path_of(ev.req.target);
+        var port = ports.backend;
+        if path == "/ping" { st.route = PING; }
+        else if path == "/large" { st.route = LARGE_SEND; }
+        else if path == "/closes" { st.route = CLOSES; }
+        else if path == "/refused" { st.route = PING; port = ports.refused; }
+        else if path == "/timeout" { st.route = PING; port = ports.full; }
+        else { http::respond(out, 404, "text/plain", ""); return; }
+        let s, e = http::dial("127.0.0.1", port);
+        // A refused connect may fail at once.
+        guard e.code == 0 else { failed(st, out, e); return; }
+        st.s = s;
+        st.connecting = true;
+        let w = http::wait_socket(out, st.s, http::WRITABLE, 300);
+        guard w.code == 0 else { failed(st, out, w); return; }
+        return;
+    }
+    if ev.kind == http::CLOSED {
+        http::hangup(st.s);
+        return;
+    }
+    if ev.kind == http::TIMEOUT {
+        answer(st, out, 504, if st.connecting { "connect timed out" } else { "timed out" });
+        return;
+    }
+    guard ev.kind == http::WAKE && ev.tag == http::SOCKET_READY else { return; }
+    if st.connecting {
+        let c = http::connected(st.s);
+        if c.code == http::EINPROGRESS {
+            http::wait_socket(out, st.s, http::WRITABLE, 300);
+            return;
+        }
+        guard c.code == 0 else { failed(st, out, c); return; }
+        st.connecting = false;
+        if st.route == PING { assert(http::send(st.s, "pp") == 2); }
+        if st.route == CLOSES { assert(http::send(st.s, "x") == 1); }
+    }
+    if st.route == LARGE_SEND && st.sent < large.len {
+        while st.sent < large.len {
+            let n = http::send(st.s, large[st.sent..]);
+            if n == -http::EAGAIN {
+                http::wait_socket(out, st.s, http::WRITABLE, 5000);
+                return;
+            }
+            guard n > 0 else { failed(st, out, http::Error { call: "send", code: -n }); return; }
+            st.sent += n;
+        }
+        http::net_shutdown(st.s.fd, http::SHUT_WR);
+    }
+    var buf: u8[64] = [0; 64];
+    loop {
+        let n = http::recv(st.s, buf);
+        if n == -http::EAGAIN {
+            http::wait_socket(out, st.s, http::READABLE, 5000);
+            return;
+        }
+        guard n >= 0 else { failed(st, out, http::Error { call: "recv", code: -n }); return; }
+        if n == 0 {
+            var text: u8[>..] = [];
+            format(text, "closed after \"", st.got, "\"");
+            answer(st, out, 200, text);
+            return;
+        }
+        for b in buf[..n] { st.got.push(b); }
+        if st.route == PING && st.got.len == 8 {
+            answer(st, out, 200, st.got);
+            return;
+        }
+    }
+}
+
+thread_fn worker(cfg: http::Config, ports: Ports) {
+    var large: u8[>..] = [];
+    large.resize(LARGE, 'c');
+    let e = http::serve_epoll(cfg, St { .. }) { ev, st, out => handle(ev, st, out, ports, large); };
+    http::report(e);
+}
+
+// serve's loop: wait_socket fails.
+thread_fn ring_worker(cfg: http::Config, ports: Ports) {
+    let e = http::serve(cfg, St { .. }) { ev, st, out =>
+        if ev.kind == http::REQUEST {
+            let s, d = http::dial("127.0.0.1", ports.backend);
+            assert(d.code == 0);
+            st.s = s;
+            let w = http::wait_socket(out, st.s, http::WRITABLE, 300);
+            if w.code != 0 { failed(st, out, w); } else { answer(st, out, 500, "waits"); }
+        }
+    };
+    http::report(e);
+}
+
+// A request to the loop at address, and its status line and body.
+fn get(address: const u8[:], path: const u8[:]) {
+    var s = http::Socket { .. };
+    for i in 500 {
+        let c, e = http::connect(address, 0, 1000);
+        if e.code == 0 { s = c; break; }
+        sleep_ms(10);
+    }
+    assert(s.fd >= 0);
+    var req: u8[>..] = [];
+    format(req, "GET ", path, " HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n");
+    assert(http::send_all(s, req, 5000).code == 0);
+    var got: u8[>..] = [];
+    var buf: u8[4096] = [0; 4096];
+    loop {
+        let n = http::recv(s, buf, 10000);
+        assert(n >= 0);
+        if n == 0 { break; }
+        got.append(buf[..n]);
+    }
+    http::hangup(s);
+    let line = find(got, "\r\n");
+    let head = find(got, "\r\n\r\n");
+    assert(line > 0 && head >= line);
+    print(path, ": ", got[..line], ": ", got[head + 4..]);
+}
+
+fn main() {
+    let lfd, port = listener(16);
+    let gone, gone_port = listener(1);
+    http::net_close(gone);
+    let full, full_port = listener(1);
+    var fillers: http::Socket[>..] = [];
+    for i in 8 {
+        let f, fe = http::dial("127.0.0.1", full_port);
+        assert(fe.code == 0);
+        fillers.push(f);
+    }
+    let ports = Ports { backend: port, refused: gone_port, full: full_port };
+    let b = thread_spawn(backend, lfd);
+    let cfg = http::Config { address: "unix:epoll.sock", workers: 1, mail_slots: 16, max_waiting: 16, .. };
+    let w = thread_spawn(worker, cfg, ports);
+    get("unix:epoll.sock", "/ping");
+    get("unix:epoll.sock", "/large");
+    get("unix:epoll.sock", "/closes");
+    get("unix:epoll.sock", "/refused");
+    get("unix:epoll.sock", "/timeout");
+    let rcfg = http::Config { address: "unix:ring.sock", workers: 1, mail_slots: 16, max_waiting: 16, .. };
+    let r = thread_spawn(ring_worker, rcfg, ports);
+    get("unix:ring.sock", "/ping");
+    http::stop();
+    thread_wait(w);
+    thread_wait(r);
+    for i in fillers.len { http::hangup(fillers[i]); }
+    http::net_close(full);
+    var q, e = http::connect("127.0.0.1", port, 5000);
+    assert(e.code == 0);
+    assert(http::send_all(q, "q", 5000).code == 0);
+    thread_wait(b);
+    http::hangup(q);
+}

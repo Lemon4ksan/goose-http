@@ -20,7 +20,7 @@ compilation:
 
 | File | Platform | What it does |
 |---|---|---|
-| `shim/net.c` | Linux | Sockets, epoll, clocks, file reads, the stop counter, and the loops' waker, an `eventfd` |
+| `shim/net.c` | Linux | Sockets, outbound ones included, epoll, clocks, file reads, the stop counter, and the loops' waker, an `eventfd` |
 | `shim/kqueue.c` | macOS | `shim/net.c`'s functions over kqueue, with the same Linux error codes; the waker is `EVFILT_USER` |
 | `shim/net_win.c` | Windows | `shim/net.c`'s functions over Winsock |
 | `shim/uring.c` | Linux | The io_uring ring, over liburing |
@@ -341,6 +341,30 @@ A waiting exchange holds back the requests after it, which must wait their turn.
 upgraded connection is a stream both ways, so the loops go on reading it, and the
 bytes that arrive reach the handler as `BODY` while the wait stands, in the order they
 reached the worker.
+
+## Outbound connections
+
+A program opens connections to other servers, such as a database, through
+`socket.goose` ([decisions](decisions.md#outbound-connections-blocking-on-a-lane-readiness-on-the-workers-loop)).
+Every such socket is non-blocking, made by `net_connect`, which starts the connect and
+returns; `net_connected` reads how it ended from `SO_ERROR`.
+
+On a thread that runs no loop, such as a lane's, `connect`, `recv` with a time limit,
+and `send_all` wait on the socket with `poll` up to their limits, so the thread blocks
+and the program's code reads top to bottom.
+
+On `serve_epoll`'s loop, the worker that asked owns the socket. `wait_socket` adds it
+to the worker's epoll instance or kqueue once, with the waiting exchange's key as the
+event's tag, and calls `later`. The loop knows its sockets' tags from its connections'
+by their range: a key is at least 2<sup>20</sup>, and a connection's slot below
+`Config.max_conns`, which can't pass 2<sup>20</sup> where exchanges can wait. An event
+with a key goes to the exchange through the path a message takes, as `WAKE` with the tag
+`SOCKET_READY`, and the exchange's timer gives it `TIMEOUT` instead. The loop never
+reads or writes the socket, and keeps no state for it: the handler does both, into
+buffers of the program's, and a socket that's armed again after its event is modified,
+not added. Closing the socket takes it off the poller. Each loop lists its poller in a
+thread-local of the shim while it runs, which `net_arm` finds; a thread with none, such
+as one running `serve`'s completion loop, gets `ENOSYS`.
 
 ## The store
 

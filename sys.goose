@@ -42,6 +42,10 @@ let EAFNOSUPPORT = 97;
 let EADDRINUSE = 98;
 let ECONNABORTED = 103;
 let ECONNRESET = 104;
+let ENOTCONN = 107;
+let ETIMEDOUT = 110;
+let ECONNREFUSED = 111;
+let EINPROGRESS = 115;
 
 // epoll event bits and epoll_ctl ops, also asserted in shim/net.c, and
 // mapped to kqueue's filters in shim/kqueue.c.
@@ -84,6 +88,27 @@ extern fn net_close(fd: i32) -> i32;
 // IPv4 one as IPv4-mapped IPv6, and returns its port. EAFNOSUPPORT for a peer
 // with no IP address.
 extern fn net_peer(fd: i32, out: u8[:]) -> i32;
+// The local port of socket fd, such as a listener's bound to port 0.
+extern fn net_port(fd: i32) -> i32;
+
+// A non-blocking TCP socket, or with UNIX a Unix socket's, whose connect to
+// addr and port, as net_listen takes them, has started or finished; an
+// empty addr is EINVAL. net_connected says which: 0 once connected,
+// -EINPROGRESS while it goes on, or its error, given once.
+extern fn net_connect(addr: const u8[:], port: i32, flags: i32) -> i32;
+extern fn net_connected(fd: i32) -> i32;
+// Waits up to ms (-1: no limit) for fd to be ready for events, EPOLLIN and
+// EPOLLOUT. Returns the bits it's ready for, EPOLLERR and EPOLLHUP among
+// them, or 0 at the time limit, or for a signal, which is the caller's to
+// wait out again.
+extern fn net_poll(fd: i32, events: u32, ms: i32) -> i32;
+// The poller of the loop running on the calling thread, or -1 for none,
+// which net_arm adds to: epoll_loop's, while it runs.
+extern fn net_loop_bind(ep: i32);
+// Watches fd on that poller for events once: the next event carries tag,
+// and fd raises none after it until it's armed again. -ENOSYS on a thread
+// whose loop isn't epoll_loop.
+extern fn net_arm(fd: i32, events: u32, tag: u64) -> i32;
 
 extern fn net_epoll_create() -> i32;
 // The kernel keeps tag with fd's registration and returns it in PollEvent.tag.
