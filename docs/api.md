@@ -521,3 +521,46 @@ The benchmark server links both. `LOOP` picks: `uring` (`iocp` on Windows), `epo
 or `uring-epoll`. See
 [architecture](architecture.md#completion-loop).
 
+### Several ports, and h2c
+
+`http::serve_epoll` serves h2c, HTTP/2 over TCP with prior knowledge: each connection
+must open with HTTP/2's preface, as `curl --http2-prior-knowledge` and `h2load` send
+it. There is no `Upgrade: h2c`, and no detection of the preface on an HTTP/1.1 port.
+`http::serve` serves HTTP/1.1 on one port, and fails with `ENOSYS` on either setting
+below.
+
+- `Config.h2c` makes `Config.port` serve h2c instead of HTTP/1.1.
+- `Config.listeners` adds up to `http::MAX_LISTENERS` (3) more ports on the same
+  address, each an `http::Listener { port, h2c }`, served by the same workers. It
+  can't be used with a Unix socket address.
+- `Config.h2_max_streams` (128, up to 256) is the most streams a client may have open
+  on a connection. `Config.h2_stream_window` (65,535) and `Config.h2_conn_window`
+  (1 MiB) are what it may send on each stream, and on the connection, before the
+  server gives the window back.
+
+```rust
+thread_fn worker(cfg: http::Config) {
+    let e = http::serve_epoll(cfg) { req, body, out =>
+        http::respond(out, 200, "text/plain", "Hello, World!");
+    };
+    http::report(e);
+}
+
+fn main() {
+    var cfg = http::Config { port: 8080, .. };
+    cfg.listeners.push(http::Listener { port: 8082, h2c: true });
+    http::run(cfg, worker);
+}
+```
+
+Handlers don't change: each stream is an exchange, called with the events an HTTP/1.1
+request gets, and the response a handler writes, head and body, is sent as HEADERS and
+DATA frames under HTTP/2's flow control. A body that fits in `Config.max_head` and in
+half the stream window comes whole at `REQUEST`; a longer one comes in pieces. A stream
+that waits (`later`) holds back no other. A handler that clears `out.keep_alive` ends
+the connection with a GOAWAY once its open streams are done, and at a stop each h2c
+connection gets a GOAWAY. `upgrade` answers 501 on a stream.
+
+The benchmark server, with `LOOP=epoll`, serves h2c on its port + 2: 8082 beside
+8080. `H2C_PORT` names another port, and `H2C_PORT=0` turns it off.
+
