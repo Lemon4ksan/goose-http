@@ -1,28 +1,32 @@
-// The benchmark server's thread for /later and /events: it takes jobs from
-// the HTTP workers off Goose's queue of Job, and answers each, after a delay
-// its own timer table keeps, by mail to the exchange's address (http::later).
-// A job asks for count replies, one every delay milliseconds: one for
-// /later, as many as the events for /events.
+// The benchmark server's worker thread for /later and /events: it owns a box
+// of its own, takes jobs from the HTTP workers, and answers each, after a
+// delay its own timer table keeps, by mail to the exchange's address
+// (http::later). A job asks for count replies, one every delay milliseconds:
+// one for /later, as many as the events for /events.
 import std;
 import os;
 import http;
 
-// A reply's tag: whether more follow.
+// A job's tag: the kind of job. A reply's tag: whether more follow.
+let JOB_LATER: i32 = 1;
+let JOB_EVENTS: i32 = 2;
 let REPLY_MORE: i32 = 1;
 let REPLY_LAST: i32 = 2;
 
-// A job as the backend keeps it, and as it crosses the queue.
+// A job as the backend keeps it, and as it crosses a box
+// (http::mail_send_value).
 struct Job { reply: http::MailAddress, delay: i64, count: i64, sent: i64, id: u8[..32] }
 
-// The most jobs the queue holds: a worker that finds it full answers 503.
-let JOBS_QUEUED: i64 = 256;
+// The most bytes a job takes in a box: its image, which holds id's whole
+// capacity, is 74 bytes.
+let JOB_SIZE: i32 = 80;
 // The most bytes a reply takes in a worker's box: the id and the reply's
 // number.
 let REPLY_SIZE: i32 = 64;
 
-// Takes jobs for as long as the process runs, keeping up to capacity at
-// once; a job past that is answered at once with "busy".
-thread_fn backend(capacity: i64) {
+// Takes jobs from box until a job of no kind it knows, keeping up to
+// capacity at once; a job past that is answered at once with "busy".
+thread_fn backend(box: http::Box, capacity: i64) {
     var check: u8[>..] = [];
     let check_stale = env("MAIL_CHECK_STALE", check) && check == "1";
     var timers = http::timer_table(capacity);
@@ -33,6 +37,7 @@ thread_fn backend(capacity: i64) {
         free.push(capacity - 1 - i);
     }
     var reply: u8[>..] = [];
+    var running = true;
 
     // Sends job i its next reply, and frees it after the last.
     fn answer(i: i64, now: i64) {
@@ -61,24 +66,28 @@ thread_fn backend(capacity: i64) {
         else { http::arm(timers, i as u64, now + j.delay); }
     }
 
-    while true {
+    while running {
         let now = http::net_clock_ms();
         let due, any = http::next_due(timers);
-        var j, got = qget<Job>(if any { min(max(due - now, 0), 1000) } else { 1000 });
+        http::mail_wait(box, if any { min(max(due - now, 0), 1000) as i32 } else { 1000 });
         let t = http::net_clock_ms();
-        while got {
+        http::mail_take(box) { key, tag, bytes =>
+            var j = Job { .. };
+            let ok = http::mail_value(bytes, j);
             j.delay = max(j.delay, 0);
             j.count = max(j.count, 1);
             j.sent = 0;
-            if free.len == 0 {
+            if tag != JOB_LATER && tag != JOB_EVENTS || !ok {
+                running = false;
+            } else if free.len == 0 {
                 http::mail_send(j.reply, REPLY_LAST, "busy");
             } else {
                 let i = free.pop();
                 jobs[i] = j;
                 http::arm(timers, i as u64, t + j.delay);
             }
-            j, got = qpoll<Job>();
-        }
+        };
         http::expire(timers, t) { key => answer(key as i64, t); };
     }
+    http::mail_close(box);
 }

@@ -16,12 +16,9 @@ import http.compression;
 import backend;
 import dataset;
 
-// Whether the backend thread runs, which app.goose sets before it spawns the
-// workers, which copy it; not while waiting is off (MAIL_SLOTS).
-var backend_on = false;
-
-// Queues j for the backend: false when it doesn't run or its queue is full.
-fn to_backend(j: Job) -> bool { backend_on && qput(j) }
+// The backend thread's box, which app.goose sets before it spawns the
+// workers, which copy it; none while waiting is off (MAIL_SLOTS).
+var backend_box: http::MailAddress;
 
 // The most bytes /bytes and /stream send.
 let MAX_BYTES = 1000000000;
@@ -222,9 +219,6 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
         wait_for_backend(req, path == "/events", st, out);
     } else if get && starts_with(path, "/delay/") {
         delay(path[7..], st, out);
-    } else if get && path == "/abort" {
-        // Aborts the worker, which http::run starts again (scripts/test-http.sh).
-        abort("/abort");
     } else if get && starts_with(path, "/json/") {
         json_items(req, path[6..], out);
     } else if req.target == "*" {
@@ -260,7 +254,7 @@ fn serve_static(req: http::Request, name: const u8[:], st: Transfer&, out: http:
 // /later?id=ID&delay=D&ms=M: "ID 1" from the backend after D milliseconds,
 // or 504 if M milliseconds pass first. /events?id=ID&delay=D&n=N&ms=M: N
 // Server-Sent Events, "ID 1" to "ID N", D milliseconds apart, each within M
-// of the one before. 503 when the backend's queue is full, or waiting is off.
+// of the one before. 503 when the backend's box is full, or waiting is off.
 fn wait_for_backend(req: http::Request, events: bool, st: Transfer&, out: http::Reply) {
     let ms = query_or(req.target, "ms", 5000);
     var j = Job { delay: query_or(req.target, "delay", 0), count: if events { query_or(req.target, "n", 1) } else { 1 },
@@ -277,7 +271,7 @@ fn wait_for_backend(req: http::Request, events: bool, st: Transfer&, out: http::
         st.route = LATER;
     }
     j.reply = http::later(out, ms);
-    guard to_backend(j) else {
+    guard http::mail_send_value(backend_box, if events { JOB_EVENTS } else { JOB_LATER }, j) == http::SENT else {
         if events { http::end_compressed(out, st.coded); } else { http::respond(out, 503, "text/plain", "busy"); }
         return;
     };
@@ -285,14 +279,14 @@ fn wait_for_backend(req: http::Request, events: bool, st: Transfer&, out: http::
 
 // /upgrade?id=ID&delay=D&ms=M, upgraded: "ID 1" from the backend after D
 // milliseconds, or "timeout" if M milliseconds pass first, among the bytes
-// echoed meanwhile. The connection closes when the backend's queue is full,
+// echoed meanwhile. The connection closes when the backend's box is full,
 // or waiting is off.
 fn upgraded_later(req: http::Request, out: http::Reply) {
     var j = Job { delay: query_or(req.target, "delay", 0), count: 1, .. };
     let id, has = http::query_of(req.target, "id");
     if has && id.len <= 32 { j.id.append(id); }
     j.reply = http::later(out, query_or(req.target, "ms", 5000));
-    if !to_backend(j) { http::end(out); }
+    if http::mail_send_value(backend_box, JOB_LATER, j) != http::SENT { http::end(out); }
 }
 
 // /delay/MS, HttpArena's async profile: MS, as text, after MS milliseconds

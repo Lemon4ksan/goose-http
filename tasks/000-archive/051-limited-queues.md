@@ -1,6 +1,8 @@
 # 051: Jobs through a limited queue
 
-Status: in-progress; built, and the benchmark before and after waits for a batch
+Status: cancelled by the maintainer on 2026-10-19, after an independent review: a pool
+of threads is a lane, the one mechanism, so the server's backend went back to its box,
+unmeasured. The text below describes what was built.
 
 With [aardappel/goose#39](https://github.com/aardappel/goose/pull/39), in the pinned
 `dcc2747`, Goose's typed queues take a limit (`qlimit<T>(n)`), `qput` returns false at
