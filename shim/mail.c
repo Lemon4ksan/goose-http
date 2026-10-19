@@ -119,8 +119,7 @@ int32_t net_waker_wait(int64_t w, int32_t ms);
 void net_waker_close(int64_t w);
 int64_t net_clock_ms(void);
 
-/* A u8[:] and an i64[:], packed as Goose packs them (spec C.2): 12 bytes on a
-   32-bit target and 16 on a 64-bit one. */
+/* A u8[:] and an i64[:], packed as Goose packs them (spec C.2). */
 #pragma pack(push, 1)
 typedef struct { uint8_t *data; int64_t len; } mail_bytes;
 typedef struct { int64_t *data; int64_t len; } mail_i64s;

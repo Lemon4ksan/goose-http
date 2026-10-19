@@ -405,23 +405,20 @@ docker run --rm --platform linux/amd64 --network container:h2c-srv -v /tmp/h2spe
 
 #### ARM under Docker
 
-**OS:** tested in `ubuntu:26.04` containers for arm64 and arm/v7 (2026-10-14).
+**OS:** tested in `ubuntu:26.04` containers for arm64 (2026-10-14).
 
 `scripts/test-aarch64.sh` cross-builds every example for aarch64 and runs
 `scripts/test-examples.sh` on the builds in an arm64 container, with each one's peak RSS
-([embedded Linux](embedded.md#without-the-board-emulated-arm64)).
-`scripts/test-armhf.sh` does the same for 32-bit ARM in an arm/v7 container. Both run
-`scripts/test-arm.sh`, which takes the architecture. They need Docker with ARM
-emulation, which Docker Desktop has. Neither is part of `scripts/test.sh`.
+([embedded Linux](embedded.md#without-the-board-emulated-arm64)). It needs Docker with
+ARM emulation, which Docker Desktop has, and isn't part of `scripts/test.sh`.
 
 ```sh
 scripts/test-aarch64.sh
-scripts/test-armhf.sh
 ```
 
 The cross-build runs the Linux build of the compiler in an x86-64 `ubuntu:26.04`
 container, which works because WSL's Ubuntu is 26.04 too, with the same glibc. Without
-`GOOSE`, `scripts/test-arm.sh` uses the pinned release's `linux-x64` archive, which
+`GOOSE`, `scripts/test-aarch64.sh` uses the pinned release's `linux-x64` archive, which
 `scripts/goose.sh` fetches on any host, macOS included. A `GOOSE` of its own must be a
 Linux x86-64 build that runs on Ubuntu 26.04; for one copied away from its stdlib,
 `GOOSE_STDLIB` names the stdlib.
@@ -429,18 +426,16 @@ Linux x86-64 build that runs on Ubuntu 26.04; for one copied away from its stdli
 Every Linux program needs `liburing.so.2` at run time, the epoll-only ones included,
 since the package links liburing on Linux; the script's run image installs `liburing2`.
 Docker's seccomp profile blocks io_uring, so `LOOP=uring` runs over the emulation in
-both containers. Run `scripts/test-examples.sh` in WSL itself for real io_uring.
+the arm64 container. Run `scripts/test-examples.sh` in WSL itself for real io_uring.
 
-Docker Desktop on the Mac runs arm64 containers natively in its VM, and arm/v7 ones
-under qemu-arm, since the M1 has no 32-bit mode. Its arm64 RSS includes no emulator's
-memory, so it doesn't compare with RSS measured on an x86-64 host, where qemu adds its
-own ([embedded Linux](embedded.md#without-the-board-emulated-arm64)).
+Docker Desktop on the Mac runs arm64 containers natively in its VM, so their RSS
+includes no emulator's memory and doesn't compare with RSS measured on an x86-64 host,
+where qemu adds its own ([embedded Linux](embedded.md#without-the-board-emulated-arm64)).
 
 | Tool | Source | Version used (2026-10-14) |
 |---|---|---|
-| ARM cross compilers | `ubuntu:26.04` in Docker, apt | `aarch64-linux-gnu-gcc` and `arm-linux-gnueabihf-gcc` 15.2.0 (`15.2.0-16ubuntu1`), with `liburing-dev` 2.14 for each |
+| ARM cross compiler | `ubuntu:26.04` in Docker, apt | `aarch64-linux-gnu-gcc` 15.2.0 (`15.2.0-16ubuntu1`), with `liburing-dev` 2.14 |
 | glibc | `ubuntu:26.04`, as in WSL | 2.43 |
-| qemu-arm | Docker Desktop 29.8.2 on the Mac | 10.2.3 |
 
 `test-aarch64.sh` took 53 s in WSL2 and 63 s on the Mac (2026-10-14).
 

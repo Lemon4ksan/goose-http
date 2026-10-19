@@ -5,8 +5,7 @@ Status: in-progress
 Make the package usable on 64-bit ARM embedded Linux boards, such as NXP i.MX 8, so a
 team with one can try it (2026-10-14): a guide to cross-building and running, an
 example of a device's HTTP API, and a script that cross-builds the examples and runs
-them on emulated arm64. Benchmarks wait until there is a board to run them on. 32-bit
-ARM is task 030.
+them on emulated arm64. Benchmarks wait until there is a board to run them on.
 
 ## Acceptance criteria
 

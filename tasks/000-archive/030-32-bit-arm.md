@@ -1,6 +1,9 @@
 # 030: 32-bit ARM
 
-Status: in-progress, blocked on two Goose bugs (2026-10-14)
+Status: cancelled by the maintainer on 2026-10-19: Goose is built around a 64-bit
+target, and the package won't support 32-bit ARM for now (`docs/embedded.md`, "32-bit
+ARM"). `scripts/test-armhf.sh` and the two findings it turned up are gone from `main`.
+The text below describes the work as it stood.
 
 Run the package on 32-bit ARM Linux (armhf: i.MX 6 and 7, Cortex-A7, STM32MP1), which
 many embedded boards still are (2026-10-14). Goose itself runs there: a program of

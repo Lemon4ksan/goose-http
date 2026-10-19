@@ -55,7 +55,7 @@ On `main`, from the branch `tls` (`1012e705`, then the answers in `a5048101`), o
   `meta.json`'s tests are unchanged until the validation passes.
 - `examples/tls`: HTTP on 8080 and HTTPS on 8443, with a certificate from the command
   line; `scripts/test-examples.sh` runs it (not on Windows, nor in
-  `scripts/test-arm.sh`'s cross builds, which leave it out).
+  `scripts/test-aarch64.sh`'s cross builds, which leave it out).
 - Tests: `test/http/no_tls.goose`, `test/tls/undeclared.goose` (`// error:` fixture),
   `test/tls/tls_config.goose`; `scripts/http_client.py`'s `tls` and `tls-slow` modes,
   and an idle TLS connection in the graceful stop, which must get close_notify;

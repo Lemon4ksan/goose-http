@@ -33,7 +33,7 @@ generation from OpenAPI, see [goose-rest](https://github.com/kaitk/goose-rest).
 | 🟢 | Linux | io_uring (kernel 6.1+) or epoll ([which loop](docs/api.md#event-loops)). |
 | 🟢 | macOS | kqueue. |
 | 🟢 | Windows | I/O completion ports (IOCP). |
-| 🟡 | Embedded Linux | aarch64 cross-builds pass tests under emulation, but have not yet been tested on a board; 32-bit ARM support is in progress ([embedded Linux](docs/embedded.md)). |
+| 🟡 | Embedded Linux | aarch64 cross-builds pass tests under emulation, but have not yet been tested on a board ([embedded Linux](docs/embedded.md)). |
 
 ## What it provides
 

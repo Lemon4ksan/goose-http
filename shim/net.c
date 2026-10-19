@@ -42,8 +42,7 @@ _Static_assert(EPOLL_CTL_ADD == 1 && EPOLL_CTL_DEL == 2 && EPOLL_CTL_MOD == 3,
 _Static_assert(SHUT_WR == 1, "shutdown's how differs from src/sys.goose");
 
 /* The layouts shared with Goose, packed as Goose packs them (spec C.2): a
-   u8[:] and an i64[:], passed by value, sys::PollEvent, and a slice of it. A
-   slice is 12 bytes on a 32-bit target and 16 on a 64-bit one. */
+   u8[:] and an i64[:], passed by value, sys::PollEvent, and a slice of it. */
 #pragma pack(push, 1)
 typedef struct { uint8_t *data; int64_t len; } net_bytes;
 typedef struct { int64_t *data; int64_t len; } net_i64s;

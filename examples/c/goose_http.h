@@ -10,8 +10,7 @@
 #include <stdint.h>
 #include <string.h>
 
-/* Goose packs what it shares with C, a slice included: a slice is 12 bytes on a
- * 32-bit target and 16 on a 64-bit one. */
+/* Goose packs what it shares with C, a slice included. */
 #pragma pack(push, 1)
 
 /* A Goose u8[:]: data isn't NUL-terminated. */

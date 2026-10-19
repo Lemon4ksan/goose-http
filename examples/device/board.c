@@ -18,8 +18,7 @@
 #include <unistd.h>
 #endif
 
-/* A Goose const u8[:]: data isn't NUL-terminated. Packed as Goose packs it:
-   12 bytes on a 32-bit target and 16 on a 64-bit one. */
+/* A Goose const u8[:]: data isn't NUL-terminated. Packed as Goose packs it. */
 #pragma pack(push, 1)
 typedef struct {
     const uint8_t *data;

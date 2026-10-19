@@ -2,8 +2,8 @@
 
 The package runs on 64-bit ARM Linux boards (aarch64), such as NXP i.MX 8 and i.MX 9.
 Every example cross-builds with an aarch64 gcc and passes `scripts/test-examples.sh` on
-emulated arm64 (2026-10-14). None has run on a board yet (task 029). 32-bit ARM
-cross-builds but doesn't run yet, a work in progress ([below](#32-bit-arm)).
+emulated arm64 (2026-10-14). None has run on a board yet (task 029). 32-bit ARM is not
+supported ([below](#32-bit-arm)).
 
 Goose compiles to C, so building for a board means having `goose build` run the board's
 C cross compiler. The compiler runs on the build machine, and only the executable goes to
@@ -53,7 +53,7 @@ build:
 
 ```sh
 sudo apt-get install gcc-aarch64-linux-gnu liburing-dev:arm64
-goose build --cc /usr/bin/aarch64-linux-gnu-gcc --stack-reserve 64M -o build/device examples/device/device.goose
+goose build --cc /usr/bin/aarch64-linux-gnu-gcc -o build/device examples/device/device.goose
 file build/device   # ELF 64-bit LSB pie executable, ARM aarch64
 ```
 
@@ -73,7 +73,7 @@ cat > aarch64-cc <<EOF
 exec $CC "\$@"
 EOF
 chmod +x aarch64-cc
-goose build --cc "$PWD/aarch64-cc" --stack-reserve 64M -o build/device examples/device/device.goose
+goose build --cc "$PWD/aarch64-cc" -o build/device examples/device/device.goose
 ```
 
 `goose build` runs the wrapper with `--version` and finds gcc in its output, so it
@@ -86,19 +86,17 @@ such as `GOOSE_HOME=$PWD/build/goose-home-imx8 goose build ...`.
 
 On a Linux or macOS host with Docker, `scripts/test-aarch64.sh` cross-builds every
 example in a container, runs `scripts/test-examples.sh` on the builds in an arm64
-container, and prints each one's peak RSS. `scripts/test-armhf.sh` does the same for
-32-bit ARM in an arm/v7 container. Both run `scripts/test-arm.sh`. Run them after a
-change, to catch a break before a board does:
+container, and prints each one's peak RSS. Run it after a change, to catch a break
+before a board does:
 
 ```sh
 scripts/test-aarch64.sh
-scripts/test-armhf.sh
 ```
 
-They use the pinned release's Linux x86-64 compiler unless `GOOSE` names another
+It uses the pinned release's Linux x86-64 compiler unless `GOOSE` names another
 ([development](development.md#arm-under-docker)). The executables stay in
-`build/aarch64/examples/` and `build/armhf/examples/`. On an x86-64 host, qemu runs the
-ARM containers, and RSS includes about 13,000 kB of qemu's own per process (task 029).
+`build/aarch64/examples/`. On an x86-64 host, qemu runs the arm64 container, and RSS
+includes about 13,000 kB of qemu's own per process (task 029).
 Docker blocks io_uring, so the io_uring loop runs over its emulation there.
 
 ## Which loop
@@ -124,18 +122,24 @@ epoll, at 2 to 5 times the peak RSS
   26.04 on kernel 6.18.54.1, with the x86-64 build at Goose `46356c2`: one run per loop,
   VmHWM a second after start, before any request. Measure on the board for its own
   numbers ([below](#check-on-the-board)).
-- Build with `--stack-reserve 64M`, as the commands here do. By default Goose reserves
-  2 GB of address space for each of a program's data stacks, more than some board
-  kernels allow, and `goose build` sets that per program. The package needs far less:
-  the heaviest benchmark, the REST server's tier C with 4 workers, peaks at 70.5 MB of
-  RSS for the whole process ([REST APIs](benchmarks.md#rest-apis)).
+- Build with Goose's default reservation, as the commands here do: 2 GB of address
+  space for each of a program's data stacks (2026-10-19). The runtime maps each with
+  `MAP_NORESERVE`, so only the pages a stack touches take memory, and under the kernel's
+  default overcommit (`vm.overcommit_memory` 0) the reservation costs nothing.
 - `examples/c` holds a 1 MB response buffer per worker (`MAX_RESPONSE` in `app.goose`).
   Lower it for a board with little memory.
 
 > [!IMPORTANT]
 > A program whose data outgrows a stack's reservation aborts: Goose has no recoverable
-> allocation failure. Raise `--stack-reserve` to whatever the workload needs. A larger
-> reservation costs address space, not memory.
+> allocation failure. So don't lower the reservation to fit what the examples use; a
+> smaller one turns a large request, such as a body gathered whole, into a crash.
+
+Lower it with `--stack-reserve` only on a board that refuses the default at start, and
+size it from that program's measured peak with room to spare. A board refuses it under
+strict overcommit (`vm.overcommit_memory` 2), which counts even a `MAP_NORESERVE`
+mapping against RAM and swap; under an address-space limit (`ulimit -v`); or on a kernel
+built with 39-bit virtual addresses (`CONFIG_ARM64_VA_BITS_39`), whose 512 GB per
+process the stacks of many workers can fill.
 
 ## Run it on the board
 
@@ -184,8 +188,7 @@ and the script over, and run it there:
 # On the build machine: the examples into build/board/examples.
 for dir in examples/*/; do
     name=$(basename "$dir"); src=$dir$name.goose; [ -f "$src" ] || src=${dir}app.goose
-    goose build --cc "$PWD/aarch64-cc" --stack-reserve 64M --standalone \
-        -o "build/board/examples/$name" "$src"
+    goose build --cc "$PWD/aarch64-cc" --standalone -o "build/board/examples/$name" "$src"
 done
 mkdir -p build/board/scripts && cp scripts/test-examples.sh build/board/scripts/
 scp -r build/board root@board:/tmp/
@@ -200,50 +203,10 @@ prints.
 
 ## 32-bit ARM
 
-32-bit ARM boards (armhf: i.MX 6 and 7, Cortex-A7, STM32MP1) don't run the package yet
-(task 030). Every example cross-builds without a C warning but exits at start on
-emulated armv7. Two causes are still being looked into:
-
-- A misaligned 64-bit write when a thread starts faults under qemu, and shows as a data
-  stack overflow. A board's kernel may fix it up where qemu doesn't
-  ([details](goose-findings.md#thread_spawn-writes-its-packets-lengths-through-misaligned-int64_t-pointers)).
-- Structs that hold a slice or a reference get 64-bit sizes in the compiler and 32-bit
-  ones in C, so arrays of them are laid out two ways
-  ([details](goose-findings.md#slices-and-references-in-a-struct-take-64-bit-sizes-on-a-32-bit-target)).
-
-The rest of this section is what armhf needs beyond the aarch64 steps above, for when
-it runs.
-
-### Cross-build for armhf
-
-On Debian or Ubuntu, from the ports archive as for arm64:
-
-```sh
-sudo apt-get install gcc-arm-linux-gnueabihf liburing-dev:armhf
-goose build --cc /usr/bin/arm-linux-gnueabihf-gcc --stack-reserve 16M -o build/device examples/device/device.goose
-file build/device   # ELF 32-bit LSB pie executable, ARM, EABI5
-```
-
-The board's userland must be hard-float (`gnueabihf`); soft-float (`armel`) is untested.
-Ubuntu's armhf glibc has 64-bit `time_t` and is 2.43 in 26.04, newer than most boards':
-build with the board's SDK.
-
-A Yocto SDK for a Cortex-A7 sets `$CC` to a command such as `arm-poky-linux-gnueabi-gcc
--mthumb -mfpu=neon-vfpv4 -mfloat-abi=hard -mcpu=cortex-a7 --sysroot=...`, from an
-environment script such as `environment-setup-cortexa7t2hf-neon-vfpv4-poky-linux-gnueabi`.
-Give it to `goose build` through a wrapper script, as [for aarch64](#with-a-yocto-sdk),
-with a `GOOSE_HOME` of its own.
-
-### C shared with Goose
-
-Goose packs every struct it shares with C, slices included, and on 32-bit ARM a packed
-slice is 12 bytes where C's own layout of the same fields is 16. C in a sidecar, such as
-`examples/device/board.c`, declares each slice and struct it takes from Goose under
-`#pragma pack(push, 1)`, with a `_Static_assert` that a slice is `sizeof(void *) + 8`
-([C interop](c-interop.md#names-and-layouts)). Unpacked, it builds without a warning and
-reads garbage.
-
-### Address space
-
-A 32-bit process has about 3 GB of address space, too little for 64 MB per data stack:
-build with `--stack-reserve 16M`, as above.
+The package doesn't support 32-bit ARM boards (armhf), and won't for now (2026-10-19).
+Goose is built around a 64-bit target: the compiler sizes slices and references at 64
+bits whatever the target, so its layout of a struct that holds one disagrees with the C
+compiler's on a 32-bit target, and the C it generates assumes that unaligned 64-bit
+loads and stores work, which 32-bit ARM doesn't guarantee. A 32-bit process's 3 GB of
+address space also leaves little room for Goose's per-thread data stacks. Use a 64-bit
+board (task 030).

@@ -63,7 +63,6 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 | 026: reads beside uploads | Measure and reduce completion-loop read latency without losing upload throughput. |
 | 027: idiomatic API | Record the pending tier C templated benchmark recheck; API and examples are on `main`. |
 | 029: embedded aarch64 | Validate on a board; emulated tests do not settle it. |
-| 030: 32-bit ARM | Unblock execution after the two recorded Goose bugs are fixed. |
 | 031: shared REST application | Split is on `main` and checked in Docker; recheck idle memory on the desktop against task 025's tables. |
 | 032: shared benchmark harness | Reuse one harness across scripts and document external server integration. |
 | 034: Goose releases | goose-http and goose-rest build and pass from the release on every platform; goose-compress and our own packages remain. |

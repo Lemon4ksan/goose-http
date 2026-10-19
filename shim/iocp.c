@@ -58,8 +58,7 @@ int32_t net_win_init(void);
 #define UR_ECANCELED 125
 
 /* The layouts shared with Goose, packed as Goose packs them (spec C.2): a
-   u8[:], passed by value, ring::Completion, and a slice of it. A slice is 12
-   bytes on a 32-bit target and 16 on a 64-bit one. */
+   u8[:], passed by value, ring::Completion, and a slice of it. */
 #pragma pack(push, 1)
 typedef struct { uint8_t *data; int64_t len; } ur_bytes;
 typedef struct {

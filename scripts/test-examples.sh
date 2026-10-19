@@ -204,7 +204,7 @@ expect 404 "$url/nope"
 end_example
 
 # HTTPS beside HTTP, with a certificate of its own. goose-tls isn't set up on
-# Windows yet, nor for scripts/test-arm.sh's cross builds, which leave it out.
+# Windows yet, nor for scripts/test-aarch64.sh's cross builds, which leave it out.
 if [ -z "$windows" ] && command -v openssl >/dev/null && { [ -z "${PREBUILT:-}" ] || [ -x "$bin/tls" ]; }; then
     openssl req -x509 -newkey rsa:2048 -nodes -keyout "$tmp/tls.key" -out "$tmp/tls.crt" \
         -days 2 -subj /CN=localhost 2>/dev/null

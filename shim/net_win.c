@@ -95,8 +95,7 @@ static const struct { int32_t code; const char *text; } net_texts[] = {
 #define NET_TEXT_COUNT (int)(sizeof net_texts / sizeof net_texts[0])
 
 /* The layouts shared with Goose, packed as Goose packs them (spec C.2): a
-   u8[:] and an i64[:], passed by value, sys::PollEvent, and a slice of it. A
-   slice is 12 bytes on a 32-bit target and 16 on a 64-bit one. */
+   u8[:] and an i64[:], passed by value, sys::PollEvent, and a slice of it. */
 #pragma pack(push, 1)
 typedef struct { uint8_t *data; int64_t len; } net_bytes;
 typedef struct { int64_t *data; int64_t len; } net_i64s;

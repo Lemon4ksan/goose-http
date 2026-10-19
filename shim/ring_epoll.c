@@ -56,8 +56,7 @@
 #define RP_WAKER (UINT64_MAX - RP_LISTENERS)
 
 /* The layouts shared with Goose, packed as Goose packs them (spec C.2): a
-   u8[:], http::PollEvent, http::Completion, and slices of the last two. A
-   slice is 12 bytes on a 32-bit target and 16 on a 64-bit one. */
+   u8[:], http::PollEvent, http::Completion, and slices of the last two. */
 #pragma pack(push, 1)
 typedef struct { uint8_t *data; int64_t len; } rp_bytes;
 typedef struct { uint32_t events; uint64_t tag; } rp_event;

@@ -221,14 +221,9 @@ twice about code that MSVC builds as intended: MinGW has no `SOMAXCONN_HINT`
 
 ## ARM under Docker
 
-- qemu delivers an alignment fault to the program as `SIGBUS`, where a 32-bit ARM
-  kernel may fix up the access ([findings](goose-findings.md#thread_spawn-writes-its-packets-lengths-through-misaligned-int64_t-pointers)).
-  `QEMU_STRACE=1` in the container's environment makes qemu print each system call and
-  signal, with the fault's address; `QEMU_GDB=1234` makes it wait for `gdb` on that
-  port, in the same container.
 - Under Docker Desktop's file sharing, git in a container can see a mounted directory
   as another user's and refuse it ("detected dubious ownership"), which stopped the
-  fetch of `examples/compress`'s package. `scripts/test-arm.sh` sets `safe.directory`
+  fetch of `examples/compress`'s package. `scripts/test-aarch64.sh` sets `safe.directory`
   through git's environment.
 - `goose build --cc` takes the names `gcc`, `clang`, and `cc`, or a path, so a cross
   compiler goes by its path: `--cc /usr/bin/aarch64-linux-gnu-gcc`. A bare
