@@ -354,6 +354,29 @@ degraded, on a server that turns waiting off. Refusing `later` without the confi
 was rejected: a handler would need a second path for the same outcome, which a
 `TIMEOUT` already gives it.
 
+## HTTP/2 is modules of http, written in Goose
+
+Decided 2026-10-19, task 014.
+
+HTTP/2 lives in this repository as modules of the `http` package: HPACK in
+`hpack.goose` (`http.hpack`) and the frames in `h2frame.goose` (`http.h2frame`), on
+bytes alone, and later the connection state, flow control, and stream scheduler beside
+the loops. Framing, HPACK, flow control, and scheduling are HTTP: they share the
+parser's field rules, the response builders, and the `Date`, and they change the event
+loop itself. Goose has no runtime function pointers (spec §7.6), so a separate package
+would reach the loop through function values anyway. Like the HTTP/1.1 parser, it is
+Goose, since measuring Goose is the point: HPACK and the framing are bounded,
+table-driven byte work, 1,500 to 3,000 lines in other implementations.
+
+Rejected: h2 as its own package, which couples to the loop through function values and
+duplicates its types; and binding nghttp2, as Aegon does, which leads HttpArena's h2c
+profiles (goose-rest's task 048). nghttp2 calls back into the program for each frame
+and field, and a C library that calls back into Goose doesn't fit the loop: an `export
+fn` must be called on the thread that called `goose_init` (spec §7.11), not a worker.
+It would also put protocol work in C, where the shim holds only what Goose can't reach.
+The cost is writing and testing what nghttp2 already has, against h2spec. Where TLS
+lives is task 014's other half, and isn't decided here.
+
 ## Not yet decided
 
 ### Compression in an optional module

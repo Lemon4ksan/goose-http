@@ -1,7 +1,8 @@
 # 014: HTTP/2 and TLS
 
-Status: todo (asked for 2026-10-11; long horizon, after tasks 011 and 013; the split
-below is a proposal for discussion, not a decision)
+Status: in-progress (asked for 2026-10-11). The h2 half of the split below was
+confirmed on 2026-10-19 and is recorded in `docs/decisions.md`; the TLS half is still a
+proposal, built in the goose-tls repository.
 
 HTTP/2 and HTTPS are out of scope in `README.md`. A server behind snowtime-native, or in
 HttpArena's TLS and h2 profiles, needs both. This task decides where they live, then
@@ -109,8 +110,10 @@ the `Upgrade: h2c` handshake, gRPC, and WebSocket over h2.
 
 ## Acceptance criteria
 
-- [ ] The split above discussed, and the decision recorded in `docs/decisions.md`
-      with its reasons, or this task rewritten to the one chosen
+- [x] The split above discussed for h2, and the decision recorded in
+      `docs/decisions.md` with its reasons (2026-10-19)
+- [ ] The split above discussed for TLS, and the decision recorded in
+      `docs/decisions.md` with its reasons, or this task rewritten to the one chosen
 - [ ] A test that a program importing `http` without `http.tls` builds without declaring
       `goose-tls`, at the pin of the day
 - [ ] HTTP/1.1 over TLS passes HttpArena's TLS validation and is measured in its
