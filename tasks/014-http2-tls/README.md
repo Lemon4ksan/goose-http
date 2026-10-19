@@ -123,5 +123,5 @@ the `Upgrade: h2c` handshake, gRPC, and WebSocket over h2.
 - [ ] kTLS and user-space TLS compared on Linux
 - [ ] h2c passes h2spec and is measured in HttpArena's h2c profiles
 - [ ] h2 over TLS with ALPN measured in HttpArena's h2 profiles
-- [ ] An HTTP/1.1 connection's memory unchanged by the h2 state, shown by `bench/run.sh`'s
-      peak RSS
+- [ ] An HTTP/1.1 connection's memory unchanged by the h2 state but for the 4 bytes of
+      its slot's index (2026-10-19), shown by `bench/run.sh`'s peak RSS

@@ -377,6 +377,49 @@ It would also put protocol work in C, where the shim holds only what Goose can't
 The cost is writing and testing what nghttp2 already has, against h2spec. Where TLS
 lives is task 014's other half, and isn't decided here.
 
+## A loop takes several listeners, each with its own mode
+
+Decided 2026-10-19, task 014.01.
+
+A loop listens on `Config.port` and on each of `Config.listeners`, and each listener
+has a mode: HTTP/1.1, or h2c with prior knowledge, whose connections must open with
+the preface. There is no detection of the preface on an HTTP/1.1 listener. HttpArena
+serves 8080 and 8082 from one container, and calling `http::run` once per port would
+run twice the worker threads on the same CPUs, which distorts the comparison; TLS on
+8081 and 8443 will need several listeners too. The cost is an accept path that goes
+over several listeners in each loop.
+
+## h2 serves the handlers' HTTP/1.1 responses, translated
+
+Decided 2026-10-19, task 014.01.
+
+A handler on an h2 stream writes its response with the writers it uses for HTTP/1.1,
+and the h2 driver turns the head into a HEADERS frame and the body into DATA. The API
+and the writers stay as they are, for a parse of a head the package just wrote. Writers
+that emit HPACK themselves for an h2 `Reply` are to be built only if a measurement
+shows the translation matters.
+
+## An h2 connection's state is outside its slot
+
+Decided 2026-10-19, task 014.01.
+
+An h2c connection's HPACK tables, settings, windows, and streams are in pools of their
+own, and each connection slot holds an `i32` index into the first, -1 for HTTP/1.1. An
+HTTP/1.1 connection grows by those 4 bytes and nothing more; a dictionary from slot to
+index would have saved them for a lookup per event on h2 connections.
+
+## An h2 stream is an exchange
+
+Decided 2026-10-19, task 014.01.
+
+Each stream is one exchange with its own state, called with the events an HTTP/1.1
+exchange gets. A stream's body comes as HTTP/1.1's does: whole at REQUEST when it
+fits in the read buffer, else in pieces, so the route chooses between gathering it and
+reading it in pieces as before. `later`'s key gives its low 20 bits, an HTTP/1.1
+exchange's number, to the stream's index in the stream pool, and the 24 bits of
+generation to the stream, so a reply finds its stream and no other. A stream that
+waits holds back no other stream.
+
 ## Not yet decided
 
 ### Compression in an optional module
