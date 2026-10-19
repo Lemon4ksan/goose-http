@@ -91,6 +91,9 @@ Goose `dcc2747`, goose-tls `v0.0.1`.
 
 - Both again on `a5048101`, rebased onto `main` at `c5d3cd67` before the push to
   `main`, 2026-10-19: every step passes on macOS and on Linux, the same as above.
+- Both again after the merge of `h2c-uring` (`a72f2460`, 2026-10-19): every step
+  passes on macOS and on Linux, the TLS block on the epoll build beside h2c, and
+  [014.01](01-h2c.md#what-passes) lists the rest.
 
 No measurement yet: the macOS runs are smoke tests, and the comparison that counts is
 HttpArena's json-tls and 8gbit on Linux.
