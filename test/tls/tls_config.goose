@@ -1,6 +1,6 @@
 // What serve_epoll with a TlsServer refuses before it opens a listener: a
 // TLS listener without a context, and TLS on an h2c listener, whose h2 over
-// TLS is still to come.
+// TLS is still to come. And serve, which refuses any TLS listener.
 import std;
 import http from "../../";
 import tls from "github.com/kaitk/goose-tls@v0.0.1";
@@ -30,4 +30,11 @@ fn main() {
     e = http::serve_epoll(cfg, false, server) { ev, st, out => http::respond(out, 200, "text/plain", ""); };
     print("h2c and TLS: ", e.call, " ", e.code == http::EINVAL);
     http::release(server);
+
+    // serve, the completion loop, doesn't serve TLS yet, beside an h2c listener too.
+    var ring = http::Config { port: 1, .. };
+    ring.listeners.push(http::Listener { port: 2, h2c: true });
+    ring.listeners.push(http::Listener { port: 3, tls: true });
+    e = http::serve(ring) { req, body, out => http::respond(out, 200, "text/plain", ""); };
+    print("serve, a TLS listener: ", e.call, " ", e.code == http::ENOSYS);
 }
