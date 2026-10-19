@@ -71,7 +71,9 @@ the epoll loop twice and native io_uring once. There, no connection was lost; on
 cases it didn't reach again.
 
 `scripts/test.sh` passed on that Linux container, with seccomp unconfined so io_uring
-ran natively, and on macOS with `AUTOBAHN=1`.
+ran natively, and on macOS with `AUTOBAHN=1`. After the merge with TLS (task 014.02),
+`http_client.py tls` runs the WebSocket checks over the epoll loop's TLS listener too,
+so `wss://` is tested on every run that serves TLS.
 
 The API was confirmed on 2026-10-19: the `ws_` names, `ws_upgrade` taking no state,
 and its optional subprotocol parameter.

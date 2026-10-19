@@ -857,7 +857,7 @@ def graceful_stop(port, send):
 
 def tls_checks(port):
     """HTTP/1.1 over TLS, on the port the server serves it on: TLS 1.3 with
-    ALPN http/1.1; tfb, pipeline, large, and keepalive over it, each close
+    ALPN http/1.1; tfb, pipeline, large, keepalive, and websocket over it, each close
     after Connection: close with close_notify; a client that offers TLS 1.2
     alone, refused with an alert; and plaintext sent to the port, closed
     unanswered. Not stream, whose threads send and receive on one connection
@@ -869,7 +869,7 @@ def tls_checks(port):
     if c.sock.version() != "TLSv1.3" or c.sock.selected_alpn_protocol() != "http/1.1":
         fail(f"tls: {c.sock.version()} with ALPN {c.sock.selected_alpn_protocol()}")
     c.close()
-    for check in (tfb, pipeline, large, keepalive):
+    for check in (tfb, pipeline, large, keepalive, websocket):
         check(port)
     TLS = False
     sock = socket.create_connection((HOST, port), 5)

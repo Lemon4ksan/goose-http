@@ -286,6 +286,8 @@ thread_fn worker(cfg: http::Config) {
 - `http::ws_close(out, st.ws, code, reason)` starts the close: 1000 and no reason by
   default. Messages that arrive after are dropped, and the connection closes when the
   client's Close comes, or after `Config.idle_ms`.
+- On a TLS listener ([HTTPS](#https)) the same handler serves `wss://`: the frames
+  travel inside TLS like any upgraded bytes.
 - No extension, such as permessage-deflate, is negotiated, so a frame with an RSV bit
   set is a protocol error. Autobahn's test suite passes but for its extension
   sections, which aren't run (`scripts/test-autobahn.sh`).

@@ -219,7 +219,8 @@ with 1009 without being buffered. Text is checked as UTF-8 a fragment at a time,
 text in an early fragment fails the connection before the rest arrives; within one
 frame, the check runs once the frame is whole. Pings get their pong, and a Close its
 Close, inside `ws_read`, without the program. No extension is negotiated, and an
-HTTP/2 stream has no WebSocket (RFC 8441).
+HTTP/2 stream has no WebSocket (RFC 8441). A TLS listener carries it as it carries any
+upgraded bytes, so `wss://` needs nothing of its own.
 
 ## HTTP/2
 
