@@ -73,6 +73,12 @@ cases it didn't reach again.
 `scripts/test.sh` passed on that Linux container, with seccomp unconfined so io_uring
 ran natively, and on macOS with `AUTOBAHN=1`.
 
+The API was confirmed on 2026-10-19: the `ws_` names, `ws_upgrade` taking no state,
+and its optional subprotocol parameter.
+
+Remaining: a ping the server sends on its own, such as for keep-alive, which isn't in
+the API yet.
+
 Still to measure: the `/ws` state adds an `http::WebSocket`, about 80 bytes, to the
 benchmark server's `Transfer`, which each request starts from fresh; plaintext's
 instructions per request with it, at the next batch of benchmark runs.

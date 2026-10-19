@@ -497,7 +497,9 @@ root file and links its C; a program without WebSocket builds as before.
 The handshake is computed for each connection, as HttpArena's rules require; nothing
 is cached. Pings, pongs, and the close handshake are handled inside `ws_read`; the
 program sees whole text and binary messages, sends with `ws_send`, and starts a close
-with `ws_close`. Text is checked as UTF-8, as RFC 6455 requires of an endpoint.
+with `ws_close`. Text is checked as UTF-8, as RFC 6455 requires of an endpoint. The API
+was agreed on 2026-10-19: the `ws_` names, `ws_upgrade(req, out)` taking no state, and
+its optional subprotocol parameter.
 
 Rejected: a package of its own, which would reach `Reply`'s stream and the gather pool
 from outside, as h2 would have; a C library such as wslay, which would put protocol
