@@ -4,8 +4,8 @@
 # (test/run_tests.py, which typechecks and runs each one and reports every
 # failure among them), then each loop's build of the server
 # (scripts/build.sh) with scripts/test-http.sh against it, which tests h2c
-# and TLS too on the epoll build, and
-# scripts/test-h2spec.sh against the epoll build where h2spec has a binary,
+# too where the loop serves it, and TLS on the epoll build,
+# scripts/test-h2spec.sh against each loop but iocp where h2spec has a binary,
 # and with AUTOBAHN=1, scripts/test-autobahn.sh against each build, which
 # needs Docker, then scripts/test-echo.sh, and scripts/test-examples.sh, which builds each
 # example and requests each of its routes on port 8080.
@@ -31,6 +31,17 @@ esac
 step() {
     echo
     echo "== $*"
+}
+
+h2spec() {
+    step "test-h2spec.sh, $1 loop"
+    if [ "$os" = Darwin ] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+        echo "skipped: h2spec's macOS build is x86-64, and Rosetta 2 isn't installed"
+    elif [ "$os" = Linux ] && [ "$(uname -m)" != x86_64 ]; then
+        echo "skipped: h2spec has no build for Linux on $(uname -m)"
+    else
+        LOOP=$1 "$root/scripts/test-h2spec.sh"
+    fi
 }
 
 # macOS holds a closed client's port in TIME_WAIT for 30 s, and the next
@@ -64,16 +75,7 @@ for loop in $loops; do
     drain
     step "test-http.sh, $loop loop"
     LOOP=$loop "$root/scripts/test-http.sh"
-    if [ "$loop" = epoll ]; then
-        step "test-h2spec.sh, epoll loop"
-        if [ "$os" = Darwin ] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
-            echo "skipped: h2spec's macOS build is x86-64, and Rosetta 2 isn't installed"
-        elif [ "$os" = Linux ] && [ "$(uname -m)" != x86_64 ]; then
-            echo "skipped: h2spec has no build for Linux on $(uname -m)"
-        else
-            "$root/scripts/test-h2spec.sh"
-        fi
-    fi
+    [ "$loop" = iocp ] || h2spec "$loop"
     if [ "${AUTOBAHN:-}" = 1 ]; then
         drain
         step "test-autobahn.sh, $loop loop"
@@ -83,6 +85,7 @@ for loop in $loops; do
         drain
         step "test-http.sh, uring loop over epoll"
         LOOP=uring-epoll "$root/scripts/test-http.sh"
+        h2spec uring-epoll
     fi
 done
 

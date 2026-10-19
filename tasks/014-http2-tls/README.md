@@ -124,9 +124,10 @@ the `Upgrade: h2c` handshake, gRPC, and WebSocket over h2.
 - [ ] HTTP/1.1 over TLS passes HttpArena's TLS validation and is measured in its
       JSON-over-TLS profile
 - [ ] kTLS and user-space TLS compared on Linux
-- [ ] h2c passes h2spec and is measured in HttpArena's h2c profiles
+- [x] h2c passes h2spec and is measured in HttpArena's h2c profiles, on both loops
+      ([014.01](01-h2c.md#httparenas-h2c-profiles), Linux in WSL2, 2026-10-19)
 - [ ] h2 over TLS with ALPN measured in HttpArena's h2 profiles
-- [ ] An HTTP/1.1 connection's memory unchanged by the h2 state but for the 4 bytes of
-      its slot's index (2026-10-19), shown by `bench/run.sh`'s peak RSS: shown for
-      the epoll loop ([014.01](01-h2c.md#measurements), 2026-10-19); io_uring's
-      once it serves h2c
+- [x] An HTTP/1.1 connection's memory unchanged by the h2 state but for the 4 bytes of
+      its slot's index (2026-10-19), shown by `bench/run.sh`'s peak RSS: for the epoll
+      loop ([014.01](01-h2c.md#measurements), 2026-10-19), and for io_uring, whose
+      process holds 68-88 KB more of code ([014.01](01-h2c.md#memory), 2026-10-19)

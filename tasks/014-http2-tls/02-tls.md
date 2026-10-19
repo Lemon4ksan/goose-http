@@ -44,7 +44,8 @@ On `main`, from the branch `tls` (`1012e705`, then the answers in `a5048101`), o
   accept, `close_conn`, `drive`, `advance`, `wait`, and `sweep`.
   [Architecture](../../docs/architecture.md#tls) describes the paths.
 - `http.goose`: `Listener.tls` and `Config.tls`. `uring.goose`: `ENOSYS` for
-  `Config.tls` (a TLS `Listener` already fails as any extra listener does).
+  `Config.tls` and for a TLS `Listener`, before it opens a socket; since the merge of
+  `h2c-uring` (014.01) the io_uring loop serves h2c and several listeners otherwise.
 - `server/https.goose` and `server/server_epoll.goose`: the epoll build serves TLS on
   `TLS_PORT` (the port + 1) when `TLS_CERT` and `TLS_KEY` are set. `server/app.goose`'s
   `run` takes the root file's TLS setup and epoll runner as function values, so

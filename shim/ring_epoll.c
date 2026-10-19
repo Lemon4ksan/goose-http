@@ -48,9 +48,12 @@
 #define RP_CTL_DEL 2
 #define RP_CTL_MOD 3
 
-/* The listener's epoll tag, and the waker's. A connection's is its fd. */
-#define RP_LISTENER UINT64_MAX
-#define RP_WAKER (UINT64_MAX - 1)
+/* The most listeners a ring accepts on, ring.goose's ring_listeners. */
+#define RP_LISTENERS 4
+
+/* Listener k's epoll tag, and the waker's. A connection's is its fd. */
+#define RP_LISTENER(k) (UINT64_MAX - (uint64_t)(k))
+#define RP_WAKER (UINT64_MAX - RP_LISTENERS)
 
 /* The layouts shared with Goose, packed as Goose packs them (spec C.2): a
    u8[:], http::PollEvent, http::Completion, and slices of the last two. A
@@ -118,6 +121,13 @@ struct rp_fd {
     uint8_t queued;                 /* on the ready list */
 };
 
+/* A listener the ring accepts on. */
+struct rp_listener {
+    int32_t fd;                     /* -1 while unused */
+    uint64_t tag;                   /* its accept's */
+    uint8_t added, accepting, acceptable;
+};
+
 struct rp {
     int32_t ep;
     unsigned char *bufs;
@@ -130,10 +140,8 @@ struct rp {
     uint32_t nready, capready;
     rp_completion *done;            /* completions that didn't fit in out */
     uint32_t headdone, ndone, capdone;
-    int32_t lfd;
-    uint64_t ltag;
+    struct rp_listener l[RP_LISTENERS];
     uint64_t wtag;                  /* the waker's completions' (ur_waker) */
-    uint8_t ladded, accepting, acceptable;
     int32_t err;                    /* -ENOMEM once the bookkeeping ran out, for ur_wait */
     struct rp_send *small[RP_CLASSES], *big;  /* sent records, to reuse */
     uint32_t kept;                  /* the bytes of big's records */
@@ -285,26 +293,40 @@ int64_t RP(create)(int32_t entries, int32_t nbufs, int32_t buflen, int32_t flags
     }
     for (int32_t i = 0; i < nbufs; i++) u->free[i] = nbufs - 1 - i;
     u->nfree = (uint32_t)nbufs;
-    u->lfd = -1;
+    for (int k = 0; k < RP_LISTENERS; k++) u->l[k].fd = -1;
     return (int64_t)(intptr_t)u;
 }
 
+int32_t RP(listeners)(void) { return RP_LISTENERS; }
+
 /* Accepts on the listener fd at each of its events, until a cancel or an
-   error, starting in the next ur_wait: the backlog may hold clients already. */
+   error, starting in the next ur_wait: the backlog may hold clients already.
+   Past RP_LISTENERS listeners, it completes with ENOSYS. */
 void RP(accept)(int64_t h, int32_t fd, uint64_t tag) {
     struct rp *u = (struct rp *)(intptr_t)h;
-    if (!u->ladded || u->lfd != fd) {
-        int32_t r = net_epoll_ctl(u->ep, RP_CTL_ADD, fd, RP_IN | RP_ET, RP_LISTENER);
+    int k = 0;
+    while (k < RP_LISTENERS && u->l[k].fd != fd) k++;
+    if (k == RP_LISTENERS) {
+        k = 0;
+        while (k < RP_LISTENERS && (u->l[k].added || u->l[k].accepting)) k++;
+        if (k == RP_LISTENERS) {
+            rp_later(u, tag, -RP_ENOSYS);
+            return;
+        }
+    }
+    struct rp_listener *l = &u->l[k];
+    if (!l->added || l->fd != fd) {
+        int32_t r = net_epoll_ctl(u->ep, RP_CTL_ADD, fd, RP_IN | RP_ET, RP_LISTENER(k));
         if (r < 0) {
             rp_later(u, tag, r);
             return;
         }
-        u->ladded = 1;
+        l->added = 1;
     }
-    u->lfd = fd;
-    u->ltag = tag;
-    u->accepting = 1;
-    u->acceptable = 1;
+    l->fd = fd;
+    l->tag = tag;
+    l->accepting = 1;
+    l->acceptable = 1;
 }
 
 /* Reads fd into the provided buffers at each of its events, until a cancel,
@@ -375,19 +397,21 @@ int32_t RP(send_file)(int64_t h, int32_t fd, uint64_t tag, int64_t file, int64_t
 
 /* Ends the accept: a level-triggered listener left watched would end every
    wait at once while clients wait in the backlog. */
-static void rp_stop_accept(struct rp *u) {
-    u->accepting = 0;
-    if (u->ladded && net_epoll_ctl(u->ep, RP_CTL_DEL, u->lfd, 0, 0) >= 0) u->ladded = 0;
+static void rp_stop_accept(struct rp *u, struct rp_listener *l) {
+    l->accepting = 0;
+    if (l->added && net_epoll_ctl(u->ep, RP_CTL_DEL, l->fd, 0, 0) >= 0) l->added = 0;
 }
 
 /* Ends the accept or the receive started with tag, with an ECANCELED
    completion. */
 void RP(cancel)(int64_t h, uint64_t tag) {
     struct rp *u = (struct rp *)(intptr_t)h;
-    if (u->accepting && u->ltag == tag) {
-        rp_stop_accept(u);
-        rp_later(u, tag, -RP_ECANCELED);
-        return;
+    for (int k = 0; k < RP_LISTENERS; k++) {
+        if (u->l[k].accepting && u->l[k].tag == tag) {
+            rp_stop_accept(u, &u->l[k]);
+            rp_later(u, tag, -RP_ECANCELED);
+            return;
+        }
     }
     for (uint32_t fd = 0; fd < u->nfds; fd++) {
         struct rp_fd *f = &u->fds[fd];
@@ -442,17 +466,20 @@ void RP(give)(int64_t h, int32_t buf) {
 /* Accepts, sends, and reads what the listener and the queued sockets allow,
    and makes their completions. */
 static void rp_work(struct rp *u, rp_completions out, int32_t *n) {
-    while (u->accepting && u->acceptable) {
-        int32_t fd = net_accept(u->lfd, RP_NONBLOCK);
-        if (fd == -RP_EAGAIN) {
-            u->acceptable = 0;
-            break;
+    for (int k = 0; k < RP_LISTENERS; k++) {
+        struct rp_listener *l = &u->l[k];
+        while (l->accepting && l->acceptable) {
+            int32_t fd = net_accept(l->fd, RP_NONBLOCK);
+            if (fd == -RP_EAGAIN) {
+                l->acceptable = 0;
+                break;
+            }
+            if (fd == -RP_EINTR || fd == -RP_ECONNABORTED) continue;
+            /* EMFILE or ENFILE ends the accept, as io_uring's does, and
+               leaves the backlog to the accept queued after it. */
+            if (fd < 0) rp_stop_accept(u, l);
+            rp_emit(u, out, n, l->tag, fd, -1, fd >= 0, 0);
         }
-        if (fd == -RP_EINTR || fd == -RP_ECONNABORTED) continue;
-        /* EMFILE or ENFILE ends the accept, as io_uring's does, and leaves
-           the backlog to the accept queued after it. */
-        if (fd < 0) rp_stop_accept(u);
-        rp_emit(u, out, n, u->ltag, fd, -1, fd >= 0, 0);
     }
     for (uint32_t i = 0; i < u->nready; i++) {
         int32_t fd = u->ready[i];
@@ -558,8 +585,8 @@ int32_t RP(wait)(int64_t h, rp_completions out, int32_t timeout_ms) {
     int32_t got = net_epoll_wait(u->ep, in, n > 0 ? 0 : timeout_ms);
     if (got < 0) return got;
     for (int32_t i = 0; i < got; i++) {
-        if (evs[i].tag == RP_LISTENER) {
-            u->acceptable = 1;
+        if (evs[i].tag > RP_WAKER) {
+            u->l[UINT64_MAX - evs[i].tag].acceptable = 1;
             continue;
         }
         if (evs[i].tag == RP_WAKER) {

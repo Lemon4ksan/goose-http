@@ -115,7 +115,7 @@ fn feed(bytes: const u8[:], ev_kind: u8 = http::NO_EVENT, at: i64 = -1) {
         rlen += n;
         pos += n;
         guard conn.state == http::OPEN else { break; }
-        let rest, full = http::h2_answer(conn, 0, conns[h], streams, spill, rbuf, rlen, wbuf, o, f, p, ck, hf, fbuf,
+        let rest, full = http::h2_answer(conn, 0, conns[h], streams, spill, rbuf, rlen, wbuf, cfg.write_buffer, o, f, p, ck, hf, fbuf,
                                          check::COMMON, cfg, fresh, false, 0, ev, at, timers, overdue, gen, handle);
         ev.kind = http::NO_EVENT;
         rlen = rest;
@@ -343,11 +343,11 @@ fn floods() {
     for i in 1001 { http::h2_write_ping(input, "12345678", false); }
     feed(input);
 
-    print("300 streams opened and reset before an answer:");
+    print("600 streams opened and reset before an answer:");
     session(http::Config { .. });
     input.clear();
     opening(input, http::H2Settings { .. });
-    for i in 300 {
+    for i in 600 {
         request(input, 1 + 2 * i, "POST", "/echo", "", false);
         http::h2_write_rst_stream(input, 1 + 2 * i, http::H2_CANCEL);
     }

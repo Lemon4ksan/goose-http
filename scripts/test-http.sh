@@ -308,7 +308,7 @@ grep -q '\[200\] 500000 responses' "$out" || { cat "$out"; fail "oha"; }
 grep -E '\[200\]' "$out"
 echo "load: ok"
 
-# h2c, on the port the epoll loop serves it on (H2C_PORT, the port + 2):
+# h2c, on the port the server says it serves it on (H2C_PORT, the port + 2):
 # responses through curl with prior knowledge, /delay's TIMEOUT at once
 # without waiting configured, a body larger than a stream's window both ways,
 # a file, and a short h2load run. h2spec is scripts/test-h2spec.sh's.

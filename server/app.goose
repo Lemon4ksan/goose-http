@@ -89,8 +89,9 @@ fn serve_http<TLS, EPOLL>(given: http::Config, default_loop: const u8[:]) {
         write_stderr("LOOP must be epoll, uring, uring-epoll, or iocp\n");
         exit(2);
     }
-    // The epoll loop also serves h2c, HTTP/2 with prior knowledge, on
-    // H2C_PORT, by default the port + 2, as HttpArena's 8082 is beside 8080.
+    // The server also serves h2c, HTTP/2 with prior knowledge, on H2C_PORT,
+    // by default the port + 2, as HttpArena's 8082 is beside 8080, where its
+    // loop takes a second listener: not on Windows (ring_listeners).
     // H2C_PORT=0 turns it off.
     var also: u8[>..] = [];
     var h2c_port: u8[>..] = [];
@@ -103,7 +104,7 @@ fn serve_http<TLS, EPOLL>(given: http::Config, default_loop: const u8[:]) {
         }
         p = n;
     }
-    if epoll && p > 0 && p < 65536 && !starts_with(cfg.address, "unix:") {
+    if (epoll || http::ring_listeners() > 1) && p > 0 && p < 65536 && !starts_with(cfg.address, "unix:") {
         cfg.listeners.push(http::Listener { port: p as i32, h2c: true });
         format(also, ", h2c on port ", p);
     }

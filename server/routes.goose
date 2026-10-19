@@ -148,7 +148,8 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
                      trailers: const u8[:], st: Transfer&, out: http::Reply) {
     let plaintext = path == "/plaintext";
     let json = path == "/json";
-    let baseline = path == "/baseline11";
+    // HttpArena's h2 and h2c profiles name it /baseline2.
+    let baseline = path == "/baseline11" || path == "/baseline2";
     let pipeline = path == "/pipeline";
     // n bytes, with a Content-Length, and chunked: responses larger than the
     // write buffer, sent as the client takes them.

@@ -35,6 +35,9 @@ let RING_EMULATE: i32 = 1;
 // program can call it at startup to say which ring serve runs on.
 extern "ur_probe" fn ring_probe() -> i32;
 
+// The most listeners a ring accepts on: one on Windows, more elsewhere.
+extern "ur_listeners" fn ring_listeners() -> i32;
+
 // Queue requests, which go to the kernel at the next wait.
 extern "ur_accept" fn ring_accept(r: i64, fd: i32, tag: u64);
 extern "ur_recv" fn ring_recv(r: i64, fd: i32, tag: u64);

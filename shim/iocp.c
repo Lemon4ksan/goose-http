@@ -410,6 +410,9 @@ int64_t ur_create(int32_t entries, int32_t nbufs, int32_t buflen, int32_t flags)
 /* The ring is always a completion port. */
 int32_t ur_probe(void) { return 0; }
 
+/* A ring keeps one AcceptEx posted (struct ur's acc), so one listener. */
+int32_t ur_listeners(void) { return 1; }
+
 /* Posts an AcceptEx on the listener fd, and again after each completion,
    until a cancel or an error. Accepted sockets have TCP_NODELAY and are
    non-blocking. */

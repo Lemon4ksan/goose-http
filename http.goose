@@ -60,9 +60,9 @@ struct Config {
     port: i32 = 8080,
     // Whether port's listener serves h2c or TLS rather than HTTP/1.1, and
     // the listeners beside it, each with its own port and mode. TLS needs
-    // the module http.tls and serve_epoll's form that takes a TlsServer.
-    // Only serve_epoll serves h2c, TLS, and more than one listener, so far;
-    // serve fails with ENOSYS on any.
+    // the module http.tls and serve_epoll's form that takes a TlsServer;
+    // serve fails with ENOSYS on a TLS listener so far. On Windows, serve
+    // takes one listener (ring_listeners), and fails with ENOSYS on more.
     h2c: bool = false,
     tls: bool = false,
     listeners: Listener[..MAX_LISTENERS] = [],

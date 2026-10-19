@@ -76,13 +76,13 @@ upgrade, malformed requests, and too many streams:
   SETTINGS 0 4 values
   WINDOW_UPDATE 0 +983041
   SETTINGS 0 ACK 0 values
-  PING acknowledgments: 999
+  PING acknowledgments: 99
   GOAWAY 0 ENHANCE_YOUR_CALM last 0
-300 streams opened and reset before an answer:
+600 streams opened and reset before an answer:
   SETTINGS 0 4 values
   WINDOW_UPDATE 0 +983041
   SETTINGS 0 ACK 0 values
-  GOAWAY 0 ENHANCE_YOUR_CALM last 513
+  GOAWAY 0 ENHANCE_YOUR_CALM last 1025
 a field block grown past its limit through CONTINUATIONs:
   SETTINGS 0 4 values
   WINDOW_UPDATE 0 +983041

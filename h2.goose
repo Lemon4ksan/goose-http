@@ -21,10 +21,14 @@ let H2_STREAM_CAP = 256;
 // RST_STREAM, WINDOW_UPDATE, and empty DATA and CONTINUATION, and how many
 // a second it gets back, against floods of them (RFC 9113 §10.5). The same
 // for resets of streams that hadn't been answered, the 2023 rapid reset
-// attack. Past either, the connection ends with ENHANCE_YOUR_CALM.
-let H2_CONTROL_BURST = 1000;
-let H2_CONTROL_RATE = 100;
-let H2_RESET_BURST = 256;
+// attack. Past either, the connection ends with ENHANCE_YOUR_CALM. h2load,
+// nghttp, and curl spend one control frame a connection, their SETTINGS, and
+// a client that leaves a page resets every stream it has open, up to
+// H2_STREAM_CAP: the bursts allow 100 times the one, and twice the other
+// (task 014.01, "Flood budgets").
+let H2_CONTROL_BURST = 100;
+let H2_CONTROL_RATE = 10;
+let H2_RESET_BURST = 2 * H2_STREAM_CAP;
 let H2_RESET_RATE = 32;
 // Streams this side reset lately, whose frames in flight are ignored
 // rather than taken for a closed stream's (§5.1).
@@ -258,7 +262,8 @@ fn h2_head_block(enc: HpackTable&, fb: u8[>..]&, head: const u8[:]) -> i32 {
 // Answers what connection c, an h2c one in slot, has in rbuf[..rlen], into
 // wbuf, as answer does for HTTP/1.1, and moves the rest of rbuf to its
 // front: frames in, the handler called for each stream's events, and the
-// streams' output written while wbuf is under cfg.write_buffer. wake, unless
+// streams' output written while wbuf is under limit: cfg.write_buffer on
+// epoll, and what cfg.max_queued leaves on the completion loop. wake, unless
 // its kind is NO_EVENT, is a WAKE or TIMEOUT for stream wake_at, which
 // stopped waiting. A connection error writes GOAWAY and leaves c CLOSING.
 // Returns the bytes left in rbuf, and whether wbuf filled with output still
@@ -268,7 +273,7 @@ fn h2_head_block(enc: HpackTable&, fb: u8[>..]&, head: const u8[:]) -> i32 {
 // joined; bhuff, HPACK's Huffman-decoded strings; and bfb, a field block to
 // send.
 fn h2_answer<S, H, C>(c: C&, slot: i64, h: H2Conn&, streams: H2Stream<S>[>..]&, spill: u8[>..]&,
-                      rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, bout: u8[>..]&, bfields: u8[>..]&,
+                      rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, limit: i64, bout: u8[>..]&, bfields: u8[>..]&,
                       bpseudo: u8[>..]&, bcookie: u8[>..]&, bhuff: u8[>..]&, bfb: u8[>..]&,
                       common: const u8[:],
                       cfg: const Config&, fresh: const S&, stopping: bool, now: i64, wake: const Event&,
@@ -1050,15 +1055,15 @@ fn h2_answer<S, H, C>(c: C&, slot: i64, h: H2Conn&, streams: H2Stream<S>[>..]&, 
     }
 
     // The streams' waiting DATA, a frame each in turn, and MORE for the
-    // responses begun with begin, until wbuf holds cfg.write_buffer. Returns
-    // whether it stopped there with more to write.
+    // responses begun with begin, until wbuf holds limit. Returns whether it
+    // stopped there with more to write.
     fn schedule() -> bool {
         loop {
             var moved = false;
             let order = h.streams;
             let n = order.len;
             for j in n {
-                if wbuf.len >= cfg.write_buffer { return true; }
+                if wbuf.len >= limit { return true; }
                 let k: i64 = order[(h.turn + j) % n];
                 let st .= streams[k];
                 if st.slot != slot || st.id == 0 { continue; }

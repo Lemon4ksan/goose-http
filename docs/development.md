@@ -105,9 +105,9 @@ build/server echo-blocking 8080   # an echo server that serves one client at a t
 build/server echo-epoll 8080      # an echo server on one edge-triggered epoll loop
 ```
 
-With the epoll loop, the HTTP server also serves h2c, HTTP/2 with prior knowledge, on
-the port + 2 (8082 beside 8080, as HttpArena has them). `H2C_PORT` names another port,
-and `H2C_PORT=0` turns it off. The uring loop serves HTTP/1.1 only.
+The HTTP server also serves h2c, HTTP/2 with prior knowledge, on the port + 2 (8082
+beside 8080, as HttpArena has them), on every loop but IOCP. `H2C_PORT` names another
+port, and `H2C_PORT=0` turns it off.
 
 ### Run every test
 
