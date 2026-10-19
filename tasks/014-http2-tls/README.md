@@ -13,8 +13,8 @@ json-tls and 8gbit to the HTTP/1.1 board. Phase 4, h2c, needs no TLS and can run
 it. goose-tls (`github.com/kaitk/goose-tls`) is OpenSSL 3 under a Goose API, with the
 server side, kTLS, and client TLS. snowtime-native also needs SNI, certificates swapped
 while running, and ACME in the process: goose-tls has the first two and ACME's hooks,
-and ACME is a package of its own (goose-rest's task 049). Aegon, the C++ framework that leads HttpArena's h2 profiles, does
-h2 through nghttp2, which this task's phase 4 should weigh (goose-rest's task 048).
+and ACME is a package of its own (goose-rest's task 049). Aegon, the C++ framework that
+leads HttpArena's h2 profiles, does h2 through nghttp2, which this task's phase 4 should weigh (goose-rest's task 048).
 
 ## How the competitors split it
 
@@ -71,8 +71,9 @@ and duplicates its types.
 - Responses on different streams interleave and wait on window updates, so the single
   spill buffer per connection becomes a queue per stream, with a round-robin scheduler
   (RFC 9113 deprecates priorities).
-- Frames are up to 16 KB by default; the 8 KB read and write buffers grow, or the server
-  advertises a smaller frame size where the protocol allows.
+- Frames are up to 16 KB, and no peer may be asked for smaller (RFC 9113 §4.2), so the
+  8 KB read buffer takes DATA in pieces and the spill pool gathers the other frames
+  (task 014.01).
 - With TLS, a read goes recv → decrypt → parser and a write the reverse. kTLS on Linux
   hands the record layer to the kernel after the handshake, so `send`, `recv`,
   `sendfile`, and io_uring carry plaintext again; KeyUpdate and alerts still need user
@@ -87,7 +88,8 @@ and duplicates its types.
 3. kTLS on Linux after the handshake, then TLS through io_uring; compare the two paths.
 4. h2c with prior knowledge (the `PRI * HTTP/2.0` preface; HttpArena's port 8082): frames,
    HPACK, flow control, and the stream scheduler in Goose. Without TLS, its cost is h2's
-   alone. Test with h2spec and HttpArena's h2c profiles.
+   alone. Test with h2spec and HttpArena's h2c profiles. Task 014.01 has the work and
+   the design for the loops.
 5. ALPN `h2` over TLS: HttpArena's h2 baseline and static profiles.
 
 Out of scope: HTTP/3 and QUIC (UDP, loss recovery, and QUIC-TLS: a project of its own),
