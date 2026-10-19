@@ -511,7 +511,8 @@ cases 6.4.3 and 6.4.4.
 
 ## Outbound connections: blocking on a lane, readiness on the worker's loop
 
-Decided 2026-10-19, task 053. The names are proposed, not yet agreed.
+Decided 2026-10-19, task 053; the names and `ENOSYS` on `serve` were agreed on
+2026-10-19.
 
 A program opens TCP or Unix-socket connections to other servers through
 `socket.goose`, in two ways, for the two places goose-postgres's decisions run database
@@ -522,7 +523,7 @@ work:
   `http::recv(s, buf, ms)`, each of which waits up to its time limit, and
   `http::hangup(s)`. This is the transport goose-postgres's blocking facade takes.
 - **Non-blocking, on `serve_epoll`'s loop.** A handler starts a connect with
-  `http::dial`, and `http::wait_socket(out, s, events, ms)` makes its exchange wait
+  `http::connect_start`, and `http::wait_socket(out, s, events, ms)` makes its exchange wait
   until the socket is readable or writable, as `later` waits for mail: the handler is
   called with `WAKE`, tag `http::SOCKET_READY`, or `TIMEOUT`. It then reads and writes
   with `http::recv(s, buf)` and `http::send(s, bytes)`, which never block, and learns how
@@ -554,8 +555,9 @@ nothing to read, so a handler treats `SOCKET_READY` as "try again".
 
 **Where it doesn't run yet.** `serve`'s completion loops, io_uring (`IORING_OP_CONNECT`
 and its receives into provided buffers), the emulated ring, and IOCP (`ConnectEx`), fail
-`wait_socket` with `ENOSYS`, as they did h2c and TLS at first, and the exchange doesn't
-wait. The blocking calls work on every platform, Windows included, where a Unix socket
+`wait_socket` with `ENOSYS`, and the exchange doesn't wait. The failure comes at the
+call, not at startup as for an h2c or TLS listener, since `serve` can't know whether a
+handler will call `wait_socket`. The blocking calls work on every platform, Windows included, where a Unix socket
 is `EAFNOSUPPORT`.
 
 **Names.** A host is `localhost`, an IPv4 or IPv6 literal, or `unix:PATH`; any other

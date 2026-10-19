@@ -11,7 +11,7 @@
 //     http::hangup(s);
 //
 // - In a handler on serve_epoll's loop, the worker that asked owns the
-//   socket, and the calls never block: dial starts the connect, wait_socket
+//   socket, and the calls never block: connect_start starts the connect, wait_socket
 //   makes the exchange wait until the socket is ready, as later does, and
 //   recv and send without a limit take and give what the socket has room
 //   for now. The handler gets WAKE with tag SOCKET_READY, or TIMEOUT.
@@ -52,14 +52,14 @@ fn no_error() -> Error { Error { call: "", code: 0 } }
 // block. Its connect may still be going on: once it's writable, connected
 // says how it went. An error for a host it can't take, or a connect that
 // failed at once, such as one refused on some platforms.
-fn dial(host: const u8[:], port: i64) -> Socket, Error {
+fn connect_start(host: const u8[:], port: i64) -> Socket, Error {
     if starts_with(host, "unix:") {
-        guard host.len > 5 else { return Socket { .. }, Error { call: "dial", code: EINVAL }; }
+        guard host.len > 5 else { return Socket { .. }, Error { call: "connect_start", code: EINVAL }; }
         let fd = net_connect(host[5..], 0, UNIX);
         guard fd >= 0 else { return Socket { .. }, Error { call: "connect", code: -fd }; }
         return Socket { fd: fd }, no_error();
     }
-    guard port > 0 && port < 65536 else { return Socket { .. }, Error { call: "dial", code: EINVAL }; }
+    guard port > 0 && port < 65536 else { return Socket { .. }, Error { call: "connect_start", code: EINVAL }; }
     var name = host;
     if host.len >= 2 && host[0] == '[' && host[host.len - 1] == ']' { name = host[1..host.len - 1]; }
     let a, ok = address(if name == "localhost" { "127.0.0.1" } else { name });
@@ -70,7 +70,7 @@ fn dial(host: const u8[:], port: i64) -> Socket, Error {
     return Socket { fd: fd }, no_error();
 }
 
-// How dial's connect went, once the socket is writable: code 0 when it's
+// How connect_start's connect went, once the socket is writable: code 0 when it's
 // connected, EINPROGRESS while it goes on, or why it failed, such as
 // ECONNREFUSED. A failure is reported once.
 fn connected(s: Socket) -> Error {
@@ -119,9 +119,9 @@ fn wait_socket(out: Reply, s: Socket, events: u32, ms: i64) -> Error {
 
 // Connects to host and port, waiting up to ms milliseconds (-1: no limit),
 // for a thread that runs no loop. The socket doesn't block: recv and
-// send_all wait for it. An error as dial's, or ETIMEDOUT.
+// send_all wait for it. An error as connect_start's, or ETIMEDOUT.
 fn connect(host: const u8[:], port: i64, ms: i64) -> Socket, Error {
-    var s, e = dial(host, port);
+    var s, e = connect_start(host, port);
     guard e.code == 0 else { return s, e; }
     let r = ready_by(s, WRITABLE, deadline(ms));
     let c = if r > 0 { net_connected(s.fd) } else if r == 0 { -ETIMEDOUT } else { r };

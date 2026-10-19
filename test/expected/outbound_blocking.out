@@ -6,4 +6,4 @@ send after the close: true
 refused: connect true, socket -1
 timed out: connect true, socket -1
 a name: resolve true
-port 0: dial true
+port 0: connect_start true

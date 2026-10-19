@@ -472,7 +472,7 @@ http::hangup(s);
 
 - `http::connect(host, port, ms)` returns the socket, connected, or `Socket { fd: -1 }`
   and an `http::Error`: `connect`'s `ECONNREFUSED`, `ETIMEDOUT` past `ms`, and the like,
-  or `dial`'s.
+  or `connect_start`'s.
 - `http::send_all(s, data, ms)` sends all of `data` within `ms` in all, and returns an
   `http::Error` whose code is 0, `ETIMEDOUT`, or the send's, such as `EPIPE` once the
   server has closed.
@@ -490,7 +490,7 @@ asked owns it, and the exchange waits for it as it waits for mail
 
 ```rust
 // At REQUEST:
-let s, e = http::dial("127.0.0.1", 5432);
+let s, e = http::connect_start("127.0.0.1", 5432);
 guard e.code == 0 else { /* refused at once, or a host it can't take */ }
 st.s = s;
 http::wait_socket(out, st.s, http::WRITABLE, 1000);
@@ -504,7 +504,7 @@ http::wait_socket(out, st.s, http::READABLE, 1000);
 // At TIMEOUT: the limit passed first. At CLOSED: http::hangup(st.s).
 ```
 
-- `http::dial(host, port)` starts a connect and returns the socket without waiting.
+- `http::connect_start(host, port)` starts a connect and returns the socket without waiting.
   Its connect may still be going on; an `http::Error` for a host it can't take, or a
   connect that failed at once, which a refused one on loopback can be.
 - `http::wait_socket(out, s, events, ms)` makes the exchange wait, after this call to
@@ -517,7 +517,7 @@ http::wait_socket(out, st.s, http::READABLE, 1000);
   be, so `recv` and `send` can still give `-EAGAIN`, and the handler waits again. A
   socket closed or failed is readable, and its `recv` gives 0 or `-code`. Keep
   `SOCKET_READY` out of the program's own mail tags.
-- `http::connected(s)`: how `dial`'s connect went, once the socket is writable: code
+- `http::connected(s)`: how `connect_start`'s connect went, once the socket is writable: code
   0, `EINPROGRESS` while it goes on, or its error, such as `ECONNREFUSED`, reported
   once.
 - `http::recv(s, buf)` and `http::send(s, data)` take and give what the socket has now:

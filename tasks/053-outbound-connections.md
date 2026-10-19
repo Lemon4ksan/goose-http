@@ -41,7 +41,7 @@ goose-postgres's blocking facade (its task 002) takes that socket as its transpo
 - [ ] A blocking socket for lanes, with a test, on Linux, macOS, and Windows (Linux and
       macOS pass; Windows's shim compiles, with Zig's MinGW target, but hasn't run)
 - [ ] goose-postgres's task 001 can open its pool on it
-- [ ] The API's names agreed
+- [x] The API's names agreed (2026-10-19)
 
 ## Handover
 
@@ -52,7 +52,7 @@ Written 2026-10-19, at the branch's first commit.
 - `socket.goose` (`http::Socket`), imported by `http.goose`:
   - Blocking, for a lane: `connect(host, port, ms)`, `send_all(s, data, ms)`,
     `recv(s, buf, ms)`, `hangup(s)`.
-  - On the loop: `dial(host, port)`, `connected(s)`, `wait_socket(out, s, events, ms)`
+  - On the loop: `connect_start(host, port)`, `connected(s)`, `wait_socket(out, s, events, ms)`
     with `READABLE` and `WRITABLE`, then `WAKE` with tag `SOCKET_READY` or `TIMEOUT`,
     and `recv(s, buf)` and `send(s, data)`, which never block.
   - A host is `localhost`, an IPv4 or IPv6 literal, or `unix:PATH`; other names fail
@@ -90,21 +90,20 @@ On 2026-10-19, at Goose `dcc2747`, the pin:
 
 ### What remains, in order
 
-1. Agree on the names with the user (questions below), then rename if needed.
-2. goose-postgres's task 002 builds its facade on the blocking calls (below), and task
+1. goose-postgres's task 002 builds its facade on the blocking calls (below), and task
    005 its pool on `wait_socket`.
-3. io_uring: `IORING_OP_CONNECT`, and readiness through `IORING_OP_POLL_ADD` with the
-   key as its tag, which `uring.goose` would deliver as the epoll loop does. Another
-   session works in `uring.goose`; coordinate first.
-4. The emulated ring and IOCP: the emulation can arm its own epoll instance or kqueue
+2. io_uring, on the Windows desktop next: `IORING_OP_CONNECT`, and readiness through
+   `IORING_OP_POLL_ADD` with the key as its tag, which `uring.goose` would deliver as
+   the epoll loop does.
+3. The emulated ring and IOCP: the emulation can arm its own epoll instance or kqueue
    as `net_arm` does; IOCP needs `ConnectEx` and a zero-byte `WSARecv` for readability.
-5. Name resolution off the loop: `getaddrinfo` on a lane, or in the blocking `connect`
+4. Name resolution off the loop: `getaddrinfo` on a lane, or in the blocking `connect`
    only, where blocking is allowed.
-6. Run `test/outbound/outbound_blocking.goose` on Windows. `test/run_tests.py` skips
+5. Run `test/outbound/outbound_blocking.goose` on Windows. `test/run_tests.py` skips
    `test/outbound/` there for now: `outbound_loop.goose` needs `serve_epoll` and a Unix
    socket, and Windows may refuse a connect to a full backlog with `ECONNREFUSED` where
    the blocking test expects `ETIMEDOUT`.
-7. An h2 stream waiting on a socket: `delivered` finds it by its key, but no test covers
+6. An h2 stream waiting on a socket: `delivered` finds it by its key, but no test covers
    it yet.
 
 ### What goose-postgres's facade calls
@@ -127,7 +126,7 @@ Postgres 18 is recorded under "What passes".
 
 - `net_connected` reports a failed connect once: `SO_ERROR` is cleared by the read, and
   a second call gives `ENOTCONN`.
-- A refused connect to loopback can fail inside `dial` on some platforms, or later in
+- A refused connect to loopback can fail inside `connect_start` on some platforms, or later in
   `connected`; a handler checks both.
 - `wait_socket` arms the socket once (`EPOLLONESHOT`, `EV_ONESHOT`). An armed socket
   whose exchange stopped waiting, by `TIMEOUT` or mail, can still raise its event
@@ -137,11 +136,12 @@ Postgres 18 is recorded under "What passes".
 - The connect-timeout tests fill a listener's backlog of 1 with eight connects that are
   never accepted; Linux and macOS then drop the next SYN.
 
-### Questions for the user
+### Answers
 
-- The names: `http::Socket`, `dial`, `connected`, `wait_socket`, `READABLE`,
-  `WRITABLE`, `SOCKET_READY`, `recv` and `send` on a socket (overloads of the reply's
-  `send`), `connect`, `send_all`, and `hangup`.
-- Should `wait_socket` on `serve`'s loop fail with `ENOSYS` until io_uring and IOCP
-  have it, as h2c and TLS did, or should `serve` refuse to start in a program that
-  calls it?
+- The names (2026-10-19): `dial` became `connect_start`; `http::Socket`, `connected`,
+  `wait_socket`, `READABLE`, `WRITABLE`, `SOCKET_READY`, `recv` and `send` on a socket
+  (overloads beside the reply's `send`), `connect`, `send_all`, and `hangup` stay.
+- `wait_socket` on io_uring, the emulated ring, and IOCP keeps failing with `ENOSYS`
+  when it's called (2026-10-19): `serve` can't know at startup whether a handler will
+  call it, unlike an h2c or TLS listener. io_uring and IOCP support is to be done on
+  the Windows desktop next.

@@ -1,5 +1,5 @@
 // Outbound connections on serve_epoll's loop (socket.goose): each route
-// dials a backend thread in the program, waits with wait_socket, and answers
+// connects to a backend thread in the program, waits with wait_socket, and answers
 // with what came back: a round trip, a large send, a backend that closes, a
 // refused connect, and a connect that times out against a full backlog. On
 // serve's loop, wait_socket fails with ENOSYS. The loops listen on Unix
@@ -9,7 +9,7 @@ import http from "../../";
 
 let LARGE = 4 << 20;
 
-// Where the loops listen, and the ports a route dials: the backend, one
+// Where the loops listen, and the ports a route connects to: the backend, one
 // nothing listens on, and one whose backlog is full.
 struct Ports { backend: i32, refused: i32, full: i32 }
 
@@ -107,7 +107,7 @@ fn handle(ev: http::Event, st: St&, out: http::Reply, ports: Ports, large: const
         else if path == "/refused" { st.route = PING; port = ports.refused; }
         else if path == "/timeout" { st.route = PING; port = ports.full; }
         else { http::respond(out, 404, "text/plain", ""); return; }
-        let s, e = http::dial("127.0.0.1", port);
+        let s, e = http::connect_start("127.0.0.1", port);
         // A refused connect may fail at once.
         guard e.code == 0 else { failed(st, out, e); return; }
         st.s = s;
@@ -181,7 +181,7 @@ thread_fn worker(cfg: http::Config, ports: Ports) {
 thread_fn ring_worker(cfg: http::Config, ports: Ports) {
     let e = http::serve(cfg, St { .. }) { ev, st, out =>
         if ev.kind == http::REQUEST {
-            let s, d = http::dial("127.0.0.1", ports.backend);
+            let s, d = http::connect_start("127.0.0.1", ports.backend);
             assert(d.code == 0);
             st.s = s;
             let w = http::wait_socket(out, st.s, http::WRITABLE, 300);
@@ -225,7 +225,7 @@ fn main() {
     let full, full_port = listener(1);
     var fillers: http::Socket[>..] = [];
     for i in 8 {
-        let f, fe = http::dial("127.0.0.1", full_port);
+        let f, fe = http::connect_start("127.0.0.1", full_port);
         assert(fe.code == 0);
         fillers.push(f);
     }

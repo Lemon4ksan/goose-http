@@ -135,7 +135,7 @@ fn main() {
     let full, full_port = listener(1);
     var fillers: http::Socket[>..] = [];
     for i in 8 {
-        let f, fe = http::dial("127.0.0.1", full_port);
+        let f, fe = http::connect_start("127.0.0.1", full_port);
         assert(fe.code == 0);
         fillers.push(f);
     }
