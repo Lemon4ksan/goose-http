@@ -1,7 +1,7 @@
 # 014.02: HTTP/1.1 over TLS
 
 Status: in-progress (started 2026-10-19). HTTP/1.1 over TLS 1.3 serves from the epoll
-loop on the branch `tls`; see "Handover" at the end for what remains.
+loop, on `main`; see "Handover" at the end for what remains.
 
 Task 014's phase 2: HTTPS through [goose-tls](https://github.com/kaitk/goose-tls)
 (OpenSSL 3 over memory BIOs) from the module `http.tls`, for HttpArena's json-tls and
@@ -30,7 +30,8 @@ Written 2026-10-19 at the end of the first run.
 
 ### Built
 
-On the branch `tls`, from `main` at `c5d3cd67`:
+On `main`, from the branch `tls` (`1012e705`, then the answers in `a5048101`), on top of
+`c5d3cd67`:
 
 - `tls.goose`, the module `http.tls`: `TlsServer` (a worker's reference to the
   context, a 16 KB read buffer, and a slot per connection), `tls_server(ctx)`,
@@ -86,6 +87,9 @@ Goose `dcc2747`, goose-tls `v0.0.1`.
     7.0.14-linuxkit, `--security-opt seccomp=unconfined`, OpenSSL 3.5.5 from
     `libssl-dev`): every step passes, the same TLS checks on the epoll build; h2spec
     skipped, as on any arm64 Linux.
+
+- Both again on `a5048101`, rebased onto `main` at `c5d3cd67` before the push to
+  `main`, 2026-10-19: every step passes on macOS and on Linux, the same as above.
 
 No measurement yet: the macOS runs are smoke tests, and the comparison that counts is
 HttpArena's json-tls and 8gbit on Linux.
