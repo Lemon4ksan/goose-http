@@ -117,7 +117,7 @@ the `Upgrade: h2c` handshake, gRPC, and WebSocket over h2.
       `docs/decisions.md` with its reasons (2026-10-19)
 - [x] The split above discussed for TLS, and the decision recorded in
       `docs/decisions.md` with its reasons, or this task rewritten to the one chosen
-      (2026-10-19; the API's names still to be agreed, [014.02](02-tls.md))
+      (2026-10-19, with the API's names, [014.02](02-tls.md))
 - [x] A test that a program importing `http` without `http.tls` builds without declaring
       `goose-tls`, at the pin of the day (`test/http/no_tls.goose`, with
       `test/tls/undeclared.goose` for the other way, 2026-10-19)

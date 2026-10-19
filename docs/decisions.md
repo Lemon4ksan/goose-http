@@ -468,7 +468,14 @@ makes one `tls::Context` and gives each worker an `http::TlsServer`
 (`http::tls_server(ctx)`), passed to `serve_epoll(cfg, server)` or
 `serve_epoll(cfg, fresh, server)`. ALPN chooses nothing yet: a TLS listener serves
 HTTP/1.1, and TLS on an h2c listener is refused with `EINVAL` until h2 over TLS
-(task 014's phase 5). The names are proposed, and not yet agreed.
+(task 014's phase 5).
+
+The names were agreed on 2026-10-19: `Config.tls` and `Listener.tls`,
+`http::TlsServer`, `http::tls_server(ctx)`, `http::release(server)`, and
+`serve_epoll(cfg, server)` and `serve_epoll(cfg, fresh, server)`, the server last. A
+`serve_tls` of its own was the other shape, which would need another name again for
+io_uring. The benchmark server serves TLS on its port + 1 (`TLS_PORT`), only when
+`TLS_CERT` and `TLS_KEY` are set.
 
 ## Not yet decided
 

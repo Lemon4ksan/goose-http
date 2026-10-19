@@ -20,7 +20,7 @@ Task 014's phase 2: HTTPS through [goose-tls](https://github.com/kaitk/goose-tls
       `/json` and `POST /echo` (2026-10-19)
 - [x] Tests with curl, `openssl s_client`, Python's TLS client, and h2load in
       `scripts/test-http.sh`, run by `scripts/test.sh` on macOS and on Linux (2026-10-19)
-- [ ] The API's names agreed (question 1 below)
+- [x] The API's names agreed ("Answers" below, 2026-10-19)
 - [ ] HttpArena's TLS validation passed, and json-tls and 8gbit measured on Linux
 - [ ] TLS in the io_uring loop, which fails with `ENOSYS` on a TLS listener for now
 
@@ -92,7 +92,7 @@ HttpArena's json-tls and 8gbit on Linux.
 
 ### What remains, in order
 
-1. Question 1 below: the names.
+1. (Done: the names, "Answers" below.)
 2. HttpArena: build `bench/httparena/goose/Dockerfile` (`libssl3t64` is Ubuntu 26.04's
    runtime package, 3.5.5; the image itself not yet built), run `bench/httparena.sh validate` for
    json-tls and 8gbit, then add them to `meta.json`'s tests and measure on Linux
@@ -151,12 +151,19 @@ python3 scripts/http_client.py 8081 tls
 PORT=29780 scripts/test.sh
 ```
 
-### Questions for the user
+### Answers
 
-1. The names, proposed and not yet agreed: `Config.tls` and `Listener.tls`;
-   `http::TlsServer`, `http::tls_server(ctx)`, and `http::release(server)`; and
+Agreed 2026-10-19, and recorded in
+[decisions](../../docs/decisions.md#tls-is-a-listeners-mode):
+
+1. The names stay as built: `Config.tls` and `Listener.tls`; `http::TlsServer`,
+   `http::tls_server(ctx)`, and `http::release(server)`; and
    `http::serve_epoll(cfg, server)` and `http::serve_epoll(cfg, fresh, server)`, the
-   `TlsServer` last. The other shape considered was a `serve_tls` of its own, which
-   would need another name again for io_uring.
+   `TlsServer` last, rather than a `serve_tls` of its own, which would need another
+   name again for io_uring.
 2. The benchmark server's `TLS_PORT` defaults to the port + 1 (8081), as `H2C_PORT`
    does to the port + 2, but only when `TLS_CERT` and `TLS_KEY` are set.
+
+### Questions for the user
+
+None open.
