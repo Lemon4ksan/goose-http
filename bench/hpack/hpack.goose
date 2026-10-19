@@ -1,7 +1,9 @@
 // HPACK's cost alone: an h2load request's field block decoded, first on a
 // connection and then as a later one names it by index; a JSON response's
 // fields encoded, the same two ways; and Huffman coding of a 1 KB cookie.
-// Each runs N times, best of 5, and prints nanoseconds per operation.
+// Each runs N times, best of 5, and prints nanoseconds per operation. With
+// CASE set, only the case of that name runs, and its line ends with the units
+// all 5 runs did, for bench/hpack.sh to divide perf's counts by.
 import std;
 import os;
 import http;
@@ -11,6 +13,9 @@ let N = 1000000;
 // The best of 5 runs of N calls of F, or as many as make N * 16 units of
 // per each, in ns per unit; F returns a number that the total keeps live.
 fn best<F>(name: const u8[:], unit: const u8[:], per: i64) {
+    var only: u8[>..] = [];
+    let one = env("CASE", only);
+    guard !one || only == name else { return; }
     let calls = if per == 1 { N } else { N * 16 / per };
     var best_ns = 0;
     var keep = 0;
@@ -27,6 +32,7 @@ fn best<F>(name: const u8[:], unit: const u8[:], per: i64) {
     line.push('.');
     format_int(line, x100 % 100, 10, 2, '0');
     format(line, "\t", unit, "\t(", keep % 10, ")");
+    if one { format(line, "\t", 5 * calls * per); }
     print(line);
 }
 
