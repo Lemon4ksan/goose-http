@@ -246,6 +246,30 @@ fn flow_control() {
     input.clear();
     http::h2_write_window_update(input, 1, 100);
     feed(input);
+    print("padded bodies at a server stream window of 100:");
+    session(http::Config { h2_stream_window: 100, .. });
+    input.clear();
+    opening(input, http::H2Settings { .. });
+    // 30 bytes fit in half the window and are gathered. 60 don't, so they
+    // come in pieces, and with the pad length and the padding the stream's
+    // WINDOW_UPDATE gives back all 80 bytes of the frame.
+    request(input, 1, "POST", "/echo", "", false);
+    padded(input, 1, 30);
+    request(input, 3, "POST", "/echo", "", false);
+    padded(input, 3, 60);
+    feed(input);
+    input.clear();
+    http::h2_write_data(input, 1, "", true);
+    http::h2_write_data(input, 3, "", true);
+    feed(input);
+}
+
+// A DATA frame for stream id of n bytes and 19 of padding.
+fn padded(out: u8[>..]&, id: i64, n: i64) {
+    http::h2_head(out, n + 20, http::H2_DATA, http::H2_PADDED, id);
+    out.push(19);
+    for i in n { out.push('x'); }
+    for i in 19 { out.push(0); }
 }
 
 fn waiting() {

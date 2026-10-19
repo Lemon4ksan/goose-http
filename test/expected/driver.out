@@ -31,6 +31,15 @@ a stream window of 10, then WINDOW_UPDATEs:
   SETTINGS 0 ACK 0 values
   DATA 1 40 'opqrstuvwxyzabcdefghijkl'
   DATA 1 20 'cdefghijklmnopqrstuv' END_STREAM
+padded bodies at a server stream window of 100:
+  SETTINGS 0 5 values
+  WINDOW_UPDATE 0 +983041
+  SETTINGS 0 ACK 0 values
+  WINDOW_UPDATE 3 +80
+  HEADERS 1 :status=200 server=goose content-type=text/plain content-length=8
+  DATA 1 8 'whole 30' END_STREAM
+  HEADERS 3 :status=200 server=goose content-type=text/plain content-length=9
+  DATA 3 9 'pieces 60' END_STREAM
 a stream that waits holds back no other:
   SETTINGS 0 4 values
   WINDOW_UPDATE 0 +983041

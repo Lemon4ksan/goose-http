@@ -573,7 +573,9 @@ fn h2_answer<S, H, C>(c: C&, slot: i64, h: H2Conn&, streams: H2Stream<S>[>..]&, 
             return;
         }
         if st.gathering {
-            if st.held.len + piece.len <= cfg.max_head {
+            // Within half the stream's window too, as a gathered body's
+            // window comes back only once it's whole.
+            if st.held.len + piece.len <= min(cfg.max_head, h.ours.initial_window_size / 2) {
                 let had = st.held.len;
                 st.held = spill.realloc_slice(st.held, had + piece.len);
                 copy_into(st.held[had..], piece);
@@ -760,9 +762,8 @@ fn h2_answer<S, H, C>(c: C&, slot: i64, h: H2Conn&, streams: H2Stream<S>[>..]&, 
         st.x.since = now;
         st.x.began = now;
         st.x.stream.direct = false;
-        if c.x.stream.later.box.slot >= 0 {
-            st.x.stream.later = MailAddress { box: c.x.stream.later.box, key: h2_key(slot, gen, k2) };
-        }
+        // Without a box the key still finds the stream for its TIMEOUT.
+        st.x.stream.later = MailAddress { box: c.x.stream.later.box, key: h2_key(slot, gen, k2) };
         if end_stream {
             st.remote_closed = true;
             st.called = true;
@@ -967,6 +968,8 @@ fn h2_answer<S, H, C>(c: C&, slot: i64, h: H2Conn&, streams: H2Stream<S>[>..]&, 
             target = 0;
         } else {
             streams[k].recv_window -= len;
+            // The pad length counts against the window as the padding does.
+            if padded { streams[k].taken += 1; }
         }
         off += H2_HEAD + (if padded { 1 } else { 0 });
         h.data_stream = target;
