@@ -65,6 +65,14 @@ fn lane_spawn<SPAWN>(cfg: LaneConfig) -> Lane {
     return lane;
 }
 
+// A lane of box alone, with no thread: for a test that plays the lane, taking
+// the jobs from box itself.
+fn lane_of(box: Box) -> Lane {
+    var lane = Lane { .. };
+    lane.boxes.push(box);
+    return lane;
+}
+
 // A lane thread's loop: F with each job's tag and bytes, in the order they
 // came, until the box is stopped and empty; then closes the box.
 fn lane<F>(box: Box) {

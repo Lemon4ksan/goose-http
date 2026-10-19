@@ -3,7 +3,7 @@
 Status: cancelled by the maintainer on 2026-10-19, after an independent review: the
 restart is parked on the branch `restart-workers`, and an abort ends the process, which
 a service manager restarts
-([decision](../docs/decisions.md#a-crash-ends-the-process-and-a-service-manager-restarts-it)).
+([decision](../../docs/decisions.md#a-crash-ends-the-process-and-a-service-manager-restarts-it)).
 It cost a watcher thread per worker, two queues, and C to close what the dead worker
 opened, and its connections still got no answer. The text below describes the branch.
 
@@ -11,7 +11,7 @@ With `thread_spawn_contained` ([aardappel/goose#38](https://github.com/aardappel
 in the pinned `dcc2747`), an abort ends only its thread, and `thread_wait` returns false
 for it. `http::run` uses that to keep serving when a handler aborts: Tina's "let it
 crash", with the restart policy its supervisors have, a delay that grows and a limit
-([decision](../docs/decisions.md#httprun-restarts-a-worker-that-aborts)).
+(the decision, "http::run restarts a worker that aborts", is on the branch).
 
 How it works: a `thread_fn` can't be generic, so a watcher thread can't start the
 program's worker again. Each worker has a small `thread_fn watch` that waits for it and

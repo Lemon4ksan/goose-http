@@ -1,7 +1,8 @@
 // Lanes (lane.goose): a lane's thread count from its LaneConfig, a job to the
 // least busy thread, the jobs of one thread in the order sent, a value sent
 // whole, a value passed to each thread, and a stop that ends every thread
-// with the jobs queued before it taken, and waits for them.
+// with the jobs queued before it taken, and waits for them; and lane_of, a lane
+// of one box with no thread.
 import std;
 import http from "../../";
 
@@ -123,7 +124,20 @@ fn test_one_thread() {
           if after == http::STALE { "STALE" } else { "not STALE" });
 }
 
+// lane_of: one box, no thread, and the job reaches the box for the test to take.
+fn test_lane_of() {
+    let b, e = http::mail_open(2, 16);
+    http::exit_on_error(e);
+    let lane = http::lane_of(b);
+    let sent = http::lane_send(lane, JOB, "x");
+    let n = http::mail_take(b) { key, tag, bytes => assert(tag == JOB && bytes == "x"); };
+    print("lane_of: ", lane.boxes.len, " box, ", lane.threads.len, " threads, ",
+          if sent == http::SENT { "SENT" } else { "not SENT" }, ", ", n, " taken");
+    http::mail_close(b);
+}
+
 fn main() {
+    test_lane_of();
     test_threads();
     test_least_busy();
     test_one_thread();

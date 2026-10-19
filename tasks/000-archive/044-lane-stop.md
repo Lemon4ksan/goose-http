@@ -1,6 +1,7 @@
 # 044: A stop a full box can't refuse
 
-Status: done on `tina-alignment`, with its docs, and run on Windows; the merge remains
+Status: done; `http::mail_stop` and `mail_stopped` shipped in `v0.3.7`, and
+`http::lane_stop` uses them (2026-10-19)
 
 A lane learns to stop from a message: goose-rest's best-practices `lanes/` program sends
 each lane `STOP` with `http::mail_send` and ignores the result. When the box is full at

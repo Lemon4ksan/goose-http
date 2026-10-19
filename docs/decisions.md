@@ -284,109 +284,43 @@ flight across the stop, since returning `false` to a lane whose box workers were
 polling made it spin at 100% CPU. The cost is one more load of the flag on every send,
 a locked instruction under MSVC (task 047).
 
-## Placement is opt-in, and a file per machine places the code's roles
-
-Decided 2026-10-17, task 046; the exclusive and `incoming` rules, 2026-10-18.
-
-The code names roles, the workers (`Config.role`) and each lane, and a placement file,
-one per kind of machine, maps them to cores, a priority, and `SO_INCOMING_CPU`
-([tuning](tuning.md)). Without a file, every thread floats, as before. A machine that
-changes needs a new file, not a new build. Tina fixes each shard's core in a boot spec
-compiled into the program; here the file is read at startup and holds only cores, and
-the operator writes down which share an L3 cache or a NUMA node, since the package
-reads no topology. The file is a line format that `place.goose` parses, as Goose has no
-TOML or YAML parser.
-
-Nothing about the hardware stops the start: cores the process can't use, more threads
-than a set's cores, an overlap with an exclusive set, and a platform with no affinity
-each print a warning, and the program runs with what it could apply. A file that
-doesn't parse ends it with exit code 2, as any malformed configuration does. The cost
-is that a wrong file runs, placed otherwise than written, with only stderr to say so.
-
-Placement took the place of `http::pin_thread` and `Config.pin`, built first for task
-045's spike and never released; neither had an entry here. Whether any placement beats
-floating on real cores is unmeasured: task 045's pinned layouts wait for bare-metal
-Linux, and only those that beat floating by more than the runs' spread are to stay.
-
-## The shim holds the placement, and Config a handle
-
-Decided 2026-10-18, task 046.
-
-`place_load` hands the parsed `Place` to `shim/place.c`, which keeps a copy, and
-`Config.place` is its handle, an `http::PlaceRef` of one `i32`. A worker reads the
-`Place` into a local as its loop starts and keeps only its seat. With the `Place`
-itself in `Config`, every worker held about three copies of it, since `thread_spawn`
-and the loops take `Config` by value: `sizeof(Config)` in the generated C went from
-4,757 bytes to 390, and `examples/hello`'s peak RSS from 3.56-3.82 MB back to
-3.26-3.34 MB, within `main`'s 3.29-3.41 MB before placement (machine and method in
-task 046). The cost is a C call and a copy as each worker starts, and a limit of 8
-placements a process.
-
-## A worker's seat goes by the order workers start
-
-Decided 2026-10-17, task 046.
-
-A worker takes the next index of its role from a counter per placement and role in
-`shim/place.c`, as its loop starts, so the program's spawn loop passes no index and
-doesn't change. Which worker gets which core is then arbitrary, which costs nothing,
-since every worker is the same. Two servers that share a placement and a role share
-the counter, so each needs a role of its own. Replaced on 2026-10-18 by
-[the package spawns the workers](#the-package-spawns-the-workers).
-
-## An exclusive set takes its cores from other roles
-
-Decided 2026-10-18, task 046.
-
-A role whose cores an exclusive set it doesn't name holds loses them, with a warning,
-and floats on the cores no exclusive set holds when none are left. Where the exclusive
-sets hold every core the process may use, such a role, and one the file doesn't name,
-floats on any core, the exclusive ones included, with one warning. Refusing the file
-would break the rule that hardware doesn't stop the start, and the same file runs on a
-smaller machine. The cost is that a role can run on fewer cores than its line says.
-
 ## No .env loader
 
 Decided 2026-10-18, task 046.
 
 `http::env_load`, which put a development `.env` file into the environment through the
-placement file's line reader, was built and dropped. No program called it, and in
+placement file's line reader, since removed, was built and dropped. No program called it, and in
 production systemd's `EnvironmentFile` and Compose's `env_file` already load one into
 the environment that `env` reads.
 
 ## The package spawns the workers
 
-Decided 2026-10-18, task 048. Replaces the spawning in
-[workers own their connections](#workers-own-their-connections) and
-[a worker's seat goes by the order workers start](#a-workers-seat-goes-by-the-order-workers-start).
+Decided 2026-10-18, task 048; the worker's index went with placement on 2026-10-19.
+Replaces the spawning in [workers own their connections](#workers-own-their-connections).
 
 `http::run(cfg, worker)` spawns the workers, with up to two values of the program's
-between `cfg` and the worker, and returns once every one has returned. It sets each
-worker's index in `Config.worker`, and the loop takes the seat of that index. Goose
+between `cfg` and the worker, and returns once every one has returned. Goose
 `fb5698125` lets a generic function spawn the `thread_fn` its caller binds, which made
-this possible; before it, every program wrote the same spawn loop, and the shim
-counted workers as they started, since none knew its index. The counter was global C
-state, and with it gone, `shim/place.c` keeps only the placements. Goose has no
+this possible; before it, every program wrote the same spawn loop. Goose has no
 variadic parameters, so `run` has an overload for each count of values; two cover
 every program in goose-http and goose-rest. The worker comes last, as Goose passes a
-function value after a call's other arguments.
+function value after a call's other arguments. `http::lane_open` spawns a lane's
+threads the same way.
 
 A program that picks the loop for its workers at run time, such as `server/app.goose`,
 calls `run` once per choice (2026-10-18). Only a program that must interleave spawning
 with other work, such as the REST benchmark servers with their startup handshake, keeps
-its own spawn loop and sets `Config.worker`. A placed worker spawned without `Config.worker` floats and prints a warning,
-rather than falling back to a counter, so that no C state stays for code that `run`
-replaces. Two servers that share a placement and a role now take the same seats, so
-each still needs a role of its own. `Config.worker` went with placement on 2026-10-19
-(the next entry), and with it the own spawn loop's index.
+its own spawn loop.
 
 ## Placement is removed until it is measured to help
 
-Decided 2026-10-19, after an independent review; replaces the four placement entries
-above, from 2026-10-17 and 2026-10-18.
+Decided 2026-10-19, after an independent review; replaces the placement entries of
+2026-10-17 and 2026-10-18, which the branch keeps.
 
-Placement, the file per machine, `Config.place`, `Config.role`, `Config.worker`, seats,
-`place.goose`, and `shim/place.c`, is off `main`, parked on the branch `placement` in
-goose-http and goose-rest. It was never measured to help: on an M1 Pro no layout beat
+Placement, a file per kind of machine that mapped the workers' and each lane's role to
+cores, a priority, and `SO_INCOMING_CPU`, with `Config.place`, `Config.role`,
+`Config.worker`, seats, `place.goose`, and `shim/place.c`, is off `main`, parked on the
+branch `placement` in goose-http and goose-rest. It was never measured to help: on an M1 Pro no layout beat
 the OS's own (task 045), and a `low` lane lost about 40% of its rate. It returns only
 when bare-metal Linux measures a gain beyond the runs' spread, and then invisible to
 programs: the library reads the file, or `GOOSE_PLACE`, and applies it inside `run`

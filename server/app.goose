@@ -85,7 +85,7 @@ fn serve_http(given: http::Config, default_loop: const u8[:]) {
     }
     let n = http::worker_count(cfg);
     load_dataset();
-    // The backend lane of /later and /events, one thread for every worker.
+    // The backend lane of /later and /events, one thread that serves every worker.
     if cfg.mail_slots > 0 {
         backend_lane = http::lane_open(http::LaneConfig { slots: 256, size: JOB_SIZE, .. }, 4096, backend);
     }

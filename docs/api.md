@@ -369,6 +369,8 @@ fn main() {
 - `http::lane_stop(lane)` stops every box and waits for the threads, each of which
   first takes what its box holds. The stop is a flag in each box, not a message, so a
   full box can't refuse it.
+- `http::lane_of(box)` is a lane of one box and no thread, for a test that plays the
+  lane: the route sends to it, and the test takes the jobs with `mail_take`.
 
 A lane thread that does work of its own between jobs, such as `server/backend.goose`'s
 timers, writes the loop that `http::lane` is, with its own time limit on the wait:

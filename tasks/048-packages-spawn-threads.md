@@ -1,6 +1,10 @@
 # 048: The packages spawn their own threads
 
-Status: in progress; merged on Goose master `dcc2747`, pinned until a release has it
+Status: in progress; merged on Goose master `dcc2747`, pinned until a release has it.
+On 2026-10-19 lanes moved into goose-http as `http::lane_open`, and `Config.worker`
+and seats went with placement
+([decision](../docs/decisions.md#placement-is-removed-until-it-is-measured-to-help)):
+the criteria below that name them describe what was built then.
 
 `thread_spawn` couldn't name a `thread_fn` passed into a generic from another module, so
 neither package could start a thread of the program's: every program spawns its own
@@ -125,7 +129,10 @@ feature: what this change makes unneeded is removed, not kept beside the new way
 - [x] Built and tested on Goose master `dcc2747`, which `scripts/goose.sh` pins until a
       release has #37 (2026-10-19): merged before that release, rather than waiting,
       so that the work on #38 and #39 builds on it
+- [x] 2026-10-19: lanes in goose-http, `http::lane_open(cfg[, a], W)` and
+      `http::lane_stop`, used by `examples/later`, `server/`, and every goose-rest
+      program; `Config.worker` removed, and `test/server/run.goose` checks values and
+      the wait only
 - [ ] `scripts/test.sh` passes in both repositories on macOS, Linux (io_uring, epoll),
-      and Windows (MSVC): goose-http on macOS and in arm64 Linux Docker (io_uring,
-      epoll, and the emulated ring), goose-rest on macOS, 2026-10-18; Linux for
-      goose-rest and Windows for both not yet run
+      and Windows (MSVC): both on macOS and in arm64 Linux Docker (io_uring, epoll, and
+      the emulated ring) on 2026-10-19, at the `simplify` branches; Windows not yet run

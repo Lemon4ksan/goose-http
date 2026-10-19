@@ -1,3 +1,4 @@
+lane_of: 1 box, 0 threads, SENT, 1 taken
 threads: 1 by default, 3 as asked, 1 for 0, 64 for 100
 least busy: 12 of 12 sent, 12 to the idle thread, 1 to the held one
 one thread: 4 sent, 4 full, 0 out of order; 3 values summing to 60; 8 jobs in all; after the stop, STALE

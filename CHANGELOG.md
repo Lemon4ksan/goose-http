@@ -25,7 +25,8 @@ from a file per machine, as an experiment. Goose `v2026.2` (`3ee3871`).
   replaces `Config.workers`. Nothing about the hardware stops the start: each
   shortfall prints a warning and the program runs without it; a file that doesn't
   parse ends it with exit code 2. Without a file, nothing changes
-  ([tuning](docs/tuning.md)).
+  ([tuning](https://github.com/kaitk/goose-http/blob/placement/docs/tuning.md), on the
+  branch `placement` since it left `main`).
 - `docs/tuning.md` covers worker counts, placement files, what each platform does, and
   what has been measured: on an M1 Pro, no layout beat the default.
 - `bench/pinning.sh` measures a short route's latency beside a busy CPU lane in each

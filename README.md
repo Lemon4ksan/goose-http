@@ -90,6 +90,8 @@ fn main() {
 }
 ```
 
+On `main`, `http::run(cfg, worker)` replaces these two loops; the next tag will have it.
+
 Build it and run it, then open <http://localhost:8080/>:
 
 ```sh

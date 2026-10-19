@@ -68,7 +68,6 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 | 032: shared benchmark harness | Reuse one harness across scripts and document external server integration. |
 | 034: Goose releases | goose-http and goose-rest build and pass from the release on every platform; goose-compress and our own packages remain. |
 | 043: `later` without waiting configured | Confirm with a test that `later` gets no `TIMEOUT` when `mail_slots` and `max_waiting` are 0, then fix it. |
-| 044: lane stop | Done on `tina-alignment`, with its docs, and tested on macOS, Linux, and Windows; the merge remains. |
 | 045: pinning | Parked on the branch `placement`; returns only if bare-metal Linux measures a gain. |
 | 046: placement and lanes | Placement parked with task 045; lanes are `http::Lane`. Group commit remains. |
 | 048: packages spawn threads | On `main` on a pinned Goose commit; the README's quick start waits for a release. |
