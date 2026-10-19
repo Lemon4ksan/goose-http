@@ -36,6 +36,16 @@ import timers;
 import mail;
 import lane;
 
+// A listener beside Config.port's, at Config.address: its port, and whether
+// it serves h2c, HTTP/2 with prior knowledge (h2.goose), rather than HTTP/1.1.
+struct Listener {
+    port: i32 = 0,
+    h2c: bool = false,
+}
+
+// The most listeners a loop takes beside Config.port's.
+let MAX_LISTENERS = 3;
+
 // The server's settings. Each worker gets a copy, as thread_spawn copies
 // flat values.
 struct Config {
@@ -46,6 +56,18 @@ struct Config {
     address: u8[..112] = "",
     ipv6_only: bool = false,
     port: i32 = 8080,
+    // Whether port's listener serves h2c rather than HTTP/1.1, and the
+    // listeners beside it, each with its own port and mode. Only
+    // serve_epoll serves h2c, and more than one listener, so far; serve
+    // fails with ENOSYS on either.
+    h2c: bool = false,
+    listeners: Listener[..MAX_LISTENERS] = [],
+    // HTTP/2: the most streams a client may have open on a connection, up to
+    // 256 (SETTINGS_MAX_CONCURRENT_STREAMS), and what it may send before a
+    // WINDOW_UPDATE on each stream and on the connection.
+    h2_max_streams: i64 = 128,
+    h2_stream_window: i64 = 65535,
+    h2_conn_window: i64 = 1048576,
     // 0 for one per hardware thread, or on macOS one per performance core
     // (worker_count).
     workers: i64 = 0,
@@ -161,9 +183,11 @@ fn worker_count(cfg: Config) -> i64 {
     return if n > 0 { n } else { max(1, hardware_threads()) };
 }
 
-// Opens a worker's listener where cfg.address says. Returns its fd, or the
-// error, for an address that isn't one or a listen that fails.
-fn listen_on(cfg: const Config&) -> i32, Error {
+// Opens a worker's listener where cfg.address says, on port, or cfg.port
+// without one. Returns its fd, or the error, for an address that isn't one or
+// a listen that fails.
+fn listen_on(cfg: const Config&, on: i32 = 0) -> i32, Error {
+    let port = if on > 0 { on } else { cfg.port };
     let flags = NONBLOCK | REUSEPORT;
     let text = cfg.address;
     if starts_with(text, "unix:") {
@@ -176,11 +200,11 @@ fn listen_on(cfg: const Config&) -> i32, Error {
     if text.len >= 2 && text[0] == '[' && text[text.len - 1] == ']' { host = text[1..text.len - 1]; }
     var fd: i32 = 0;
     if host.len == 0 {
-        fd = net_listen("", cfg.port, cfg.backlog, flags);
+        fd = net_listen("", port, cfg.backlog, flags);
     } else {
         let a, ok = address(host);
         guard ok else { return -1, Error { call: "address", code: EINVAL }; }
-        fd = net_listen(a.ip, cfg.port, cfg.backlog, if cfg.ipv6_only { flags | V6ONLY } else { flags });
+        fd = net_listen(a.ip, port, cfg.backlog, if cfg.ipv6_only { flags | V6ONLY } else { flags });
     }
     guard fd >= 0 else { return -1, Error { call: "listen", code: -fd }; }
     return fd, Error { call: "", code: 0 };

@@ -17,7 +17,6 @@
 namespace http;
 
 import std;
-import dictionary;
 
 // The most a table holds (§4.1): SETTINGS_HEADER_TABLE_SIZE's initial value,
 // and the most this side advertises or takes from a peer, so a table is a
@@ -344,12 +343,13 @@ fn hpack_huffman_steps() -> HpackStep[4096] {
 // Appends the Huffman-coded s decoded; false where it holds EOS or ends
 // other than in at most 7 bits of padding.
 fn hpack_unhuffman(out: u8[>..]&, s: const u8[:]) -> bool {
+    if hpack_steps.len == 0 { hpack_steps.append(hpack_huffman_steps()); }
     var state = 0;
     var flags = HPACK_ACCEPT;
     for c in s {
-        let hi = HPACK_HUFF_STEPS[state * 16 + (c >> 4)];
+        let hi = hpack_steps[state * 16 + (c >> 4)];
         if hi.flags & HPACK_EMIT != 0 { out.push(hi.sym); }
-        let lo = HPACK_HUFF_STEPS[(hi.next as i64) * 16 + (c & 15)];
+        let lo = hpack_steps[(hi.next as i64) * 16 + (c & 15)];
         if lo.flags & HPACK_EMIT != 0 { out.push(lo.sym); }
         guard (hi.flags | lo.flags) & HPACK_FAIL == 0 else { return false; }
         state = lo.next;
@@ -479,8 +479,8 @@ fn hpack_begin(t: HpackTable&, out: u8[>..]&) {
 // in the static and dynamic tables' index space; 0 where there's none.
 fn hpack_find(t: const HpackTable&, name: const u8[:], value: const u8[:]) -> i64, i64 {
     var named = 0;
-    let first = HPACK_STATIC_NAMES.get(name);
-    if first {
+    let first = hpack_static_name(name);
+    if first > 0 {
         named = first;
         // A name's entries in the static table are next to each other.
         for k in first - 1..HPACK_STATIC_COUNT {
@@ -501,15 +501,39 @@ fn hpack_find(t: const HpackTable&, name: const u8[:], value: const u8[:]) -> i6
     return 0, named;
 }
 
-// Each name of the static table, and its first index.
-let HPACK_STATIC_NAMES = hpack_static_names();
+// The static table's first index of each name, by a hash of the name's length
+// and three of its bytes, probed linearly; 0 ends a probe. A flat table, since
+// a thread may use only flat globals (spec §11.2), so not a dictionary of
+// slices; 512 bytes beside each worker's copy of the globals.
+let HPACK_NAME_SLOTS = 512;
+let HPACK_NAMES = hpack_names();
 
-fn hpack_static_names() -> dictionary<const u8[:], i64> {
-    var d = dictionary<const u8[:], i64> {};
-    for s, k in HPACK_STATIC {
-        if !d.contains(s.name) { d.insert(s.name, k + 1); }
+fn hpack_name_hash(name: const u8[:]) -> i64 {
+    guard name.len > 0 else { return 0; }
+    return (name.len * 131 + (name[0] as i64) * 31 + (name[name.len - 1] as i64) * 7 + name[name.len / 2]) %
+           HPACK_NAME_SLOTS;
+}
+
+fn hpack_names() -> u8[HPACK_NAME_SLOTS] {
+    var slots: u8[HPACK_NAME_SLOTS] = [0; HPACK_NAME_SLOTS];
+    for k in HPACK_STATIC_COUNT {
+        if k > 0 && HPACK_STATIC[k - 1].name == HPACK_STATIC[k].name { continue; }
+        var at = hpack_name_hash(HPACK_STATIC[k].name);
+        while slots[at] != 0 { at = (at + 1) % HPACK_NAME_SLOTS; }
+        slots[at] = (k + 1) as u8;
     }
-    return d;
+    return slots;
+}
+
+// The static table's first index of name, or 0.
+fn hpack_static_name(name: const u8[:]) -> i64 {
+    var at = hpack_name_hash(name);
+    loop {
+        let k: i64 = HPACK_NAMES[at];
+        guard k > 0 else { return 0; }
+        if HPACK_STATIC[k - 1].name == name { return k; }
+        at = (at + 1) % HPACK_NAME_SLOTS;
+    }
 }
 
 // Appends the field name: value through the encoder's table t: as an index
@@ -591,5 +615,5 @@ let HPACK_HUFF_LENS: u8[257] = [
     30,
 ];
 
-// After the code it's built from, as globals initialize in order.
-let HPACK_HUFF_STEPS = hpack_huffman_steps();
+// The decoding steps, built at a thread's first use (hpack_unhuffman).
+var hpack_steps: HpackStep[>..] = [];

@@ -47,6 +47,8 @@ fn serve<H>(cfg: Config) -> Error {
 fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     net_worker_start();
     guard is_field_value(cfg.server) else { return Error { call: "server", code: EINVAL }; }
+    // h2c and more listeners are serve_epoll's so far.
+    guard !cfg.h2c && cfg.listeners.len == 0 else { return Error { call: "h2c", code: ENOSYS }; }
     var lfd, listening = listen_on(cfg);
     guard lfd >= 0 else { return listening; }
     let r = ring_create(cfg.ring_entries, cfg.ring_buffers, cfg.ring_buffer_size,

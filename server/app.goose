@@ -83,6 +83,20 @@ fn serve_http(given: http::Config, default_loop: const u8[:]) {
         write_stderr("LOOP must be epoll, uring, uring-epoll, or iocp\n");
         exit(2);
     }
+    // With H2C_PORT, the epoll loop also serves h2c, HTTP/2 with prior
+    // knowledge, there, as HttpArena's 8082 is beside 8080. Not by default:
+    // on macOS a worker's shared listener is one (shim/kqueue.c), so with
+    // two, a stop leaves the first open (task 014.01).
+    var also: u8[>..] = [];
+    let p = positive("H2C_PORT", 0);
+    if epoll && p > 0 && !starts_with(cfg.address, "unix:") {
+        guard p < 65536 else {
+            write_stderr("H2C_PORT must be below 65536\n");
+            exit(2);
+        }
+        cfg.listeners.push(http::Listener { port: p as i32, h2c: true });
+        format(also, ", h2c on port ", p);
+    }
     let n = http::worker_count(cfg);
     load_dataset();
     // The backend lane of /later and /events, one thread that serves every worker.
@@ -102,7 +116,7 @@ fn serve_http(given: http::Config, default_loop: const u8[:]) {
     // again. Not RUNS, which the benchmark scripts set for themselves.
     for run in positive("SERVER_RUNS", 1) {
         print("http: ", n, if n == 1 { " worker" } else { " workers" }, " on port ", cfg.port,
-              if cfg.address.len > 0 { " at " } else { "" }, cfg.address, ", ", name, " loop", ring);
+              if cfg.address.len > 0 { " at " } else { "" }, cfg.address, also, ", ", name, " loop", ring);
         if epoll { http::run(cfg, worker_epoll) } else { http::run(cfg, worker) }
     }
     http::lane_stop(backend_lane);

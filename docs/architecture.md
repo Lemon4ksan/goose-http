@@ -195,8 +195,11 @@ program that doesn't import the module needs no codec. TLS is outside this packa
 ## HTTP/2
 
 HTTP/2 is being built in Goose, as modules of `http`
-([decisions](decisions.md#http2-is-modules-of-http-written-in-goose)). Two exist, on
-bytes alone, and no loop serves HTTP/2 yet:
+([decisions](decisions.md#http2-is-modules-of-http-written-in-goose)). `serve_epoll`
+serves h2c, HTTP/2 with prior knowledge, on a listener with `Config.h2c` or a
+`Listener`'s `h2c`: `h2.goose`'s `h2_answer` takes such a connection's bytes in place
+of `answer`, with its state in pools outside the connection's slot, and a stream per
+exchange. `serve` doesn't serve h2c yet. Two modules beneath it work on bytes alone:
 
 - `http.hpack` (`hpack.goose`) is HPACK (RFC 7541): integers, strings, the static
   table, a dynamic table with its size updates, and Huffman coding. A table is a flat

@@ -742,11 +742,15 @@ struct Reply {
     buf: u8[>..]&,
     common: const u8[:],
     keep_alive: bool&,      // whether the connection stays open; clear it before start to close
-    minor: i32,             // the request's x of HTTP/1.x
+    minor: i32,             // the request's x of HTTP/1.x, or H2_MINOR on an HTTP/2 stream
     head: bool,             // a HEAD request: finish writes the body's fields, not the body
     stream: Stream&,        // what start and begin leave for the writers after them
     fd: i32 = -1,           // the connection's socket, for peer; -1 for none
 }
+
+// Reply.minor on an HTTP/2 stream, whose HTTP/1.1 response h2.goose turns into
+// frames: begin writes no chunks, and upgrade answers 501.
+let H2_MINOR: i32 = 100;
 
 // The framing of the response being written.
 // How a response's body ends: after a Content-Length, with the bytes still to
@@ -881,7 +885,7 @@ fn begin(out: Reply, status: i32, length: i64) {
     s.open = true;
     s.in_head = true;
     s.framing = if length >= 0 { Framing.Length { left: length } }
-                else if out.minor > 0 && !s.bodyless { Framing.Chunked }
+                else if out.minor > 0 && out.minor != H2_MINOR && !s.bodyless { Framing.Chunked }
                 else { Framing.Close };
     if s.bodyless { return; }
     match s.framing {
@@ -963,8 +967,14 @@ fn end(out: Reply, trailers: const u8[:] = "") {
 // and switches the connection to it (RFC 9110 §7.8): the bytes after the
 // request go to the handler as BODY, and send writes bytes as they are,
 // until end, which closes the connection, or the client closes it. The
-// connection then waits idle_ms for the client, not body_ms.
+// connection then waits idle_ms for the client, not body_ms. HTTP/2 has no
+// upgrade (RFC 9113 §8.6), so on an h2 stream it answers 501.
 fn upgrade(out: Reply, protocol: const u8[:]) {
+    if out.minor == H2_MINOR {
+        start(out, 501);
+        finish(out, NO_TYPE, "");
+        return;
+    }
     start(out, 101);
     field(out, "Connection", "Upgrade");
     field(out, "Upgrade", protocol);
