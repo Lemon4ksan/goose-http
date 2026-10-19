@@ -1,6 +1,7 @@
 # 054: WebSocket
 
-Status: todo (asked for 2026-10-19)
+Status: done on the branch `websocket` (asked for 2026-10-19); HttpArena's benchmark
+runs of the three echo profiles are still to run.
 
 WebSocket (RFC 6455) in goose-http, over the upgrade that already hands an upgraded
 connection's bytes to the program (`http::upgrade`, `docs/api.md`). HttpArena's three
@@ -18,7 +19,7 @@ connection, with no 101 response cached across connections.
 
 1. The handshake: check `Sec-WebSocket-Key` and `Sec-WebSocket-Version`, and answer
    101 with `Sec-WebSocket-Accept`, base64 of the key's SHA-1, from goose-hash
-   (`github.com/kaitk/goose-hash`, `v0.0.1`), which tests this example.
+   (`github.com/kaitk/goose-hash`, `v0.0.2`), which tests this example.
 2. Frames: a reader for masked client frames, with fragmentation and a size limit, and
    a writer for unmasked server frames. Text, binary, ping, pong, and close, with
    close codes. Frames that arrive together are read in one pass, for the pipelined
@@ -29,9 +30,60 @@ connection, with no 101 response cached across connections.
    fragmented and pipelined messages, a frame over the limit, and Autobahn's test suite
    on the server.
 
+## What was built
+
+- `websocket.goose`, the optional module `http.websocket`: `ws_upgrade`, `ws_read`,
+  `ws_send`, `ws_close`, and the state `http::WebSocket`
+  ([api](../docs/api.md#websocket),
+  [decision](../docs/decisions.md#websocket-is-an-optional-module-over-upgrade)). It
+  declares goose-hash `v0.0.2` as `compression.goose` declares goose-compress, so only a
+  program that imports it declares goose-hash. `upgrade`'s switch of the stream became
+  `switched`, which `ws_upgrade` shares.
+- The benchmark server's `/ws` echoes each message, with a 32 MiB limit for Autobahn's
+  16 MiB messages. `bench/httparena/goose/meta.json` subscribes to the three echo
+  profiles.
+- Tests: `test/websocket/ws_handshake.goose` (RFC 6455's accept example, the 101, and
+  the 426, 400, and 501 answers) and `test/websocket/ws_frames.goose` (each frame kind,
+  fragments across reads, 16 pipelined frames, a frame a byte per read, the limit, the
+  protocol errors, and UTF-8); `http_client.py websocket` against the server in
+  `scripts/test-http.sh`; and `scripts/test-autobahn.sh`, run by `scripts/test.sh` with
+  `AUTOBAHN=1`.
+
+## Results
+
+Autobahn testsuite 25.10.1 (`crossbario/autobahn-testsuite`, digest `519915fb568b`),
+fuzzing client, against `build/server`'s `/ws` with 2 workers, on an M1 Pro, macOS 26.3,
+Docker Desktop, 2026-10-19: 301 cases, every case but sections 12 and 13. On the epoll
+loop and the uring loop (the ring emulated on kqueue) alike, 296 OK, 2 NON-STRICT, and 3
+INFORMATIONAL, with no failure:
+
+- NON-STRICT: 6.4.3 and 6.4.4, invalid UTF-8 inside one text frame sent in pieces. The
+  check runs once the frame is whole, so the connection fails then rather than at the
+  bad byte. Fragments are checked as they come.
+- INFORMATIONAL: 7.1.6, 7.13.1, and 7.13.2, which only report what the server does.
+- Excluded: 12.* and 13.*, permessage-deflate, which the module doesn't negotiate.
+
+The same 301 cases gave the same results on Linux, Ubuntu 26.04 arm64 in Docker
+Desktop's VM on the same Mac, with the server in a container and Autobahn in its network:
+the epoll loop twice and native io_uring once. There, no connection was lost; on macOS,
+`host.docker.internal` lost one in about one full run in four
+([known issues](../docs/known-issues.md#docker-on-macos)), and the script runs the
+cases it didn't reach again.
+
+`scripts/test.sh` passed on that Linux container, with seccomp unconfined so io_uring
+ran natively, and on macOS with `AUTOBAHN=1`.
+
+Still to measure: the `/ws` state adds an `http::WebSocket`, about 80 bytes, to the
+benchmark server's `Transfer`, which each request starts from fresh; plaintext's
+instructions per request with it, at the next batch of benchmark runs.
+
+HttpArena's `scripts/validate-ws.py` (at `0720ee57`, the commit `bench/httparena.sh`
+pins) against `build/server http` on macOS: 7 passed, 0 failed. The three echo profiles
+share that validation.
+
 ## Acceptance criteria
 
-- [ ] The API in `docs/api.md`, and the decision that WebSocket is in scope in
+- [x] The API in `docs/api.md`, and the decision that WebSocket is in scope in
       `docs/decisions.md` and `README.md`
-- [ ] Autobahn's server tests pass, except those for extensions
-- [ ] An echo server passes HttpArena's three echo validations
+- [x] Autobahn's server tests pass, except those for extensions
+- [x] An echo server passes HttpArena's three echo validations

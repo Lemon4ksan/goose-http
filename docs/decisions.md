@@ -477,6 +477,36 @@ The names were agreed on 2026-10-19: `Config.tls` and `Listener.tls`,
 io_uring. The benchmark server serves TLS on its port + 1 (`TLS_PORT`), only when
 `TLS_CERT` and `TLS_KEY` are set.
 
+## WebSocket is an optional module over upgrade
+
+Decided 2026-10-19, task 054. Replaces the README's status of WebSocket as out of scope,
+which no entry here recorded.
+
+WebSocket (RFC 6455) is in scope, as the optional module `http.websocket`
+(`websocket.goose`), on the upgrade that already hands a connection's bytes to the
+handler as `BODY`. HttpArena scores three echo profiles on a board of their own, and
+framing is bounded byte work of the parser's kind, so it is Goose, as HTTP/2's is. It
+needs no change to the loops: the frames are read in the handler's `BODY` calls, a
+frame not yet whole and a fragmented message wait in runs of the worker's `gather`
+pool, and a WebSocket's state is a flat `http::WebSocket` in the request's state. The
+handshake's SHA-1 comes from goose-hash `v0.0.2`, whose C runs it on the CPU's SHA
+instructions with a Goose fallback. The module declares goose-hash as `http.compression`
+declares goose-compress, so only a program that imports the module declares it in its
+root file and links its C; a program without WebSocket builds as before.
+
+The handshake is computed for each connection, as HttpArena's rules require; nothing
+is cached. Pings, pongs, and the close handshake are handled inside `ws_read`; the
+program sees whole text and binary messages, sends with `ws_send`, and starts a close
+with `ws_close`. Text is checked as UTF-8, as RFC 6455 requires of an endpoint.
+
+Rejected: a package of its own, which would reach `Reply`'s stream and the gather pool
+from outside, as h2 would have; a C library such as wslay, which would put protocol
+work in C; and computing SHA-1 in this package, which goose-hash already tests against
+RFC 6455's example. Left out for now: extensions, permessage-deflate among them, which
+Autobahn's sections 12 and 13 test; WebSocket over HTTP/2 (RFC 8441); and a strict
+UTF-8 check of a single frame before it is whole, which Autobahn scores NON-STRICT in
+cases 6.4.3 and 6.4.4.
+
 ## Not yet decided
 
 ### Compression in an optional module

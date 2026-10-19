@@ -6,6 +6,7 @@
     http_client.py PORT large       responses larger than the write buffer
     http_client.py PORT chunked     chunked request bodies, and HttpArena's /baseline11
     http_client.py PORT stream      bodies and responses of any size, in pieces, and Expect
+    http_client.py PORT websocket   /ws, a WebSocket echo, as HttpArena's echo-ws profiles use it
     http_client.py PORT files DIR   /files/, after writing its files into DIR, the
                                     directory the server's FILES names
     http_client.py PORT dataset FILE
@@ -40,8 +41,10 @@ is the Server field tfb expects (goose), for checking the servers in bench/.
 """
 
 import asyncio
+import base64
 import email.utils
 import gzip
+import hashlib
 import json
 import os
 import signal
@@ -1497,6 +1500,105 @@ def later_off(port):
     print("later-off: ok")
 
 
+def ws_frame(op, payload, fin=True):
+    """A client's frame: masked, as RFC 6455 §5.3 requires."""
+    n = len(payload)
+    head = bytes([(0x80 if fin else 0) | op])
+    if n < 126:
+        head += bytes([0x80 | n])
+    elif n < 65536:
+        head += bytes([0x80 | 126]) + n.to_bytes(2, "big")
+    else:
+        head += bytes([0x80 | 127]) + n.to_bytes(8, "big")
+    key = os.urandom(4)
+    return head + key + bytes(b ^ key[i & 3] for i, b in enumerate(payload))
+
+
+def ws_read(c):
+    """The server's next frame, which must be unmasked and whole: its opcode
+    and payload."""
+    b0, b1 = c.take(2)
+    if b0 & 0x70 or not b0 & 0x80 or b1 & 0x80:
+        fail(f"a server frame's head: {b0:#x} {b1:#x}")
+    n = b1 & 0x7F
+    if n == 126:
+        n = int.from_bytes(c.take(2), "big")
+    elif n == 127:
+        n = int.from_bytes(c.take(8), "big")
+    return b0 & 0x0F, c.take(n)
+
+
+def ws_open(port, frames=b""):
+    """A connection upgraded at /ws, with frames sent along with the request,
+    and the accept value checked."""
+    key = base64.b64encode(os.urandom(16))
+    c = Conn(port)
+    c.send(b"GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+           b"Sec-WebSocket-Key: " + key + b"\r\nSec-WebSocket-Version: 13\r\n\r\n" + frames)
+    r = c.response(head_only=True)
+    accept = base64.b64encode(hashlib.sha1(key + b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest()).decode()
+    if r.status != 101 or r.header("sec-websocket-accept") != accept or r.header("upgrade") != "websocket":
+        fail(f"/ws upgrade: {r.status} {r.headers}")
+    return c
+
+
+def ws_close(c, code=1000):
+    """The close handshake: the server answers with the same code, then closes."""
+    c.send(ws_frame(8, code.to_bytes(2, "big")))
+    op, payload = ws_read(c)
+    if op != 8 or payload != code.to_bytes(2, "big"):
+        fail(f"/ws close: {op} {payload!r}")
+    if not c.closed():
+        fail("/ws: the connection stayed open after the close")
+    c.close()
+
+
+def websocket(port):
+    """/ws, an echo, as HttpArena's echo-ws profiles use it: one message at a
+    time, 16 back to back, and 10 per connection before a new one upgrades;
+    and frames sent with the upgrade, fragments, a ping, and a large message.
+    RFC 6455's frame rules are tested in test/websocket/, and Autobahn's suite
+    by scripts/test-autobahn.sh."""
+    c = ws_open(port)
+    for i in range(100):
+        msg = b"hello %d" % i
+        c.send(ws_frame(1, msg))
+        if ws_read(c) != (1, msg):
+            fail(f"/ws echo of {msg!r}")
+    c.send(b"".join(ws_frame(1, b"hello") for _ in range(16)))
+    for i in range(16):
+        if ws_read(c) != (1, b"hello"):
+            fail(f"/ws pipelined, message {i}")
+    ws_close(c)
+
+    for n in range(20):
+        c = ws_open(port)
+        for i in range(10):
+            c.send(ws_frame(1, b"hello"))
+            if ws_read(c) != (1, b"hello"):
+                fail(f"/ws, connection {n}, message {i}")
+        ws_close(c)
+
+    c = ws_open(port, ws_frame(1, b"early") + ws_frame(9, b"ping"))
+    if ws_read(c) != (1, b"early") or ws_read(c) != (10, b"ping"):
+        fail("/ws: frames sent with the upgrade")
+    big = os.urandom(3 << 20)
+    third = len(big) // 3
+    c.send(ws_frame(2, big[:third], fin=False) + ws_frame(0, big[third:2 * third], fin=False) +
+           ws_frame(0, big[2 * third:]))
+    if ws_read(c) != (2, big):
+        fail("/ws: a fragmented 3 MiB message")
+    ws_close(c, 4000)
+
+    c = Conn(port)
+    c.send(request(b"/ws"))
+    r = c.response()
+    if r.status != 426 or r.header("upgrade") != "websocket":
+        fail(f"/ws without Upgrade: {r.status} {r.headers}")
+    c.close()
+    print("websocket: ok")
+
+
 def raw_exchange(port, data, pause=0.0):
     """Sends data, its first byte alone first when pause is set, on a new
     connection, and returns every byte back until the server closes."""
@@ -1570,7 +1672,7 @@ def main():
         {"tfb": tfb, "pipeline": pipeline, "large": large, "chunked": chunked, "keepalive": keepalive,
          "hostile": hostile, "slow": slow, "stream": stream, "requests": requests,
          "client": client, "later": later, "later-off": later_off, "forms": forms,
-         "tls": tls_checks, "tls-slow": tls_slow}[mode](port)
+         "tls": tls_checks, "tls-slow": tls_slow, "websocket": websocket}[mode](port)
 
 
 if __name__ == "__main__":

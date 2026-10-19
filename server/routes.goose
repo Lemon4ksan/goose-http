@@ -7,12 +7,14 @@
 // FILES names, /client, the peer's address and port and the client's,
 // trusting proxies on loopback, /later and /events, answers that wait
 // for the backend thread (backend.goose): one reply, or Server-Sent Events,
-// and /delay/MS, an answer after a timer.
+// and /delay/MS, an answer after a timer, and /ws, a WebSocket that echoes
+// each message, as HttpArena's echo-ws profiles ask.
 // With ACCESS_LOG set, each response is logged to stdout (logged).
 import std;
 import os;
 import http;
 import http.compression;
+import http.websocket;
 import backend;
 import dataset;
 
@@ -41,6 +43,8 @@ struct Transfer {
     sum: u64 = 0,       // /upload: the sum of the body's bytes
     file: http::FileBody = http::FileBody { .. },   // /files/
     coded: http::Compressed = http::Compressed { .. },  // /zstream, /events: the encoder, if compressed
+    // /ws. Autobahn's test suite sends messages of up to 16 MiB.
+    ws: http::WebSocket = http::WebSocket { limit: 1 << 25, .. },
 }
 
 let NONE: u8 = 0;
@@ -51,6 +55,7 @@ let FILE: u8 = 4;
 let LATER: u8 = 5;
 let EVENTS: u8 = 6;
 let DELAY: u8 = 7;
+let WS: u8 = 8;
 
 // The handler: routes each request, and carries on with those that take or
 // send their bodies in pieces. Inline, so that http::start and http::finish
@@ -62,6 +67,8 @@ inline fn handle(ev: http::Event, st: Transfer&, out: http::Reply) {
         logged(ev, out);
     } else if ev.kind == http::CLOSED && st.coded.slot >= 0 {
         http::release_compressed(st.coded);
+    } else if st.route == WS {
+        http::ws_read(ev, st.ws, out) { op, data, o => http::ws_send(o, op, data); };
     } else if st.route == UPLOAD {
         if ev.kind == http::BODY { take(st, ev.data); }
         else if ev.kind == http::END { uploaded(st, out); }
@@ -155,12 +162,14 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
     let echo = path == "/echo";
     // Upgrade: echo switches the connection to echoing what comes, as it is.
     let raw = path == "/upgrade";
+    let ws = path == "/ws";
     let files = starts_with(path, "/files/");
     let post = req.method == "POST";
     if !get && !post && !http::known_method(req.method) {
         http::start(out, 501);
         http::finish(out, http::NO_TYPE, "");
-    } else if !get && (plaintext || json || pipeline || bytes || stream || zstream || raw || files || baseline && !post) ||
+    } else if !get && (plaintext || json || pipeline || bytes || stream || zstream || raw || ws || files ||
+                       baseline && !post) ||
               !post && (upload || echo) {
         http::start(out, 405);
         out.buf.append(if baseline { "Allow: GET, HEAD, POST\r\n" }
@@ -218,6 +227,8 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
             http::field(out, "Upgrade", "echo");
             http::finish(out, http::NO_TYPE, "");
         }
+    } else if ws {
+        if http::ws_upgrade(req, out) { st.route = WS; }
     } else if get && path == "/client" {
         client(req, out);
     } else if get && (path == "/later" || path == "/events") {

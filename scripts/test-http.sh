@@ -154,6 +154,7 @@ $client tfb
 $client forms
 $client pipeline
 $client large
+$client websocket
 $client stream
 # The stream run sends and takes hundreds of MB; a server that held them whole
 # would grow by as much. Linux reads it from /proc and Windows from the peak

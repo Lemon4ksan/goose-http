@@ -6,7 +6,8 @@
 # (scripts/build.sh) with scripts/test-http.sh against it, which tests h2c
 # and TLS too on the epoll build, and
 # scripts/test-h2spec.sh against the epoll build where h2spec has a binary,
-# then scripts/test-echo.sh, and scripts/test-examples.sh, which builds each
+# and with AUTOBAHN=1, scripts/test-autobahn.sh against each build, which
+# needs Docker, then scripts/test-echo.sh, and scripts/test-examples.sh, which builds each
 # example and requests each of its routes on port 8080.
 #
 # The loops are uring and epoll on Linux and macOS, where the uring build is
@@ -72,6 +73,11 @@ for loop in $loops; do
         else
             "$root/scripts/test-h2spec.sh"
         fi
+    fi
+    if [ "${AUTOBAHN:-}" = 1 ]; then
+        drain
+        step "test-autobahn.sh, $loop loop"
+        "$root/scripts/test-autobahn.sh"
     fi
     if [ "$loop" = uring ] && [ "$os" = Linux ]; then
         drain

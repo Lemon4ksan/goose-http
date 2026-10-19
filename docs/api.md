@@ -231,6 +231,64 @@ thread_fn worker(cfg: http::Config) {
   `http::upgrade(out, protocol)` answers 101. After that, bytes come as `BODY`,
   `http::send` writes them raw, and `http::end` closes. `BODY` keeps coming while the
   exchange waits with `later` ([answers that wait](#answers-that-wait)).
+  [WebSocket](#websocket) is built on this.
+
+### WebSocket
+
+Shown in `server/`: `/ws` echoes each message, as HttpArena's echo-ws profiles ask.
+
+RFC 6455, in the optional module `http.websocket`. Its handshake's SHA-1 comes from
+goose-hash, which a program that imports the module declares in its root file:
+
+```rust
+import http from "github.com/kaitk/goose-http@<tag>";
+import hash from "github.com/kaitk/goose-hash@v0.0.2";
+import http.websocket;
+
+struct St { ws: http::WebSocket = http::WebSocket { limit: 1 << 16, .. } }
+
+thread_fn worker(cfg: http::Config) {
+    let e = http::serve(cfg, St { .. }) { ev, st, out =>
+        if ev.kind == http::REQUEST {
+            http::ws_upgrade(ev.req, out);
+        } else {
+            http::ws_read(ev, st.ws, out) { op, data, o => http::ws_send(o, op, data); };
+        }
+    };
+    http::report(e);
+}
+```
+
+- `http::ws_upgrade(req, out)` at `REQUEST`: answers a `GET` that asks for
+  `websocket` with 101 and `Sec-WebSocket-Accept`, computed for this request, and
+  returns true; the connection then carries frames. Otherwise it answers and returns
+  false: 426 with `Upgrade: websocket` to a request that doesn't ask for it, 426 with
+  `Sec-WebSocket-Version: 13` for another version, 400 for another method or a
+  `Sec-WebSocket-Key` that isn't 16 bytes in base64, and 501 on an h2 stream.
+  `http::ws_upgrade(req, out, protocol)` names a subprotocol in
+  `Sec-WebSocket-Protocol`: one of those the client offered, which
+  `http::field_of(req, "sec-websocket-protocol")` gives.
+- `http::ws_read(ev, st.ws, out) { op, data, o => }` with every later event: at `BODY`
+  it reads each frame the bytes complete, all those that arrived together in one call,
+  and calls the block with each whole message, `op` `http::WS_TEXT` or
+  `http::WS_BINARY`. A message in fragments comes joined. `data` lasts until the block
+  returns. At `CLOSED` it gives back what `st.ws` holds; other events, such as `WAKE`,
+  are the handler's.
+- Without the program, a ping gets its pong, and the client's Close gets a Close with
+  the same code, after which the connection closes. A frame the protocol forbids
+  closes it with 1002 (unmasked, an RSV bit set, an unknown opcode, a control frame in
+  fragments or longer than 125 bytes, a continuation out of place, a bad close code),
+  text that isn't UTF-8 with 1007, and a message longer than `WebSocket.limit`, 1 MiB
+  by default, with 1009, each with a Close first. A frame's length is checked from its
+  head, before its payload arrives.
+- `http::ws_send(out, op, data)` sends a message in one frame, at any event of the
+  connection's, such as `WAKE` for one from another thread. Text must be UTF-8.
+- `http::ws_close(out, st.ws, code, reason)` starts the close: 1000 and no reason by
+  default. Messages that arrive after are dropped, and the connection closes when the
+  client's Close comes, or after `Config.idle_ms`.
+- No extension, such as permessage-deflate, is negotiated, so a frame with an RSV bit
+  set is a protocol error. Autobahn's test suite passes but for its extension
+  sections, which aren't run (`scripts/test-autobahn.sh`).
 
 ### Files
 

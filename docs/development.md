@@ -121,7 +121,13 @@ and `H2C_PORT=0` turns it off. The uring loop serves HTTP/1.1 only.
    iocp on Windows. After the epoll build's, `scripts/test-h2spec.sh`, which fetches
    h2spec v2.6.0 into `build/` and runs it against the h2c port. h2spec's only builds
    are x86-64: on macOS it needs Rosetta 2, and on Linux on arm64 the step is skipped,
-   with a note ([run it from an x86-64 container](#docker-on-macos)).
+   with a note ([run it from an x86-64 container](#docker-on-macos)). With
+   `AUTOBAHN=1`, after each build's, `scripts/test-autobahn.sh`, which needs Docker:
+   it runs the Autobahn test suite's fuzzing client from the
+   `crossbario/autobahn-testsuite` image, pinned by digest, against the server's `/ws`,
+   every case but the extension sections 12 and 13. The image is x86-64 only, so on an
+   arm64 host Docker runs it under emulation; the run takes under a minute. Its report
+   is in `build/autobahn/reports/`.
 4. `scripts/test-echo.sh`, against the last build.
 5. `scripts/test-examples.sh`: builds the examples and requests their routes on port 8080,
    including the device example with simulated hardware. ARM builds are checked
@@ -440,7 +446,7 @@ once per loop. It needs curl, wrk, h2load, oha, `nc`, and `python3`. Against the
 it runs:
 
 - Response bytes, keep-alive, pipelining, request framing, and hostile requests.
-- Bodies and responses in pieces, upgrades, waiting answers, files, compression,
+- Bodies and responses in pieces, upgrades, WebSocket, waiting answers, files, compression,
   client addresses, and the access log.
 - Limits, timeouts, many connections, and graceful stop and restart.
 - Load checks and fd exhaustion on platforms that support them.

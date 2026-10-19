@@ -979,6 +979,12 @@ fn upgrade(out: Reply, protocol: const u8[:]) {
     field(out, "Connection", "Upgrade");
     field(out, "Upgrade", protocol);
     out.buf.append("\r\n");
+    switched(out);
+}
+
+// Switches out's stream to an upgraded protocol's bytes, once a 101's head is
+// written whole.
+fn switched(out: Reply) {
     let s .= out.stream;
     s.bodyless = false;
     s.open = true;

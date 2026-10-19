@@ -24,7 +24,7 @@ generation from OpenAPI, see [goose-rest](https://github.com/kaitk/goose-rest).
 | 🟢 | Compression | Files compressed with Brotli, Zstandard, or gzip; on-the-fly gzip, deflate, and Zstandard with [goose-compress](https://github.com/kaitk/goose-compress). |
 | 🟡 | HTTP/2 | h2c, HTTP/2 over TCP with prior knowledge, on the epoll and kqueue loop, on a port of its own ([API](docs/api.md#several-ports-and-h2c)). Not yet in io_uring's loop, and not yet over TLS. |
 | 🟡 | TLS | HTTPS: HTTP/1.1 over TLS 1.3 on the epoll and kqueue loop, on a port of its own, from the module `http.tls` with [goose-tls](https://github.com/kaitk/goose-tls) and OpenSSL 3 ([API](docs/api.md#https)). Not yet in io_uring's loop, nor with h2 or the kernel's TLS on Linux. |
-| 🔴 | WebSocket | Currently out of scope; `Upgrade` hands the connection to the program ([API](docs/api.md#streaming)). |
+| 🟢 | WebSocket | RFC 6455: text and binary messages, fragments, ping, and close, in the optional `http.websocket` module, with SHA-1 from [goose-hash](https://github.com/kaitk/goose-hash) ([API](docs/api.md#websocket)). Passes Autobahn's test suite. No extensions, such as permessage-deflate, and not over HTTP/2. Not yet in a tag. |
 | ⚪ | HTTP/3 | Deferred until QUIC on Linux matures; it currently uses more CPU than TCP for the same traffic. |
 
 | | Platform | Notes |
@@ -213,8 +213,9 @@ mail between threads, timers, and JSON. The package's only other code is a thin 
 - Provide an interruptible wait with atomic counts: a box's queue.
 - Hold memory that all threads can read: the blobs in the store, `http.store`.
 
-For each file and why it uses C, see the
-[architecture](docs/architecture.md#what-isnt-goose).
+The optional `http.websocket` module adds goose-hash's C, which runs the handshake's
+SHA-1 on the CPU's SHA instructions where it has them. For each file and why it uses C,
+see the [architecture](docs/architecture.md#what-isnt-goose).
 
 ## Credits
 

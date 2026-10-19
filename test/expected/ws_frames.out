@@ -1,0 +1,139 @@
+text (open)
+  text 5 hello
+
+binary (open)
+  binary 4 true
+
+ping (open)
+  pong 13 are you there
+
+pong, unasked (open)
+
+close (closed)
+  close 2 1000 
+
+close, empty (closed)
+  close 0 
+
+close, then text (closed)
+  close 2 1001 
+
+fragmented (open)
+  pong 0 
+  text 12 hello, world
+
+fragmented, a byte per read (open)
+  pong 0 
+  text 12 hello, world
+
+fragmented, 7 bytes per read (open)
+  pong 0 
+  text 12 hello, world
+
+pipelined (open)
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+
+pipelined, 13 bytes per read (open)
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+  text 5 hello
+
+200 bytes (open)
+  text 200 abcdefghij...ijklmnopqr
+
+300 bytes, the limit (open)
+  text 300 abcdefghij...efghijklmn
+
+over the limit (closed)
+  close 2 1009 
+
+over the limit, fragmented (closed)
+  close 2 1009 
+
+unmasked (closed)
+  close 2 1002 
+
+RSV1, no extension (closed)
+  close 2 1002 
+
+opcode 3 (closed)
+  close 2 1002 
+
+opcode 11 (closed)
+  close 2 1002 
+
+ping in fragments (closed)
+  close 2 1002 
+
+ping of 126 bytes (closed)
+  close 2 1002 
+
+continuation first (closed)
+  close 2 1002 
+
+text while fragmented (closed)
+  close 2 1002 
+
+close of one byte (closed)
+  close 2 1002 
+
+close code 1005 (closed)
+  close 2 1002 
+
+close code 2000 (closed)
+  close 2 1002 
+
+close code 4000 (closed)
+  close 2 4000 
+
+text, overlong (closed)
+  close 2 1007 
+
+text, a surrogate (closed)
+  close 2 1007 
+
+text, past U+10FFFF (closed)
+  close 2 1007 
+
+text, UTF-8 (open)
+  text 10 κόσμε
+
+fragment, not UTF-8 (closed)
+  close 2 1007 
+
+character across fragments (open)
+  text 5 κὃ
+
+character left open (closed)
+  close 2 1007 
+
+close reason, not UTF-8 (closed)
+  close 2 1007 

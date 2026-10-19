@@ -46,6 +46,10 @@ Each is C for one of four reasons:
   copies every other global a worker uses when it's spawned. `shim/store.c` holds
   byte blobs a program writes once, before its workers read them.
 
+A program that imports `http.websocket` also links goose-hash's C, which runs the
+handshake's SHA-1 on the CPU's SHA instructions where it has them, and goose-hash's
+Goose rounds elsewhere ([WebSocket](#websocket)).
+
 Each C file is a separate translation unit and declares the layouts it shares with
 Goose; the [C interop guide](c-interop.md) describes them. Goose has no runtime
 function pointers (§7.5), and `export fn` calls must stay on the thread that called
@@ -195,6 +199,27 @@ optional `http.compression` module, over goose-compress's encoders, which are Go
 and import nothing of HTTP. Negotiation and response framing stay in `http`, so a
 program that doesn't import the module needs no codec. [TLS](#tls) is goose-tls's, in
 the same way.
+
+## WebSocket
+
+The optional `http.websocket` module speaks RFC 6455 over `http::upgrade`'s raw bytes,
+so the loops know nothing of it ([decisions](decisions.md#websocket-is-an-optional-module-over-upgrade)).
+`ws_upgrade` checks the request and writes the 101 with `Sec-WebSocket-Accept`, the
+base64 of the key's SHA-1 from goose-hash, for each connection. A program that doesn't
+import the module needs neither goose-hash nor its C.
+
+`ws_read` reads the frames each `BODY` completes in one pass, unmasking each payload
+onto the worker's data stack, so 16 frames that arrive together are 16 calls of the
+program's block and one write. A frame split across reads, and the fragments of a
+message, wait in runs of the worker's pool that `http::gather` uses, held in the
+`WebSocket` in the connection's state and given back when the message is whole or the
+connection closes; an idle connection holds no buffer. A frame's head is checked
+before its payload arrives, so a frame past `WebSocket.limit` closes the connection
+with 1009 without being buffered. Text is checked as UTF-8 a fragment at a time, so bad
+text in an early fragment fails the connection before the rest arrives; within one
+frame, the check runs once the frame is whole. Pings get their pong, and a Close its
+Close, inside `ws_read`, without the program. No extension is negotiated, and an
+HTTP/2 stream has no WebSocket (RFC 8441).
 
 ## HTTP/2
 
