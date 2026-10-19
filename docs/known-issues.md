@@ -168,6 +168,11 @@ keeps each file's endings needs no escaping.
   `WinError 52`), anywhere from `keepalive` to `many` (2026-10-12). Wait until
   `(Get-NetTCPConnection -State TimeWait | Measure-Object).Count` is low again. Windows
   has 16,384 ephemeral ports; changing the server's `PORT` doesn't replenish them.
+  A drained stack isn't always enough: on 2026-10-19, `many` failed with `WinError 121`
+  in two of three `scripts/test.sh` runs started with fewer than 200 connections in
+  `TIME_WAIT`, while load tests ran in WSL2 on the same machine; four runs of
+  `test-http.sh` alone, three under that load, with and without `nice -n 19`, passed.
+  Rerun before suspecting the IOCP loop.
 - A Linux build in the same tree leaves an ELF `build/server` beside `build/server.exe`,
   and Git Bash runs `build/server` first, which fails with "Exec format error". The test
   scripts name `build/server.exe` on Windows; do the same by hand.
