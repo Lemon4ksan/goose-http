@@ -389,6 +389,10 @@ run twice the worker threads on the same CPUs, which distorts the comparison; TL
 8081 and 8443 will need several listeners too. The cost is an accept path that goes
 over several listeners in each loop.
 
+The names were agreed on 2026-10-19: `Config.h2c` for `Config.port`'s mode,
+`Config.listeners`, a list of `Listener { port, h2c }`, and the HTTP/2 settings
+`Config.h2_max_streams`, `Config.h2_stream_window`, and `Config.h2_conn_window`.
+
 ## h2 serves the handlers' HTTP/1.1 responses, translated
 
 Decided 2026-10-19, task 014.01.
