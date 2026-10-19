@@ -90,6 +90,11 @@ intermediate shell can otherwise expand variables before bash sees them.
 - macOS holds closed client ports in `TIME_WAIT` for 30 s. Wait between large client
   runs; `scripts/test.sh` drains between stages. Count remaining sockets with
   `netstat -an -p tcp | grep -c TIME_WAIT`.
+- Two checkouts' `scripts/test.sh` at once share the 16,384 ephemeral ports
+  (49152-65535), and `test-http.sh`'s `many` holds 10,000 of them, then leaves them in
+  `TIME_WAIT`. The second run's `many` then fails with `Can't assign requested address`
+  or a connect timeout, on any loop (2026-10-19). Run one suite at a time, or wait 30 s
+  after the other's `many`; a distinct `PORT` doesn't help.
 - `kern.ipc.somaxconn` defaults to 128, limiting the listen backlog. The tests pass
   there; `sudo sysctl kern.ipc.somaxconn=4096` raises it until reboot.
 - `lsof` resolves `/var` and `/tmp` through `/private`. Match resolved paths when
