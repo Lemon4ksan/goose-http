@@ -21,10 +21,14 @@ let H2_STREAM_CAP = 256;
 // RST_STREAM, WINDOW_UPDATE, and empty DATA and CONTINUATION, and how many
 // a second it gets back, against floods of them (RFC 9113 §10.5). The same
 // for resets of streams that hadn't been answered, the 2023 rapid reset
-// attack. Past either, the connection ends with ENHANCE_YOUR_CALM.
-let H2_CONTROL_BURST = 1000;
-let H2_CONTROL_RATE = 100;
-let H2_RESET_BURST = 256;
+// attack. Past either, the connection ends with ENHANCE_YOUR_CALM. h2load,
+// nghttp, and curl spend one control frame a connection, their SETTINGS, and
+// a client that leaves a page resets every stream it has open, up to
+// H2_STREAM_CAP: the bursts allow 100 times the one, and twice the other
+// (task 014.01, "Flood budgets").
+let H2_CONTROL_BURST = 100;
+let H2_CONTROL_RATE = 10;
+let H2_RESET_BURST = 2 * H2_STREAM_CAP;
 let H2_RESET_RATE = 32;
 // Streams this side reset lately, whose frames in flight are ignored
 // rather than taken for a closed stream's (§5.1).
