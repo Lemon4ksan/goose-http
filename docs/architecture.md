@@ -134,9 +134,9 @@ selects the emulation for tests.
 
 ### Platforms
 
-On macOS, workers share one listener, because separate `SO_REUSEPORT` listeners
-didn't spread connections, and an accept counter keeps one worker from taking them
-all. Apple Silicon has no CPU affinity.
+On macOS, workers share one listener per port, because separate `SO_REUSEPORT`
+listeners didn't spread connections, and an accept counter for each port keeps one
+worker from taking them all. Apple Silicon has no CPU affinity.
 
 On Windows, repeated `AcceptEx` and `WSARecv` operations stand in for multishot
 requests, and zero-byte receives keep idle connections from using up the provided
