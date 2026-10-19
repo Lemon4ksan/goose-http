@@ -48,7 +48,8 @@ fn lane_open<W>(cfg: LaneConfig, a) -> Lane {
     return lane_spawn(cfg) { b => thread_spawn(W, b, a) };
 }
 
-// lane_open's work: SPAWN starts a thread with its box and returns its id.
+// lane_open's work: SPAWN starts a thread with its box and returns its id. A
+// package whose lane threads take other parameters opens its lanes with it.
 fn lane_spawn<SPAWN>(cfg: LaneConfig) -> Lane {
     var n = max(cfg.threads, 1);
     if n > LANE_MOST {

@@ -420,6 +420,11 @@ fn main() {
   `a` too, to `thread(box: http::Box, a: A)`. A box that fails to open ends the
   program. The `http::Lane` it returns is flat, so it crosses `thread_spawn` and
   `http::run`.
+- `http::lane_spawn(cfg) { b => thread_spawn(thread, b, ...) }` is `lane_open`'s
+  work: it opens each box, calls the block to start that box's thread, and keeps the id
+  the block returns. It is for a package whose lane threads take other parameters than
+  `lane_open` passes, as goose-rest's typed lanes do; a program opens its lanes with
+  `lane_open`.
 - `http::lane(box) { tag, bytes => }` is the thread's loop: it calls the block with
   each job, in the order sent, until the lane is stopped and its box empty, then closes
   the box.
