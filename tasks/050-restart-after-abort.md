@@ -50,6 +50,6 @@ they give up, its ring's memory, and its box and waker.
       `ring_reap` stops the accept
 - [ ] Second step: what an aborted worker opened through C closed by `run` in every
       backend, so its clients get a reset, or a reason recorded for each part left
-- [ ] goose-rest's task 044: lanes restarted in `rest::lane`, which takes the thread's
-      own `thread_fn` so that it can start it again, and a lane that aborts no longer
-      ends the process here either
+- [ ] goose-rest's task 044: lanes restarted by a `thread_fn watch<W>` in `lane_open`,
+      once Goose lets a `thread_fn` take a function value (task 052); until then an
+      abort in a lane ends the process

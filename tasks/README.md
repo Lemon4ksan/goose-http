@@ -73,7 +73,8 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 | 046: placement and lanes | Placement and lanes of N built on `tina-alignment`; group commit, the decisions, and the measurements remain. |
 | 048: packages spawn threads | On `main` on a pinned Goose commit; the README's quick start waits for a release. |
 | 050: restart after an abort | `http::run` restarts aborted workers, tested on macOS and Linux; Windows, closing what an aborted worker opened, and goose-rest's lanes remain. |
-| 051: limited queues | The server's backend takes jobs from a limited queue; the before-and-after benchmark, the patterns page, and goose-rest's pools remain. |
+| 051: limited queues | The server's backend takes jobs from a limited queue; the before-and-after benchmark and goose-rest's pools remain. |
+| 052: Goose PR, a `thread_fn` taking a function value | Being built on the fork; the PR opens once its description is reviewed. Lane restarts wait on it. |
 
 Tasks 013 and 018 have completed acceptance criteria and are archived with the other
 completed work. Compression subtasks stay with their open parent. Completed platform
