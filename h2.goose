@@ -225,9 +225,9 @@ fn h2_value_ok(value: const u8[:]) -> bool {
 }
 
 // Appends the HPACK of an HTTP/1.1 response head, its status line and field
-// lines, through enc, and returns its status: the fields lowercased, and
-// those of HTTP/1.1's connection dropped (§8.2.2).
-fn h2_head_block(enc: HpackTable&, fb: u8[>..]&, head: const u8[:]) -> i32 {
+// lines, through enc, and returns its status: the fields' names lowercased
+// in head itself, and those of HTTP/1.1's connection dropped (§8.2.2).
+fn h2_head_block(enc: HpackTable&, fb: u8[>..]&, head: u8[:]) -> i32 {
     hpack_begin(enc, fb);
     let eol = find(head, "\r\n");
     let line = if eol < 0 { head } else { head[..eol] };
@@ -242,7 +242,6 @@ fn h2_head_block(enc: HpackTable&, fb: u8[>..]&, head: const u8[:]) -> i32 {
     format(digits, status);
     hpack_encode(enc, fb, ":status", digits);
     var pos = if eol < 0 { head.len } else { eol + 2 };
-    var name: u8[>..] = [];
     while pos < head.len {
         let rest = head[pos..];
         let end = find(rest, "\r\n");
@@ -250,8 +249,8 @@ fn h2_head_block(enc: HpackTable&, fb: u8[>..]&, head: const u8[:]) -> i32 {
         pos += if end < 0 { rest.len } else { end + 2 };
         let colon = position(l, ':');
         if colon <= 0 { continue; }
-        name.clear();
-        for c in l[..colon] { name.push(if c >= 'A' && c <= 'Z' { c + 32 } else { c }); }
+        let name = l[..colon];
+        for &c in name { if c >= 'A' && c <= 'Z' { c += 32; } }
         if name == "connection" || name == "keep-alive" || name == "proxy-connection" ||
            name == "transfer-encoding" || name == "upgrade" { continue; }
         hpack_encode(enc, fb, name, trim(l[colon + 1..]));
@@ -408,7 +407,7 @@ fn h2_answer<S, H, C>(c: C&, slot: i64, h: H2Conn&, streams: H2Stream<S>[>..]&, 
 
     // A whole response head in text, and the body bytes after it: HEADERS,
     // with END_STREAM where the response ended with no body, then DATA.
-    fn head_done(k: i64, text: const u8[:], e: i64, ended: bool) {
+    fn head_done(k: i64, text: u8[:], e: i64, ended: bool) {
         let st .= streams[k];
         let body = text[e + 4..];
         bfb.clear();
@@ -424,8 +423,9 @@ fn h2_answer<S, H, C>(c: C&, slot: i64, h: H2Conn&, streams: H2Stream<S>[>..]&, 
 
     // Turns what the handler wrote into stream k's output: the HTTP/1.1
     // head into HEADERS, once it's whole, and the rest into DATA, with
-    // END_STREAM once the response has ended.
-    fn emit(k: i64, bytes: const u8[:]) {
+    // END_STREAM once the response has ended. The head's names are
+    // lowercased in bytes.
+    fn emit(k: i64, bytes: u8[:]) {
         let st .= streams[k];
         guard !st.local_closed else { return; }
         let ended = !st.x.stream.open;
