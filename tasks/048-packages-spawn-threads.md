@@ -1,6 +1,6 @@
 # 048: The packages spawn their own threads
 
-Status: in progress; merges after a Goose release with `fb5698125`
+Status: in progress; merged on Goose master `dcc2747`, pinned until a release has it
 
 `thread_spawn` couldn't name a `thread_fn` passed into a generic from another module, so
 neither package could start a thread of the program's: every program spawns its own
@@ -11,7 +11,7 @@ workers, and every goose-rest program spawns each lane's threads, one per box. G
 
 This task moves thread starting into the packages, where the count, the index, and the
 seat of each thread are known. It follows task 046's placement and goose-rest's lanes
-of N (both on `tina-alignment`), and is built on a branch stacked on it.
+of N.
 
 ## Today
 
@@ -101,29 +101,30 @@ feature: what this change makes unneeded is removed, not kept beside the new way
 
 - [x] Agreed answers to the open questions, recorded here (2026-10-18)
 - [x] The answers in each repository's `docs/decisions.md`, with the reason (goose-http
-      `a4111c9`, goose-rest `6ff6e18`)
+      `084f7fb`, goose-rest `c1d1e48`)
 - [x] goose-http: `http::run` with 0, 1, and 2 extra values, `Config.worker`, and the
       loops taking their seat from it; the arrival counter and `place_next` removed
-      from `shim/place.c`, or kept per the first question (`da3d11d`). The worker comes
+      from `shim/place.c`, or kept per the first question (`87cd198`). The worker comes
       last, `http::run(cfg, app, worker)`, not as proposed: Goose takes a function value
       only after a call's other arguments (spec §7.6)
 - [x] goose-http: every example, `server/`, and `bench/pinning/pinning.goose` use
       `run`; programs that keep their own loop set `Config.worker`; tests for `run`
       (workers' indexes, each gets its own seat, `run` returns after the last worker)
-      (`da3d11d`, `test/server/run.goose`)
+      (`87cd198`, `test/server/run.goose`)
 - [x] goose-rest: `rest::lane_open(place, cfg, W)` with 0 and 1 extra values,
       `Lane` keeping its thread ids, `lane_stop` waiting for them, and `lane_seat`
       removed; the tutorial's and best practices' programs, their pages' quoted blocks,
-      and `test/lane/` moved to them (goose-rest `7212c4e` pin, `6ff6e18`, `99238fe`;
+      and `test/lane/` moved to them (goose-rest `c1d1e48`, `446eae1`;
       `Lane.role` went too, as only `lane_seat` read it)
-- [x] Docs: goose-http's `docs/api.md` ("Running a server"), `docs/tuning.md`, and
-      `README.md`'s quick start; goose-rest's tutorial chapters that spawn threads,
-      `docs/best-practices/lanes.md`, and `docs/reference.md` (`a4111c9`, goose-rest
-      `6ff6e18` and `99238fe`)
-- [ ] Built and tested with `GOOSE_COMMIT=fb5698125d6b366cff3b7aebc877fe0148c698a2` on a
-      branch stacked on `tina-alignment` (both repositories' `spawn-threads`, 2026-10-18);
-      merged only after a Goose release has the commit, with the pin moved to that
-      release first
+- [x] Docs: goose-http's `docs/api.md` ("Running a server") and `docs/tuning.md`;
+      goose-rest's tutorial chapters that spawn threads,
+      `docs/best-practices/lanes.md`, and `docs/reference.md` (`084f7fb`, goose-rest
+      `c1d1e48` and `446eae1`)
+- [ ] `README.md`'s quick start calls `http::run` once a goose-http tag has it: until
+      then it imports `v0.3.7`, which builds with Goose `v2026.2`
+- [x] Built and tested on Goose master `dcc2747`, which `scripts/goose.sh` pins until a
+      release has #37 (2026-10-19): merged before that release, rather than waiting,
+      so that the work on #38 and #39 builds on it
 - [ ] `scripts/test.sh` passes in both repositories on macOS, Linux (io_uring, epoll),
       and Windows (MSVC): goose-http on macOS and in arm64 Linux Docker (io_uring,
       epoll, and the emulated ring), goose-rest on macOS, 2026-10-18; Linux for

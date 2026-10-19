@@ -22,8 +22,10 @@ esac
 arch=$1
 root=$(cd "$(dirname "$0")/.." && pwd)
 if [ -z "${GOOSE:-}" ]; then
-    # GOOSE_COMMIT builds for the host, and the cross-build runs on Linux x86-64.
-    if [ -n "${GOOSE_COMMIT:-}" ] && [ "$(uname -s)-$(uname -m)" != Linux-x86_64 ]; then
+    # GOOSE_COMMIT, or a commit goose.sh pins, builds for the host, and the
+    # cross-build runs on Linux x86-64.
+    pinned=$(sed -n 's/^goose_commit=//p' "$root/scripts/goose.sh")
+    if [ -n "${GOOSE_COMMIT:-$pinned}" ] && [ "$(uname -s)-$(uname -m)" != Linux-x86_64 ]; then
         echo "GOOSE_COMMIT builds a compiler for this host; set GOOSE to a Linux x86-64 build" >&2
         exit 2
     fi

@@ -37,7 +37,15 @@ What isn't Goose, and why, is in
 
 ## Get Goose
 
-The scripts use the official Goose release that `scripts/goose.sh` pins: `v2026.2`
+Until the next release, the scripts build Goose master `dcc2747` (2026-10-19), which
+`goose_commit` in `scripts/goose.sh` pins: `http::run` needs
+[aardappel/goose#37](https://github.com/aardappel/goose/pull/37), which no release has
+yet, and the work after it needs #38 and #39, merged with it. The first script that
+needs the compiler clones and builds that commit as `GOOSE_COMMIT` does
+([use another compiler](#use-another-compiler)), so it needs CMake and a C++ compiler.
+Once a release has the three, `goose_commit` is emptied and the release below pinned.
+
+Otherwise the scripts use the official Goose release that `scripts/goose.sh` pins: `v2026.2`
 (`3ee3871`), since 2026-10-16. The first script that needs the compiler downloads the release's
 archive for the platform from
 [the releases page](https://github.com/aardappel/goose/releases), checks its SHA-256,

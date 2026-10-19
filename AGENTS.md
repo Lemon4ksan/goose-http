@@ -91,10 +91,12 @@ the release and its commit in `README.md`'s quick start, `docs/development.md` (
 Goose" and the release paths), and `.vscode/settings.json`, in its own commit.
 
 Pin a commit only when a Goose fix that this repository needs isn't in a release yet,
-and return to a release once one has it (2026-10-15). Set `GOOSE_COMMIT` in the
-scripts' environment (`docs/development.md`, "Use another compiler"), and
-`--build-arg GOOSE_COMMIT=<hash>` for `bench/httparena/goose/Dockerfile`. Record the
-commit and the reason in `docs/development.md`, "Get Goose".
+and return to a release once one has it (2026-10-15). Set `goose_commit` in
+`scripts/goose.sh` to the full hash, which every script and
+`bench/httparena/goose/Dockerfile` then build, and empty it to return to the release.
+Record the commit and the reason in `docs/development.md`, "Get Goose". Goose releases
+often, so work that needs a merged fix lands on `main` on a pinned commit rather than
+wait for the release (2026-10-19).
 
 A pin move doesn't wait for benchmarks. They're costly to run, so they run in batches,
 overnight, after a stretch of work (2026-10-13). Until then the results stand at the
