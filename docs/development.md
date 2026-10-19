@@ -265,7 +265,16 @@ leaves out `test/tls/` there, and `scripts/test-examples.sh` `examples/tls`.
 The scripts fetch the `windows-x64` release ([Get Goose](#get-goose)). `goose build`
 needs the Visual Studio 2026 Build Tools: run
 `winget install Microsoft.VisualStudio.BuildTools` with the
-`Microsoft.VisualStudio.Workload.VCTools` workload. Then, in Git Bash:
+`Microsoft.VisualStudio.Workload.VCTools` workload. While a commit is pinned
+([Get Goose](#get-goose)), the scripts build it with CMake, which the Build Tools
+include but don't put on Git Bash's `PATH`; without it the build stops at
+`cmake: command not found` (2026-10-19):
+
+```sh
+export PATH="$PATH:/c/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin"
+```
+
+Then, in Git Bash:
 
 ```sh
 scripts/build.sh                 # LOOP=iocp, CC=msvc: build/server.exe
