@@ -1,6 +1,6 @@
 // The h2c driver, h2_answer, fed a client's bytes without a socket: the
 // preface and settings, requests whole and with bodies, a response sent in
-// pieces, flow control at a small window, a stream that waits while another
+// pieces, a response's fields translated, flow control at a small window, a stream that waits while another
 // is answered, upgrade answering 501, malformed requests, Expect, a handler
 // that ends keep-alive, and the flood guards. Each frame the server writes is printed, its Date left out.
 import std;
@@ -77,6 +77,21 @@ fn handle(ev: http::Event, st: St&, out: http::Reply) {
     } else if path == "/cookie" {
         let c, ok = http::field_of(ev.req, "cookie");
         http::respond(out, 200, "text/plain", c);
+    } else if path == "/fields" {
+        http::start(out, 200);
+        http::field(out, "X-Mixed-Case", "1");
+        http::field(out, "Connection", "close");
+        http::field(out, "Keep-Alive", "timeout=5");
+        http::field(out, "Proxy-Connection", "close");
+        http::field(out, "Transfer-Encoding", "chunked");
+        http::field(out, "Upgrade", "h2c");
+        http::field(out, "Upgrades", "kept");
+        http::field(out, "Content-Location", "/kept");
+        http::finish(out, http::NO_TYPE, "ok");
+    } else if path == "/held" {
+        // The head stays open until MORE's first send.
+        http::begin(out, 200, -1);
+        http::field(out, "X-Held", "yes");
     } else {
         http::respond(out, 404, "text/plain", "");
     }
@@ -232,6 +247,16 @@ fn streamed() {
     feed(input);
 }
 
+fn translation() {
+    print("a response's fields lowercased, HTTP/1.1's connection fields dropped, and a head held open:");
+    session(http::Config { .. });
+    var input: u8[>..] = [];
+    opening(input, http::H2Settings { .. });
+    request(input, 1, "GET", "/fields", "", true);
+    request(input, 3, "GET", "/held", "", true);
+    feed(input);
+}
+
 fn flow_control() {
     print("a stream window of 10, then WINDOW_UPDATEs:");
     session(http::Config { .. });
@@ -380,6 +405,7 @@ fn floods() {
 fn main() {
     basics();
     streamed();
+    translation();
     flow_control();
     waiting();
     refusals();
