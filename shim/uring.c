@@ -154,6 +154,7 @@ void urp_give(int64_t h, int32_t buf);
 int32_t urp_wait(int64_t h, ur_completions out, int32_t timeout_ms);
 void urp_destroy(int64_t h);
 int64_t urp_waker(int64_t h, uint64_t tag);
+int32_t urp_listeners(void);
 
 /* ur_create's flag, ring.goose's RING_EMULATE. */
 #define UR_EMULATE 1
@@ -182,6 +183,10 @@ int32_t ur_probe(void) {
     io_uring_queue_exit(&ring);
     return br ? 0 : r;
 }
+
+/* An io_uring ring takes any number of listeners, and the emulation it may
+   fall back to takes this many. */
+int32_t ur_listeners(void) { return urp_listeners(); }
 
 /* An SQE, submitting what's queued first if the submission queue is full. */
 static struct io_uring_sqe *ur_sqe(struct ur *u) {

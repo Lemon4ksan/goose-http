@@ -1,7 +1,7 @@
 // serve, the completion loop: each worker has its own ring (io_uring on Linux,
-// a completion port on Windows, an emulation over epoll or kqueue elsewhere), and its own SO_REUSEPORT listener on Linux
+// a completion port on Windows, an emulation over epoll or kqueue elsewhere), and its own SO_REUSEPORT listeners on Linux
 // (net_listen), and nothing else is shared between workers. A multishot
-// accept takes the listener's connections, and a multishot receive per
+// accept takes each listener's connections, and a multishot receive per
 // connection fills the ring's provided buffers. The sends a pass over the
 // completions queues go to the kernel together, in the next wait.
 namespace http;
@@ -11,14 +11,20 @@ import os;
 import sys;
 import message;
 import ring;
+import h2;
 
 // A request's tag: the connection's slot in the low 32 bits and a
 // generation above, so a completion that arrives after its connection
-// closed isn't taken for one of the slot's next connection. The listener's
-// slot is one no connection gets.
+// closed isn't taken for one of the slot's next connection. The listeners'
+// slots are ones no connection gets: Config.port's is RING_LISTENER, and
+// Config.listeners[k]'s RING_WAKE - 1 - k.
 let RING_LISTENER: u64 = 0xFFFFFFFF;
 // The tag of the waker's completions (ring_waker): mail in the box, or a stop.
 let RING_WAKE: u64 = 0xFFFFFFFE;
+
+fn ring_listener_tag(k: i64) -> u64 {
+    return if k == 0 { RING_LISTENER } else { RING_WAKE - (k as u64) };
+}
 
 // Between completions, a connection holds what it couldn't answer yet as a
 // run of the worker's spill pool. Its responses wait in the ring, which
@@ -30,6 +36,7 @@ struct RingConn<S> {
     queued: i64,        // bytes given to ring_send and not yet sent
     reading: bool,      // its multishot receive is queued
     stalled: bool,      // stopped reading at cfg.max_queued, with held to answer
+    h2: i32 = -1,       // an h2c connection's H2Conn, in the worker's pool; -1 for HTTP/1.1
     deadline: i64,      // the time after which the sweep closes it
     x: Exchange<S>,     // the request in progress past its handler's REQUEST call
     held: u8[:],        // received and not yet answered
@@ -47,19 +54,35 @@ fn serve<H>(cfg: Config) -> Error {
 fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     net_worker_start();
     guard is_field_value(cfg.server) else { return Error { call: "server", code: EINVAL }; }
-    // h2c and more listeners are serve_epoll's so far.
-    guard !cfg.h2c && cfg.listeners.len == 0 else { return Error { call: "h2c", code: ENOSYS }; }
-    var lfd, listening = listen_on(cfg);
-    guard lfd >= 0 else { return listening; }
+    guard cfg.listeners.len == 0 || !starts_with(cfg.address, "unix:") else {
+        return Error { call: "listeners", code: EINVAL };
+    }
+    // A completion port keeps one listener's accept.
+    guard cfg.listeners.len < ring_listeners() else { return Error { call: "listeners", code: ENOSYS }; }
+    // The listeners, Config.port's first, and whether each serves h2c.
+    var lfds: i32[..MAX_LISTENERS + 1] = [];
+    var h2c_at: bool[..MAX_LISTENERS + 1] = [];
+    fn close_listeners() {
+        for fd in lfds { if fd >= 0 { net_close(fd); } }
+    }
+    for k in cfg.listeners.len + 1 {
+        let fd, listening = listen_on(cfg, if k == 0 { cfg.port } else { cfg.listeners[k - 1].port });
+        guard fd >= 0 else {
+            close_listeners();
+            return listening;
+        }
+        lfds.push(fd);
+        h2c_at.push(if k == 0 { cfg.h2c } else { cfg.listeners[k - 1].h2c });
+    }
     let r = ring_create(cfg.ring_entries, cfg.ring_buffers, cfg.ring_buffer_size,
                         if cfg.emulate_ring { RING_EMULATE } else { 0 });
     guard r >= 0 else {
-        net_close(lfd);
+        close_listeners();
         return Error { call: "io_uring", code: -r };
     }
     let waker = ring_waker(r, RING_WAKE);
     guard waker >= 0 else {
-        net_close(lfd);
+        close_listeners();
         ring_destroy(r);
         return Error { call: "waker", code: -waker };
     }
@@ -67,7 +90,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     let box, opened = open_waiting(cfg, waker);
     guard opened.code == 0 else {
         close_waiting(box, waker);
-        net_close(lfd);
+        close_listeners();
         ring_destroy(r);
         return opened;
     }
@@ -77,7 +100,16 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     var overdue: u64[>..] = [];
     let nothing = Request { .. };
     let none = Event { kind: NO_EVENT, req: nothing, data: "", whole: false, trailers: "" };
-    ring_accept(r, lfd, RING_LISTENER);
+    // Whether each listener's multishot accept is queued. One ends when the
+    // worker reaches cfg.max_conns, and on an error such as EMFILE. Then it's
+    // queued again once a connection closes, or at the next sweep.
+    var accepting: bool[..MAX_LISTENERS + 1] = [];
+    var accept_failed: bool[..MAX_LISTENERS + 1] = [];
+    for fd, k in lfds {
+        ring_accept(r, fd, ring_listener_tag(k));
+        accepting.push(true);
+        accept_failed.push(false);
+    }
 
     let started = stops();
     var stopping = false;
@@ -86,12 +118,20 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     reusable var conns: RingConn<S>[>..] = [];
     var open = 0;
     var generation: u64 = 0;
-    // Whether the listener's multishot accept is queued. It ends when the
-    // worker reaches cfg.max_conns, and on an error such as EMFILE. Then it's
-    // queued again once a connection closes, or at the next sweep.
-    var accepting = true;
-    var accept_failed = false;
     var closed = false;
+    // h2c's connections and streams, empty unless a listener serves h2c;
+    // the worker's scratch for them; the streams' generations for later's
+    // keys; and the stream a WAKE or TIMEOUT is for, while resume hands it on.
+    reusable var h2conns: H2Conn[>..] = [];
+    reusable var h2streams: H2Stream<S>[>..] = [];
+    var h2out: u8[>..] = [];
+    var h2fields: u8[>..] = [];
+    var h2pseudo: u8[>..] = [];
+    var h2cookie: u8[>..] = [];
+    var h2huff: u8[>..] = [];
+    var h2fb: u8[>..] = [];
+    var h2gen: u64 = 0;
+    var wake_at: i64 = -1;
     var now = net_clock_ms();
     var next_sweep = now + 1000;
     // On the heap: as a 112-byte array in the loop's frame, it cost the
@@ -109,16 +149,22 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     // Whether the driven connection answered a request or sent a response.
     var progress = false;
 
-    fn accepted(cq: Completion) {
-        if !cq.more { accepting = false; }
+    // Cancels the accepts queued, at cfg.max_conns.
+    fn stop_accepting() {
+        for k in lfds.len { if accepting[k] { ring_cancel(r, ring_listener_tag(k)); } }
+    }
+
+    // A completion of listener k's accept.
+    fn accepted(k: i64, cq: Completion) {
+        if !cq.more { accepting[k] = false; }
         let fd = cq.res;
         if fd < 0 {
             // EMFILE, ENFILE, or out of memory: try again later.
-            if fd != -ECANCELED && !accept_failed { report(Error { call: "accept", code: -fd }); }
-            accept_failed = fd != -ECANCELED;
+            if fd != -ECANCELED && !accept_failed[k] { report(Error { call: "accept", code: -fd }); }
+            accept_failed[k] = fd != -ECANCELED;
             return;
         }
-        accept_failed = false;
+        accept_failed[k] = false;
         guard open < cfg.max_conns && !stopping else {
             net_close(fd);
             return;
@@ -130,15 +176,21 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         c.tag = (generation << 32) | (i as u64);
         c.x.stream.direct = true;
         c.x.stream.later = MailAddress { box: box.handle, key: later_base(i, generation) };
+        if h2c_at[k] { c.h2 = h2conns.alloc_index(h2_conn(cfg, now)) as i32; }
         ring_recv(r, fd, c.tag);
         open++;
-        if open == cfg.max_conns && accepting { ring_cancel(r, RING_LISTENER); }
+        if open == cfg.max_conns { stop_accepting(); }
     }
 
     fn close_conn(i: i64) {
         let c .= conns[i];
         abandon(c, H);
         cancel(timers, c.x.timer);
+        if c.h2 >= 0 {
+            h2_release(h2conns[c.h2], h2streams, spill, timers, c.fd, H);
+            h2conns.free(c.h2);
+            c.h2 = -1;
+        }
         ring_close(r, c.fd);
         c.fd = -1;
         if c.x.stream.file >= 0 {
@@ -163,6 +215,15 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         wbuf.clear();
     }
 
+    // Shuts down c's side once what it queued has gone, after a refusal or
+    // an h2c GOAWAY, and gives the client cfg.linger_ms to close.
+    fn drain(c: RingConn<S>&) {
+        guard c.queued == 0 && c.state == CLOSING else { return; }
+        net_shutdown(c.fd, SHUT_WR);
+        c.state = DRAINING;
+        c.deadline = now + cfg.linger_ms;
+    }
+
     // Queues wbuf and then the file send_file gave the exchange
     // (Stream.direct), which the ring then owns.
     fn send_file(c: RingConn<S>&) {
@@ -173,6 +234,17 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         guard e >= 0 else { return Error { call: "send", code: -e } from spin; }
         c.queued += s.file_left;
         s.file_left = 0;
+    }
+
+    // Holds n received bytes from off on, those of provided buffer buf or of
+    // src, after rbuf[..rlen].
+    fn hold(c: RingConn<S>&, buf: i32, src: const u8[:], off: i64, n: i64) {
+        guard rlen + n - off > 0 else { return; }
+        c.held = spill.alloc_slice(rlen + n - off);
+        copy_into(c.held[..rlen], rbuf[..rlen]);
+        if buf >= 0 { ring_take(r, buf, off, c.held[rlen..]); }
+        else { copy_into(c.held[rlen..], src[off..n]); }
+        rlen = 0;
     }
 
     // Answers n received bytes after rbuf[..rlen]: those of provided buffer
@@ -208,11 +280,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
                 break;
             }
             if blocked(c) || holds_input(c.x) {
-                c.held = spill.alloc_slice(rlen + n - off);
-                copy_into(c.held[..rlen], rbuf[..rlen]);
-                if buf >= 0 { ring_take(r, buf, off, c.held[rlen..]); }
-                else { copy_into(c.held[rlen..], src[off..n]); }
-                rlen = 0;
+                hold(c, buf, src, off, n);
                 if blocked(c) || c.held.len >= rbuf.len {
                     c.stalled = true;
                     if c.reading { ring_cancel(r, c.tag); }
@@ -229,6 +297,56 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         if c.x.stream.rearm && start_wait(c, timers, now) { overdue.push(c.x.stream.later.key); }
     }
 
+    // pump for an h2c connection: the h2 driver takes every byte but a
+    // frame's incomplete start, which c holds, and its frames are queued as
+    // far as cfg.max_queued allows. Once the connection reaches it, or the
+    // driver has more to write, it stops reading and holds the rest until a
+    // send completes. wake is for stream wake_at (h2_answer).
+    fn pump_h2(c: RingConn<S>&, buf: i32, src: const u8[:], n: i64, wake: const Event&) {
+        let slot = (c.tag & 0xFFFFFFFF) as i64;
+        var off: i64 = 0;
+        var ev = wake;
+        loop {
+            let k = min(n - off, rbuf.len - rlen);
+            if buf >= 0 { ring_take(r, buf, off, rbuf[rlen..rlen + k]); }
+            else { copy_into(rbuf[rlen..rlen + k], src[off..off + k]); }
+            rlen += k;
+            off += k;
+            if c.state != OPEN {
+                rlen = 0;
+                break;
+            }
+            let rest, full = h2_answer(c, slot, h2conns[c.h2], h2streams, spill, rbuf, rlen, wbuf,
+                                       max(cfg.max_queued - c.queued, 0), h2out, h2fields, h2pseudo, h2cookie,
+                                       h2huff, h2fb, common, cfg, fresh, stopping, now, ev, wake_at, timers, overdue,
+                                       h2gen, H);
+            ev.kind = NO_EVENT;
+            if rest != rlen || wbuf.len > 0 { progress = true; }
+            rlen = rest;
+            flush(c);
+            if c.state != OPEN {
+                rlen = 0;
+                break;
+            }
+            if full || blocked(c) {
+                hold(c, buf, src, off, n);
+                c.stalled = true;
+                if c.reading { ring_cancel(r, c.tag); }
+                break;
+            }
+            if off >= n { break; }
+        }
+        if rlen > 0 {
+            c.held = spill.alloc_slice(rlen);
+            copy_into(c.held, rbuf[..rlen]);
+        }
+        drain(c);
+    }
+
+    fn feed(c: RingConn<S>&, buf: i32, src: const u8[:], n: i64, wake: const Event&) {
+        if c.h2 >= 0 { pump_h2(c, buf, src, n, wake); } else { pump(c, buf, src, n, wake); }
+    }
+
     // Goes on with c's exchange, which waited, with ev, its WAKE or TIMEOUT,
     // and then with what c holds.
     fn resume(c: RingConn<S>&, ev: const Event&) {
@@ -237,7 +355,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         let src = c.held;
         c.held = c.held[..0];
         rlen = 0;
-        pump(c, -1, src, src.len, ev);
+        feed(c, -1, src, src.len, ev);
         if src.len > 0 { spill.free_slice(src); }
         if c.state != DRAINING && !c.reading && !c.stalled {
             ring_recv(r, c.fd, c.tag);
@@ -249,8 +367,20 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     // A message to key, for the exchange that waits for it, if any.
     fn delivered(key: u64, tag: i32, bytes: const u8[:]) {
         let i = later_slot(key);
-        guard i < conns.len && waits_for(conns[i], key) else { return; }
+        guard i < conns.len else { return; }
         let c .= conns[i];
+        if c.h2 >= 0 {
+            let k = h2_key_index(key);
+            guard c.fd >= 0 && c.state == OPEN && k < h2streams.len && h2_waits_for(h2streams[k], i, key) else { return; }
+            cancel(timers, h2streams[k].x.timer);
+            h2streams[k].x.stream.waiting = false;
+            wake_at = k;
+            let ev = Event { kind: WAKE, req: nothing, data: bytes, whole: false, trailers: "", tag: tag };
+            resume(c, ev);
+            wake_at = -1;
+            return;
+        }
+        guard waits_for(c, key) else { return; }
         cancel(timers, c.x.timer);
         c.x.stream.waiting = false;
         let ev = Event { kind: WAKE, req: nothing, data: bytes, whole: false, trailers: "", tag: tag };
@@ -263,6 +393,19 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         let i = later_slot(key);
         guard i < conns.len else { return; }
         let c .= conns[i];
+        if c.h2 >= 0 {
+            let k = h2_key_index(key);
+            guard c.fd >= 0 && c.state == OPEN && k < h2streams.len else { return; }
+            let st .= h2streams[k];
+            guard st.slot == i && st.id > 0 && st.x.stream.later.key == key && st.x.stream.waiting == waited else { return; }
+            st.x.stream.waiting = false;
+            retire(st.x.stream);
+            wake_at = k;
+            let ev = Event { kind: TIMEOUT, req: nothing, data: "", whole: false, trailers: "" };
+            resume(c, ev);
+            wake_at = -1;
+            return;
+        }
         guard c.fd >= 0 && c.state == OPEN && c.x.stream.later.key == key && c.x.stream.waiting == waited else { return; }
         c.x.stream.waiting = false;
         retire(c.x.stream);
@@ -294,7 +437,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
                     spill.free_slice(c.held);
                     c.held = c.held[..0];
                 }
-                pump(c, cq.buf, "", n, none);
+                feed(c, cq.buf, "", n, none);
             }
             ring_give(r, cq.buf);
         } else if cq.res == 0 || (cq.res != -ENOBUFS && cq.res != -ECANCELED) {
@@ -312,18 +455,14 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         guard res >= 0 else { return false; }   // EPIPE, ECONNRESET: the client left
         c.queued -= res as i64;
         progress = true;
-        if c.queued == 0 && c.state == CLOSING {
-            net_shutdown(c.fd, SHUT_WR);
-            c.state = DRAINING;
-            c.deadline = now + cfg.linger_ms;
-        }
+        drain(c);
         if c.stalled && !blocked(c) {
             c.stalled = false;
             let src = c.held;
             c.held = c.held[..0];
             rlen = 0;
-            pump(c, -1, src, src.len, none);
-            spill.free_slice(src);
+            feed(c, -1, src, src.len, none);
+            if src.len > 0 { spill.free_slice(src); }
         }
         if !c.reading && !c.stalled {
             ring_recv(r, c.fd, c.tag);
@@ -338,6 +477,13 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     fn touch(c: RingConn<S>&) {
         guard c.state != DRAINING else { return; }
         let sending = c.queued > 0;
+        // An h2c connection's streams have their own limits (later's), so
+        // the connection's is idle_ms, or write_ms while the client doesn't
+        // take what it was sent.
+        if c.h2 >= 0 {
+            if progress { c.deadline = now + (if sending { cfg.write_ms } else { cfg.idle_ms }); }
+            return;
+        }
         let idle = idle(c) && !sending;
         if progress { c.deadline = now + (if idle { cfg.idle_ms } else { busy_ms(c, sending, cfg) }); }
         else if !idle { c.deadline = min(c.deadline, now + busy_ms(c, sending, cfg)); }
@@ -352,6 +498,12 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         for i in conns.len {
             let c .= conns[i];
             if c.fd < 0 || c.deadline > now || c.x.stream.waiting { continue; }
+            if c.h2 >= 0 {
+                var waits = false;
+                for k in h2conns[c.h2].streams { waits = waits || h2streams[k].x.stream.waiting; }
+                if !waits { close_conn(i); }
+                continue;
+            }
             if owes_408(c, c.queued > 0) {
                 wbuf.clear();
                 refuse(wbuf, 408, common);
@@ -364,18 +516,20 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         }
     }
 
-    // Closes the listener and the connections between requests, and gives
-    // the rest cfg.grace_ms to finish. The listener's accept holds it open
+    // Closes the listeners and the connections between requests, and gives
+    // the rest cfg.grace_ms to finish. A listener's accept holds it open
     // until the accept is cancelled.
     fn begin_stop() {
         stopping = true;
         stop_by = now + cfg.grace_ms;
-        if accepting { ring_cancel(r, RING_LISTENER); }
-        net_close(lfd);
-        lfd = -1;
+        stop_accepting();
+        close_listeners();
+        for k in lfds.len { lfds[k] = -1; }
         for i in conns.len {
             let c .= conns[i];
-            if c.fd >= 0 && c.state == OPEN && idle(c) && c.queued == 0 { close_conn(i); }
+            // An h2c connection sends GOAWAY, and closes once its streams end.
+            if c.fd >= 0 && c.h2 >= 0 { if c.state == OPEN { resume(c, none); } }
+            else if c.fd >= 0 && c.state == OPEN && idle(c) && c.queued == 0 { close_conn(i); }
             else if c.fd >= 0 && c.x.stream.waiting { c.x.keep_alive = false; }
         }
     }
@@ -399,11 +553,13 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
             }
             closed = false;
             for cq in done[..n] {
-                if cq.tag == RING_LISTENER {
-                    accepted(cq);
+                if cq.tag == RING_LISTENER || (cq.tag < RING_WAKE && cq.tag >= RING_WAKE - MAX_LISTENERS) {
+                    let k: i64 = if cq.tag == RING_LISTENER { 0 } else { (RING_WAKE - cq.tag) as i64 };
+                    if k < lfds.len { accepted(k, cq); }
                     continue;
                 }
-                if cq.tag == RING_WAKE {                    if waiting { mail_take(box) { key, tag, bytes => delivered(key, tag, bytes); }; }
+                if cq.tag == RING_WAKE {
+                    if waiting { mail_take(box) { key, tag, bytes => delivered(key, tag, bytes); }; }
                     continue;
                 }
                 let i = (cq.tag & 0xFFFFFFFF) as i64;
@@ -427,9 +583,11 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
                 sweep();
                 next_sweep = now + 1000;
             }
-            if !accepting && !stopping && open < cfg.max_conns && (!accept_failed || closed || tick) {
-                ring_accept(r, lfd, RING_LISTENER);
-                accepting = true;
+            for k in lfds.len {
+                if !accepting[k] && !stopping && open < cfg.max_conns && (!accept_failed[k] || closed || tick) {
+                    ring_accept(r, lfds[k], ring_listener_tag(k));
+                    accepting[k] = true;
+                }
             }
             if !stopping && stops() != started { begin_stop(); }
             if stopping && (open == 0 || now >= stop_by) { return Error { call: "", code: 0 }; }
@@ -441,10 +599,15 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         let c .= conns[i];
         if c.fd >= 0 {
             abandon(c, H);
+            if c.h2 >= 0 {
+                h2_release(h2conns[c.h2], h2streams, spill, timers, c.fd, H);
+                h2conns.free(c.h2);
+                c.h2 = -1;
+            }
             net_close(c.fd);
         }
     }
-    if lfd >= 0 { net_close(lfd); }
+    close_listeners();
     // Submits the closes still queued, then frees the ring, and after it the
     // waker, which io_uring's poll of it holds until then.
     ring_wait(r, done, 0);

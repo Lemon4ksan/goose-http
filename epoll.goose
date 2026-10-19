@@ -281,7 +281,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
             if c.h2 >= 0 {
                 if c.state == OPEN {
                     let before = wbuf.len;
-                    let rest, f = h2_answer(c, driving, h2conns[c.h2], h2streams, spill, rbuf, rlen, wbuf,
+                    let rest, f = h2_answer(c, driving, h2conns[c.h2], h2streams, spill, rbuf, rlen, wbuf, cfg.write_buffer,
                                             h2out, h2fields, h2pseudo, h2cookie, h2huff, h2fb, common, cfg, fresh, stopping, now, ev, wake_at, timers, overdue,
                                             h2gen, H);
                     ev.kind = NO_EVENT;

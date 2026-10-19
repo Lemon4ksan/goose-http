@@ -258,7 +258,8 @@ fn h2_head_block(enc: HpackTable&, fb: u8[>..]&, head: const u8[:]) -> i32 {
 // Answers what connection c, an h2c one in slot, has in rbuf[..rlen], into
 // wbuf, as answer does for HTTP/1.1, and moves the rest of rbuf to its
 // front: frames in, the handler called for each stream's events, and the
-// streams' output written while wbuf is under cfg.write_buffer. wake, unless
+// streams' output written while wbuf is under limit: cfg.write_buffer on
+// epoll, and what cfg.max_queued leaves on the completion loop. wake, unless
 // its kind is NO_EVENT, is a WAKE or TIMEOUT for stream wake_at, which
 // stopped waiting. A connection error writes GOAWAY and leaves c CLOSING.
 // Returns the bytes left in rbuf, and whether wbuf filled with output still
@@ -268,7 +269,7 @@ fn h2_head_block(enc: HpackTable&, fb: u8[>..]&, head: const u8[:]) -> i32 {
 // joined; bhuff, HPACK's Huffman-decoded strings; and bfb, a field block to
 // send.
 fn h2_answer<S, H, C>(c: C&, slot: i64, h: H2Conn&, streams: H2Stream<S>[>..]&, spill: u8[>..]&,
-                      rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, bout: u8[>..]&, bfields: u8[>..]&,
+                      rbuf: u8[:], rlen: i64, wbuf: u8[>..]&, limit: i64, bout: u8[>..]&, bfields: u8[>..]&,
                       bpseudo: u8[>..]&, bcookie: u8[>..]&, bhuff: u8[>..]&, bfb: u8[>..]&,
                       common: const u8[:],
                       cfg: const Config&, fresh: const S&, stopping: bool, now: i64, wake: const Event&,
@@ -1050,15 +1051,15 @@ fn h2_answer<S, H, C>(c: C&, slot: i64, h: H2Conn&, streams: H2Stream<S>[>..]&, 
     }
 
     // The streams' waiting DATA, a frame each in turn, and MORE for the
-    // responses begun with begin, until wbuf holds cfg.write_buffer. Returns
-    // whether it stopped there with more to write.
+    // responses begun with begin, until wbuf holds limit. Returns whether it
+    // stopped there with more to write.
     fn schedule() -> bool {
         loop {
             var moved = false;
             let order = h.streams;
             let n = order.len;
             for j in n {
-                if wbuf.len >= cfg.write_buffer { return true; }
+                if wbuf.len >= limit { return true; }
                 let k: i64 = order[(h.turn + j) % n];
                 let st .= streams[k];
                 if st.slot != slot || st.id == 0 { continue; }

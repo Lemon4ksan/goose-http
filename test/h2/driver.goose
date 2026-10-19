@@ -115,7 +115,7 @@ fn feed(bytes: const u8[:], ev_kind: u8 = http::NO_EVENT, at: i64 = -1) {
         rlen += n;
         pos += n;
         guard conn.state == http::OPEN else { break; }
-        let rest, full = http::h2_answer(conn, 0, conns[h], streams, spill, rbuf, rlen, wbuf, o, f, p, ck, hf, fbuf,
+        let rest, full = http::h2_answer(conn, 0, conns[h], streams, spill, rbuf, rlen, wbuf, cfg.write_buffer, o, f, p, ck, hf, fbuf,
                                          check::COMMON, cfg, fresh, false, 0, ev, at, timers, overdue, gen, handle);
         ev.kind = http::NO_EVENT;
         rlen = rest;

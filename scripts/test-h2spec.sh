@@ -1,6 +1,6 @@
 #!/bin/sh
 # Runs h2spec, HTTP/2's conformance tests, against the h2c listener of
-# build/server (scripts/build.sh with LOOP=epoll), which serves h2c on PORT +
+# build/server, run with LOOP (epoll by default), which serves h2c on PORT +
 # 2 (29082). Fetches h2spec's release binary into build/ first, checked
 # against the SHA-256 sums below: h2spec v2.6.0 has binaries for Linux and
 # macOS on x86-64 only, so on Apple Silicon it runs under Rosetta 2, and
@@ -45,7 +45,7 @@ fi
 log=$(mktemp)
 pid=
 trap 'if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi; rm -f "$log"' EXIT
-LOOP=epoll WORKERS=${WORKERS:-2} H2C_PORT=$h2c "$root/build/server" http "$port" >"$log" 2>&1 &
+LOOP=${LOOP:-epoll} WORKERS=${WORKERS:-2} H2C_PORT=$h2c "$root/build/server" http "$port" >"$log" 2>&1 &
 pid=$!
 tries=0
 until grep -q "h2c on port $h2c" "$log"; do

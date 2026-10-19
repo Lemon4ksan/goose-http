@@ -57,9 +57,9 @@ struct Config {
     ipv6_only: bool = false,
     port: i32 = 8080,
     // Whether port's listener serves h2c rather than HTTP/1.1, and the
-    // listeners beside it, each with its own port and mode. Only
-    // serve_epoll serves h2c, and more than one listener, so far; serve
-    // fails with ENOSYS on either.
+    // listeners beside it, each with its own port and mode. On Windows,
+    // serve takes one listener (ring_listeners), and fails with ENOSYS on
+    // more.
     h2c: bool = false,
     listeners: Listener[..MAX_LISTENERS] = [],
     // HTTP/2: the most streams a client may have open on a connection, up to
