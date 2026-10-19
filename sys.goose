@@ -80,9 +80,6 @@ extern fn net_recv(fd: i32, buf: u8[:]) -> i64;
 extern fn net_send(fd: i32, data: const u8[:]) -> i64;
 extern fn net_shutdown(fd: i32, how: i32) -> i32;
 extern fn net_close(fd: i32) -> i32;
-// Closes a listener net_listen gave another thread, as net_close would in
-// that thread: http::run closes an aborted worker's with it.
-extern fn net_close_listener(fd: i32) -> i32;
 // The peer of connected socket fd: writes its address into out[..16], an
 // IPv4 one as IPv4-mapped IPv6, and returns its port. EAFNOSUPPORT for a peer
 // with no IP address.

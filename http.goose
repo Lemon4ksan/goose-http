@@ -58,14 +58,6 @@ struct Config {
     // This worker's index among the workers, from 0, for its seat: run sets
     // it. A placed worker without one floats, with a warning.
     worker: i64 = -1,
-    // How many times in a row run restarts a worker that aborts, as on a
-    // failed check or an index out of bounds, before an abort ends the
-    // process; 0 ends it at the first. A worker that ran for a minute
-    // before aborting starts a new count.
-    restarts: i64 = 5,
-    // Set by run: the loop reports its listener, which run closes if the
-    // worker aborts.
-    supervised: bool = false,
     backlog: i32 = 4096,
     // The most connections one worker holds. The default lets one worker take
     // TechEmpower's largest run, 16,384 connections, alone.
@@ -154,15 +146,6 @@ struct Error { call: const u8[:], code: i64 }
 // with its own copy of cfg, whose worker is its index, and the values after
 // cfg, up to two. Returns once every worker has returned.
 //
-// A worker that aborts ends alone, and run starts it again with the same
-// values, after closing its listener so that no connection waits there: the
-// others serve on. The connections it held stay open, unanswered, until their
-// clients give up. run prints the abort, waits 100 ms before the first
-// restart and twice as long before each next one, and ends the process with
-// exit code 1 once a worker has aborted cfg.restarts times in a row. After a
-// stop (stop_on_signals), it restarts none. One run at a time in a process:
-// run's own messages go through Goose's queues of WorkerEnded and Opened.
-//
 //   http::run(cfg, worker);             // thread_fn worker(cfg: http::Config)
 //   http::run(cfg, app, worker);        // thread_fn worker(cfg: http::Config, app: App)
 //
@@ -177,101 +160,19 @@ struct Error { call: const u8[:], code: i64 }
 //       cfg.worker = i;
 //       ids.push(thread_spawn(worker, cfg));
 //   }
-fn run<W>(cfg: Config) { supervise(cfg) { c => thread_spawn_contained(W, c) }; }
-fn run<W>(cfg: Config, a) { supervise(cfg) { c => thread_spawn_contained(W, c, a) }; }
-fn run<W>(cfg: Config, a, b) { supervise(cfg) { c => thread_spawn_contained(W, c, a, b) }; }
+fn run<W>(cfg: Config) { spawn_workers(cfg) { c => thread_spawn(W, c) }; }
+fn run<W>(cfg: Config, a) { spawn_workers(cfg) { c => thread_spawn(W, c, a) }; }
+fn run<W>(cfg: Config, a, b) { spawn_workers(cfg) { c => thread_spawn(W, c, a, b) }; }
 
-// How a worker of run's ended, which watch queues for run: its index, whether
-// it aborted, and the abort's message, cut to fit.
-struct WorkerEnded { worker: i64, aborted: bool, why: u8[..240] }
-
-// What a supervised worker's loop opened, which it queues for run to close if
-// the worker aborts: its listener, or its ring.
-struct Opened { worker: i64, kind: u8, handle: i64 }
-let OPENED_LISTENER: u8 = 0;
-let OPENED_RING: u8 = 1;
-
-// Queues what a loop opened for run, when run supervises its worker.
-fn opened(cfg: const Config&, kind: u8, handle: i64) {
-    if cfg.supervised { qput(Opened { worker: cfg.worker, kind: kind, handle: handle }); }
-}
-
-// Waits for thread id, run's worker of that index, and queues how it ended:
-// thread_wait blocks, so each worker has a watch of its own, and a thread_fn
-// can't be generic, so run, which can name the worker, starts it again.
-thread_fn watch(worker: i64, id: i64) {
-    var why: u8[>..] = [];
-    let ok = thread_wait(id, why);
-    var e = WorkerEnded { worker: worker, aborted: !ok, .. };
-    for c in why[..min(why.len, 240)] { e.why.push(c); }
-    qput(e);
-}
-
-// run's loop: SPAWN starts a contained worker with its Config and returns its
-// id.
-fn supervise<SPAWN>(cfg: Config) {
-    let n = worker_count(cfg);
-    let stopped = stops();
-    var cfgs: Config[>..] = [];
-    var started: i64[>..] = [];
-    var aborts: i64[>..] = [];
-    var held: Opened[>..] = [];
-    for i in n {
+// run's loop: SPAWN starts a worker with its Config and returns its id.
+fn spawn_workers<SPAWN>(cfg: Config) {
+    var ids: i64[>..] = [];
+    for i in worker_count(cfg) {
         var c = cfg;
         c.worker = i;
-        c.supervised = true;
-        cfgs.push(c);
-        started.push(clock_ns());
-        aborts.push(0);
-        thread_spawn(watch, i, SPAWN(c));
+        ids.push(SPAWN(c));
     }
-    var live = n;
-    while live > 0 {
-        let e = qget<WorkerEnded>();
-        // What a worker opened is queued before the end that watch queues.
-        while true {
-            let o, got = qpoll<Opened>();
-            guard got else { break; }
-            held.push(o);
-        }
-        let i = e.worker;
-        // An aborted worker's ring stops first: its accept holds the listener
-        // open. One that returned closed both itself.
-        if e.aborted {
-            for o in held { if o.worker == i && o.kind == OPENED_RING { ring_reap(o.handle); } }
-            for o in held { if o.worker == i && o.kind == OPENED_LISTENER { net_close_listener(o.handle as i32); } }
-        }
-        var k = 0;
-        while k < held.len {
-            if held[k].worker == i { held.swap_remove(k); } else { k++; }
-        }
-        if !e.aborted {
-            live--;
-            continue;
-        }
-        if clock_ns() - started[i] >= 60000000000 { aborts[i] = 0; }
-        aborts[i]++;
-        if aborts[i] > cfg.restarts {
-            write_stderr(str("worker ", i, " aborted: ", e.why, "\nworker ", i, " aborted ",
-                             aborts[i], " times in a row: ending the process\n"));
-            exit(1);
-        }
-        if stops() != stopped {
-            write_stderr(str("worker ", i, " aborted: ", e.why, "\n"));
-            live--;
-            continue;
-        }
-        let wait = 100 << min(aborts[i] - 1, 10);
-        write_stderr(str("worker ", i, " aborted: ", e.why, "\nworker ", i, " restarts in ",
-                         wait, " ms\n"));
-        sleep_ms(wait);
-        if stops() != stopped {
-            live--;
-            continue;
-        }
-        started[i] = clock_ns();
-        thread_spawn(watch, i, SPAWN(cfgs[i]));
-    }
+    for id in ids { thread_wait(id); }
 }
 
 // The number of workers cfg asks for, which run spawns.
@@ -299,16 +200,8 @@ fn worker_seat(cfg: const Config&) -> Seat {
 }
 
 // Opens a worker's listener where cfg.address says. Returns its fd, or the
-// error, for an address that isn't one or a listen that fails. A worker run
-// supervises queues the fd for run.
+// error, for an address that isn't one or a listen that fails.
 fn listen_on(cfg: const Config&) -> i32, Error {
-    let fd, err = open_listener(cfg);
-    if fd >= 0 { opened(cfg, OPENED_LISTENER, fd); }
-    return fd, err;
-}
-
-// listen_on's listener.
-fn open_listener(cfg: const Config&) -> i32, Error {
     let flags = NONBLOCK | REUSEPORT;
     let text = cfg.address;
     if starts_with(text, "unix:") {

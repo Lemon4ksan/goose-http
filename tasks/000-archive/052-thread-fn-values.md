@@ -1,7 +1,8 @@
 # 052: Goose PR: a thread_fn that takes a function value
 
-Status: in-progress; the change is being built on `kaitk/goose`'s `thread-fn-values`
-(2026-10-19), and opens upstream once its description is reviewed
+Status: cancelled by the maintainer on 2026-10-19: restarting workers and lanes is
+parked (task 050), so nothing here needs the change. The fork's `thread-fn-values`
+keeps what was built.
 
 A `thread_fn` can't be generic in Goose, so a library that is handed a `thread_fn`
 can't write a watcher thread that starts it again after an abort: the watcher would

@@ -683,18 +683,6 @@ int32_t ur_wait(int64_t h, ur_completions out, int32_t timeout_ms) {
     return n;
 }
 
-/* Releases the kernel's side of a ring whose thread aborted, from another
-   thread: the kernel tears the ring down once its fd is closed. That alone
-   doesn't free the listener its multishot accept holds, which
-   net_close_listener shuts down. Its memory isn't freed, as the kernel may
-   still complete into it. An emulated ring accepts only when its thread
-   waits, so it needs nothing. */
-void ur_reap(int64_t h) {
-    if (UR_EMULATED(h)) return;
-    struct ur *u = (struct ur *)(intptr_t)h;
-    close(u->ring.ring_fd);
-}
-
 /* Tears the ring down, with whatever is still queued on it. The records of
    sends in flight aren't freed: only a completion says when the kernel is
    done with one. Those waiting behind them are. Their files and pipes are

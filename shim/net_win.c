@@ -300,9 +300,6 @@ int32_t net_close(int32_t fd) {
     return closesocket(net_socket(fd)) ? -net_win_err(WSAGetLastError()) : 0;
 }
 
-/* net_close works from any thread here: the table holds the shared fd itself. */
-int32_t net_close_listener(int32_t fd) { return net_close(fd); }
-
 int32_t net_epoll_create(void) { return -NET_ENOSYS; }
 
 int32_t net_epoll_ctl(int32_t ep, int32_t op, int32_t fd, uint32_t events, uint64_t tag) {

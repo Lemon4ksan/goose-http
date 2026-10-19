@@ -170,10 +170,9 @@ RestartSec=1
 WantedBy=multi-user.target
 ```
 
-The server stops gracefully on `SIGTERM`, which `systemctl stop` sends. `http::run`
-restarts a worker that aborts; after a crash that ends the process, systemd restarts it
-a second later, and gives up after 5 crashes within a minute
-([crashes](patterns.md#crashes)).
+The server stops gracefully on `SIGTERM`, which `systemctl stop` sends. After a crash,
+systemd restarts it a second later, and gives up after 5 crashes within a minute
+([a crash ends the process](patterns.md#a-crash-ends-the-process)).
 
 ## Check on the board
 

@@ -1,6 +1,11 @@
 # 050: Restart a worker that aborts
 
-Status: in-progress; `http::run` restarts workers on Linux and macOS (2026-10-19)
+Status: cancelled by the maintainer on 2026-10-19, after an independent review: the
+restart is parked on the branch `restart-workers`, and an abort ends the process, which
+a service manager restarts
+([decision](../docs/decisions.md#a-crash-ends-the-process-and-a-service-manager-restarts-it)).
+It cost a watcher thread per worker, two queues, and C to close what the dead worker
+opened, and its connections still got no answer. The text below describes the branch.
 
 With `thread_spawn_contained` ([aardappel/goose#38](https://github.com/aardappel/goose/pull/38),
 in the pinned `dcc2747`), an abort ends only its thread, and `thread_wait` returns false

@@ -427,10 +427,6 @@ int64_t RP(waker)(int64_t h, uint64_t tag) {
 #ifdef RING_EPOLL_ONLY
 /* There's no io_uring to probe for: the ring is always this emulation. */
 int32_t ur_probe(void) { return -RP_ENOSYS; }
-
-/* The emulation accepts only when its thread waits, so a ring whose thread
-   aborted takes nothing more (shim/uring.c's ur_reap). */
-void ur_reap(int64_t h) { (void)h; }
 #endif
 
 void RP(take)(int64_t h, int32_t buf, int64_t off, rp_bytes dst) {

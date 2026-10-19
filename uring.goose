@@ -60,7 +60,6 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         net_close(lfd);
         return Error { call: "io_uring", code: -r };
     }
-    opened(cfg, OPENED_RING, r);
     let waker = ring_waker(r, RING_WAKE);
     guard waker >= 0 else {
         net_close(lfd);

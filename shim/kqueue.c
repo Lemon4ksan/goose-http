@@ -396,48 +396,19 @@ int32_t net_peer(int32_t fd, net_bytes out) {
     return -net_err(EAFNOSUPPORT);
 }
 
-/* Gives a sharer's fd back to entry i, with net_shared_lock held: the last
-   one back closes the listener and frees the entry. */
-static void net_unshare(int i) {
-    if (--net_shared[i].sharers == 0) {
-        close(net_shared[i].fd);
-        if (net_shared[i].addr.ss_family == AF_UNIX)
-            unlink(((struct sockaddr_un *)&net_shared[i].addr)->sun_path);
-        net_shared[i].fd = -1;
-    }
-}
-
 /* A worker's fd for a shared listener goes back to the table (above). */
 int32_t net_close(int32_t fd) {
     if (fd == net_my_lfd) {
         pthread_mutex_lock(&net_shared_lock);
-        net_unshare(net_my_entry);
+        if (--net_shared[net_my_entry].sharers == 0) {
+            close(net_shared[net_my_entry].fd);
+            if (net_shared[net_my_entry].addr.ss_family == AF_UNIX)
+                unlink(((struct sockaddr_un *)&net_shared[net_my_entry].addr)->sun_path);
+            net_shared[net_my_entry].fd = -1;
+        }
         pthread_mutex_unlock(&net_shared_lock);
         net_my_lfd = -1;
         net_my_kq = -1;
-    }
-    return close(fd) < 0 ? -net_err(errno) : 0;
-}
-
-/* Closes a worker's listener fd from another thread, as http::run does for a
-   worker that aborted. net_close finds a shared listener's entry by the
-   worker's thread-local fields, so this finds it by the address the kernel
-   reports for both fds instead. */
-int32_t net_close_listener(int32_t fd) {
-    struct sockaddr_storage a, b;
-    socklen_t alen = sizeof a;
-    if (getsockname(fd, (struct sockaddr *)&a, &alen) == 0) {
-        pthread_mutex_lock(&net_shared_lock);
-        for (int i = 0; i < net_shared_count; i++) {
-            socklen_t blen = sizeof b;
-            if (net_shared[i].fd >= 0 &&
-                getsockname(net_shared[i].fd, (struct sockaddr *)&b, &blen) == 0 &&
-                blen == alen && memcmp(&a, &b, alen) == 0) {
-                net_unshare(i);
-                break;
-            }
-        }
-        pthread_mutex_unlock(&net_shared_lock);
     }
     return close(fd) < 0 ? -net_err(errno) : 0;
 }
