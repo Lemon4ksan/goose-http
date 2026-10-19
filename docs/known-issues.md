@@ -25,6 +25,12 @@ response behind them. `scripts/test-http.sh` ignores wrk's timeouts for that rea
   with `AccessDenied`. `bench/build.sh` uses its Linux cache.
 - perf uses the WSL kernel and needs elevated access to hardware counters. A warning
   about `/proc/schedstat` doesn't by itself mean the recording failed.
+- perf 6.18 in WSL2 resolved no symbols of the server, even built with `-g`, and
+  `goose build` keeps none (2026-10-19). To profile, compile the generated C
+  (`~/.goose/build/prog/server-*/server.c`, the newest with the change: a build in
+  another checkout writes its own there) with the shims `http.build` lists, `-I` the
+  Goose checkout's `src/runtime`, `-O2 -g -fno-omit-frame-pointer -no-pie`, and
+  `-luring -lm -pthread`, then resolve `perf script`'s addresses with `addr2line -f -i`.
 - Docker Desktop's host network is the Docker VM's, not WSL's loopback. HttpArena's
   readiness probes and cgroup reads use helper containers; published ports reach WSL.
 
@@ -58,6 +64,15 @@ intermediate shell can otherwise expand variables before bash sees them.
   the same commit successfully (2026-10-14). End the stalled push by PID before
   retrying from Windows; both Git installations share this checkout. The cause
   wasn't established.
+- WSL's `/tmp` was empty again in a later call from Windows, after its VM restarted
+  between calls (2026-10-19). Keep what a later call needs under the home directory.
+- A pinned Goose commit built in WSL leaves its CMake cache in
+  `build/goose-<commit>/build/`, and Git Bash's `scripts/goose.sh` then fails in the
+  same tree: "The current CMakeCache.txt directory ... is different than the directory
+  /mnt/c/... where CMakeCache.txt was created". A short hash in `GOOSE_COMMIT` can't be
+  fetched. For Windows in the same tree, clone that checkout into another directory
+  under `build/`, build it with CMake, and set `GOOSE` to its
+  `build/Release/goose.exe` (2026-10-19).
 - Git for Windows 2.45 writes absolute Windows paths in worktree `.git` files that
   WSL git can't follow. A relative `gitdir: ../goose-http/.git/worktrees/<name>`
   works for both.
