@@ -266,4 +266,3 @@ done
 done
 echo "results: $out"
 python3 "$root/bench/summarize.py" "$out/runs.tsv" "${servers%% *}" | tee "$out/summary.md"
-echo "share the raw output: bench/raw.sh push $out"

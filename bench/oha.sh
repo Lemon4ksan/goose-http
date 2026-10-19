@@ -146,4 +146,3 @@ EOF
 done
 done
 echo "results: $out"
-echo "share the raw output: bench/raw.sh push $out"

@@ -129,7 +129,6 @@ run)
         done
     done
     echo "results: $out"
-    echo "share the raw output: bench/raw.sh push $out"
     ;;
 *)
     echo "usage: bench/httparena.sh validate [FRAMEWORK] | run"

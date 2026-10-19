@@ -391,4 +391,3 @@ done
 cell end
 echo "results: $out"
 python3 "$root/bench/rest/summary.py" "$out" | tee "$out/summary.md"
-echo "share the raw output: bench/raw.sh push $out"

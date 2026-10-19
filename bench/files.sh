@@ -229,4 +229,3 @@ for k in sorted(order, key=lambda k: (int(k[0].split(":")[-1]), k[0], k[1], orde
     print(f"| {k[0]} | {k[1]} | {k[2]} | {statistics.median(g):.2f} ({g[0]:.2f}-{g[-1]:.2f}) "
           f"| {rps:,.0f} | {cpu:.2f} | {wrk:.1f} | {err} |")
 EOF
-echo "share the raw output: bench/raw.sh push $out"
