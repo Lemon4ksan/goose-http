@@ -442,6 +442,15 @@ that picks a loop at run time calls `run` once per choice, as `server/app.goose`
 Only a program that must interleave spawning with other work spawns its workers itself
 and sets `Config.worker`; a placed worker without one floats, with a warning.
 
+A worker that `run` started and that aborts, as on a failed `assert`, ends alone. `run`
+prints the abort to stderr, closes the worker's listener, and starts it again with the
+same `Config` and values, 100 ms later and twice as long after each abort in a row.
+After `Config.restarts` aborts in a row, 5 by default, it ends the process with exit
+code 1; 0 ends it at the first. A worker that ran for a minute starts a new count, and
+after a stop no worker is restarted. The aborted worker's connections stay open,
+unanswered ([crashes](patterns.md#crashes)). One `run` at a time in a process: it
+takes its workers' ends from Goose's queue of `http::WorkerEnded`.
+
 `Config.address` is where to listen: empty for every IPv4 address (127.0.0.1 on
 Windows), an IPv4 or IPv6 address, `"::"` for every address, IPv4 too unless
 `Config.ipv6_only`, or `"unix:/run/app.sock"` for a Unix socket on Linux and macOS,

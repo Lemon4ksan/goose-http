@@ -129,6 +129,14 @@ handles, each independent of HTTP. Boxes are C because Goose has neither atomics
 nor a wait another thread can end. Goose's typed queues have no bound, allow any
 thread to receive, and cannot wake an event loop.
 
+Since Goose's queues took a limit and a timed wait (2026-10-19, task 051), jobs that
+any thread of a pool may take go through a queue chosen by type instead, as the
+benchmark server's backend's do. Boxes stay for the rest, which a queue chosen by type
+can't do: a reply to the one worker that waits, whose event loop only an fd wakes; a
+lane's own jobs, where `rest::ask_by` keeps one key's in order on one thread and a send
+picks the least busy box; keys a box tracks as live; and a stop that a full box can't
+refuse.
+
 ## The log measures the write buffer
 
 Decided 2026-10-12, task 015.
@@ -241,23 +249,40 @@ Decided 2026-10-16, with goose-rest: work of minutes that the handler answers wi
 *job* is the work a handler mails a lane and waits for, as in goose-rest, where a
 background task is made of jobs: one that starts it, and one for each poll.
 
-## A crash ends the process, and a service manager restarts it
+## http::run restarts a worker that aborts
 
-Decided 2026-10-16.
+Decided 2026-10-19, task 050; it replaces "a crash ends the process" (2026-10-16).
 
-A crash in any thread, worker or lane, ends the whole process. The service manager
-restarts it, with a delay and a limit on restarts in a row
-([a crash ends the process](patterns.md#a-crash-ends-the-process)). The package has no
-supervisor of its own.
+`http::run` starts each worker with `thread_spawn_contained`
+([aardappel/goose#38](https://github.com/aardappel/goose/pull/38)), so an abort, such
+as an index out of bounds or a failed `assert`, ends only that worker. `run` closes its
+listener and starts it again with the same `Config` and values, while the other workers
+serve on: Tina's "let it crash", which restarts one Isolate and keeps the rest of its
+shard running. A worker that keeps aborting is restarted after 100 ms, then twice as
+long each time, and after `Config.restarts` aborts in a row, 5 by default, `run` ends
+the process with exit code 1, for the service manager to restart
+([crashes](patterns.md#crashes)). A program that spawns its own workers, and every lane
+for now, still ends the process on an abort.
 
-Tina restarts one Isolate after a crash and keeps the rest of its shard running ("let it
-crash"). Goose can't do this inside a process: an abort, such as an index out of bounds
-or a failed `assert`, ends the program and can't be caught (spec §9.3). A thread can't
-be restarted after it fails. Running each lane as a child process would give that
-boundary, but it needs boxes and wakes that work across processes on Linux, macOS, and
-Windows, and a second way to start the program on Windows, which has no `fork`. That
-cost is rejected. A crash restart per thread waits on Goose
-([aardappel/goose#38](https://github.com/aardappel/goose/pull/38)).
+A `thread_fn` can't be generic, so a watcher thread can't start the program's worker
+again. Each worker has a small `thread_fn watch` that waits for it and puts how it
+ended on Goose's queue of `WorkerEnded`; `run`, which can name the worker, takes them
+with `qget` and does the restart. Each loop puts its listener and its ring on the queue
+of `Opened` when it opens them, so that `run` can stop an aborted worker's. A
+generic `thread_fn` would have saved the queue, but it is a language change, and the
+queue does the job with what Goose has (2026-10-19).
+
+The runtime frees only the aborted worker's Goose memory. What it opened through C
+stays open. Two parts would take new connections that no one answers, so `run` stops
+them: the listener, which the kernel keeps queueing connections to, and the ring's
+accept. On Linux, an io_uring multishot accept holds its listener open after the
+thread exits and its fd is closed, so `net_close_listener` shuts a TCP listener down
+first, which takes it out of its `SO_REUSEPORT` group; on Windows, the completion
+port's accept posts itself again from a wait callback, so `ring_reap` cancels it. The
+rest stays open, bounded by `Config.restarts`: its connections, whose clients get no
+answer until they give up, its ring's memory, and its box; closing them is task 050's
+next step. Each worker also has its watch thread, mostly blocked, which costs a
+thread's stacks.
 
 ## A stop is a flag in the box, not a message
 

@@ -137,6 +137,17 @@ connects=$(curl -sS -o /dev/null -o /dev/null -w '%{num_connects} ' "$url/plaint
 [ "$connects" = "1 0 " ] || fail "curl didn't reuse the connection: $connects"
 echo "curl: ok"
 
+# A worker that aborts ends alone: its connection gets no answer, http::run
+# starts it again, and every new connection is answered, none left at the
+# dead worker's listener.
+curl -sS -m 2 -o /dev/null "$url/abort" 2>/dev/null && fail "curl /abort: answered"
+for i in $(seq 40); do
+    body=$(curl -sS -m 5 "$url/plaintext") || fail "curl /plaintext after an abort"
+    [ "$body" = "Hello, World!" ] || fail "curl /plaintext after an abort: $body"
+done
+grep -q "restarts in" "$log" || fail "no restart reported after /abort"
+echo "abort: ok"
+
 $client tfb
 $client forms
 $client pipeline

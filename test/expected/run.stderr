@@ -1,1 +1,3 @@
 place: role workers: a worker without Config.worker floats; http::run sets it
+worker 1 aborted: assert failed
+worker 1 restarts in 100 ms

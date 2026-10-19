@@ -181,6 +181,13 @@ between them. In the classic pattern a pool of threads drains one shared queue. 
 each job goes to one thread's own bounded box, as in the actor model and
 [Tina](#mail-between-threads).
 
+Where any of a pool of threads may take any job, and their order doesn't matter, the
+jobs can go through Goose's own queue of their type instead, bounded as a box is: the
+program sets `qlimit<Job>(n)` once, a handler answers 503 when `qput(job)` returns
+false, and each thread of the pool waits with `qget<Job>(ms)`. The reply still goes by
+mail, to the one worker that waits. `server/backend.goose` takes its jobs that way
+([why](decisions.md#waiting-through-bounded-boxes-in-c)).
+
 The handler sends the job by mail and sets a time limit. The worker serves its other
 connections until the reply arrives or the time limit expires:
 
@@ -271,13 +278,19 @@ before work nobody waits for ([slow work](#slow-work)).
 For goose-rest's answers at each limit and a background task the client polls, see
 [limits](https://github.com/kaitk/goose-rest/blob/main/docs/tutorial/13-limits.md).
 
-## A crash ends the process
+## Crashes
 
-A crash in any thread, such as an index out of bounds in a lane's job, ends the whole
-server: Goose can't catch an abort or restart one thread
-([why](decisions.md#a-crash-ends-the-process-and-a-service-manager-restarts-it)). Run
-the server under a service manager that restarts it, after a delay, and gives up after
-a few crashes in a row, so a crash that repeats at startup doesn't loop:
+An abort in a worker, such as an index out of bounds in a handler, ends only that
+worker when `http::run` started it: `run` prints the abort, starts the worker again,
+and the others serve on meanwhile
+([why](decisions.md#httprun-restarts-a-worker-that-aborts)). The request that aborted,
+and the others on that worker's connections, get no answer; their clients wait until
+they give up. A handler should still answer an error rather than abort where it can.
+
+An abort ends the whole process when it is in a lane or in a worker the program spawned
+itself, and when a worker has aborted `Config.restarts` times in a row. Run the server
+under a service manager that restarts it, after a delay, and gives up after a few
+crashes in a row, so a crash that repeats at startup doesn't loop:
 
 | Manager | Restart | Against a crash loop |
 |---|---|---|

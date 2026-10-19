@@ -1,7 +1,8 @@
 // http::run (http.goose): it spawns worker_count(cfg) workers, each with its
 // index in Config.worker and so a seat of its own, hands each the values
 // after cfg, and returns after the last worker has, which the slowest is
-// here. A placed worker spawned without an index floats, with a warning. The
+// here. A placed worker spawned without an index floats, with a warning, and
+// a worker that aborts is started again with its index and values. The
 // machine is given, so the output is the same everywhere.
 import std;
 import http from "../../";
@@ -26,6 +27,16 @@ fn ran(cfg: const http::Config&, a: i64, b: i64) {
 thread_fn worker(cfg: http::Config) { ran(cfg, -1, -1); }
 thread_fn worker_a(cfg: http::Config, a: i64) { ran(cfg, a, -1); }
 thread_fn worker_ab(cfg: http::Config, a: i64, b: i64) { ran(cfg, a, b); }
+
+// Worker 1 aborts while a Token is queued, and takes it as it does.
+struct Token { n: i64 }
+thread_fn worker_aborts(cfg: http::Config, a: i64) {
+    if cfg.worker == 1 {
+        let _, got = qpoll<Token>();
+        assert(!got);
+    }
+    ran(cfg, a, -1);
+}
 
 // What n workers queued, by index, and that nothing more is queued.
 fn show(name: const u8[:], n: i64) {
@@ -59,4 +70,7 @@ fn main() {
     show("unplaced, two values", 2);
     thread_wait(thread_spawn(worker, placed));
     show("placed, outside run", 1);
+    qput(Token { n: 1 });
+    http::run(http::Config { workers: 2, .. }, 7, worker_aborts);
+    show("unplaced, worker 1 aborts once", 2);
 }

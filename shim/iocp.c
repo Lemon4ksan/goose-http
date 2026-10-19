@@ -859,3 +859,11 @@ int32_t ur_wait(int64_t h, ur_completions out, int32_t timeout_ms) {
 void ur_destroy(int64_t h) {
     (void)h;
 }
+
+/* Ends the accept of a ring whose thread aborted, from another thread, as
+   ur_cancel would: its wait callback would otherwise post the next AcceptEx
+   on the shared listener, and take connections no one answers. */
+void ur_reap(int64_t h) {
+    struct ur *u = (struct ur *)(intptr_t)h;
+    if (u->acc.active) ur_cancel(h, u->acc.tag);
+}

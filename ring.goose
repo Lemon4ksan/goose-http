@@ -62,6 +62,9 @@ extern "ur_waker" fn ring_waker(r: i64, tag: u64) -> i64;
 // completion port's memory: it completes the cancels of closed sockets'
 // requests later (shim/iocp.c).
 extern "ur_destroy" fn ring_destroy(r: i64);
+// From another thread, ends the requests of a ring whose thread aborted, so
+// that it takes no more connections from its listener; frees nothing.
+extern "ur_reap" fn ring_reap(r: i64);
 // Submits what's queued, waits up to timeout_ms (-1: no limit) for a
 // completion, and writes up to out.len completions into out.
 extern "ur_wait" fn ring_wait(r: i64, out: Completion[:], timeout_ms: i32) -> i32;

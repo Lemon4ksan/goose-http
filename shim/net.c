@@ -209,17 +209,49 @@ int32_t net_shutdown(int32_t fd, int32_t how) {
     return shutdown(fd, how) < 0 ? -errno : 0;
 }
 
+/* Gives a sharer's fd back to entry i, with net_shared_lock held: the last
+   one back closes the socket and removes its file. */
+static void net_unshare(int i) {
+    if (--net_shared[i].sharers == 0) {
+        close(net_shared[i].fd);
+        unlink(net_shared[i].addr.sun_path);
+        net_shared[i].fd = -1;
+    }
+}
+
 /* A worker's fd for a shared Unix socket goes back to the table (above). */
 int32_t net_close(int32_t fd) {
     if (fd == net_my_lfd) {
         pthread_mutex_lock(&net_shared_lock);
-        if (--net_shared[net_my_entry].sharers == 0) {
-            close(net_shared[net_my_entry].fd);
-            unlink(net_shared[net_my_entry].addr.sun_path);
-            net_shared[net_my_entry].fd = -1;
-        }
+        net_unshare(net_my_entry);
         pthread_mutex_unlock(&net_shared_lock);
         net_my_lfd = -1;
+    }
+    return close(fd) < 0 ? -errno : 0;
+}
+
+/* Closes a worker's listener fd from another thread, as http::run does for a
+   worker that aborted. net_close finds a shared socket's entry by the
+   worker's thread-local fields, so this finds it by its path instead. A TCP
+   listener is the worker's own, and the aborted worker's io_uring accept
+   holds the socket open past the close, still in its SO_REUSEPORT group and
+   queueing connections, so it's shut down first: that stops it listening,
+   and resets what it queued. */
+int32_t net_close_listener(int32_t fd) {
+    struct sockaddr_storage ss;
+    socklen_t len = sizeof ss;
+    if (getsockname(fd, (struct sockaddr *)&ss, &len) == 0 && ss.ss_family == AF_UNIX) {
+        const char *path = ((struct sockaddr_un *)&ss)->sun_path;
+        pthread_mutex_lock(&net_shared_lock);
+        for (int i = 0; i < net_shared_count; i++) {
+            if (net_shared[i].fd >= 0 && strcmp(net_shared[i].addr.sun_path, path) == 0) {
+                net_unshare(i);
+                break;
+            }
+        }
+        pthread_mutex_unlock(&net_shared_lock);
+    } else {
+        shutdown(fd, SHUT_RDWR);
     }
     return close(fd) < 0 ? -errno : 0;
 }
