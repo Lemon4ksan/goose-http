@@ -523,11 +523,12 @@ or `uring-epoll`. See
 
 ### Several ports, and h2c
 
-`http::serve_epoll` serves h2c, HTTP/2 over TCP with prior knowledge: each connection
-must open with HTTP/2's preface, as `curl --http2-prior-knowledge` and `h2load` send
-it. There is no `Upgrade: h2c`, and no detection of the preface on an HTTP/1.1 port.
-`http::serve` serves HTTP/1.1 on one port, and fails with `ENOSYS` on either setting
-below.
+Both loops serve h2c, HTTP/2 over TCP with prior knowledge: each connection must open
+with HTTP/2's preface, as `curl --http2-prior-knowledge` and `h2load` send it. There is
+no `Upgrade: h2c`, and no detection of the preface on an HTTP/1.1 port. On Windows,
+`http::serve` takes one listener, since its ring keeps one accept, and fails with
+`ENOSYS` on `Config.listeners`; `http::ring_listeners()` says how many a ring takes.
+h2c on Windows is untested.
 
 - `Config.h2c` makes `Config.port` serve h2c instead of HTTP/1.1.
 - `Config.listeners` adds up to `http::MAX_LISTENERS` (3) more ports on the same
@@ -561,6 +562,6 @@ that waits (`later`) holds back no other. A handler that clears `out.keep_alive`
 the connection with a GOAWAY once its open streams are done, and at a stop each h2c
 connection gets a GOAWAY. `upgrade` answers 501 on a stream.
 
-The benchmark server, with `LOOP=epoll`, serves h2c on its port + 2: 8082 beside
-8080. `H2C_PORT` names another port, and `H2C_PORT=0` turns it off.
+The benchmark server serves h2c on its port + 2, 8082 beside 8080, on every loop but
+IOCP. `H2C_PORT` names another port, and `H2C_PORT=0` turns it off.
 
