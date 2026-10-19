@@ -121,7 +121,7 @@ and `H2C_PORT=0` turns it off. The uring loop serves HTTP/1.1 only.
    iocp on Windows. After the epoll build's, `scripts/test-h2spec.sh`, which fetches
    h2spec v2.6.0 into `build/` and runs it against the h2c port. h2spec's only builds
    are x86-64: on macOS it needs Rosetta 2, and on Linux on arm64 the step is skipped,
-   with a note.
+   with a note ([run it from an x86-64 container](#docker-on-macos)).
 4. `scripts/test-echo.sh`, against the last build.
 5. `scripts/test-examples.sh`: builds the examples and requests their routes on port 8080,
    including the device example with simulated hardware. ARM builds are checked
@@ -358,6 +358,18 @@ git ls-files -co --exclude-standard -z | tar --null -T - -cf - | tar -xf - -C /t
 ```
 
 An exported tree has no git metadata, so record the source commit in the run.
+
+h2spec has no arm64 Linux build, and its x86-64 one is linked against glibc, so
+`scripts/test-h2spec.sh` skips it in an arm64 container. Run the server there, and
+h2spec from an x86-64 `ubuntu:26.04` container in the server container's network
+(Docker Desktop runs it under emulation), with h2spec's `linux_amd64` archive
+extracted into `/tmp/h2spec`:
+
+```sh
+docker run -d --name h2c-srv ... sh -c 'LOOP=epoll scripts/build.sh && build/server http 29080'
+docker run --rm --platform linux/amd64 --network container:h2c-srv -v /tmp/h2spec:/h:ro \
+    ubuntu:26.04 /h/h2spec -h 127.0.0.1 -p 29082 -P /plaintext -o 2
+```
 
 #### ARM under Docker
 
