@@ -453,7 +453,7 @@ http::mail_close(box);
 ## Outbound connections
 
 Connections the program opens to another server, such as a database: TCP, or a Unix
-socket on Linux and macOS. Not yet in a tag. Shown in `test/outbound/`:
+socket on Linux and macOS. Shown in `test/outbound/`:
 `outbound_blocking.goose` for a lane's thread, `outbound_loop.goose` for a handler on
 `serve_epoll`.
 

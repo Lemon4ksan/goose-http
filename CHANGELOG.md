@@ -2,6 +2,60 @@
 
 What each tag adds. Each release names the Goose compiler it was built and tested with.
 
+## v0.4.0 (2026-10-19)
+
+HTTP/2 over TCP (h2c), HTTPS, WebSocket, outbound connections, `http::run`, and lanes
+in the package. Goose master `f114b5a`, since no release has
+[aardappel/goose#37](https://github.com/aardappel/goose/pull/37) yet, which `http::run`
+and `http::lane_open` need; goose-hash `v0.0.4` for WebSocket, goose-tls `v0.0.1` for
+TLS, and goose-compress `v0.1.1`.
+
+- h2c, HTTP/2 with prior knowledge, in the epoll, kqueue, and io_uring loops and the
+  ring's emulation: HPACK and HTTP/2's frames written in Goose, `Config.h2c` for the
+  main port, and `Config.h2_max_streams`, `h2_stream_window`, and `h2_conn_window`.
+  Handlers don't change: each stream is an exchange. Expect is answered on a stream, a
+  handler that ends keep-alive ends the connection with a GOAWAY, and flood budgets are
+  set from what h2load, nghttp, and curl spend. It passes h2spec, 146 of 146 cases, and
+  147 of 147 with `-S`. Translating a response's head into HPACK takes one pass over
+  it, and lowercases names in place
+  ([api](docs/api.md#several-ports-and-h2c)).
+- Several listeners per loop: `Config.listeners` adds up to `http::MAX_LISTENERS` (3)
+  ports on the same address, each an `http::Listener { port, h2c, tls }`, served by the
+  same workers. `http::ring_listeners()` says how many a ring takes; IOCP takes one.
+- HTTP/1.1 over TLS 1.3 in `serve_epoll` on Linux and macOS, from the module
+  `http.tls` with goose-tls over OpenSSL 3: `Config.tls` or a `Listener`'s `tls`,
+  `http::tls_server(ctx)` per worker, and `http::release` after the loop
+  ([api](docs/api.md#https)).
+- WebSocket (RFC 6455) in the module `http.websocket`, over HTTP/1.1 and TLS:
+  `http::ws_upgrade`, `ws_read`, `ws_send`, and `ws_close`, with pings, Close, and the
+  protocol's errors handled by the package. It passes Autobahn's test suite, but for
+  the extension sections ([api](docs/api.md#websocket)).
+- Outbound connections, TCP or a Unix socket: `http::connect`, `send_all`, and `recv`
+  with time limits block a lane's thread; `http::connect_start`, `wait_socket`,
+  `connected`, `send`, and `recv` drive a socket from a handler on `serve_epoll`, where
+  the exchange waits for it as for mail, with `WAKE` and `http::SOCKET_READY`
+  ([api](docs/api.md#outbound-connections)).
+- `http::run(cfg, worker)` spawns the workers, up to two values passed to each beside
+  its `Config`, and returns once all have returned.
+- Lanes are in the package: `http::lane_open` spawns a lane's threads, each with a box,
+  `http::lane(box)` is a thread's loop, `lane_send` and `lane_send_value` send to the
+  least busy, `lane_stop` stops and waits for them, `lane_of(box)` is a lane of one box
+  for a test, and `lane_spawn` lets a package start lane threads of its own
+  ([api](docs/api.md#lanes)).
+- A `later` while waiting isn't configured (`Config.mail_slots` and `max_waiting` 0)
+  gets `TIMEOUT` on the loop's next pass, and its address takes no message.
+- The benchmark server serves h2c on its port + 2 (`H2C_PORT`), TLS on its port + 1
+  with `LOOP=epoll` (`TLS_CERT`, `TLS_KEY`, `TLS_PORT`), `/ws`, and HttpArena's
+  `/baseline2`. `bench/h2c.sh` runs HttpArena's h2c profiles.
+- Removed: placement (`http::place_load`, seats, and `docs/tuning.md`), which hadn't
+  been measured to help, and 32-bit ARM. aarch64 builds with Goose's default stack
+  reserve.
+
+Not yet: TLS and `wait_socket` on `http::serve`'s loops (io_uring, its emulation, and
+IOCP) fail with `ENOSYS`, so Windows has no TLS; h2 over TLS and the kernel's TLS are
+still to come; h2c is untested on Windows; host names other than `localhost` aren't
+resolved.
+
 ## v0.3.7 (2026-10-19)
 
 A lane stops with a flag a full box can't refuse, and threads can be placed on cores

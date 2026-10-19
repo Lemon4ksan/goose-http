@@ -24,8 +24,8 @@ generation from OpenAPI, see [goose-rest](https://github.com/kaitk/goose-rest).
 | 🟢 | Compression | Files compressed with Brotli, Zstandard, or gzip; on-the-fly gzip, deflate, and Zstandard with [goose-compress](https://github.com/kaitk/goose-compress). |
 | 🟡 | HTTP/2 | h2c, HTTP/2 over TCP with prior knowledge, on a port of its own, on Linux and macOS ([API](docs/api.md#several-ports-and-h2c)). Not yet over TLS. |
 | 🟡 | TLS | HTTPS: HTTP/1.1 over TLS 1.3 on the epoll and kqueue loop, on a port of its own, from the module `http.tls` with [goose-tls](https://github.com/kaitk/goose-tls) and OpenSSL 3 ([API](docs/api.md#https)). Not yet in io_uring's loop, nor with h2 or the kernel's TLS on Linux. |
-| 🟢 | WebSocket | RFC 6455: text and binary messages, fragments, ping, and close, in the optional `http.websocket` module, with SHA-1 from [goose-hash](https://github.com/kaitk/goose-hash) ([API](docs/api.md#websocket)). Passes Autobahn's test suite. No extensions, such as permessage-deflate, and not over HTTP/2. Not yet in a tag. |
-| 🟡 | Outbound connections | TCP and Unix sockets to other servers, such as a database: blocking calls with time limits for a lane's thread, and non-blocking ones on the epoll and kqueue loop, where the exchange waits for the socket ([API](docs/api.md#outbound-connections)). Not yet in io_uring's or IOCP's loop; host names other than `localhost` aren't resolved yet. Not yet in a tag. |
+| 🟢 | WebSocket | RFC 6455: text and binary messages, fragments, ping, and close, in the optional `http.websocket` module, with SHA-1 from [goose-hash](https://github.com/kaitk/goose-hash) ([API](docs/api.md#websocket)). Passes Autobahn's test suite. No extensions, such as permessage-deflate, and not over HTTP/2. |
+| 🟡 | Outbound connections | TCP and Unix sockets to other servers, such as a database: blocking calls with time limits for a lane's thread, and non-blocking ones on the epoll and kqueue loop, where the exchange waits for the socket ([API](docs/api.md#outbound-connections)). Not yet in io_uring's or IOCP's loop; host names other than `localhost` aren't resolved yet. |
 | ⚪ | HTTP/3 | Deferred until QUIC on Linux matures; it currently uses more CPU than TCP for the same traffic. |
 
 | | Platform | Notes |
@@ -37,7 +37,7 @@ generation from OpenAPI, see [goose-rest](https://github.com/kaitk/goose-rest).
 
 ## What it provides
 
-The latest tag, `v0.3.7`, provides all of this on every platform above:
+The latest tag, `v0.4.0`, provides all of this on every platform above:
 
 - A strict parser that guards against request smuggling and returns 414, 431, 501, and
   505 where appropriate; header fields, path, query, and percent-decoding support.
@@ -58,10 +58,12 @@ sessions, and middleware (see [goose-rest](https://github.com/kaitk/goose-rest))
 
 ## Quick start
 
-Install Goose [`v2026.2`](https://github.com/aardappel/goose/releases/tag/v2026.2): unpack
-the archive for your platform and put its directory on `PATH`
-([Goose's install notes](https://github.com/aardappel/goose#install-a-release)). Building
-a program also needs a C compiler and, on Linux, liburing:
+Build Goose at commit
+[`f114b5a`](https://github.com/aardappel/goose/commit/f114b5ac52cfad4bc73038aede53ac7e470b0ad3)
+and put its directory on `PATH`
+([Goose's build notes](https://github.com/aardappel/goose#build-and-run)): `http::run`
+needs [aardappel/goose#37](https://github.com/aardappel/goose/pull/37), which no Goose
+release has yet. Building a program also needs a C compiler and, on Linux, liburing:
 
 - **Linux:** gcc or clang, with `libc6-dev` and `liburing-dev` (Debian, Ubuntu).
 - **macOS:** the Xcode command line tools (`xcode-select --install`).
@@ -70,7 +72,7 @@ a program also needs a C compiler and, on Linux, liburing:
 Save this as `hello.goose`:
 
 ```rust
-import http from "github.com/kaitk/goose-http@v0.3.7";
+import http from "github.com/kaitk/goose-http@v0.4.0";
 
 thread_fn worker(cfg: http::Config) {
     let e = http::serve(cfg) { req, body, out =>
@@ -84,14 +86,9 @@ thread_fn worker(cfg: http::Config) {
 }
 
 fn main() {
-    let cfg = http::Config { port: 8080, .. };
-    var ids: i64[>..] = [];
-    for i in http::worker_count(cfg) { ids.push(thread_spawn(worker, cfg)); }
-    for id in ids { thread_wait(id); }
+    http::run(http::Config { port: 8080, .. }, worker);
 }
 ```
-
-On `main`, `http::run(cfg, worker)` replaces these two loops; the next tag will have it.
 
 Build it and run it, then open <http://localhost:8080/>:
 
