@@ -38,10 +38,14 @@ What isn't Goose, and why, is in
 
 ## Get Goose
 
-Until the next release, the scripts build Goose master `dcc2747` (2026-10-19), which
+Until the next release, the scripts build Goose master `f114b5a` (2026-10-19), which
 `goose_commit` in `scripts/goose.sh` pins: `http::run` and `http::lane_open` need
 [aardappel/goose#37](https://github.com/aardappel/goose/pull/37), which no release has
-yet. The first script that needs the compiler clones and builds that commit as
+yet. The commit also has
+[#41](https://github.com/aardappel/goose/pull/41), which keeps gcc from dropping the
+stores to a `ByteSet` that the byte search reads, a miscompile in gcc builds on Linux
+and WSL, and [#42](https://github.com/aardappel/goose/pull/42), which lets TinyCC find
+the C library on lib64 systems. The first script that needs the compiler clones and builds that commit as
 `GOOSE_COMMIT` does ([use another compiler](#use-another-compiler)), so it needs CMake
 and a C++ compiler. Once a release has #37, `goose_commit` is emptied and the release
 below pinned.
