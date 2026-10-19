@@ -1,0 +1,130 @@
+C.1 integers: 10, 1337 in 5-bit prefixes, 42 in 8 bits; truncated and too large refused
+C.2.1:
+custom-key: custom-header
+  [1] (s = 55) custom-key: custom-header
+  size: 55
+C.2.2:
+:path: /sample/path
+  size: 0
+C.2.3:
+password: secret
+  size: 0
+C.2.4:
+:method: GET
+  size: 0
+C.3.1:
+:method: GET
+:scheme: http
+:path: /
+:authority: www.example.com
+  [1] (s = 57) :authority: www.example.com
+  size: 57
+C.3.2:
+:method: GET
+:scheme: http
+:path: /
+:authority: www.example.com
+cache-control: no-cache
+  [1] (s = 53) cache-control: no-cache
+  [2] (s = 57) :authority: www.example.com
+  size: 110
+C.3.3:
+:method: GET
+:scheme: https
+:path: /index.html
+:authority: www.example.com
+custom-key: custom-value
+  [1] (s = 54) custom-key: custom-value
+  [2] (s = 53) cache-control: no-cache
+  [3] (s = 57) :authority: www.example.com
+  size: 164
+C.4.1:
+:method: GET
+:scheme: http
+:path: /
+:authority: www.example.com
+  [1] (s = 57) :authority: www.example.com
+  size: 57
+C.4.2:
+:method: GET
+:scheme: http
+:path: /
+:authority: www.example.com
+cache-control: no-cache
+  [1] (s = 53) cache-control: no-cache
+  [2] (s = 57) :authority: www.example.com
+  size: 110
+C.4.3:
+:method: GET
+:scheme: https
+:path: /index.html
+:authority: www.example.com
+custom-key: custom-value
+  [1] (s = 54) custom-key: custom-value
+  [2] (s = 53) cache-control: no-cache
+  [3] (s = 57) :authority: www.example.com
+  size: 164
+C.4: encoded to the same bytes
+C.5.1:
+:status: 302
+cache-control: private
+date: Mon, 21 Oct 2013 20:13:21 GMT
+location: https://www.example.com
+  [1] (s = 63) location: https://www.example.com
+  [2] (s = 65) date: Mon, 21 Oct 2013 20:13:21 GMT
+  [3] (s = 52) cache-control: private
+  [4] (s = 42) :status: 302
+  size: 222
+C.5.2:
+:status: 307
+cache-control: private
+date: Mon, 21 Oct 2013 20:13:21 GMT
+location: https://www.example.com
+  [1] (s = 42) :status: 307
+  [2] (s = 63) location: https://www.example.com
+  [3] (s = 65) date: Mon, 21 Oct 2013 20:13:21 GMT
+  [4] (s = 52) cache-control: private
+  size: 222
+C.5.3:
+:status: 200
+cache-control: private
+date: Mon, 21 Oct 2013 20:13:22 GMT
+location: https://www.example.com
+content-encoding: gzip
+set-cookie: foo=ASDJKHQKBZXOQWEOPIUAXQWEOIU; max-age=3600; version=1
+  [1] (s = 98) set-cookie: foo=ASDJKHQKBZXOQWEOPIUAXQWEOIU; max-age=3600; version=1
+  [2] (s = 52) content-encoding: gzip
+  [3] (s = 65) date: Mon, 21 Oct 2013 20:13:22 GMT
+  size: 215
+C.6.1:
+:status: 302
+cache-control: private
+date: Mon, 21 Oct 2013 20:13:21 GMT
+location: https://www.example.com
+  [1] (s = 63) location: https://www.example.com
+  [2] (s = 65) date: Mon, 21 Oct 2013 20:13:21 GMT
+  [3] (s = 52) cache-control: private
+  [4] (s = 42) :status: 302
+  size: 222
+C.6.2:
+:status: 307
+cache-control: private
+date: Mon, 21 Oct 2013 20:13:21 GMT
+location: https://www.example.com
+  [1] (s = 42) :status: 307
+  [2] (s = 63) location: https://www.example.com
+  [3] (s = 65) date: Mon, 21 Oct 2013 20:13:21 GMT
+  [4] (s = 52) cache-control: private
+  size: 222
+C.6.3:
+:status: 200
+cache-control: private
+date: Mon, 21 Oct 2013 20:13:22 GMT
+location: https://www.example.com
+content-encoding: gzip
+set-cookie: foo=ASDJKHQKBZXOQWEOPIUAXQWEOIU; max-age=3600; version=1
+  [1] (s = 98) set-cookie: foo=ASDJKHQKBZXOQWEOPIUAXQWEOIU; max-age=3600; version=1
+  [2] (s = 52) content-encoding: gzip
+  [3] (s = 65) date: Mon, 21 Oct 2013 20:13:22 GMT
+  size: 215
+C.6: encoded to the same bytes

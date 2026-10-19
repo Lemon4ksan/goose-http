@@ -1,0 +1,5 @@
+Huffman: each byte alone, all 256 together, and 1000 random strings round trip
+Huffman: padding of zeros, padding over 7 bits, and EOS refused
+decode: 10 malformed blocks refused; size updates before the first field taken
+churn: 3000 fields agree with the model in encoder and decoder, most named from the dynamic table
+encoder: size updates for a lower then higher limit, and each kind of literal
