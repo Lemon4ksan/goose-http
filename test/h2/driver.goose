@@ -1,8 +1,8 @@
 // The h2c driver, h2_answer, fed a client's bytes without a socket: the
 // preface and settings, requests whole and with bodies, a response sent in
 // pieces, flow control at a small window, a stream that waits while another
-// is answered, upgrade answering 501, malformed requests, and the flood
-// guards. Each frame the server writes is printed, its Date left out.
+// is answered, upgrade answering 501, malformed requests, Expect, a handler
+// that ends keep-alive, and the flood guards. Each frame the server writes is printed, its Date left out.
 import std;
 import http from "../../";
 import http.hpack;
@@ -69,6 +69,9 @@ fn handle(ev: http::Event, st: St&, out: http::Reply) {
         http::send(out, "first ");
     } else if path == "/wait" {
         http::later(out, 1000);
+    } else if path == "/close" {
+        out.keep_alive = false;
+        http::respond(out, 200, "text/plain", "bye");
     } else if path == "/upgrade" {
         http::upgrade(out, "websocket");
     } else if path == "/cookie" {
@@ -314,6 +317,24 @@ fn refusals() {
     feed(input);
 }
 
+fn expectations() {
+    print("100-continue, another expectation, and a handler that ends keep-alive:");
+    session(http::Config { .. });
+    var input: u8[>..] = [];
+    opening(input, http::H2Settings { .. });
+    request(input, 1, "POST", "/echo", "expect: 100-continue", false);
+    request(input, 3, "POST", "/echo", "expect: something", false);
+    feed(input);
+    input.clear();
+    http::h2_write_data(input, 1, "body", true);
+    request(input, 5, "GET", "/close", "", true);
+    feed(input);
+    // After the GOAWAY, a new stream is ignored.
+    input.clear();
+    request(input, 7, "GET", "/", "", true);
+    feed(input);
+}
+
 fn floods() {
     print("1001 PINGs:");
     session(http::Config { .. });
@@ -362,5 +383,6 @@ fn main() {
     flow_control();
     waiting();
     refusals();
+    expectations();
     floods();
 }

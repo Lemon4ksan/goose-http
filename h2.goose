@@ -470,8 +470,15 @@ fn h2_answer<S, H, C>(c: C&, slot: i64, h: H2Conn&, streams: H2Stream<S>[>..]&, 
         }
         retire(st.x.stream);
         if !st.x.answered && !st.x.stream.open && (wrote || was_open) { st.x.answered = true; }
+        let ending = !st.x.keep_alive;
         if wrote || (was_open && !st.x.stream.open) { emit(k, bout); }
         bout.clear();
+        // As HTTP/1.1's Connection: close, a handler that clears keep_alive
+        // ends the connection, once the streams the client opened are done.
+        if ending && !h.goaway {
+            h2_write_goaway(wbuf, h.last_stream, H2_NO_ERROR);
+            h.goaway = true;
+        }
         return wrote;
     }
 
@@ -650,6 +657,8 @@ fn h2_answer<S, H, C>(c: C&, slot: i64, h: H2Conn&, streams: H2Stream<S>[>..]&, 
         var scheme = false;
         var host = false;
         var length = -1;
+        var expect = false;
+        var unmet = false;
         let trailers = k >= 0;
         let ok = hpack_decode(h.dec, fb, bhuff) { name, value =>
             size += name.len + value.len + 32;
@@ -675,6 +684,10 @@ fn h2_answer<S, H, C>(c: C&, slot: i64, h: H2Conn&, streams: H2Stream<S>[>..]&, 
                         bcookie.append(value);
                     } else {
                         if name == "host" { host = true; }
+                        if name == "expect" {
+                            // 100-continue is the only expectation (RFC 9110 §10.1.1).
+                            if eq_fold(value, "100-continue") { expect = true; } else { unmet = true; }
+                        }
                         if name == "content-length" {
                             let n, nok = parse_int(value);
                             if !nok || n < 0 || (length >= 0 && n != length) { bad = true; }
@@ -739,6 +752,10 @@ fn h2_answer<S, H, C>(c: C&, slot: i64, h: H2Conn&, streams: H2Stream<S>[>..]&, 
             refuse_new(id, 413, end_stream);
             return;
         }
+        if unmet {
+            refuse_new(id, 417, end_stream);
+            return;
+        }
         if a0 >= 0 && !host {
             bfields.append("host: ");
             bfields.append(bpseudo[a0..a1]);
@@ -779,6 +796,13 @@ fn h2_answer<S, H, C>(c: C&, slot: i64, h: H2Conn&, streams: H2Stream<S>[>..]&, 
         copy_into(st.rq[..method.len], method);
         copy_into(st.rq[method.len..method.len + target.len], target);
         copy_into(st.rq[method.len + target.len..], bfields);
+        // The client may wait for this before it sends the body; the
+        // handler is called only once some of it has come.
+        if expect {
+            bfb.clear();
+            hpack_encode(h.enc, bfb, ":status", "100");
+            h2_write_headers(wbuf, id, bfb, false, h.peer.max_frame_size);
+        }
     }
 
     // The client's settings (§6.5.3), acknowledged.
