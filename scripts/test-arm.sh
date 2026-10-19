@@ -74,6 +74,8 @@ docker run --rm --platform linux/amd64 --user "$(id -u):$(id -g)" \
 set -eu
 for dir in examples/*/; do
     name=$(basename "$dir")
+    # goose-tls builds with OpenSSL through CMake, not set up for cross builds.
+    [ "$name" != tls ] || continue
     src=$dir$name.goose
     [ -f "$src" ] || src=${dir}app.goose
     "$GOOSE" build --cc "$CC" --stack-reserve "$RESERVE" --standalone -o "$BIN/$name" "$src" \

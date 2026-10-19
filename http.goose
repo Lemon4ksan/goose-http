@@ -37,10 +37,12 @@ import mail;
 import lane;
 
 // A listener beside Config.port's, at Config.address: its port, and whether
-// it serves h2c, HTTP/2 with prior knowledge (h2.goose), rather than HTTP/1.1.
+// it serves h2c, HTTP/2 with prior knowledge (h2.goose), or HTTP/1.1 over
+// TLS (http.tls), rather than HTTP/1.1.
 struct Listener {
     port: i32 = 0,
     h2c: bool = false,
+    tls: bool = false,
 }
 
 // The most listeners a loop takes beside Config.port's.
@@ -56,11 +58,13 @@ struct Config {
     address: u8[..112] = "",
     ipv6_only: bool = false,
     port: i32 = 8080,
-    // Whether port's listener serves h2c rather than HTTP/1.1, and the
-    // listeners beside it, each with its own port and mode. Only
-    // serve_epoll serves h2c, and more than one listener, so far; serve
-    // fails with ENOSYS on either.
+    // Whether port's listener serves h2c or TLS rather than HTTP/1.1, and
+    // the listeners beside it, each with its own port and mode. TLS needs
+    // the module http.tls and serve_epoll's form that takes a TlsServer.
+    // Only serve_epoll serves h2c, TLS, and more than one listener, so far;
+    // serve fails with ENOSYS on any.
     h2c: bool = false,
+    tls: bool = false,
     listeners: Listener[..MAX_LISTENERS] = [],
     // HTTP/2: the most streams a client may have open on a connection, up to
     // 256 (SETTINGS_MAX_CONCURRENT_STREAMS), and what it may send before a

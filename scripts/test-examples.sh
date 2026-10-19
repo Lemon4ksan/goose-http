@@ -203,6 +203,22 @@ holds hi
 expect 404 "$url/nope"
 end_example
 
+# HTTPS beside HTTP, with a certificate of its own. goose-tls isn't set up on
+# Windows yet, nor for scripts/test-arm.sh's cross builds, which leave it out.
+if [ -z "$windows" ] && command -v openssl >/dev/null && { [ -z "${PREBUILT:-}" ] || [ -x "$bin/tls" ]; }; then
+    openssl req -x509 -newkey rsa:2048 -nodes -keyout "$tmp/tls.key" -out "$tmp/tls.crt" \
+        -days 2 -subj /CN=localhost 2>/dev/null
+    start tls "$tmp/tls.crt" "$tmp/tls.key"
+    expect 200 "$url/"
+    holds "Hello, World!"
+    expect 200 -k https://127.0.0.1:8443/
+    holds "Hello, World!"
+    expect 200 -k -d hi https://127.0.0.1:8443/echo
+    holds hi
+    expect 404 -k https://127.0.0.1:8443/nope
+    end_example
+fi
+
 # The device's sysfs, faked: a thermal zone and an LED of its own. Windows has
 # no epoll loop.
 mkdir "$tmp/zone" "$tmp/led"

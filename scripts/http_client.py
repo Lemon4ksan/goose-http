@@ -27,6 +27,9 @@
     http_client.py PORT listen ADDRESS [v6only]
                                     a server started with ADDRESS (and IPV6_ONLY):
                                     "::" over IPv6 and IPv4, or a Unix socket
+    http_client.py PORT tls         HTTP/1.1 over TLS, PORT being the server's TLS port:
+                                    the checks above that suit it, and bad handshakes
+    http_client.py PORT tls-slow    handshakes that stall, against REQUEST_MS
     http_client.py PORT stop PID    a graceful stop, by SIGTERM to the server's PID
     http_client.py PORT stop-break SERVER
                                     on Windows, a graceful stop by Ctrl+Break, of a
@@ -43,6 +46,7 @@ import json
 import os
 import signal
 import socket
+import ssl
 import subprocess
 import sys
 import threading
@@ -76,6 +80,23 @@ def fail(msg):
     sys.exit(1)
 
 
+# Whether Conn speaks TLS, as the tls mode's checks do: the server's
+# certificate isn't verified, and ALPN offers http/1.1 alone, as HttpArena's
+# clients do.
+TLS = False
+
+
+def tls_context(alpn=("http/1.1",), version=None):
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    if alpn:
+        ctx.set_alpn_protocols(list(alpn))
+    if version is not None:
+        ctx.minimum_version = ctx.maximum_version = version
+    return ctx
+
+
 def request(path, method=b"GET", extra=b"", version=b"HTTP/1.1"):
     return method + b" " + path + b" " + version + b"\r\n" + TFB_HEADERS + extra + b"\r\n"
 
@@ -106,6 +127,8 @@ class Conn:
             self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, rcvbuf)
         self.sock.settimeout(timeout)
         self.sock.connect(addr if addr is not None else (HOST, port))
+        if TLS:
+            self.sock = tls_context().wrap_socket(self.sock, suppress_ragged_eofs=False)
         # A bytearray, which drops a prefix without copying the rest.
         self.buf = bytearray()
 
@@ -755,6 +778,15 @@ def graceful_stop(port, send):
         h2.sendall(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" + bytes([0, 0, 0, 4, 0, 0, 0, 0, 0]))
     except OSError:
         pass
+    # An idle TLS connection, where the server serves TLS on port + 1 (TLS_PORT's
+    # default), which the stop closes with close_notify.
+    secure = None
+    try:
+        sock = socket.create_connection((HOST, port + 1), 1)
+        secure = tls_context().wrap_socket(sock, suppress_ragged_eofs=False)
+        ports.append(port + 1)
+    except OSError:
+        pass
     # Long enough for the server to accept them, and to fill big's socket.
     time.sleep(0.5)
     send()
@@ -787,6 +819,16 @@ def graceful_stop(port, send):
         if not goaway:
             fail("an idle h2c connection closed at the stop without a GOAWAY of NO_ERROR")
         h2.close()
+    if secure is not None:
+        secure.settimeout(2)
+        try:
+            if secure.recv(1) != b"":
+                fail("an idle TLS connection got bytes at the stop")
+        except ssl.SSLEOFError:
+            fail("an idle TLS connection closed at the stop without close_notify")
+        except OSError:
+            fail("an idle TLS connection stayed open after the stop")
+        secure.close()
     # Every worker's listeners close within a second or so. Windows refuses a
     # connection to a closed port only after retrying for about 2 s, so a
     # timeout counts as refused, and on Linux a connection queued on a
@@ -808,6 +850,88 @@ def graceful_stop(port, send):
     if r.status != 200 or r.body != digits(20000000) or not big.closed():
         fail("a response in progress at the stop didn't finish")
     print("stop: ok")
+
+
+def tls_checks(port):
+    """HTTP/1.1 over TLS, on the port the server serves it on: TLS 1.3 with
+    ALPN http/1.1; tfb, pipeline, large, and keepalive over it, each close
+    after Connection: close with close_notify; a client that offers TLS 1.2
+    alone, refused with an alert; and plaintext sent to the port, closed
+    unanswered. Not stream, whose threads send and receive on one connection
+    at once, which Python's TLS sockets don't take; test-http.sh echoes a
+    large body through curl instead."""
+    global TLS
+    TLS = True
+    c = Conn(port)
+    if c.sock.version() != "TLSv1.3" or c.sock.selected_alpn_protocol() != "http/1.1":
+        fail(f"tls: {c.sock.version()} with ALPN {c.sock.selected_alpn_protocol()}")
+    c.close()
+    for check in (tfb, pipeline, large, keepalive):
+        check(port)
+    TLS = False
+    sock = socket.create_connection((HOST, port), 5)
+    try:
+        tls_context(version=ssl.TLSVersion.TLSv1_2).wrap_socket(sock)
+        fail("tls: a TLS 1.2 client was served")
+    except ssl.SSLError as e:
+        if "PROTOCOL_VERSION" not in str(e).upper():
+            fail(f"tls: a TLS 1.2 client was refused with {e}, not protocol_version")
+    sock.close()
+    sock = socket.create_connection((HOST, port), 5)
+    sock.sendall(request(b"/plaintext"))
+    got = b""
+    try:
+        while chunk := sock.recv(65536):
+            got += chunk
+    except ConnectionResetError:
+        pass
+    if got.startswith(b"HTTP"):
+        fail("tls: plaintext on the TLS port was answered")
+    sock.close()
+    print("tls: ok")
+
+
+def client_hello():
+    """A ClientHello, as Python's TLS client makes one."""
+    incoming, outgoing = ssl.MemoryBIO(), ssl.MemoryBIO()
+    c = tls_context().wrap_bio(incoming, outgoing)
+    try:
+        c.do_handshake()
+    except ssl.SSLWantReadError:
+        pass
+    return outgoing.read()
+
+
+def tls_slow(port):
+    """Handshakes that stall, against a server with REQUEST_MS: a ClientHello
+    cut short, and a whole one followed by nothing. The server closes each
+    within request_ms of the accept, and serves the next client meanwhile."""
+    hello = client_hello()
+    for name, data in (("a ClientHello cut short", hello[:20]), ("a handshake without Finished", hello)):
+        sock = socket.create_connection((HOST, port), 5)
+        t0 = time.time()
+        sock.sendall(data)
+        sock.settimeout(REQUEST_TIMEOUT + 3)
+        global TLS
+        TLS = True
+        c = Conn(port)
+        c.send(request(b"/plaintext"))
+        if c.response().status != 200:
+            fail(f"tls: no answer beside {name}")
+        c.close()
+        TLS = False
+        try:
+            while sock.recv(65536):
+                pass
+        except (socket.timeout, TimeoutError):
+            fail(f"tls: {name} stayed open past request_ms")
+        except ConnectionResetError:
+            pass
+        took = time.time() - t0
+        if took < REQUEST_TIMEOUT - 0.5 or took > REQUEST_TIMEOUT + 2:
+            fail(f"tls: {name} closed after {took:.1f} s, with request_ms {REQUEST_TIMEOUT} s")
+        sock.close()
+    print("tls slow: ok")
 
 
 def files(port, root):
@@ -1445,7 +1569,8 @@ def main():
     else:
         {"tfb": tfb, "pipeline": pipeline, "large": large, "chunked": chunked, "keepalive": keepalive,
          "hostile": hostile, "slow": slow, "stream": stream, "requests": requests,
-         "client": client, "later": later, "later-off": later_off, "forms": forms}[mode](port)
+         "client": client, "later": later, "later-off": later_off, "forms": forms,
+         "tls": tls_checks, "tls-slow": tls_slow}[mode](port)
 
 
 if __name__ == "__main__":

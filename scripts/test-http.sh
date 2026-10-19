@@ -2,7 +2,9 @@
 # Starts the HTTP server of build/server and tests it: the endpoints with
 # curl, TechEmpower's checks, pipelining, keep-alive, hostile and slow
 # clients, and many connections at once with scripts/http_client.py, then
-# short wrk, h2load, and oha runs that must see only 200s and no errors.
+# short wrk, h2load, and oha runs that must see only 200s and no errors. The
+# epoll build also serves h2c on the port + 2 and, where openssl makes it a
+# certificate, HTTP/1.1 over TLS on the port + 1, which it tests the same way.
 # Fails on the first error, or if the server died along the way.
 #
 # PORT picks the port (29080): keep it below the kernel's ephemeral range
@@ -39,6 +41,15 @@ $client dataset "$dataset"
 if [ -n "$windows" ]; then export DATASET=$(cygpath -m "$dataset"); else export DATASET=$dataset; fi
 if [ -n "$windows" ]; then log_path=$(cygpath -m "$log"); else log_path=$log; fi
 export FILES="$files_path"
+# A self-signed RSA-2048 pair, as HttpArena mounts one, for the epoll build's
+# TLS listener on the port + 1 (server/https.goose). The other builds ignore
+# it.
+certs=$(mktemp -d)
+if [ -z "$windows" ] && command -v openssl >/dev/null; then
+    openssl req -x509 -newkey rsa:2048 -nodes -keyout "$certs/server.key" -out "$certs/server.crt" \
+        -days 2 -subj /CN=localhost 2>/dev/null
+    export TLS_CERT="$certs/server.crt" TLS_KEY="$certs/server.key"
+fi
 
 # Ends the server. Git Bash's kill doesn't always end a native program, so
 # on Windows it goes by the Windows process id.
@@ -57,7 +68,7 @@ if [ -n "$pid" ]; then
     end_server 2>/dev/null || true
 fi
 rm -f "$log" "$out" "$dataset"
-rm -rf "$files"' EXIT
+rm -rf "$files" "$certs"' EXIT
 
 # Sets the fd limit, which Windows has none of for native programs.
 limit_fds() {
@@ -123,6 +134,8 @@ stop() {
 }
 
 start
+# The port the epoll build serves TLS on, from its first line; empty for none.
+tls=$(sed -n 's/.*, TLS on port \([0-9]*\),.*/\1/p' "$log" | head -n 1)
 
 body=$(curl -sS "$url/plaintext")
 [ "$body" = "Hello, World!" ] || fail "curl /plaintext: $body"
@@ -194,6 +207,7 @@ stop
 export REQUEST_MS=4000 BODY_MS=3000 WRITE_MS=5000
 start
 $client slow
+[ -z "$tls" ] || python3 "$root/scripts/http_client.py" "$tls" tls-slow
 kill -0 "$pid" || fail "the server died"
 stop
 unset REQUEST_MS BODY_MS WRITE_MS
@@ -332,6 +346,43 @@ else
     grep -q 'Application protocol: h2c' "$out" || { cat "$out"; fail "h2load didn't speak h2c"; }
     grep -E '^requests:' "$out"
     echo "h2c: ok"
+fi
+
+# HTTP/1.1 over TLS, on the port the epoll loop serves it on (TLS_PORT, the
+# port + 1): TLS 1.3 and ALPN http/1.1 through openssl s_client, responses and
+# a reused connection through curl, a body echoed and a file and /bytes sent
+# larger than the write buffer, the client's checks over TLS and its bad
+# handshakes, and a short h2load run.
+if [ -z "$tls" ]; then
+    echo "tls: not served by this loop"
+else
+    tlsurl=https://127.0.0.1:$tls
+    tlsget() { curl -sSk --http1.1 "$@"; }
+    openssl s_client -connect "127.0.0.1:$tls" -alpn http/1.1 </dev/null >"$out" 2>&1 || true
+    grep -q '^New, TLSv1.3' "$out" || { cat "$out"; fail "s_client: not TLS 1.3"; }
+    grep -q 'ALPN protocol: http/1.1' "$out" || { cat "$out"; fail "s_client: ALPN wasn't http/1.1"; }
+    body=$(tlsget "$tlsurl/plaintext")
+    [ "$body" = "Hello, World!" ] || fail "tls /plaintext: $body"
+    body=$(tlsget "$tlsurl/json")
+    [ "$body" = '{"message":"Hello, World!"}' ] || fail "tls /json: $body"
+    connects=$(tlsget -o /dev/null -o /dev/null -w '%{num_connects} ' "$tlsurl/plaintext" "$tlsurl/json")
+    [ "$connects" = "1 0 " ] || fail "tls: curl didn't reuse the connection: $connects"
+    head -c 3000000 /dev/urandom >"$files/tls.bin"
+    tlsget --data-binary "@$files/tls.bin" -H 'Content-Type: application/octet-stream' \
+        -o "$files/tls.echo" "$tlsurl/echo"
+    cmp -s "$files/tls.bin" "$files/tls.echo" || fail "tls /echo didn't return the body"
+    tlsget -o "$files/tls.file" "$tlsurl/files/tls.bin"
+    cmp -s "$files/tls.bin" "$files/tls.file" || fail "tls /files/ didn't send the file"
+    size=$(tlsget "$tlsurl/bytes?n=1000000" | wc -c | tr -d ' ')
+    [ "$size" = 1000000 ] || fail "tls /bytes sent $size bytes"
+    rm -f "$files/tls.bin" "$files/tls.echo" "$files/tls.file"
+    python3 "$root/scripts/http_client.py" "$tls" tls
+    h2load --h1 -c 64 -n 50000 "$tlsurl/json" >"$out"
+    grep -q 'succeeded, 0 failed, 0 errored, 0 timeout' "$out" || { cat "$out"; fail "h2load tls"; }
+    grep -q 'status codes: 50000 2xx, 0 3xx, 0 4xx, 0 5xx' "$out" || { cat "$out"; fail "h2load tls"; }
+    grep -q 'Application protocol: http/1.1' "$out" || { cat "$out"; fail "h2load tls: ALPN wasn't http/1.1"; }
+    grep -E '^requests:' "$out"
+    echo "tls: ok"
 fi
 
 kill -0 "$pid" || fail "the server died"

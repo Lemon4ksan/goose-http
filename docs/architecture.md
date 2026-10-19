@@ -55,7 +55,10 @@ rather than passed as an `iovec` list to `writev`.
 
 ### Outside the package
 
-None of this is in a program that imports the package:
+None of this is in a program that imports the package alone:
+
+- **TLS, in goose-tls**, a package of its own: its C over OpenSSL comes only with
+  the module `http.tls` ([TLS](#tls)).
 
 - **Competing servers, in `bench/`**, each in its own language, built in release mode
   by `bench/build.sh`: hyper, tokio, may-minihttp, and xitca-web (Rust); vanilla-epoll
@@ -190,7 +193,8 @@ releases it at `CLOSED`.
 Precompressed files need no codec. Dynamic gzip, deflate, and zstd come from the
 optional `http.compression` module, over goose-compress's encoders, which are Goose
 and import nothing of HTTP. Negotiation and response framing stay in `http`, so a
-program that doesn't import the module needs no codec. TLS is outside this package.
+program that doesn't import the module needs no codec. [TLS](#tls) is goose-tls's, in
+the same way.
 
 ## HTTP/2
 
@@ -215,6 +219,47 @@ exchange. `serve` doesn't serve h2c yet. Two modules beneath it work on bytes al
   and what it breaks: nothing, a stream, or the connection. It keeps no state, so
   sequencing rules, such as CONTINUATION following its HEADERS, belong to the
   connection.
+
+## TLS
+
+`serve_epoll` serves HTTP/1.1 over TLS 1.3 on a listener with `Config.tls` or a
+`Listener`'s `tls`, through [goose-tls](https://github.com/kaitk/goose-tls) and OpenSSL,
+from the optional module `http.tls` (`tls.goose`)
+([decisions](decisions.md#tls-is-goose-tls-reached-from-the-module-httptls)). `serve`
+doesn't serve TLS yet, and fails with `ENOSYS` on a TLS listener.
+
+The loop's code is `epoll_loop`, which takes the listeners' TLS as an untyped
+parameter: a `NoTls` from `serve_epoll(cfg, fresh)`, or an `http::TlsServer` from
+`http.tls`'s `serve_epoll(cfg, fresh, server)`. A `TlsServer` is a worker's: its
+reference to the context, a 16 KB buffer the socket's bytes are read into, and a slot
+per TLS connection, which `EpollConn.tls` names, -1 on a plain connection. A slot holds
+the `tls::Conn`, whether its handshake is done, and whether close_notify is queued.
+
+A TLS connection's bytes pass through its `tls::Conn` between the socket and the
+worker's buffers, and everything above them is unchanged:
+
+- **Reading.** `tls_recv` advances the handshake, then decrypts into the read buffer
+  what OpenSSL holds before it reads the socket again, so an edge-triggered event is
+  never lost to records already received. When the handshake has bytes to send, it
+  returns 0, and the loop sends them before reading again.
+- **Writing.** The handler's responses are plaintext in the write buffer; before each
+  send, `tls_seal` encrypts what follows the bytes already sealed and puts the records
+  in its place, with the handshake's flights, session tickets, and alerts. What the
+  socket doesn't take waits in the connection's spill run, sealed, as a plain
+  connection's does, so the write buffer's limits apply to the records.
+- **Files** go through the record layer, read with `pread` in pieces: `sendfile` would
+  bypass it.
+- **Closing.** A connection that closes after its response (`Connection: close`, a
+  refusal, a 408) queues close_notify behind it before shutting its side down, and
+  `close_conn` sends one, or a failed handshake's alert, to a connection with nothing
+  sealed still waiting. A client's close_notify ends the connection as a close does.
+- **Timeouts.** A handshake has `Config.request_ms` from the accept, however it
+  progresses; past it the sweep closes the connection, without a 408. After the
+  handshake, the connection's timeouts are a plain connection's.
+
+The handshake and the record layer run in user space on every platform. goose-tls can
+move a connection's record layer to the kernel on Linux (kTLS), which the loop doesn't
+use yet.
 
 ## Mail between threads
 

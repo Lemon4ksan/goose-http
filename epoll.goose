@@ -30,6 +30,7 @@ struct EpollConn<S> {
     ready: bool,        // stopped reading at cfg.max_read, with the socket not empty
     listed: bool,       // in turns
     h2: i32 = -1,       // an h2c connection's H2Conn, in the worker's pool; -1 for HTTP/1.1
+    tls: i32 = -1,      // a TLS connection's slot in the TlsServer (http.tls); -1 for none
     deadline: i64,      // the time after which the sweep closes it
     x: Exchange<S>,     // the request in progress past its handler's REQUEST call
     held: u8[:],        // received and not yet answered
@@ -46,14 +47,43 @@ fn serve_epoll<H>(cfg: Config) -> Error {
 // serve_epoll(cfg), with a handler H that's called for each Event of a
 // request, with the request's state, which starts as fresh.
 fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
+    var plain = NoTls {};
+    return epoll_loop(cfg, fresh, plain, H);
+}
+
+// A program without http.tls: no listener serves TLS, so the loop never
+// calls these.
+struct NoTls {}
+fn tls_serves(t: NoTls&) -> bool { false }
+fn tls_open(t: NoTls&) -> i32 { -1 }
+fn tls_ready(t: NoTls&, k: i32) -> bool { false }
+fn tls_recv(t: NoTls&, k: i32, fd: i32, buf: u8[:]) -> i64, bool { return -1, false; }
+fn tls_seal(t: NoTls&, k: i32, w: u8[>..]&, from: i64, last: bool) -> bool { false }
+fn tls_close(t: NoTls&, k: i32, fd: i32, clean: bool) {}
+
+// serve_epoll(cfg, fresh), with tls, a NoTls or http.tls's TlsServer, the
+// TLS of the listeners that serve it. A TLS connection's bytes pass through
+// tls between the socket and the worker's buffers: what it receives is
+// decrypted into rbuf, and wbuf holds the bytes sealed for the socket
+// before sealed, and the plaintext to seal after.
+fn epoll_loop<S, H>(cfg: Config, fresh: S, tls) -> Error {
     net_worker_start();
     guard is_field_value(cfg.server) else { return Error { call: "server", code: EINVAL }; }
     guard cfg.listeners.len == 0 || !starts_with(cfg.address, "unix:") else {
         return Error { call: "listeners", code: EINVAL };
     }
-    // The listeners, Config.port's first, and whether each serves h2c.
+    // The listeners, Config.port's first, and whether each serves h2c or TLS.
     var lfds: i32[..MAX_LISTENERS + 1] = [];
     var h2c_at: bool[..MAX_LISTENERS + 1] = [];
+    var tls_at: bool[..MAX_LISTENERS + 1] = [];
+    for k in cfg.listeners.len + 1 {
+        let h2c = if k == 0 { cfg.h2c } else { cfg.listeners[k - 1].h2c };
+        let secure = if k == 0 { cfg.tls } else { cfg.listeners[k - 1].tls };
+        // h2 over TLS, chosen by ALPN, is still to come.
+        guard !secure || !h2c && tls_serves(tls) else { return Error { call: "tls", code: EINVAL }; }
+        h2c_at.push(h2c);
+        tls_at.push(secure);
+    }
     fn close_listeners() {
         for fd in lfds { if fd >= 0 { net_close(fd); } }
     }
@@ -64,7 +94,6 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
             return listening;
         }
         lfds.push(fd);
-        h2c_at.push(if k == 0 { cfg.h2c } else { cfg.listeners[k - 1].h2c });
     }
     let ep = net_epoll_create();
     guard ep >= 0 else {
@@ -148,6 +177,9 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     var rlen = 0;
     var wbuf: u8[>..] = [];
     var woff = 0;
+    // On a TLS connection, wbuf[..sealed] is sealed for the socket, and what
+    // follows is plaintext still to seal.
+    var sealed = 0;
 
     // Accepts from each listener that paused.
     fn accept_all() {
@@ -187,6 +219,19 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
             generation = generation % 0xFFFFFF + 1;
             conns[i].x.stream.later = MailAddress { box: box.handle, key: later_base(i, generation) };
             if h2c_at[k] { conns[i].h2 = h2conns.alloc_index(h2_conn(cfg, now)) as i32; }
+            if tls_at[k] {
+                let t = tls_open(tls);
+                // OpenSSL is out of memory: the client is turned away.
+                if t < 0 {
+                    net_close(fd);
+                    conns[i].fd = -1;
+                    conns.free(i);
+                    continue;
+                }
+                conns[i].tls = t;
+                // Files go through the record layer, read in pieces.
+                conns[i].x.stream.direct = false;
+            }
             open++;
         }
     }
@@ -199,6 +244,12 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
             h2_release(h2conns[c.h2], h2streams, spill, timers, c.fd, H);
             h2conns.free(c.h2);
             c.h2 = -1;
+        }
+        if c.tls >= 0 {
+            // close_notify, or a failed handshake's alert, only where nothing
+            // sealed is still waiting to go before it.
+            tls_close(tls, c.tls, c.fd, c.out.len == 0);
+            c.tls = -1;
         }
         net_close(c.fd);
         c.fd = -1;
@@ -230,6 +281,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
             spill.free_slice(c.out);
             c.out = c.out[..0];
         }
+        sealed = wbuf.len;
         guard advance(c, hup, wake) else { return false; }
         if rlen > 0 {
             c.held = spill.alloc_slice(rlen);
@@ -297,6 +349,10 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
                 full = f;
                 if c.x.stream.rearm && start_wait(c, timers, now) { overdue.push(c.x.stream.later.key); }
             }
+            if c.tls >= 0 {
+                guard tls_seal(tls, c.tls, wbuf, sealed, c.state == CLOSING) else { return false; }
+                sealed = wbuf.len;
+            }
             while woff < wbuf.len {
                 let w = net_send(c.fd, wbuf[woff..]);
                 if w == -EAGAIN { return wait(c, progress); }
@@ -307,6 +363,7 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
             }
             wbuf.clear();
             woff = 0;
+            sealed = 0;
             while c.x.stream.file >= 0 {
                 let s .= c.x.stream;
                 let w = net_sendfile(c.fd, s.file, s.file_off, s.file_left);
@@ -340,6 +397,20 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
             if rlen == 0 { c.x.since = now; }
             let room = if c.state == DRAINING { rbuf.len } else { rbuf.len - rlen };
             if room == 0 && c.x.stream.waiting { return wait(c, progress); }
+            if c.tls >= 0 && c.state == OPEN {
+                // 0: the handshake has bytes to send before it reads more.
+                let r, empty = tls_recv(tls, c.tls, c.fd, rbuf[rlen..]);
+                if r == -EAGAIN { return wait(c, progress); }
+                if r == 0 {
+                    drained = false;
+                    continue;
+                }
+                guard r > 0 else { return false; }   // closed, reset, or a failed handshake
+                got += r;
+                rlen += r;
+                drained = empty && !hup;
+                continue;
+            }
             let r = if c.state == DRAINING { net_recv(c.fd, rbuf) }
                     else { net_recv(c.fd, rbuf[rlen..]) };
             if r == -EAGAIN { return wait(c, progress); }
@@ -356,6 +427,8 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
     // idle spell shorten it.
     fn wait(c: EpollConn<S>&, progress: bool) -> bool {
         guard c.state != DRAINING else { return true; }
+        // A handshake has request_ms from the accept, however it progresses.
+        guard c.tls < 0 || tls_ready(tls, c.tls) else { return true; }
         let writing = woff < wbuf.len || c.x.stream.file >= 0;
         // An h2c connection's streams have their own limits (later's), so
         // the connection's is idle_ms, or write_ms while the client doesn't
@@ -384,10 +457,12 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S) -> Error {
                 if !waits { close_conn(i); }
                 continue;
             }
-            if owes_408(c, c.out.len > 0 || c.x.stream.file >= 0) {
+            // A handshake that didn't finish in time gets no 408.
+            if owes_408(c, c.out.len > 0 || c.x.stream.file >= 0) && (c.tls < 0 || tls_ready(tls, c.tls)) {
                 wbuf.clear();
                 refuse(wbuf, 408, common);
-                let sent = net_send(c.fd, wbuf) == wbuf.len;
+                if c.tls >= 0 && !tls_seal(tls, c.tls, wbuf, 0, true) { wbuf.clear(); }
+                let sent = wbuf.len > 0 && net_send(c.fd, wbuf) == wbuf.len;
                 wbuf.clear();
                 if sent {
                     if c.held.len > 0 {

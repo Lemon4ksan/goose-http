@@ -531,8 +531,8 @@ below.
 
 - `Config.h2c` makes `Config.port` serve h2c instead of HTTP/1.1.
 - `Config.listeners` adds up to `http::MAX_LISTENERS` (3) more ports on the same
-  address, each an `http::Listener { port, h2c }`, served by the same workers. It
-  can't be used with a Unix socket address.
+  address, each an `http::Listener { port, h2c, tls }`, served by the same workers. It
+  can't be used with a Unix socket address. `tls` is [HTTPS](#https)'s.
 - `Config.h2_max_streams` (128, up to 256) is the most streams a client may have open
   on a connection. `Config.h2_stream_window` (65,535) and `Config.h2_conn_window`
   (1 MiB) are what it may send on each stream, and on the connection, before the
@@ -563,4 +563,58 @@ connection gets a GOAWAY. `upgrade` answers 501 on a stream.
 
 The benchmark server, with `LOOP=epoll`, serves h2c on its port + 2: 8082 beside
 8080. `H2C_PORT` names another port, and `H2C_PORT=0` turns it off.
+
+### HTTPS
+
+`http::serve_epoll` serves HTTP/1.1 over TLS 1.3 on the listeners that ask for it, with
+[goose-tls](https://github.com/kaitk/goose-tls) over OpenSSL 3. Only a program that
+imports the module `http.tls` needs goose-tls, which its root file declares, and it
+builds with CMake and OpenSSL's headers
+([goose-tls's setup](https://github.com/kaitk/goose-tls/blob/main/docs/development.md#openssl)):
+
+```rust
+import http from "github.com/kaitk/goose-http@<tag>";
+import tls from "github.com/kaitk/goose-tls@v0.0.1";
+import http.tls;
+
+thread_fn worker(cfg: http::Config, ctx: tls::Context) {
+    var server = http::tls_server(ctx);
+    let e = http::serve_epoll(cfg, server) { req, body, out =>
+        http::respond(out, 200, "text/plain", "Hello, World!");
+    };
+    http::release(server);
+    http::report(e);
+}
+
+fn main() {
+    let ctx, ok = tls::server_files("server.crt", "server.key", ["http/1.1"]);
+    guard ok else { write_stderr(str(tls::error_text(), "\n")); exit(1); }
+    var cfg = http::Config { port: 8080, .. };
+    cfg.listeners.push(http::Listener { port: 8443, tls: true });
+    http::run(cfg, ctx, worker);
+    tls::free(ctx);
+}
+```
+
+- `Config.tls`, or a `Listener`'s `tls`, makes a port serve HTTP/1.1 over TLS; the
+  others go on serving HTTP/1.1 or h2c, from the same workers.
+- `http::tls_server(ctx)` gives a worker its `http::TlsServer`, with its own reference
+  to the context, which `http::release(server)` frees once the loop has returned.
+  The context is goose-tls's: a certificate chain and key, from PEM files or text,
+  TLS 1.3 only, and the ALPN protocols to offer, `http/1.1` here.
+- `http::serve_epoll(cfg, server) { req, body, out => ... }` and
+  `http::serve_epoll(cfg, fresh, server) { ev, st, out => ... }` are the two
+  `serve_epoll`s with the TLS of the listeners that ask for it. Without a context,
+  or with `tls` on an h2c listener, the loop fails with `EINVAL` before it listens, as
+  `serve_epoll` without a `TlsServer` does on any TLS listener.
+
+Handlers don't change, and neither do the limits and timeouts, but for the handshake:
+a client has `Config.request_ms` from its connection to finish it. A connection that
+closes after its response sends close_notify. Files are read in pieces rather than
+sent by `sendfile`. h2 over TLS, and the kernel's TLS (kTLS) on Linux, are still to
+come; `http::serve` fails with `ENOSYS` on a TLS listener.
+
+The benchmark server, with `LOOP=epoll`, serves TLS on its port + 1, as HttpArena's
+8081 is beside 8080, when `TLS_CERT` and `TLS_KEY` name a PEM certificate chain and
+its key. `TLS_PORT` names another port, and `TLS_PORT=0` turns it off.
 

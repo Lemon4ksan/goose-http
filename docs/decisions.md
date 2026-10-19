@@ -375,7 +375,7 @@ and field, and a C library that calls back into Goose doesn't fit the loop: an `
 fn` must be called on the thread that called `goose_init` (spec §7.11), not a worker.
 It would also put protocol work in C, where the shim holds only what Goose can't reach.
 The cost is writing and testing what nghttp2 already has, against h2spec. Where TLS
-lives is task 014's other half, and isn't decided here.
+lives is [its own entry](#tls-is-goose-tls-reached-from-the-module-httptls).
 
 ## A loop takes several listeners, each with its own mode
 
@@ -423,6 +423,52 @@ reading it in pieces as before. `later`'s key gives its low 20 bits, an HTTP/1.1
 exchange's number, to the stream's index in the stream pool, and the 24 bits of
 generation to the stream, so a reply finds its stream and no other. A stream that
 waits holds back no other stream.
+
+## TLS is goose-tls, reached from the module http.tls
+
+Decided 2026-10-19, task 014.
+
+TLS is [goose-tls](https://github.com/kaitk/goose-tls), a package of its own: a Goose
+API over OpenSSL 3 with opaque handles, whose connections take the bytes the program
+read and give back the bytes to send, through memory BIOs, and which moves a
+connection's record layer to the kernel on Linux (kTLS) after the handshake. `http`
+imports it only from its module `http.tls` (`tls.goose`), so only a program that
+imports `http.tls` declares goose-tls in its root file and builds with OpenSSL and
+CMake; `test/http/no_tls.goose` builds without it, and `test/tls/undeclared.goose`
+checks that one importing `http.tls` must declare it. This package adds no C for TLS:
+the C over OpenSSL, the exception to "C is for what Goose can't reach", stays in
+goose-tls, and the crypto, the record layer, and X.509 are OpenSSL's, not Goose.
+
+The loop reaches TLS without importing it. `epoll_loop` takes the TLS of its listeners
+as an untyped parameter, and calls `tls_open`, `tls_recv`, `tls_seal`, and the rest on
+it; Goose checks a generic body per instantiation and resolves the calls in the
+namespace `http`, so `serve_epoll` without TLS passes a `NoTls`, whose stubs are never
+called, and `http.tls` adds a `TlsServer` and its own overloads. No function pointer is
+needed, and a program without TLS compiles none of it.
+
+Rejected: TLS in this repository, which would make every program link OpenSSL; TLS
+written in Goose, which constant-time crypto and X.509 put out of scope, and which
+HttpArena's rules forbid (they ask for a standard TLS stack); and, among C libraries,
+BoringSSL (no stable API or releases), rustls-ffi (a Rust toolchain in the build), and
+BearSSL (TLS 1.2 at most, where HttpArena checks for 1.3). goose-tls's own
+[decisions](https://github.com/kaitk/goose-tls/blob/main/docs/decisions.md) record
+those in full. The cost: a program serving HTTPS needs CMake and OpenSSL's headers to
+build, and its libraries to run.
+
+## TLS is a listener's mode
+
+Decided 2026-10-19, task 014.02.
+
+A listener serves HTTP/1.1, h2c, or HTTP/1.1 over TLS, as `Config.tls` or a
+`Listener`'s `tls` says, beside the others in one loop, as
+[several listeners](#a-loop-takes-several-listeners-each-with-its-own-mode) decided:
+HttpArena serves 8080, 8081 (TLS), and 8082 (h2c) from one container. The context
+comes to the loop apart from `Config`, which can't name goose-tls's types: the program
+makes one `tls::Context` and gives each worker an `http::TlsServer`
+(`http::tls_server(ctx)`), passed to `serve_epoll(cfg, server)` or
+`serve_epoll(cfg, fresh, server)`. ALPN chooses nothing yet: a TLS listener serves
+HTTP/1.1, and TLS on an h2c listener is refused with `EINVAL` until h2 over TLS
+(task 014's phase 5). The names are proposed, and not yet agreed.
 
 ## Not yet decided
 

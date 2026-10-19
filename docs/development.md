@@ -191,6 +191,14 @@ cd ~ && cargo install oha --locked
 `GOOSE_COMMIT` and Linux on arm64, which has no Goose release archive, build Goose from
 source, with `sudo apt-get install -y cmake ninja-build g++`.
 
+The epoll build of the benchmark server, `examples/tls`, and `test/tls/` import
+goose-tls, which builds with CMake and OpenSSL 3's headers, and `scripts/test-http.sh`
+makes its test certificate with `openssl`:
+
+```sh
+sudo apt-get install -y cmake libssl-dev openssl
+```
+
 The benchmarks need more tools ([bench/README.md](../bench/README.md#toolchain)).
 
 | Tool | Source | Version used (2026-10-10) |
@@ -216,10 +224,13 @@ The platform mapping is in
 Install the tools with Homebrew, then run `scripts/test.sh`:
 
 ```sh
-brew install cmake wrk nghttp2 oha
+brew install cmake wrk nghttp2 oha openssl@3
 ```
 
-The scripts fetch the `macos-arm64` or `macos-x64` release; CMake is for `GOOSE_COMMIT`.
+The scripts fetch the `macos-arm64` or `macos-x64` release; CMake is for `GOOSE_COMMIT`
+and for goose-tls, which builds with Homebrew's `openssl@3` (macOS's own `libssl` is
+LibreSSL, without headers) for the epoll build of the benchmark server, `examples/tls`,
+and `test/tls/`.
 TinyCC finds the SDK headers through `xcrun --show-sdk-path`, so it needs Xcode or the
 Command Line Tools. `goose build --cc gcc` works because macOS's gcc is Apple clang. The
 scripts' `ulimit -n 65536` fits the tested per-process fd limit.
@@ -242,6 +253,8 @@ The io_uring loop runs natively on Windows through `shim/iocp.c` and `shim/net_w
 which `http.build` lists under `c_sources_windows`
 ([architecture](architecture.md#c-in-the-package)), and
 `scripts/test-http.sh` and `scripts/test-echo.sh` pass there, in Git Bash. The epoll loop doesn't build on Windows. Windows isn't for benchmarks.
+TLS, which only the epoll loop serves, isn't set up on Windows: `test/run_tests.py`
+leaves out `test/tls/` there, and `scripts/test-examples.sh` `examples/tls`.
 
 The scripts fetch the `windows-x64` release ([Get Goose](#get-goose)). `goose build`
 needs the Visual Studio 2026 Build Tools: run
@@ -343,7 +356,8 @@ To build and test the Linux loops on a Mac, use an arm64 Linux image with the Li
 toolchain and test tools, plus CMake, Ninja, and g++: Goose has no arm64 Linux release,
 so `scripts/goose.sh` builds the pinned release's source there. Build the image fresh
 rather than reusing a named image from a previous session. The test tools are liburing,
-curl, wrk, nghttp2-client, netcat-openbsd, python3, and oha. Benchmark builds also need
+curl, wrk, nghttp2-client, netcat-openbsd, python3, and oha, with libssl-dev and openssl
+for TLS; oha's release has a `oha-linux-arm64` binary. Benchmark builds also need
 the Rust, Zig, Odin, and autotools versions of the
 [benchmark toolchain](../bench/README.md#toolchain), plus util-linux and procps.
 

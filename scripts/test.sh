@@ -3,7 +3,8 @@
 # typecheck of the server's and the examples' root files, the tests in test/
 # (test/run_tests.py, which typechecks and runs each one and reports every
 # failure among them), then each loop's build of the server
-# (scripts/build.sh) with scripts/test-http.sh against it, and
+# (scripts/build.sh) with scripts/test-http.sh against it, which tests h2c
+# and TLS too on the epoll build, and
 # scripts/test-h2spec.sh against the epoll build where h2spec has a binary,
 # then scripts/test-echo.sh, and scripts/test-examples.sh, which builds each
 # example and requests each of its routes on port 8080.
@@ -47,7 +48,8 @@ for f in "$root"/server/server.goose "$root"/server/server_epoll.goose \
     "$root"/examples/hello/hello.goose "$root"/examples/routes/routes.goose \
     "$root"/examples/api/api.goose "$root"/examples/upload/upload.goose \
     "$root"/examples/later/later.goose "$root"/examples/files/files.goose \
-    "$root"/examples/compress/compress.goose "$root"/examples/c/app.goose; do
+    "$root"/examples/compress/compress.goose "$root"/examples/c/app.goose \
+    "$root"/examples/tls/tls.goose; do
     step "check ${f#"$root"/}"
     "$goose" --check "$f"
 done

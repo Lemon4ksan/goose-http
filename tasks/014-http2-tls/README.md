@@ -1,8 +1,9 @@
 # 014: HTTP/2 and TLS
 
-Status: in-progress (asked for 2026-10-11). The h2 half of the split below was
-confirmed on 2026-10-19 and is recorded in `docs/decisions.md`; the TLS half is still a
-proposal, built in the goose-tls repository.
+Status: in-progress (asked for 2026-10-11). Both halves of the split below are
+recorded in `docs/decisions.md`: h2 on 2026-10-19, and TLS, goose-tls reached from
+`http.tls`, on 2026-10-19 with phase 2's first part, HTTP/1.1 over TLS in the epoll
+loop ([014.02](02-tls.md)).
 
 HTTP/2 and HTTPS are out of scope in `README.md`. A server behind snowtime-native, or in
 HttpArena's TLS and h2 profiles, needs both. This task decides where they live, then
@@ -114,10 +115,12 @@ the `Upgrade: h2c` handshake, gRPC, and WebSocket over h2.
 
 - [x] The split above discussed for h2, and the decision recorded in
       `docs/decisions.md` with its reasons (2026-10-19)
-- [ ] The split above discussed for TLS, and the decision recorded in
+- [x] The split above discussed for TLS, and the decision recorded in
       `docs/decisions.md` with its reasons, or this task rewritten to the one chosen
-- [ ] A test that a program importing `http` without `http.tls` builds without declaring
-      `goose-tls`, at the pin of the day
+      (2026-10-19; the API's names still to be agreed, [014.02](02-tls.md))
+- [x] A test that a program importing `http` without `http.tls` builds without declaring
+      `goose-tls`, at the pin of the day (`test/http/no_tls.goose`, with
+      `test/tls/undeclared.goose` for the other way, 2026-10-19)
 - [ ] HTTP/1.1 over TLS passes HttpArena's TLS validation and is measured in its
       JSON-over-TLS profile
 - [ ] kTLS and user-space TLS compared on Linux
