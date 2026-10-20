@@ -7,7 +7,7 @@ Aegon's I/O engine (io_uring, epoll, and IOCP behind one interface,
 goose-http's: multishot accept and receive into provided buffer rings,
 `DEFER_TASKRUN` and `SINGLE_ISSUER`, a fallback to epoll, `AcceptEx` and `TransmitFile`,
 and `SO_REUSEPORT`. goose-http also has kqueue, which Aegon plans. goose-rest's task 048
-measures Aegon itself; its task 054 covers the API.
+measures Aegon itself; its task 056 covers the API.
 
 goose-http's memory is its lead. No idea is taken that trades memory for rate.
 
