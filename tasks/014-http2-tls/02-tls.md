@@ -166,11 +166,20 @@ HttpArena's json-tls and 8gbit on Linux.
    since `ring_close` drops unsent sends. The TLS build, `server/server_tls.goose`,
    serves it with `LOOP=uring` at run time.
 
-   Two checks are pending, on the desktop (2026-10-20):
-   - Plaintext's user instructions per request on the io_uring loop, before this
-     branch and after it: every plain receive now goes through `take` and a `c.tls`
-     check in `received`. If it costs anything beyond the runs' spread, revert the
-     plain path's part (keep the plain receive inline, with the TLS branch beside it).
+   Plaintext on the io_uring loop costs no more since this change: 1,930.2 user
+   instructions per request after it against 1,936.2 before, with no spread in
+   either build's runs, so the plain path through `take` and the `c.tls` check
+   stays. Measured on the desktop, 2026-10-20: Ryzen 7 5800X3D, WSL2 kernel
+   `6.18.54.1-microsoft-standard-WSL2`, Goose `f114b5a`; `goose-uring` from
+   `ONLY=goose bench/build.sh` at `f793dce0` (before) and `8e2baf45` (after), each
+   starting with `uring loop` and no emulated ring; `RUNS=5 bench/count.sh
+   goose-uring-before goose-uring` as root, interleaved: one worker on CPU 0,
+   h2load on CPUs 4-15 (8 threads, 256 connections, 16 in flight on each),
+   10,000,000 GETs of `/plaintext`. User cycles per request were 463-479 after and
+   486-523 before, and the rate 1.67-1.70 M against 1.61-1.69 M requests per
+   second.
+
+   One check is pending, on the desktop (2026-10-20):
    - The TLS receive path's copy of the decrypted bytes from `plain` into `rbuf`,
      measured on json-tls, before anyone decrypts into `rbuf` directly.
 5. Windows: goose-tls hasn't been built there; `test/tls/` and `examples/tls` are
