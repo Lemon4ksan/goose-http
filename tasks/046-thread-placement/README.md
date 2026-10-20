@@ -1,9 +1,9 @@
 # 046: Where threads run, and what lanes become, designed against Tina
 
-Status: placement parked on 2026-10-19, after an independent review: it is off `main`,
-on the branch `placement`, until task 045 measures a gain on bare-metal Linux, and must
-then be invisible to programs
-([decision](../../docs/decisions.md#placement-is-removed-until-it-is-measured-to-help)).
+Status: placement parked on 2026-10-19, after an independent review, on the branch
+`placement`; task 045 measured no gain on bare-metal Linux, so it stays there
+([decision](../../docs/decisions.md#placement-stays-off-main-after-bare-metal-linux),
+2026-10-21).
 Lanes of N moved into goose-http as `http::Lane`, without seats or roles. Group commit
 is open. "As built", below, describes the branch.
 

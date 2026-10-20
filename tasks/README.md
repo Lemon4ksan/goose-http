@@ -65,8 +65,8 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 | 029: embedded aarch64 | Validate on a board; emulated tests do not settle it. |
 | 032: shared benchmark harness | Reuse one harness across scripts and document external server integration. |
 | 034: Goose releases | goose-http and goose-rest build and pass from the release on every platform; goose-compress and our own packages remain. |
-| 045: pinning | Parked on the branch `placement`; returns only if bare-metal Linux measures a gain. |
-| 046: placement and lanes | Placement parked with task 045; lanes are `http::Lane`. Group commit remains. |
+| 045: pinning | Done (2026-10-21): no layout beat floating on bare-metal Linux, so placement stays on the branch `placement`. |
+| 046: placement and lanes | Placement stays off `main` (task 045); lanes are `http::Lane`. Group commit remains. |
 | 048: packages spawn threads | On `main` on a pinned Goose commit; the README's quick start waits for a release. |
 | 053: outbound connections | goose-postgres and the ACME package's HTTPS requests wait on it (goose-rest's task 047). |
 | 054: WebSocket | Built and tested, Autobahn included; HttpArena's echo-ws benchmark runs remain. |

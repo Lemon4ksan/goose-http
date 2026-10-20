@@ -327,6 +327,18 @@ programs: the library reads the file, or `GOOSE_PLACE`, and applies it inside `r
 and `lane_open`, with no seat or role in a program's code. A porter from Hono, Elysia,
 or Axum shouldn't learn a concept that buys nothing measured.
 
+## Placement stays off main after bare-metal Linux
+
+Decided 2026-10-21, task 045; settles the condition the entry above set.
+
+On a Ryzen 5 9600X under Bazzite 43, no layout beat the floating default on /fast's p99
+beyond the runs' spread, at either rate (task 045, "On bare-metal Linux"): pinned
+workers, a pinned lane, a lane on a worker's SMT sibling, a lane kept within a set,
+`SO_INCOMING_CPU`, and a low-priority lane all went. Leaving a hardware thread free
+(`fewer`) was worse at the higher rate. Placement stays on the branch `placement` and
+off `main`. The runs measured lightly loaded workers, since oha couldn't load the
+server further; a case for placement would need a client that can, and a gain there.
+
 ## Lanes are goose-http's, and the one way to a pool
 
 Decided 2026-10-19, after an independent review, with goose-rest.

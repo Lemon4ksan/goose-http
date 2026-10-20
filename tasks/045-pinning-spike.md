@@ -1,10 +1,9 @@
 # 045: Pin threads to cores, as an option
 
-Status: parked on 2026-10-19, after an independent review: the spike and placement are
-off `main`, on the branch `placement`, since no layout has been measured to beat
-floating ([decision](../docs/decisions.md#placement-is-removed-until-it-is-measured-to-help)).
-The bare-metal Linux measurement, from that branch, decides whether it returns. Not
-WSL2, whose pins are virtual CPUs, nor Windows natively (task 047, 2026-10-18)
+Status: done, with nothing taken (2026-10-21). On bare-metal Linux no layout beat
+floating on /fast's p99 beyond the runs' spread, so placement stays off `main`, on the
+branch `placement`
+([decision](../docs/decisions.md#placement-stays-off-main-after-bare-metal-linux)).
 
 Tina pins each shard to a core of its own (its `docs/concepts/thread_per_core.md`, at
 `d129f67`). goose-http pins nothing. A worker runs on every hardware thread by default,
@@ -90,6 +89,73 @@ connections, then asks less than its rate rather than meeting 503s. So on macOS,
 is for work that may run slower, not a latency gain for the workers. The decision below
 waits for bare-metal Linux, where the pinned layouts can run.
 
+## On bare-metal Linux (2026-10-21)
+
+On a Ryzen 5 9600X (6 cores, 12 hardware threads; CPU n and n+6 are SMT siblings),
+Bazzite 43, kernel `6.17.7-ba29.fc43.x86_64`, amd-pstate-epp with the `powersave`
+governor, EPP `balance_performance`, and tuned's `balanced-bazzite`; built and run in a
+Fedora 43 distrobox, which shares the host's kernel. The `placement` branch at
+`a5e2d37c`, Goose `dcc2747`, oha 1.16.0 with `--latency-correction`. Bazzite's firewall
+filters loopback (`docs/known-issues.md`, "Benchmarks") and was left on.
+
+```sh
+SERVER_CPUS=0-3,6-9 CLIENT_CPUS=4,5,10,11 RUNS=5 SECONDS_EACH=30 WARMUP=5 \
+    PRIMES_RATE=3454.3 FAST_RATE=200000 bench/pinning.sh    # then FAST_RATE=100000
+```
+
+The server has 4 cores, both threads of each, and the clients the other 2. The layouts
+hold as the script defines them on hardware threads, unchanged: `over` and `nice` run 8
+workers, `fewer` and `workers` 7, and `within` 6; `pinned` and `incoming` put the lane
+on CPU 9, worker 3's SMT sibling, since no core is left whole; `sibling` runs 4 workers
+on 0-3 and the lane on 6. The placement files, `env.txt`, `runs.tsv`, and `summary.tsv`
+for each rate are in `bench/results/2026-10-21-pinning-bazzite/`.
+
+The /fast rates differ from the design's. Calibrated, `over` alone served 718,000
+requests a second with its 8 workers using 1.8 CPUs: oha on 4 threads is the limit, not
+the server, so 70% of that measures oha. Against the unloaded server, oha's own p99 rose
+with its rate: 0.45 ms at 100,000/s, 0.98 ms at 200,000/s, and 6.2 ms at 300,000/s. The
+runs use 200,000/s and 100,000/s, which oha holds, so the workers are lightly loaded:
+this measures the lane's interference at those loads, not near saturation. The primes
+rate is the script's calibration, 3,454.3/s over 16 connections, the lane 80% busy.
+
+Median of 5, with the range, in ms; /fast had 64 connections:
+
+| /fast rate | Layout | p50 | p99 | p99.9 | Primes done/s |
+|---|---|---|---|---|---|
+| 200,000/s | `over` | 0.281 | 2.78 (2.25–3.61) | 26.4 (20.6–27.3) | 3,454.2 |
+| | `fewer` | 0.284 | 4.31 (3.15–4.42) | 29.6 (24.3–34.8) | 3,454.2 |
+| | `workers` | 0.291 | 3.36 (2.78–5.71) | 28.8 (24.8–50.1) | 3,454.2 |
+| | `pinned` | 0.284 | 3.48 (3.19–4.33) | 27.8 (26.8–32.6) | 3,454.2 |
+| | `nice` | 0.286 | 3.21 (2.55–3.79) | 27.8 (25.7–29.1) | 3,454.2 |
+| | `sibling` | 0.283 | 3.06 (2.23–3.43) | 24.6 (20.9–27.2) | 3,454.2 |
+| | `within` | 0.275 | 3.32 (2.52–4.25) | 30.4 (24.8–35.7) | 3,454.3 |
+| | `incoming` | 0.282 | 3.26 (2.84–3.51) | 28.9 (21.4–31.3) | 3,454.2 |
+| 100,000/s | `over` | 0.142 | 0.566 (0.547–0.580) | 4.23 (3.69–6.01) | 3,454.2 |
+| | `fewer` | 0.142 | 0.565 (0.531–0.591) | 3.87 (2.65–4.72) | 3,454.2 |
+| | `workers` | 0.141 | 0.587 (0.568–0.594) | 3.66 (3.17–8.09) | 3,454.2 |
+| | `pinned` | 0.140 | 0.571 (0.557–0.583) | 4.60 (3.83–5.51) | 3,454.2 |
+| | `nice` | 0.142 | 0.565 (0.549–0.572) | 3.75 (3.21–5.61) | 3,454.2 |
+| | `sibling` | 0.140 | 0.567 (0.555–0.583) | 3.30 (3.07–4.73) | 3,454.2 |
+| | `within` | 0.141 | 0.574 (0.555–0.589) | 4.98 (4.20–5.74) | 3,454.2 |
+| | `incoming` | 0.141 | 0.556 (0.545–0.595) | 3.94 (2.90–5.01) | 3,454.2 |
+
+Every run held its /fast rate to within 0.02%, and no run had a 503 or a 504.
+
+- No layout beats `over` on /fast's p99 at either rate. At 200,000/s `over` has the
+  lowest median, and every other layout's range overlaps it; `fewer` is worse, its
+  median 55% higher. At 100,000/s every median is within 0.556–0.587 ms and every range
+  overlaps.
+- `nice` cost the lane nothing here, unlike on macOS: the lane met its rate in every
+  layout.
+- The p99.9 at 200,000/s, 25-30 ms in every layout and ten times the p99, is likely
+  oha's pacing at that rate rather than the server's.
+
+So every layout goes: pinned workers (`workers`), a pinned lane (`pinned`), a lane on a
+worker's SMT sibling (`sibling`), a lane kept within a set (`within`),
+`SO_INCOMING_CPU` (`incoming`), and a low-priority lane (`nice`). A server near
+saturation wasn't measured, since oha can't load one on this machine; a case for
+placement would need a client that can, and a gain there.
+
 ## Acceptance criteria
 
 - [x] `http::pin_thread(core)` in the shim: `sched_setaffinity` on Linux,
@@ -99,11 +165,12 @@ waits for bare-metal Linux, where the pinned layouts can run.
       and clang-cl, `test/place/place_seat.goose` reads each pinned seat back, and
       `bench/pinning/pinning.goose` runs with a placement file, at `cb66ab09` (task 047)
 - [x] The spike's server and script under `bench/`, with the five layouts above
-- [ ] Results on a bare-metal Linux machine in this task: `/fast` p50, p99, and p99.9 (median
+- [x] Results on a bare-metal Linux machine in this task: `/fast` p50, p99, and p99.9 (median
       of 5 and range), the primes route's completed rate, and its 503 and 504 counts, with
-      machine, kernel, cores, connections, and run count
-- [ ] The decision, recorded in `docs/decisions.md`: pinning workers, pinning a lane, or
+      machine, kernel, cores, connections, and run count ("On bare-metal Linux")
+- [x] The decision, recorded in `docs/decisions.md`: pinning workers, pinning a lane, or
       `nice` stays as an option only where it beats `over` and `fewer` on `/fast` p99 by
-      more than the runs' spread, and what doesn't is dropped and recorded here
-- [ ] Whatever stays: in `docs/api.md` and `docs/patterns.md` ("Slow work"), with when to
-      use it and when not to (few cores, CPU quotas)
+      more than the runs' spread, and what doesn't is dropped and recorded here: none
+      did, so every layout went (2026-10-21)
+- [x] Whatever stays: in `docs/api.md` and `docs/patterns.md` ("Slow work"), with when to
+      use it and when not to (few cores, CPU quotas): nothing stayed
