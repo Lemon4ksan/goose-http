@@ -289,7 +289,12 @@ CPU per request, from the server's cgroup over the run, and latency.
    kernel figure here and none of WSL2's, as far as is known; not measured without
    them.
 
-   **Left**, in order:
+   kTLS is parked until the rest of the TLS work is done (2026-10-21): 9% on small
+   responses doesn't justify it before then. It can't be chosen per request: a
+   connection moves to the kernel after its handshake, before its first request,
+   and Linux can't move it back, so the finest choice is a context per listener.
+
+   **Left**, in order, once kTLS is taken up again:
    - The io_uring loop: switch where `tls_take` runs once the ring has sent
      everything sealed, then `RECV` plaintext, `-EIO` → `RECVMSG` (or a
      synchronous `recvmsg`) for `kernel_record`, `SENDMSG` for close_notify and
