@@ -2,6 +2,21 @@
 
 What each tag adds. Each release names the Goose compiler it was built and tested with.
 
+## v0.4.3 (2026-10-20)
+
+h2c's cost to HTTP/1.1 on the epoll loop removed, and `Config.require_ring`. Goose
+master `f114b5a`, goose-hash `v0.0.4`, goose-tls `v0.0.1`, and goose-compress `v0.1.1`.
+
+- The epoll loop's turn of reading, answering, and sending takes its answering as a
+  block, one for HTTP/1.1 and one for h2c, so an HTTP/1.1 connection's copy no longer
+  carries the h2 driver's state through every call. An HTTP/1.1 request costs about
+  170 fewer user instructions on this repository's REST server and 210 fewer on
+  goose-rest, unpipelined; tier A runs 2-4% faster on epoll. The io_uring loop and
+  plaintext's count are unchanged.
+- `Config.require_ring` makes `http::serve` fail with call `io_uring` where it would
+  emulate the ring on epoll, before it opens a listener, so a server meant to run on
+  io_uring doesn't run on epoll unnoticed. On macOS it always fails (`ENOSYS`).
+
 ## v0.4.2 (2026-10-20)
 
 Bearer tokens and header lines scanned 16 bytes at a time. Goose master `f114b5a`,
