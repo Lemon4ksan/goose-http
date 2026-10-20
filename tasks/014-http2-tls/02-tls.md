@@ -51,8 +51,8 @@ On `main`, from the branch `tls` (`1012e705`, then the answers in `a5048101`), o
   `run` takes the root file's TLS setup and epoll runner as function values, so
   `server/server.goose` (uring, and Windows' IOCP) doesn't declare goose-tls.
 - `bench/httparena/goose/Dockerfile`: libssl in both stages, port 8081, and
-  `TLS_CERT`/`TLS_KEY` from `/certs` when HttpArena mounts it. Not built yet;
-  `meta.json`'s tests are unchanged until the validation passes.
+  `TLS_CERT`/`TLS_KEY` from `/certs` when HttpArena mounts it. `meta.json` lists
+  json-tls and 8gbit since the validation passed (2026-10-20).
 - `examples/tls`: HTTP on 8080 and HTTPS on 8443, with a certificate from the command
   line; `scripts/test-examples.sh` runs it (not on Windows, nor in
   `scripts/test-aarch64.sh`'s cross builds, which leave it out).
@@ -95,16 +95,25 @@ Goose `dcc2747`, goose-tls `v0.0.1`.
   passes on macOS and on Linux, the TLS block on the epoll build beside h2c, and
   [014.01](01-h2c.md#what-passes) lists the rest.
 
+- HttpArena's validation, 2026-10-20, on `583054e8` (Goose `f114b5ac`, goose-tls
+  `v0.0.1`): `bench/httparena.sh validate` in the `goose-http-arena` container on the
+  same Mac (Docker Desktop, arm64, 10 CPUs, `SERVER_CPUS=0-2 LOAD_CPUS=3-9`), with
+  json-tls and 8gbit added to `meta.json`: 64 passed, 0 failed. The image builds as
+  is, and `/server-tls` links Ubuntu 26.04's `libssl.so.3`. json-tls and 8gbit each
+  serve the mounted certificate, negotiate TLS 1.3 with `TLS_AES_128_GCM_SHA256` and
+  ALPN http/1.1, and refuse TLS 1.0, 1.1, and the weak cipher families; json-tls's
+  `/json/N?m=M` matches the dataset with `application/json`; 8gbit echoes 1 B to
+  100 KB byte for byte, chunked 10 KB and 100 KB, and an empty body with 200.
+
 No measurement yet: the macOS runs are smoke tests, and the comparison that counts is
 HttpArena's json-tls and 8gbit on Linux.
 
 ### What remains, in order
 
 1. (Done: the names, "Answers" below.)
-2. HttpArena: build `bench/httparena/goose/Dockerfile` (`libssl3t64` is Ubuntu 26.04's
-   runtime package, 3.5.5; the image itself not yet built), run `bench/httparena.sh validate` for
-   json-tls and 8gbit, then add them to `meta.json`'s tests and measure on Linux
-   against the Rust entries (task 014's phase 2 criterion).
+2. HttpArena: the image builds and the validation passes ("What passes"); json-tls
+   and 8gbit remain to measure on Linux against the Rust entries (task 014's phase 2
+   criterion).
 3. kTLS (phase 3): not started. Docker Desktop's kernel (`7.0.14-linuxkit`) has no
    `tls` module (`/proc/sys/net/ipv4/tcp_available_ulp` is missing, checked
    2026-10-19), so it needs a Linux machine or VM whose kernel has `CONFIG_TLS`.
