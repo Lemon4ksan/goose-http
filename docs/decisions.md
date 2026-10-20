@@ -486,6 +486,22 @@ The names were agreed on 2026-10-19: `Config.tls` and `Listener.tls`,
 io_uring. The benchmark server serves TLS on its port + 1 (`TLS_PORT`), only when
 `TLS_CERT` and `TLS_KEY` are set.
 
+## kTLS is the context's choice, made by the program
+
+Decided 2026-10-20, task 014.02.
+
+A program asks for kTLS with goose-tls's `tls::use_kernel(ctx)` on the context it
+gives its workers, before the first accept. goose-http has no setting of its own: the
+epoll loop calls `tls::to_kernel` once a connection's handshake is done, and a context
+that didn't ask settles it to user space on that first call. The switch is tried in
+`tls_recv`, which the loop calls only when everything sealed is on the socket, the
+condition for the kernel to take sending, so the loop needs no new state. After it,
+the connection reads and writes plaintext on its socket, and the kernel's records
+that aren't data (close_notify, alerts, KeyUpdates) go through `recvmsg` and
+`sendmsg` in the shim. The io_uring loop doesn't switch yet: its connections stay in
+user space under the same context. Rejected: a `Config` field, which would duplicate
+the context's choice, and a check per request rather than per connection.
+
 ## The benchmark server's TLS is a build of its own
 
 Decided 2026-10-20, task 055, replacing the epoll benchmark server as the one build

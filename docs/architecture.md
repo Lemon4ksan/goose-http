@@ -285,6 +285,16 @@ socket and the worker's buffers, and everything above them is unchanged:
   refusal, a 408) queues close_notify behind it before shutting its side down, and
   `close_conn` sends one, or a failed handshake's alert, to a connection with nothing
   sealed still waiting. A client's close_notify ends the connection as a close does.
+- **kTLS.** When the context asked for it (`tls::use_kernel`), `tls_recv` calls
+  `tls::to_kernel` after the handshake, before it reads: the loop calls it only once
+  the write buffer is all sent, so nothing sealed can follow the switch. Until the
+  bytes fed end at a record's end, it reads exactly what the record lacks
+  (`tls::kernel_wants`). After the switch the socket carries plaintext: `recv`'s `EIO`
+  means a record that isn't data, which `net_recv_record` fetches for
+  `tls::kernel_record`; a KeyUpdate that asks for one back is answered at once with
+  `net_send_record`. `tls_seal` leaves the write buffer as it is, and `tls_bye` sends
+  close_notify as an alert record before the loop shuts its side down.
+  ([decisions](decisions.md#ktls-is-the-contexts-choice-made-by-the-program))
 - **Timeouts.** A handshake has `Config.request_ms` from the accept, however it
   progresses; past it the sweep closes the connection, without a 408. After the
   handshake, the connection's timeouts are a plain connection's.

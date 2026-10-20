@@ -1,7 +1,7 @@
 # 014.02: HTTP/1.1 over TLS
 
 Status: in-progress (started 2026-10-19). HTTP/1.1 over TLS 1.3 serves from the epoll
-loop, on `main`, and from the io_uring loop on the branch `tls-uring` (2026-10-20); see
+and io_uring loops, on `main`, and through kTLS on the epoll loop (2026-10-20); see
 "Handover" at the end for what remains.
 
 Task 014's phase 2: HTTPS through [goose-tls](https://github.com/kaitk/goose-tls)
@@ -196,17 +196,65 @@ CPU per request, from the server's cgroup over the run, and latency.
    2026-10-20), so io_uring works there, and 23 entries name it as their engine. The
    entry now builds `LOOP=uring`, `meta.json`'s `engine` is `io_uring`, and the
    validation passed again on it ("What passes", 2026-10-20).
-3. kTLS (phase 3): not started. Docker Desktop's kernel (`7.0.14-linuxkit`) has no
-   `tls` module (`/proc/sys/net/ipv4/tcp_available_ulp` is missing, checked
-   2026-10-19), so it needs a Linux machine or VM whose kernel has `CONFIG_TLS`.
-   The desktop's WSL2 kernel has it as a module: after `sudo modprobe tls`,
-   `tcp_available_ulp` lists `tls` (2026-10-20, `docs/known-issues.md`).
-   goose-tls's `tasks/002-ktls.md`, "What goose-http's loops will need", lists the
-   loop's side: `tls::to_kernel` after the handshake (with everything drained and
-   sent first, and `kernel_wants` bytes read exactly while it returns `WANT_INPUT`),
-   then plain `recv`/`send`/`sendfile` on the socket, `recvmsg` with a control
-   buffer on `EIO`, and `sendmsg` with `TLS_SET_RECORD_TYPE` for close_notify and
-   KeyUpdate. `recvmsg`/`sendmsg` with control messages are goose-http shim work.
+3. kTLS (phase 3): on the epoll loop since 2026-10-20; the io_uring loop and
+   HttpArena remain. Docker Desktop's kernel (`7.0.14-linuxkit`) has no `tls` module;
+   the desktop's WSL2 kernel has it as a module, loaded with `sudo modprobe tls`
+   (`docs/known-issues.md`), and goose-tls's kernel side passes there (its task 002,
+   2026-10-20).
+
+   **Built**, on the epoll loop ([decisions](../../docs/decisions.md#ktls-is-the-contexts-choice-made-by-the-program),
+   [architecture](../../docs/architecture.md#tls)): the program asks with
+   `tls::use_kernel(ctx)`, and the benchmark server does with `KTLS=1` ("TLS on port
+   8081 (kTLS)" in its first line). `TlsSlot.kernel`, `tls_recv`'s switch before it
+   reads (with `kernel_wants` read exactly), `kernel_recv` for the socket's plaintext
+   and the records that aren't data, `tls_seal` leaving plaintext once the kernel
+   sends, and `tls_bye` for close_notify, called before the loop's two
+   `SHUT_WR`s and by `tls_close`. `shim/net.c`'s `net_recv_record`,
+   `net_record_type`, and `net_send_record` (`recvmsg`/`sendmsg` with `SOL_TLS`
+   control messages); `shim/kqueue.c` has `ENOSYS` stubs. `scripts/test.sh` runs
+   `test-http.sh` again with `KTLS=1` on epoll where `tcp_available_ulp` lists
+   `tls`: the whole TLS block, with at least 64 connections counted into the kernel
+   by `/proc/net/tls_stat`, and a request after s_client's `k` and `K` KeyUpdates.
+
+   **Passes**, 2026-10-20, on the desktop (WSL2 kernel
+   `6.18.54.1-microsoft-standard-WSL2`, OpenSSL 3.5.5, Goose `f114b5a`, goose-tls
+   `v0.0.1`): every step of `scripts/test.sh` with `PORT=29880`, the kTLS pass
+   included ("ktls: 102 connections in the kernel, KeyUpdates ok"), h2spec 146 of
+   146 on each loop. Pending: macOS, where `kqueue.c`'s stubs are untested.
+
+   **Measured**, the same day and machine: the TLS build (`TLS=1 LOOP=epoll`), one
+   worker on CPU 0, `KTLS` unset or 1 in turn, 3 rounds; h2load over TLS on CPUs
+   4-15 (8 threads, 256 connections, 16 in flight), 2,000,000 requests a run; `perf
+   stat -e instructions:u,instructions:k,cycles` on the server. Per request:
+
+   | Target | Mode | User instructions | Kernel instructions | Cycles | Requests/s |
+   |---|---|---:|---:|---:|---:|
+   | `/json` | user space | 4,331-4,333 | 1,008-1,011 | 4,178-4,353 | 749 K-802 K |
+   | `/json` | kTLS | 2,506 | 2,181-2,184 | 4,192-4,209 | 790 K-814 K |
+   | `/bytes?n=16384` | user space | 66,500-66,585 | 13,901-13,979 | 56,103-57,686 | 72.3 K-74.4 K |
+   | `/bytes?n=16384` | kTLS | 8,988 | 82,608-82,940 | 92,722-94,030 | 36.0 K-37.0 K |
+
+   On small responses kTLS moves the record layer's work into the kernel at the same
+   cycles: the rate ranges overlap. On 16 KB responses kTLS is a loss, half the rate at
+   1.65 times the cycles. In `perf record -C 0`, the kernel's
+   `aes_gcm_enc_update_aesni_avx` takes 12% of the CPU there. The kernel's
+   `gcm(aes)` is `generic-gcm-aesni-avx` (`/proc/crypto`; no VAES driver for GCM in
+   this kernel). User-space OpenSSL encrypts the same bytes in fewer cycles,
+   presumably with a wider AES-GCM; not checked. So kTLS stays the program's choice,
+   off by default, and isn't used for HttpArena until 8gbit (uploads, which the
+   kernel decrypts) is measured with it.
+
+   **Left**, in order:
+   - The io_uring loop: switch where `tls_take` runs once the ring has sent
+     everything sealed, then `RECV` plaintext, `-EIO` → `RECVMSG` (or a
+     synchronous `recvmsg`) for `kernel_record`, `SENDMSG` for close_notify and
+     KeyUpdate in order with the ring's sends (goose-tls's task 002, "What
+     goose-http's loops will need").
+   - HttpArena's json-tls and 8gbit with `KTLS=1` against the user-space numbers
+     above ("Measured"); the entry would need the module loaded on the host.
+   - Files over kTLS through `sendfile` again, rather than `pread` in pieces.
+   - Why the kernel's AES-GCM costs more here than OpenSSL's: a newer kernel's
+     VAES GCM, or AES-256 and ChaCha20 suites, may change the 16 KB result.
 4. (Done on `tls-uring`, 2026-10-20: TLS in the io_uring loop, and the benchmark
    server's with `LOOP=uring`.) `ring_loop` takes the TLS as `epoll_loop` does, with
    `RingConn.tls` in the padding after `state`. A receive's ciphertext goes to
