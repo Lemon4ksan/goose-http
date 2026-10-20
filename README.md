@@ -155,7 +155,7 @@ For the API organized by topic, with examples, see [docs/api.md](docs/api.md).
 
 ## Benchmarks
 
-goose-http `v0.4.0` and Goose master `f114b5a` on a Ryzen 7 5800X3D (WSL2), 4 workers
+goose-http `v0.4.3` and Goose master `f114b5a` on a Ryzen 7 5800X3D (WSL2), 4 workers
 per server. [All results, the method, and the losses](docs/benchmarks.md).
 
 The plaintext and JSON benchmarks serve tiny fixed responses over 256 connections,
@@ -164,9 +164,9 @@ APIs [below](#rest-apis) are closer to a real application.
 
 | Workload | goose-http | Best other | |
 |---|---:|---:|---|
-| [Plaintext](docs/benchmarks.md#plaintext-and-json) | 6.50M req/s | 8.12M (vanilla-io_uring\*) | Fastest that parses requests |
-| [JSON](docs/benchmarks.md#plaintext-and-json) | 515k req/s | 561k (zix) | Third of 8 |
-| [Peak RSS](docs/benchmarks.md#plaintext-and-json), plaintext and JSON | 7.8-17 MB | 39 MB (zix) | Lowest |
+| [Plaintext](docs/benchmarks.md#plaintext-and-json) | 6.59M req/s | 8.12M (vanilla-io_uring\*) | Fastest that parses requests |
+| [JSON](docs/benchmarks.md#plaintext-and-json) | 500k req/s | 561k (zix) | Third of 8 |
+| [Peak RSS](docs/benchmarks.md#plaintext-and-json), plaintext and JSON | 5.1-13.4 MB | 39 MB (zix) | Lowest |
 | 1 MB [static files](docs/benchmarks.md#static-files)\*\* | 31.3 GB/s | 28.5 GB/s (nginx) | Behind only at 64 KB |
 | [Compressed JSON](docs/benchmarks.md#compression)\*\* | 66.1k req/s | 62.6k (actix) | Fastest that compresses each response |
 
@@ -177,8 +177,8 @@ APIs [below](#rest-apis) are closer to a real application.
 
 Three APIs and an upload workload. All servers use the same routes and records, load
 the records at startup, and compute each response per request, without a framework.
-goose-http's rates are measured at `v0.4.0` with Goose master `f114b5a`, dusty's the
-night before on the same machine, xitca-web's in an earlier session, and goose-http's
+goose-http's rates are measured at `v0.4.3` with Goose master `f114b5a` on 2026-10-20,
+dusty's on 2026-10-18 on the same machine, xitca-web's in an earlier session, and goose-http's
 reads p99 on an earlier build.
 
 - **A** is [HttpArena](https://github.com/MDA2AV/HttpArena)'s `production-stack` API.
@@ -188,11 +188,11 @@ reads p99 on an earlier build.
 
 | Workload | goose-http | xitca-web (Rust) | dusty (Zig)\* |
 |---|---:|---:|---:|
-| [A](docs/benchmarks.md#tier-a): HttpArena's items, 0.2 KB | **601k req/s** | 407k | 359k |
-| [B](docs/benchmarks.md#tier-b): sessions and time entries, 0.3-13 KB | **319k req/s** | 235k | 177k |
-| [C](docs/benchmarks.md#tier-c): schedules and records, up to 728 KB | **64.1k req/s** | 38.2k | 25.7k |
-| C, templates | **153k req/s** | 113k | 136k |
-| [Uploads](docs/benchmarks.md#uploads): CSVs and multipart files, up to 8 MB | **1,187 req/s** | 1,016 | 1,151 |
+| [A](docs/benchmarks.md#tier-a): HttpArena's items, 0.2 KB | **588k req/s** | 407k | 359k |
+| [B](docs/benchmarks.md#tier-b): sessions and time entries, 0.3-13 KB | **315k req/s** | 235k | 177k |
+| [C](docs/benchmarks.md#tier-c): schedules and records, up to 728 KB | **63.3k req/s** | 38.2k | 25.7k |
+| C, templates | **156k req/s** | 113k | 136k |
+| [Uploads](docs/benchmarks.md#uploads): CSVs and multipart files, up to 8 MB | **1,162 req/s** | 1,016 | 1,151 |
 | Reads p99 beside uploads | **1.8-2.6 ms** | 2.4-4.6 ms | 6.7-42 ms |
 
 \* A framework; its counterpart is [goose-rest](https://github.com/kaitk/goose-rest).

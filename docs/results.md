@@ -17,6 +17,105 @@ WSL2 loopback runs through a VM; its kernel cost differs from bare metal. Runs t
 2026-10-12 use kernel 6.18.40.1-microsoft-standard-WSL2. The 2026-10-14 runs use
 6.18.54.1-microsoft-standard-WSL2. Each run's `env.txt` records the environment.
 
+## 2026-10-20: v0.4.3, Goose builds only
+
+goose-rest's `bench/all.sh` measured both repositories in session
+`2026-10-20T0854-Tiamat`: this repository at `0a016bb0` (`v0.4.3`), goose-rest at
+`62c340d` (`v0.2.1`), Goose master `f114b5a`, gcc 15.2.0, kernel
+6.18.54.1-microsoft-standard-WSL2, on the desktop described above. The machine passed
+the idle check, both repositories' tests had passed on WSL before the session, and
+all benchmark servers passed the workload checks. No competitors were rerun.
+The [environment](../bench/results/2026-10-20T0854-Tiamat/session-env.txt) records
+the compiler binary's hash and the fixed rates. The tiny-response `key.txt` matches
+the 2026-10-18 and 2026-10-19 sessions.
+
+The commands, run by `bench/all.sh` from goose-rest:
+
+```sh
+SERVERS="goose goose-uring" bench/run.sh
+SERVERS="goose goose-uring goose-uring-epoll" bench/files.sh
+bench/instructions.sh goose goose-uring
+# In goose-rest:
+SERVERS="goose-uring goose-epoll goose-uring-rest goose-epoll-rest" \
+    EXTRA="goose-uring-rest goose-epoll-rest" \
+    RATE_A=100000 RATE_B=24000 RATE_C=1700 bench/rest.sh run
+bench/rest.sh count
+```
+
+### Tiny responses
+
+wrk 4.1.0, 8 threads on CPUs 4-15, servers on CPUs 0-3 (CPU 0 with one worker),
+three interleaved runs of 15 s after 5 s warm-up. Plaintext is pipelined 16 deep;
+JSON isn't pipelined. Four-worker medians and ranges from the
+[summary](../bench/results/2026-10-20T0854-Tiamat/summary.md):
+
+| Loop | Test | Connections | req/s, median (range) |
+|---|---|---:|---:|
+| io_uring | plaintext | 256 | 6.589 M (6.449-6.632 M) |
+| io_uring | plaintext | 1,024 | 6.485 M (6.461-6.512 M) |
+| io_uring | plaintext | 4,096 | 5.568 M (5.334-5.917 M) |
+| io_uring | JSON | 256 | 500 K (499-503 K) |
+| io_uring | JSON | 1,024 | 490 K (485-492 K) |
+| epoll | plaintext | 256 | 5.250 M (5.231-5.266 M) |
+| epoll | plaintext | 1,024 | 5.161 M (5.157-5.208 M) |
+| epoll | plaintext | 4,096 | 4.999 M (4.766-5.020 M) |
+| epoll | JSON | 256 | 402 K (402-403 K) |
+| epoll | JSON | 1,024 | 397 K (393-400 K) |
+
+Against `v0.4.0`, epoll plaintext gains 5.8-6.5%; io_uring moves +1.3%, +0.2%,
+and -9.0%. Against `v0.3.7`, epoll remains 3.5-4.8% slower and io_uring 7.2-13.3%.
+JSON moves by -2.9% to +0.8% against `v0.4.0`. Peak RSS across all tiny-response
+cells is 3.5-5.1 MB on epoll and 5.2-13.4 MB on io_uring.
+Every cell has zero errors. The first one-worker epoll plaintext run at 1,024
+connections records two clock steps; the four-worker cells have none.
+
+`bench/instructions.sh`: one worker on CPU 0, wrk on CPUs 4-15 with 8 threads,
+256 connections and plaintext pipelined 16 deep, three runs of 20 s; perf counts
+on CPU 0 for 10 s after 5 s. Requests are wrk's rate times those 10 s.
+[Counts](../bench/results/2026-10-20T0854-Tiamat/instructions.txt):
+
+| Loop | Instructions/req | User instructions/req | Cycles/req | Peak RSS |
+|---|---:|---:|---:|---:|
+| epoll | 2,536-2,564 | 1,599-1,616 | 2,104-2,150 | 3.5-3.6 MB |
+| io_uring | 2,604-2,625 | 1,637-1,651 | 1,813-1,826 | 5.9-6.1 MB |
+
+User instructions are back near `v0.3.7`'s 1,598-1,604 and 1,634-1,653; the
+epoll memory increase is gone. Total cycles remain above that session's
+2,040-2,047 and 1,757-1,769, despite the restored user instruction counts.
+
+### REST and static files
+
+REST uses four workers, wrk with 8 threads and 256 connections, three interleaved
+15 s runs after 5 s warm-up. Uploads alone use 1 thread and 32 connections.
+The [REST summary](https://github.com/kaitk/goose-rest/blob/main/bench/results/2026-10-20T0854-rest-Tiamat/summary.md)
+and [notes](https://github.com/kaitk/goose-rest/blob/main/bench/results/2026-10-20T0854-rest-Tiamat/notes.md)
+retain both repositories' results and the uploads-alone medians at full precision.
+
+| Loop | A | B | C | C, templates | Uploads alone |
+|---|---:|---:|---:|---:|---:|
+| io_uring | 587.9 K/s | 315.4 K/s | 63.3 K/s | 156.3 K/s | 1,146/s |
+| epoll | 437.9 K/s | 244.6 K/s | 61.7 K/s | 148.1 K/s | 1,162/s |
+
+Against `v0.4.0`, C templated gains 2.1% and 2.6%, while serialized A to C move
+by -3.3% to -0.3%. Uploads alone fall 1.4% and 2.0%. Beside forms, io_uring serves
+170-175 uploads/s and 7.7-7.8 K forms/s; epoll serves 123-125 and 7.7-8.0 K/s.
+Reads offered at 1,700/s beside uploads have p99 4.66-8.20 ms on io_uring and
+0.34-1.34 ms on epoll. They are a separate workload from the earlier 16,000/s table.
+
+Static files use 8 wrk threads, 64 connections, three 10 s runs after 3 s warm-up,
+one or four workers, the same CPU placement, and files on tmpfs.
+[Summary](../bench/results/2026-10-20T0854-Tiamat-files/summary.md):
+
+| Server | 4 KB, 1 worker | 4 KB, 4 | 64 KB, 1 | 64 KB, 4 | 1 MB, 1 | 1 MB, 4 |
+|---|---:|---:|---:|---:|---:|---:|
+| epoll | 53.3 K/s | 187 K/s | 2.10 GB/s | 7.90 GB/s | 10.62 GB/s | 22.04 GB/s |
+| io_uring | 81.7 K/s | 232 K/s | 2.00 GB/s | 6.88 GB/s | 10.40 GB/s | 21.62 GB/s |
+| emulated ring | 74.0 K/s | 213 K/s | 2.83 GB/s | 8.29 GB/s | 12.47 GB/s | 21.88 GB/s |
+
+Every cell has zero errors. At 1 MB with four workers, wrk consumes 80.2 s CPU
+in each 10 s run, its limit. This comparison retains the earlier full-field table,
+whose client used 12 threads and 96 connections.
+
 ## 2026-10-19: v0.4.0, Goose builds only
 
 A session script that runs goose-rest's `bench/all.sh` steps after its tests measured
