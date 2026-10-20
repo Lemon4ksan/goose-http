@@ -57,7 +57,10 @@ earlier field run on the same machine and kernel, so their gaps to Goose include
 session drift. Against the `edd83c4b`, `v0.3.7`, cells this table had before, plaintext
 fell 4.6-8.5% on io_uring and 9.2-10.5% on epoll, and JSON 0.4-3.2%; epoll's peak RSS
 rose from 4.9 to 7.8 MB. Both come from the benchmark server's WebSocket route and its
-link to OpenSSL, not the compiler ([task 055](../tasks/055-v0.4.0-plaintext-cost.md)).
+link to OpenSSL, not the compiler
+([task 055](../tasks/000-archive/055-v0.4.0-plaintext-cost.md)). `v0.4.1`'s benchmark
+server counts `v0.3.7`'s instructions per request again, and its plaintext epoll server
+maps no OpenSSL; its rates aren't measured yet.
 
 `bench/count.sh` on `bc75f2a`: 1,836.0 user instructions per plaintext request on
 epoll and 1,885.4 on io_uring, one worker, 10 million requests, 3 runs. Against
@@ -262,7 +265,8 @@ From the runs in this file:
   at the medians, plaintext up to 10.5% slower, and 2.4 MB more on the epoll server.
   The benchmark server's WebSocket route costs the instructions on requests that never
   upgrade, and its OpenSSL link the memory
-  ([task 055](../tasks/055-v0.4.0-plaintext-cost.md)).
+  ([task 055](../tasks/000-archive/055-v0.4.0-plaintext-cost.md)). `v0.4.1` removes
+  both; its rates aren't measured yet.
 - **REST memory**: the Goose io_uring loop holds 70.7 MB on tier C serialized against
   hyper's 37 MB the night before. The templated path holds 57.6 MB, below hyper's
   74 MB. Records still cost a copy per worker (task 025).

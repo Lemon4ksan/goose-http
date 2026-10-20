@@ -2,6 +2,23 @@
 
 What each tag adds. Each release names the Goose compiler it was built and tested with.
 
+## v0.4.1 (2026-10-20)
+
+`v0.4.0`'s benchmark server back to `v0.3.7`'s cost. The package itself is unchanged.
+Goose master `f114b5a`, goose-hash `v0.0.4`, goose-tls `v0.0.1`, and goose-compress
+`v0.1.1`.
+
+- The benchmark server echoes a WebSocket from a function outside its inlined handler,
+  and keeps each WebSocket in a pool, with only an index in the request state. Inside
+  the handler, the WebSocket's frame loop changed how Goose inlined the event loop's
+  call to it, and cost about 140 user instructions per plaintext request that never
+  upgrades. Plaintext counts 1,609-1,610 on epoll and 1,648-1,661 on io_uring, as
+  `v0.3.7` does.
+- The benchmark server's TLS listener is a build of its own, `server/server_tls.goose`
+  (`TLS=1` in `scripts/build.sh`), so the plaintext epoll server doesn't map OpenSSL:
+  3.8 MB of peak RSS where `v0.4.0`'s held 6.0 MB. HttpArena's image starts the TLS
+  build when a certificate is mounted.
+
 ## v0.4.0 (2026-10-19)
 
 HTTP/2 over TCP (h2c), HTTPS, WebSocket, outbound connections, `http::run`, and lanes

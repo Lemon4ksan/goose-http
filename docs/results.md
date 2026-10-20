@@ -37,7 +37,7 @@ session's [steps](../bench/results/2026-10-19T2043-Tiamat/session-steps.txt) and
 
 Plaintext lost up to 11% on epoll and up to 8.5% on io_uring, with about 10% more user
 instructions per request on both loops, and the epoll server's peak RSS grew by 2.4 MB.
-[Task 055](../tasks/055-v0.4.0-plaintext-cost.md) traces both to two commits:
+[Task 055](../tasks/000-archive/055-v0.4.0-plaintext-cost.md) traces both to two commits:
 WebSocket's `1bc944a3`, whose `ws_read` branch, inlined into the benchmark server's
 handler in `server/routes.goose`, costs about 117 user instructions per request on a
 path that never takes it, and its `Transfer` field about 22; and TLS's `1012e705`, which
