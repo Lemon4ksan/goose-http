@@ -70,7 +70,7 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 | 048: packages spawn threads | On `main` on a pinned Goose commit; the README's quick start waits for a release. |
 | 053: outbound connections | goose-postgres and the ACME package's HTTPS requests wait on it (goose-rest's task 047). |
 | 054: WebSocket | Built and tested, Autobahn included; HttpArena's echo-ws benchmark runs remain. |
-| 058: TLS connections' memory | json-tls used 272 MiB against the Rust entries' 152-188; measure per connection, then try `SSL_MODE_RELEASE_BUFFERS`. |
+| 058: TLS connections' memory | Measured: 34.5 KB an idle connection, OpenSSL's and goose-tls's, and a peak under load set by the handshakes in flight. goose-tls frees its BIOs' buffers on its `main`; its release, the pin move, and json-tls's rerun remain. |
 
 Tasks 013 and 018 have completed acceptance criteria and are archived with the other
 completed work. Compression subtasks stay with their open parent. Completed platform
