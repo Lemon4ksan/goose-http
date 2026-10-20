@@ -2,6 +2,25 @@
 
 What each tag adds. Each release names the Goose compiler it was built and tested with.
 
+## v0.4.2 (2026-10-20)
+
+Bearer tokens and header lines scanned 16 bytes at a time. Goose master `f114b5a`,
+goose-hash `v0.0.4`, goose-tls `v0.0.1`, and goose-compress `v0.1.1`.
+
+- `http::bearer` checks a token's token68 bytes, and `http::field_at` finds a line's
+  colon and its end, with std's `find_any`, where each scanned a byte at a time. What
+  they accept is unchanged: the tests try a bad byte and an `=` at every position of
+  tokens up to 48 bytes. On tier C, whose tokens are 560 bytes, a request costs about
+  7,600 fewer user instructions on goose-rest, which calls both, and 3,100 fewer on
+  this repository's REST server, which calls `field_at`; plaintext's count is
+  unchanged.
+- The REST benchmark server checks tier C's JWT shape with `find_any` too, as
+  goose-rest's does, so both servers do the same work outside the framework: 6,100
+  fewer user instructions per tier C request. Tier C templated runs 5-8% faster on
+  both.
+- Each test program gets a `TMPDIR` of its own, where a test that listens on a Unix
+  socket puts it, so the suite passes from a checkout on WSL's `/mnt/c`.
+
 ## v0.4.1 (2026-10-20)
 
 `v0.4.0`'s benchmark server back to `v0.3.7`'s cost. The package itself is unchanged.
