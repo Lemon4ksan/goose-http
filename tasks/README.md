@@ -70,7 +70,6 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 | 048: packages spawn threads | On `main` on a pinned Goose commit; the README's quick start waits for a release. |
 | 053: outbound connections | goose-postgres and the ACME package's HTTPS requests wait on it (goose-rest's task 047). |
 | 054: WebSocket | Built and tested, Autobahn included; HttpArena's echo-ws benchmark runs remain. |
-| 057: engine ideas from Aegon | Verdicts set and `Config.require_ring` added; three ideas to measure on the desktop. |
 
 Tasks 013 and 018 have completed acceptance criteria and are archived with the other
 completed work. Compression subtasks stay with their open parent. Completed platform
