@@ -112,8 +112,8 @@ The task then rewrites the examples and the API reference for the API that resul
    loops' hot functions (asked for 2026-10-13).
 3. After each, run `scripts/test.sh` on Linux and macOS. The proposals' checks run in
    an overnight batch, each at its own commit, compared with the baseline, using
-   `bench/count.sh` for instructions (`AGENTS.md`, "Move the Goose pin"). Record the numbers
-   here, with how they were measured (`AGENTS.md`, "Benchmarks").
+   `bench/count.sh` for instructions (`agents/pins.md`). Record the numbers
+   here, with how they were measured (`agents/benchmarks.md`).
 4. A proposal that costs speed or memory beyond the runs' noise is reverted. Record what
    it cost here and why it was dropped, so it isn't proposed again.
 

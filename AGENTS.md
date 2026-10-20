@@ -1,5 +1,8 @@
 # Agent rules
 
+This file holds what every session needs. `agents/` holds the rules for particular work:
+read the file a task touches before starting it.
+
 ## Project context
 
 - What this is: `README.md`; what each tag adds: `CHANGELOG.md`; the API by topic:
@@ -12,11 +15,12 @@
 - What `extern fn` looks like from C, for the shim: `docs/c-interop.md`
 - Goose compiler and stdlib gaps found here: `docs/goose-findings.md`
 - Task tracking: `tasks/` (see `tasks/README.md`)
-- Substantial doc drafts and requested prose reviews:
-  `.claude/skills/google-style/SKILL.md`; other writing follows "Writing" below
 - The language: the pinned Goose release's `docs/tutorial.md`, `docs/goose_spec.md`,
   and `docs/stdlib.md`. Read the tutorial before writing Goose; check the spec before
   assuming a feature exists.
+- Rules for particular work: `agents/goose.md` (writing Goose, and recording what it
+  lacks), `agents/writing.md` (docs, tasks, and prose reviews), `agents/pins.md`
+  (moving the Goose pin), and `agents/benchmarks.md` (measuring, and reporting a number)
 
 Follow the recorded decisions; if a change contradicts one, update the doc in the same
 change or ask first. Record setup facts you find (paths, versions, install steps) in
@@ -30,88 +34,47 @@ docs and scripts must work for a developer on a clean machine without LLM tools:
 `CLAUDE.local.md` holds conveniences, never a step the setup needs, and a script fetches
 what it needs or says how to get it, rather than assume a sibling checkout (2026-10-15).
 
-## Writing
+## Keep changes small
 
-- `README.md` is for people who use the package: what it provides, a quick start,
-  concepts, benchmark highlights, and links. Process, pins, layout, internals, and
-  rules for agents go in `docs/` or here (2026-10-15).
-- Lead with the decision, behavior, or action, then explain why. Name the responsible
-  component and use concrete facts. Cut filler and repeated summaries.
-- Preserve technical meaning when editing: actors, negations, conditions, numbers,
-  versions, commands, paths, and identifiers. Keep decided/proposed/open,
-  implemented/planned, and must/should/can distinct. Flag contradictions instead of
-  silently resolving them while copyediting.
-- Record a decision with its reason and the trade-off that matters. Keep each fact in
-  one place and link to it elsewhere. Use absolute dates for dated events.
-- Match the document's format. Tasks follow `tasks/README.md`, with concrete acceptance
-  criteria. Use sentence-case headings, backticks for code identifiers and commands,
-  and descriptive links. Wrap prose at about 90 characters.
-- Use prose for connected ideas, lists for steps or separate items, and tables for
-  comparisons. Keep structure proportional to the content.
+Agreed 2026-10-20, after several fixes solved problems that a second look showed
+weren't there.
 
-## Goose, not an addition to Goose
+- Meet the requirement's intent with the least machinery. Before building around an
+  obstacle, ask whether the requirement needs it at all.
+- When a fix starts to need a new public API, a change in another repository, or a
+  workaround, stop. Say so in a sentence or two, and propose the simpler reading of the
+  requirement.
+- A feature's cost falls on the programs that use it: no fields in shared structs such
+  as `Reply`, `Config`, or a loop's connection, and no code on the request path, for
+  one feature.
+- When a design makes other code compensate (a fallback, a rescan, a special case
+  elsewhere), change the design rather than add the compensation.
+- Add a setting, a check, or a script option only for a failure that isn't visible
+  already. The server's startup line names an emulated ring, so the benchmark scripts
+  need no setting that enforces io_uring.
 
-- Build with the official Goose release that `scripts/goose.sh` pins, and move the pin
-  to each new release ("Move the Goose pin" below).
-- Don't edit a Goose checkout. When the compiler rejects something it should accept,
-  miscompiles, or the stdlib lacks something, work around it here, and reduce it to a
-  minimal program for `docs/goose-findings.md` only if it meets the bar that file's
-  introduction sets. Report blockers to the maintainer.
-- Every finding names the Goose commit it was found on, the pin at the time (for a
-  release, its commit). When one lacks it, recover it from this repository's history:
-  the pin in the commit that added the entry.
-- `docs/goose-findings.md` lists bugs first and feature requests after, each part from
-  the least work a fix is expected to take to the most. Place a new entry by that
-  order, and delete an entry once the pin has its fix (2026-10-14).
-- Write Goose the way the pinned release's `samples/` and `stdlib/` do: flat data,
-  references into growing arrays, `return ... from` for errors, untyped parameters for
-  generics.
+## Working beside other agents
+
+Several agents work in these repositories at once (2026-10-20).
+
+- Work in a worktree of your own, on a branch from `origin/main`:
+  `git worktree add ../goose-http-<topic> -b <topic> origin/main`. Remove it once the
+  branch is merged.
+- Leave alone a branch, a commit, or an uncommitted change that isn't yours, in any
+  checkout. Ask if it's in your way.
+- Keep logs, exports, and scratch files in a directory of your own: a session's
+  scratchpad may be shared by several agents.
+
+## Goose
+
+- Build with the official Goose release that `scripts/goose.sh` pins. Check for a newer
+  one at the start of a session (`agents/pins.md`).
+- Don't edit a Goose checkout. Work around a compiler or stdlib gap here, record it in
+  `docs/goose-findings.md` as `agents/goose.md` says, and report blockers to the
+  maintainer.
 - C is for what Goose can't reach: syscalls and kernel structures, behind thin functions
   in `shim/`. HTTP parsing, routing, response building, and JSON are Goose, since
   measuring Goose is the point.
-
-## Move the Goose pin
-
-The pin is an official Goose release, which builds the same on every platform. At the
-start of a session, check for a newer one:
-
-```sh
-gh release list -R aardappel/goose --limit 3
-```
-
-To move to a new release, update `goose_release` and the four archives' SHA-256 sums in
-`scripts/goose.sh`. GitHub lists each asset's digest:
-
-```sh
-gh api repos/aardappel/goose/releases/tags/<tag> -q '.assets[] | "\(.name) \(.digest)"'
-```
-
-Then run `scripts/test.sh` on Linux, on Windows in Git Bash, and on macOS, and update
-the release and its commit in `README.md`'s quick start, `docs/development.md` ("Get
-Goose" and the release paths), and `.vscode/settings.json`, in its own commit.
-
-Pin a commit only when a Goose fix that this repository needs isn't in a release yet,
-and return to a release once one has it (2026-10-15). Set `goose_commit` in
-`scripts/goose.sh` to the full hash, which every script and
-`bench/httparena/goose/Dockerfile` then build, and empty it to return to the release.
-Record the commit and the reason in `docs/development.md`, "Get Goose". Goose releases
-often, so work that needs a merged fix lands on `main` on a pinned commit rather than
-wait for the release (2026-10-19).
-
-A pin move doesn't wait for benchmarks. They're costly to run, so they run in batches,
-overnight, after a stretch of work (2026-10-13). Until then the results stand at the
-compilers they name, which `docs/benchmarks.md`'s pins table lists.
-
-## Benchmarks
-
-- Every number comes with how it was measured: machine, kernel, command, worker and
-  connection counts, and run count. A result without them doesn't go in a doc.
-- The competing servers run in their fastest documented configuration, built in release
-  mode, with the same worker count as the Goose server. Losses are recorded as plainly as
-  wins.
-- A change made only for speed that shows no gain beyond the runs' spread is dropped, and
-  its task records what it was, what it cost, and why it went, so it isn't proposed again
-  (2026-10-14).
 
 ## Code conventions
 
