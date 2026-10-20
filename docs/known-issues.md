@@ -113,6 +113,12 @@ intermediate shell can otherwise expand variables before bash sees them.
   `nf_conntrack` took 10-16% of a one-worker server's CPU under h2load on 127.0.0.1
   (2026-10-20), as kernel time charged to the server. Say whether such rules were
   loaded when comparing kernel instructions between machines.
+- Rootless podman on Bazzite 43 can't pin a container: systemd delegates only `cpu io
+  memory pids` to the user's cgroup, so `--cpuset-cpus` fails with "controller `cpuset`
+  is not available" (2026-10-21). HttpArena's harness pins its server and load
+  generators that way. Delegating `cpuset` too, with a drop-in for `user@.service`
+  (`[Service]` and `Delegate=cpu cpuset io memory pids`) and a new login, should let it
+  run; this wasn't tried. `--ulimit nofile=1048576` and `--network host` work rootless.
 
 ## macOS
 

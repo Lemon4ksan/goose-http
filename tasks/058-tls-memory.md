@@ -1,7 +1,9 @@
 # 058: TLS connections' memory
 
 Status: in-progress (measured; goose-tls's fix released as `v0.0.2` and the pin moved
-to it, 2026-10-20; json-tls's rerun is open)
+to it, 2026-10-20; json-tls's rerun is open: on bare-metal Linux it waits on Docker,
+or on rootless podman given the `cpuset` controller, `docs/known-issues.md`,
+"Benchmarks", 2026-10-21)
 
 On HttpArena's json-tls, at 4,096 connections, the Goose entry used 272 MiB, the most
 of the five measured: ntex 152, axum 170, sark 175, and actix 188 MiB (task 014.02,
