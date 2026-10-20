@@ -175,12 +175,16 @@ CPU per request, from the server's cgroup over the run, and latency.
 - json-tls: goose is second, 12% behind sark, and 54% ahead of ntex, the next. It
   uses the most memory of the five, 272 MiB against 152-188 MiB, at 4,096
   connections: about 66 KB a connection, which suggests OpenSSL's per-connection
-  buffers. This loss is unexplained.
+  buffers. Task 058 measures it.
 - 8gbit: goose is second on CPU per request, 3.5% above actix, with the lowest p99.
   It held 95.9% of the rate, the least of the four that ran, so HttpArena warns that
   its CPU figure doesn't compare exactly with runs that held more.
 - sark's 8gbit runs failed: every connection was refused (about 150,000 connect
-  errors a run), so the entry doesn't serve that profile here.
+  errors a run). HttpArena itself disabled sark at the pinned commit (`"enabled":
+  false` in its `meta.json`, since `75baed4b`, 2026-08-24, for failing validation)
+  and publishes no json-tls or 8gbit result for it, so its json-tls lead above is
+  from an entry HttpArena doesn't accept. Against the enabled Rust entries, goose
+  leads json-tls.
 - The TLS receive path's copy from `plain` into `rbuf` doesn't show at this level.
   The best json-tls run was 5% above the worst, more than the copy could cost on
   responses this size. A profile of the TLS server under load would isolate it, so
