@@ -43,9 +43,17 @@ struct Transfer {
     sum: u64 = 0,       // /upload: the sum of the body's bytes
     file: http::FileBody = http::FileBody { .. },   // /files/
     coded: http::Compressed = http::Compressed { .. },  // /zstream, /events: the encoder, if compressed
-    // /ws. Autobahn's test suite sends messages of up to 16 MiB.
-    ws: http::WebSocket = http::WebSocket { limit: 1 << 25, .. },
+    ws: i64 = -1,       // /ws: its WebSocket's index in sockets
 }
+
+// Each worker's WebSockets, one for each open /ws connection, which keeps its
+// index: a WebSocket in Transfer would lengthen the state every request starts
+// with (task 055). A closed connection's index goes to free_sockets, whose
+// first free_count are free; it never shrinks, as the loops may hold
+// references Goose can't tell from one into it (spec §5.1).
+var sockets: http::WebSocket[>..] = [];
+var free_sockets: i64[>..] = [];
+var free_count: i64 = 0;
 
 let NONE: u8 = 0;
 let UPLOAD: u8 = 1;
@@ -68,7 +76,7 @@ inline fn handle(ev: http::Event, st: Transfer&, out: http::Reply) {
     } else if ev.kind == http::CLOSED && st.coded.slot >= 0 {
         http::release_compressed(st.coded);
     } else if st.route == WS {
-        http::ws_read(ev, st.ws, out) { op, data, o => http::ws_send(o, op, data); };
+        echo_frames(ev, st, out);
     } else if st.route == UPLOAD {
         if ev.kind == http::BODY { take(st, ev.data); }
         else if ev.kind == http::END { uploaded(st, out); }
@@ -229,7 +237,10 @@ inline fn route_rest(req: http::Request, path: const u8[:], get: bool, body: con
             http::finish(out, http::NO_TYPE, "");
         }
     } else if ws {
-        if http::ws_upgrade(req, out) { st.route = WS; }
+        if http::ws_upgrade(req, out) {
+            st.route = WS;
+            st.ws = open_socket();
+        }
     } else if get && path == "/client" {
         client(req, out);
     } else if get && (path == "/later" || path == "/events") {
@@ -349,6 +360,32 @@ fn client(req: http::Request, out: http::Reply) {
         text.push('\n');
     }
     http::respond(out, if known && found { 200 } else { 500 }, "text/plain", text);
+}
+
+// /ws: echoes each message of the WebSocket, and frees it at CLOSED. A
+// function, not in handle: a call with a block in the inlined handler changes
+// how Goose inlines the loop's call of it, which cost every request about 117
+// instructions (task 055).
+fn echo_frames(ev: http::Event, st: Transfer&, out: http::Reply) {
+    http::ws_read(ev, sockets[st.ws], out) { op, data, o => http::ws_send(o, op, data); };
+    if ev.kind == http::CLOSED {
+        if free_count < free_sockets.len { free_sockets[free_count] = st.ws; } else { free_sockets.push(st.ws); }
+        free_count++;
+    }
+}
+
+// A fresh WebSocket for an upgraded connection, and its index in sockets.
+// Autobahn's test suite sends messages of up to 16 MiB.
+fn open_socket() -> i64 {
+    let fresh = http::WebSocket { limit: 1 << 25, .. };
+    if free_count > 0 {
+        free_count--;
+        let i = free_sockets[free_count];
+        sockets[i] = fresh;
+        return i;
+    }
+    sockets.push(fresh);
+    return sockets.len - 1;
 }
 
 // A response's line of the access log: the peer, the status, the bytes
