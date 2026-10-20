@@ -109,6 +109,10 @@ intermediate shell can otherwise expand variables before bash sees them.
   `tail`.
 - vanilla-epoll's JSON build with `-gc none` leaks enough memory to exhaust the VM.
   Leave those cells out of unattended matrices or isolate them in their own run.
+- A distribution's firewall filters loopback too. On Bazzite 43, `nf_tables` and
+  `nf_conntrack` took 10-16% of a one-worker server's CPU under h2load on 127.0.0.1
+  (2026-10-20), as kernel time charged to the server. Say whether such rules were
+  loaded when comparing kernel instructions between machines.
 
 ## macOS
 

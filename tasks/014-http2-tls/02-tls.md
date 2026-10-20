@@ -226,6 +226,12 @@ CPU per request, from the server's cgroup over the run, and latency.
    included ("ktls: 102 connections in the kernel, KeyUpdates ok"), h2spec 146 of
    146 on each loop. Pending: macOS, where `kqueue.c`'s stubs are untested.
 
+   Passes on bare metal too, 2026-10-20: Ryzen 5 9600X, Bazzite 43, kernel
+   `6.17.7-ba29.fc43.x86_64`, in a Fedora 43 distrobox with OpenSSL 3.5.9, Goose
+   `f114b5a`, goose-tls `v0.0.2`, at `ed811653`: every step of `scripts/test.sh`
+   with `PORT=29880`, "ktls: 102 connections in the kernel, KeyUpdates ok", and
+   h2spec 146 of 146 on each loop.
+
    **Measured**, the same day and machine: the TLS build (`TLS=1 LOOP=epoll`), one
    worker on CPU 0, `KTLS` unset or 1 in turn, 3 rounds; h2load over TLS on CPUs
    4-15 (8 threads, 256 connections, 16 in flight), 2,000,000 requests a run; `perf
@@ -248,13 +254,42 @@ CPU per request, from the server's cgroup over the run, and latency.
    off by default, and isn't used for HttpArena until 8gbit (uploads, which the
    kernel decrypts) is measured with it.
 
+   **Measured on bare metal**, 2026-10-20, as asked that day: Ryzen 5 9600X (6 cores,
+   12 threads; aes, vaes, avx2, avx512f, pclmulqdq), Bazzite 43, kernel
+   `6.17.7-ba29.fc43.x86_64`, governor `amd-pstate-epp` at `balance_performance`,
+   tuned `balanced-bazzite`; the server and h2load 1.66.0 in a Fedora 43 distrobox,
+   OpenSSL 3.5.9, gcc 15.3.1, Goose `f114b5a`, goose-http `ed811653`. The same runs
+   as above, but with h2load on CPUs 1-5 and 7-11, so that CPU 6, CPU 0's SMT
+   sibling, stays idle: 3 interleaved rounds, an RSA-2048 certificate, every
+   connection `TLS_AES_128_GCM_SHA256`, and `/proc/net/tls_stat`'s `TlsTxSw` up by 256
+   in each kTLS run. Per request:
+
+   | Target | Mode | User instructions | Kernel instructions | Cycles | Requests/s |
+   |---|---|---:|---:|---:|---:|
+   | `/json` | user space | 3,472-3,484 | 1,239 | 1,721-1,741 | 2.84 M-2.92 M |
+   | `/json` | kTLS | 2,077-2,078 | 1,981-1,987 | 1,571-1,584 | 3.16 M-3.19 M |
+   | `/bytes?n=16384` | user space | 33,808-33,958 | 19,767-19,923 | 26,141-26,995 | 196 K-202 K |
+   | `/bytes?n=16384` | kTLS | 7,641 | 70,795-71,342 | 39,392-40,076 | 112 K-113 K |
+
+   On `/json` kTLS wins here, where under WSL2 the two tied: 9% fewer cycles and 9%
+   more requests a second, with no overlap. On 16 KB responses the loss holds: 56% of
+   the rate at 1.5 times the cycles, against half the rate at 1.65 times under WSL2.
+   It isn't the cipher. The kernel's `gcm(aes)` here is `generic-gcm-vaes-avx10_512`
+   (priority 800, `/proc/crypto`; `rfc4106-gcm-vaes-avx10_512` likewise), and in
+   `perf record -C 0 -g` for 6 s under the same load,
+   `aes_gcm_enc_update_vaes_avx10_512` takes 8.0% of the CPU in kTLS against OpenSSL's
+   `ossl_aes_gcm_encrypt_avx512` at 11.7% in user space: about 3 K cycles a request
+   in each. The rest of kTLS's cost is spread over the kernel's send path, no symbol
+   above 5%: page clearing for the records (`clear_page_erms`, 4.3%), the FPU state
+   saved and restored around the kernel's AVX-512 (`restore_fpregs_from_fpstate`,
+   `os_xsave`), sk_msg and skb handling, and the `tls` workqueue, whose kworkers take
+   4.2% of CPU 0. The kernel took 66% of CPU 0's samples in kTLS and 35% in user
+   space. Bazzite's firewall rules run on loopback too: `nf_tables` and
+   `nf_conntrack` take 10% of CPU 0 in user space and 16% in kTLS, part of every
+   kernel figure here and none of WSL2's, as far as is known; not measured without
+   them.
+
    **Left**, in order:
-   - The same on the bare-metal Linux machine (asked for 2026-10-20): every number
-     above is WSL2's, under Hyper-V, with Microsoft's kernel and its crypto drivers.
-     There: `sudo modprobe tls`, goose-tls's `scripts/test.sh`, this repository's
-     `scripts/test.sh` (its kTLS pass runs where `tcp_available_ulp` lists `tls`),
-     and the table above, the 16 KB loss above all, with `/proc/crypto`'s `gcm(aes)`
-     driver recorded beside it.
    - The io_uring loop: switch where `tls_take` runs once the ring has sent
      everything sealed, then `RECV` plaintext, `-EIO` → `RECVMSG` (or a
      synchronous `recvmsg`) for `kernel_record`, `SENDMSG` for close_notify and
@@ -263,8 +298,9 @@ CPU per request, from the server's cgroup over the run, and latency.
    - HttpArena's json-tls and 8gbit with `KTLS=1` against the user-space numbers
      above ("Measured"); the entry would need the module loaded on the host.
    - Files over kTLS through `sendfile` again, rather than `pread` in pieces.
-   - Why the kernel's AES-GCM costs more here than OpenSSL's: a newer kernel's
-     VAES GCM, or AES-256 and ChaCha20 suites, may change the 16 KB result.
+   - On bare metal, with a VAES GCM, the kernel's cipher costs what OpenSSL's does,
+     and 16 KB still loses ("Measured on bare metal"): what's left to check is the
+     send path around it, not the cipher.
 4. (Done on `tls-uring`, 2026-10-20: TLS in the io_uring loop, and the benchmark
    server's with `LOOP=uring`.) `ring_loop` takes the TLS as `epoll_loop` does, with
    `RingConn.tls` in the padding after `state`. A receive's ciphertext goes to

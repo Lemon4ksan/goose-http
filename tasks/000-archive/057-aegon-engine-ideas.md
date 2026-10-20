@@ -60,6 +60,16 @@ Whoever works on these, or on goose-http's WebSocket (task 054) or outbound conn
   below the rate's run-to-run spread, and direct descriptors have no fd for the
   direct `send(2)` of bodies from 64 KB, or for `sendfile`, so they're set aside
   without building them. Same desktop and Goose as above.
+
+  On bare metal the share is smaller still, 0.2% (2026-10-20): `fget` 0.08%, `fput`
+  0.11%, and `io_file_get_normal` 0.03% on `/plaintext`, and 0.06%, 0.10%, and 0.04%
+  on `/json`. The kernel took 47-49% of the CPU, Bazzite's `nf_tables` and
+  `nf_conntrack` on loopback 15%, and the server 31-33%, at 5.2-5.4 M requests a
+  second. Ryzen 5 9600X, Bazzite 43, kernel `6.17.7-ba29.fc43.x86_64`, in a Fedora
+  43 distrobox, Goose `f114b5a`; `goose-uring` from `ONLY=goose bench/build.sh` at
+  goose-http `ed811653` ("uring loop"), one worker on CPU 0; h2load 1.66.0 on CPUs
+  1-5 and 7-11 with `bench/count.sh`'s options for 14 s, and `perf record -C 0` for
+  8 s of it, with kernel symbols. One run per target.
 - **Wider vector scanning in the parser** (measured 2026-10-20). Aegon falls back
   from AVX-512 to AVX2, SSE4.2, and scalar code. `message.goose` scans names and values
   with `find_any`, 16 bytes at a time with SSE2. Task 008 (archived) found no wider scan
