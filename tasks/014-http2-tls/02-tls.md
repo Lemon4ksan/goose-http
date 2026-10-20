@@ -245,6 +245,12 @@ CPU per request, from the server's cgroup over the run, and latency.
    kernel decrypts) is measured with it.
 
    **Left**, in order:
+   - The same on the bare-metal Linux machine (asked for 2026-10-20): every number
+     above is WSL2's, under Hyper-V, with Microsoft's kernel and its crypto drivers.
+     There: `sudo modprobe tls`, goose-tls's `scripts/test.sh`, this repository's
+     `scripts/test.sh` (its kTLS pass runs where `tcp_available_ulp` lists `tls`),
+     and the table above, the 16 KB loss above all, with `/proc/crypto`'s `gcm(aes)`
+     driver recorded beside it.
    - The io_uring loop: switch where `tls_take` runs once the ring has sent
      everything sealed, then `RECV` plaintext, `-EIO` → `RECVMSG` (or a
      synchronous `recvmsg`) for `kernel_record`, `SENDMSG` for close_notify and
