@@ -72,6 +72,7 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 | 053: outbound connections | goose-postgres and the ACME package's HTTPS requests wait on it (goose-rest's task 047). |
 | 054: WebSocket | Built and tested, Autobahn included; HttpArena's echo-ws benchmark runs remain. |
 | 056: tier C's byte loops, and h2c's cost to HTTP/1.1 | The byte loops scan 16 bytes at a time; h2c's ~316 instructions per HTTP/1.1 request on epoll remain to trace. |
+| 057: engine ideas from Aegon | Verdicts set; four ideas to measure on the desktop, and a setting that requires io_uring. |
 
 Tasks 013 and 018 have completed acceptance criteria and are archived with the other
 completed work. Compression subtasks stay with their open parent. Completed platform
