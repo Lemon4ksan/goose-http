@@ -22,7 +22,8 @@ Task 014's phase 2: HTTPS through [goose-tls](https://github.com/kaitk/goose-tls
 - [x] Tests with curl, `openssl s_client`, Python's TLS client, and h2load in
       `scripts/test-http.sh`, run by `scripts/test.sh` on macOS and on Linux (2026-10-19)
 - [x] The API's names agreed ("Answers" below, 2026-10-19)
-- [ ] HttpArena's TLS validation passed, and json-tls and 8gbit measured on Linux
+- [x] HttpArena's TLS validation passed, and json-tls and 8gbit measured on Linux
+      (2026-10-20, "Measured" below)
 - [x] TLS in the io_uring loop, tested on macOS's emulated ring and on Linux's io_uring
       (2026-10-20); Windows' IOCP still fails with `ENOSYS` on a TLS listener
 
@@ -132,15 +133,65 @@ Goose `dcc2747`, goose-tls `v0.0.1`.
     with `TLS=1 LOOP=epoll`, and started with `LOOP=uring`, each server prints
     `uring loop` with no emulated ring.
 
-No measurement yet: the macOS runs are smoke tests, and the comparison that counts is
-HttpArena's json-tls and 8gbit on Linux.
+The macOS runs are smoke tests; the comparison that counts is HttpArena's json-tls and
+8gbit on Linux, below.
+
+### Measured
+
+HttpArena's json-tls and 8gbit on the desktop, 2026-10-20: Ryzen 7 5800X3D (16
+logical CPUs), WSL2 kernel `6.18.54.1-microsoft-standard-WSL2`, Docker Desktop 29.8.2;
+goose-http `fe07b188` (`env.txt` leaves the commit blank and says "modified": WSL's git
+couldn't read the worktree's `.git` file, which names a Windows path; the tree was
+clean), Goose `f114b5a`, goose-tls `v0.0.1`, the entry built `LOOP=uring`. First
+`bench/httparena.sh validate goose`: 64 passed, 0 failed. Then
+`FRAMEWORKS="goose actix ntex axum sark" PROFILES="json-tls 8gbit" bench/httparena.sh
+run`: HttpArena `0720ee5`, server on CPUs 0-3, the load generator in Docker on CPUs
+4-15 with 4 threads, 3 runs of 5 s each, the best kept. The Rust entries are actix,
+which goose-rest models; ntex; axum, over hyper; and sark, the only Rust entry on
+io_uring. `env.txt` is in `bench/results/httparena-2026-10-20-tls-Tiamat/`; the logs
+stay on the desktop, as git ignores them.
+
+json-tls (4,096 connections, wrk over TLS), requests per second in each run:
+
+| Entry | Runs | Best | Server CPU | Memory |
+|---|---|---:|---:|---:|
+| sark | 212,540; 211,443; 214,683 | 214,683 | 245% | 175 MiB |
+| goose | 178,611; 175,250; 188,349 | 188,349 | 258% | 272 MiB |
+| ntex | 112,643; 121,314; 122,677 | 122,677 | 286% | 152 MiB |
+| axum | 104,246; 97,664; 96,794 | 104,246 | 290% | 170 MiB |
+| actix | 99,575; 100,600; 99,019 | 100,600 | 287% | 188 MiB |
+
+8gbit (512 connections, zrk at a fixed 50,000 requests per second, uploads echoed):
+CPU per request, from the server's cgroup over the run, and latency.
+
+| Entry | CPU per request | p99 | p99.9 | Rate held |
+|---|---:|---:|---:|---:|
+| actix | 40.7 µs | 6.85 ms | 56.1 ms | 97.9% |
+| goose | 42.2 µs | 0.35 ms | 43.2 ms | 95.9% |
+| axum | 49.7 µs | 0.55 ms | 33.9 ms | 97.2% |
+| ntex | 49.8 µs | 0.43 ms | 47.6 ms | 97.5% |
+| sark | not measured | | | 0% |
+
+- json-tls: goose is second, 12% behind sark, and 54% ahead of ntex, the next. It
+  uses the most memory of the five, 272 MiB against 152-188 MiB, at 4,096
+  connections: about 66 KB a connection, which suggests OpenSSL's per-connection
+  buffers. This loss is unexplained.
+- 8gbit: goose is second on CPU per request, 3.5% above actix, with the lowest p99.
+  It held 95.9% of the rate, the least of the four that ran, so HttpArena warns that
+  its CPU figure doesn't compare exactly with runs that held more.
+- sark's 8gbit runs failed: every connection was refused (about 150,000 connect
+  errors a run), so the entry doesn't serve that profile here.
+- The TLS receive path's copy from `plain` into `rbuf` doesn't show at this level.
+  The best json-tls run was 5% above the worst, more than the copy could cost on
+  responses this size. A profile of the TLS server under load would isolate it, so
+  the check stays pending ("What remains", item 4).
 
 ### What remains, in order
 
 1. (Done: the names, "Answers" below.)
-2. HttpArena: the image builds and the validation passes ("What passes"); json-tls
-   and 8gbit remain to measure on Linux against the Rust entries (task 014's phase 2
-   criterion). HttpArena starts every entry with `--security-opt seccomp=unconfined`
+2. HttpArena: the image builds, the validation passes ("What passes"), and json-tls
+   and 8gbit are measured against four Rust entries ("Measured", 2026-10-20). Open:
+   json-tls's memory, 272 MiB against the Rust entries' 152-188 MiB. HttpArena starts every entry with `--security-opt seccomp=unconfined`
    (`scripts/lib/framework.sh` and `scripts/validate.sh` at the pinned commit, checked
    2026-10-20), so io_uring works there, and 23 entries name it as their engine. The
    entry now builds `LOOP=uring`, `meta.json`'s `engine` is `io_uring`, and the
@@ -148,6 +199,8 @@ HttpArena's json-tls and 8gbit on Linux.
 3. kTLS (phase 3): not started. Docker Desktop's kernel (`7.0.14-linuxkit`) has no
    `tls` module (`/proc/sys/net/ipv4/tcp_available_ulp` is missing, checked
    2026-10-19), so it needs a Linux machine or VM whose kernel has `CONFIG_TLS`.
+   The desktop's WSL2 kernel has it as a module: after `sudo modprobe tls`,
+   `tcp_available_ulp` lists `tls` (2026-10-20, `docs/known-issues.md`).
    goose-tls's `tasks/002-ktls.md`, "What goose-http's loops will need", lists the
    loop's side: `tls::to_kernel` after the handshake (with everything drained and
    sent first, and `kernel_wants` bytes read exactly while it returns `WANT_INPUT`),
