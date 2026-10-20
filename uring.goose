@@ -33,6 +33,7 @@ struct RingConn<S> {
     fd: i32,            // -1 while the slot is free
     tag: u64,
     state: u8,
+    tls: i32 = -1,      // a TLS connection's slot in the TlsServer (http.tls); -1 for none
     queued: i64,        // bytes given to ring_send and not yet sent
     reading: bool,      // its multishot receive is queued
     stalled: bool,      // stopped reading at cfg.max_queued, with held to answer
@@ -52,6 +53,16 @@ fn serve<H>(cfg: Config) -> Error {
 // serve(cfg), with a handler H that's called for each Event of a request,
 // with the request's state, which starts as fresh.
 fn serve<S, H>(cfg: Config, fresh: S) -> Error {
+    var plain = NoTls {};
+    return ring_loop(cfg, fresh, plain, H);
+}
+
+// serve(cfg, fresh), with tls, a NoTls or http.tls's TlsServer, the TLS of
+// the listeners that serve it. A TLS connection's received bytes are
+// decrypted before they're answered, and wbuf is sealed in its place before
+// it's queued (flush), so that every byte TLS makes goes out through the
+// ring, in order with the connection's other sends.
+fn ring_loop<S, H>(cfg: Config, fresh: S, tls) -> Error {
     net_worker_start();
     guard is_field_value(cfg.server) else { return Error { call: "server", code: EINVAL }; }
     guard cfg.listeners.len == 0 || !starts_with(cfg.address, "unix:") else {
@@ -59,19 +70,25 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     }
     // A completion port keeps one listener's accept.
     guard cfg.listeners.len < ring_listeners() else { return Error { call: "listeners", code: ENOSYS }; }
-    // TLS is serve_epoll's so far.
-    guard !cfg.tls else { return Error { call: "tls", code: ENOSYS }; }
-    for l in cfg.listeners {
-        guard !l.tls else { return Error { call: "tls", code: ENOSYS }; }
-    }
     guard !(cfg.require_ring && cfg.emulate_ring) else { return Error { call: "io_uring", code: EINVAL }; }
+    // The listeners' modes, Config.port's first.
+    var h2c_at: bool[..MAX_LISTENERS + 1] = [];
+    var tls_at: bool[..MAX_LISTENERS + 1] = [];
+    for k in cfg.listeners.len + 1 {
+        let h2c = if k == 0 { cfg.h2c } else { cfg.listeners[k - 1].h2c };
+        let secure = if k == 0 { cfg.tls } else { cfg.listeners[k - 1].tls };
+        // Windows, which has no sendfile, serves no TLS so far.
+        guard !secure || net_sendfile(-1, -1, 0, 0) != -ENOSYS else { return Error { call: "tls", code: ENOSYS }; }
+        // h2 over TLS, chosen by ALPN, is still to come.
+        guard !secure || !h2c && tls_serves(tls) else { return Error { call: "tls", code: EINVAL }; }
+        h2c_at.push(h2c);
+        tls_at.push(secure);
+    }
     if cfg.require_ring {
         let probe = ring_probe();
         guard probe == 0 else { return Error { call: "io_uring", code: -probe }; }
     }
-    // The listeners, Config.port's first, and whether each serves h2c.
     var lfds: i32[..MAX_LISTENERS + 1] = [];
-    var h2c_at: bool[..MAX_LISTENERS + 1] = [];
     fn close_listeners() {
         for fd in lfds { if fd >= 0 { net_close(fd); } }
     }
@@ -82,7 +99,6 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
             return listening;
         }
         lfds.push(fd);
-        h2c_at.push(if k == 0 { cfg.h2c } else { cfg.listeners[k - 1].h2c });
     }
     let r = ring_create(cfg.ring_entries, cfg.ring_buffers, cfg.ring_buffer_size,
                         if cfg.emulate_ring { RING_EMULATE } else if cfg.require_ring { RING_REQUIRE } else { 0 });
@@ -156,6 +172,9 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     rbuf.resize(cfg.max_head, 0);
     var rlen = 0;
     var wbuf: u8[>..] = [];
+    // A TLS connection's received records, and the plaintext they gave.
+    var wire: u8[>..] = [];
+    var plain: u8[>..] = [];
     // Whether the driven connection answered a request or sent a response.
     var progress = false;
 
@@ -186,6 +205,20 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         c.tag = (generation << 32) | (i as u64);
         c.x.stream.direct = true;
         c.x.stream.later = MailAddress { box: box.handle, key: later_base(i, generation) };
+        if tls_at[k] {
+            let t = tls_open(tls);
+            // OpenSSL is out of memory: the client is turned away.
+            guard t >= 0 else {
+                net_close(fd);
+                c.fd = -1;
+                c.tag = 0;
+                conns.free(i);
+                return;
+            }
+            c.tls = t;
+            // Files go through the record layer, read in pieces.
+            c.x.stream.direct = false;
+        }
         if h2c_at[k] { c.h2 = h2conns.alloc_index(h2_conn(cfg, now)) as i32; }
         ring_recv(r, fd, c.tag);
         open++;
@@ -200,6 +233,12 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
             h2_release(h2conns[c.h2], h2streams, spill, timers, c.fd, H);
             h2conns.free(c.h2);
             c.h2 = -1;
+        }
+        // ring_close would drop a close_notify queued now: a connection
+        // that ends cleanly queued one before (notify).
+        if c.tls >= 0 {
+            tls_close(tls, c.tls, c.fd, false);
+            c.tls = -1;
         }
         ring_close(r, c.fd);
         c.fd = -1;
@@ -216,8 +255,17 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
 
     fn blocked(c: RingConn<S>&) -> bool { c.queued >= cfg.max_queued }
 
-    // Queues wbuf to send, behind the connection's sends before it.
+    // Queues wbuf to send, behind the connection's sends before it. On a TLS
+    // connection, wbuf is sealed first, with what OpenSSL has waiting to send
+    // after it, and close_notify once the connection is CLOSING. If OpenSSL
+    // fails, the connection sends nothing more, and the sweep closes it.
     fn flush(c: RingConn<S>&) {
+        if c.tls >= 0 && !tls_seal(tls, c.tls, wbuf, 0, c.state == CLOSING) {
+            wbuf.clear();
+            c.state = DRAINING;
+            c.deadline = now;
+            return;
+        }
         guard wbuf.len > 0 else { return; }
         let e = ring_send(r, c.fd, c.tag, wbuf);
         guard e >= 0 else { return Error { call: "send", code: -e } from spin; }
@@ -232,6 +280,15 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         net_shutdown(c.fd, SHUT_WR);
         c.state = DRAINING;
         c.deadline = now + cfg.linger_ms;
+    }
+
+    // Closes an OPEN TLS connection as a refusal does, which sends
+    // close_notify once its handshake is done, or a failed handshake's alert.
+    fn notify(c: RingConn<S>&) {
+        c.state = CLOSING;
+        c.deadline = now + cfg.linger_ms;
+        flush(c);
+        drain(c);
     }
 
     // Queues wbuf and then the file send_file gave the exchange
@@ -423,32 +480,50 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         resume(c, ev);
     }
 
+    // Takes n received bytes, those of provided buffer buf or of src when
+    // buf is -1: answers them, or holds them while the connection can't.
+    fn take(c: RingConn<S>&, buf: i32, src: const u8[:], n: i64) {
+        // A connection that isn't OPEN drops what arrives.
+        if c.state != OPEN {
+        } else if c.stalled || holds_input(c.x) {
+            let m = c.held.len;
+            if m == 0 { c.x.since = now; }
+            c.held = if m == 0 { spill.alloc_slice(n) } else { spill.realloc_slice(c.held, m + n) };
+            if buf >= 0 { ring_take(r, buf, 0, c.held[m..]); }
+            else { copy_into(c.held[m..], src[..n]); }
+            if !c.stalled && c.held.len >= rbuf.len {
+                c.stalled = true;
+                if c.reading { ring_cancel(r, c.tag); }
+            }
+        } else {
+            rlen = c.held.len;
+            if rlen == 0 { c.x.since = now; }
+            if rlen > 0 {
+                copy_into(rbuf[..rlen], c.held);
+                spill.free_slice(c.held);
+                c.held = c.held[..0];
+            }
+            feed(c, buf, src, n, none);
+        }
+    }
+
     // A receive's completion. False when the connection is done.
     fn received(c: RingConn<S>&, cq: Completion) -> bool {
         if !cq.more { c.reading = false; }
-        if cq.res > 0 {
-            let n = cq.res as i64;
-            // A connection that isn't OPEN drops what arrives.
-            if c.state != OPEN {
-            } else if c.stalled || holds_input(c.x) {
-                let m = c.held.len;
-                if m == 0 { c.x.since = now; }
-                c.held = if m == 0 { spill.alloc_slice(n) } else { spill.realloc_slice(c.held, m + n) };
-                ring_take(r, cq.buf, 0, c.held[m..]);
-                if !c.stalled && c.held.len >= rbuf.len {
-                    c.stalled = true;
-                    if c.reading { ring_cancel(r, c.tag); }
-                }
-            } else {
-                rlen = c.held.len;
-                if rlen == 0 { c.x.since = now; }
-                if rlen > 0 {
-                    copy_into(rbuf[..rlen], c.held);
-                    spill.free_slice(c.held);
-                    c.held = c.held[..0];
-                }
-                feed(c, cq.buf, "", n, none);
-            }
+        if cq.res > 0 && c.tls >= 0 && c.state == OPEN {
+            // The records' plaintext is answered, and then what OpenSSL has
+            // to send goes out: the handshake's flights, or an alert. A
+            // client's close_notify, or a failed handshake, closes the
+            // connection after them.
+            wire.resize(cq.res as i64, 0);
+            ring_take(r, cq.buf, 0, wire);
+            ring_give(r, cq.buf);
+            plain.clear();
+            let going = tls_take(tls, c.tls, wire, plain);
+            if plain.len > 0 { take(c, -1, plain, plain.len); }
+            if !going && c.state == OPEN { notify(c); } else { flush(c); }
+        } else if cq.res > 0 {
+            take(c, cq.buf, "", cq.res as i64);
             ring_give(r, cq.buf);
         } else if cq.res == 0 || (cq.res != -ENOBUFS && cq.res != -ECANCELED) {
             return false;   // the client closed or reset
@@ -486,6 +561,8 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     // shorten it.
     fn touch(c: RingConn<S>&) {
         guard c.state != DRAINING else { return; }
+        // A handshake has request_ms from the accept, however it progresses.
+        guard c.tls < 0 || tls_ready(tls, c.tls) else { return; }
         let sending = c.queued > 0;
         // An h2c connection's streams have their own limits (later's), so
         // the connection's is idle_ms, or write_ms while the client doesn't
@@ -514,12 +591,20 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
                 if !waits { close_conn(i); }
                 continue;
             }
-            if owes_408(c, c.queued > 0) {
+            // A handshake that didn't finish in time gets no 408.
+            let shaken = c.tls < 0 || tls_ready(tls, c.tls);
+            if owes_408(c, c.queued > 0) && shaken {
                 wbuf.clear();
                 refuse(wbuf, 408, common);
-                flush(c);
+                // CLOSING first, for TLS's close_notify after the 408.
                 c.state = CLOSING;
                 c.deadline = now + cfg.linger_ms;
+                flush(c);
+                continue;
+            }
+            // An idle TLS connection is sent close_notify, as at a stop.
+            if c.tls >= 0 && shaken && c.state == OPEN && idle(c) && c.queued == 0 {
+                notify(c);
                 continue;
             }
             close_conn(i);
@@ -539,7 +624,11 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
             let c .= conns[i];
             // An h2c connection sends GOAWAY, and closes once its streams end.
             if c.fd >= 0 && c.h2 >= 0 { if c.state == OPEN { resume(c, none); } }
-            else if c.fd >= 0 && c.state == OPEN && idle(c) && c.queued == 0 { close_conn(i); }
+            else if c.fd >= 0 && c.state == OPEN && idle(c) && c.queued == 0 {
+                // A TLS connection is sent close_notify, and closes once the
+                // client does, or at the sweep.
+                if c.tls >= 0 && tls_ready(tls, c.tls) { notify(c); } else { close_conn(i); }
+            }
             else if c.fd >= 0 && c.x.stream.waiting { c.x.keep_alive = false; }
         }
     }
@@ -613,6 +702,10 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
                 h2_release(h2conns[c.h2], h2streams, spill, timers, c.fd, H);
                 h2conns.free(c.h2);
                 c.h2 = -1;
+            }
+            if c.tls >= 0 {
+                tls_close(tls, c.tls, c.fd, false);
+                c.tls = -1;
             }
             net_close(c.fd);
         }

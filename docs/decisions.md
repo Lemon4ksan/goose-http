@@ -446,10 +446,11 @@ checks that one importing `http.tls` must declare it. This package adds no C for
 the C over OpenSSL, the exception to "C is for what Goose can't reach", stays in
 goose-tls, and the crypto, the record layer, and X.509 are OpenSSL's, not Goose.
 
-The loop reaches TLS without importing it. `epoll_loop` takes the TLS of its listeners
-as an untyped parameter, and calls `tls_open`, `tls_recv`, `tls_seal`, and the rest on
-it; Goose checks a generic body per instantiation and resolves the calls in the
-namespace `http`, so `serve_epoll` without TLS passes a `NoTls`, whose stubs are never
+The loops reach TLS without importing it. `epoll_loop` and `ring_loop` take the TLS of
+their listeners as an untyped parameter, and call `tls_open`, `tls_recv` (`tls_take` on
+the ring), `tls_seal`, and the rest on it; Goose checks a generic body per
+instantiation and resolves the calls in the namespace `http`, so `serve_epoll` or
+`serve` without TLS passes a `NoTls`, whose stubs are never
 called, and `http.tls` adds a `TlsServer` and its own overloads. No function pointer is
 needed, and a program without TLS compiles none of it.
 
@@ -473,7 +474,8 @@ HttpArena serves 8080, 8081 (TLS), and 8082 (h2c) from one container. The contex
 comes to the loop apart from `Config`, which can't name goose-tls's types: the program
 makes one `tls::Context` and gives each worker an `http::TlsServer`
 (`http::tls_server(ctx)`), passed to `serve_epoll(cfg, server)` or
-`serve_epoll(cfg, fresh, server)`. ALPN chooses nothing yet: a TLS listener serves
+`serve_epoll(cfg, fresh, server)`, and since 2026-10-20 to `serve` the same way. ALPN
+chooses nothing yet: a TLS listener serves
 HTTP/1.1, and TLS on an h2c listener is refused with `EINVAL` until h2 over TLS
 (task 014's phase 5).
 
@@ -489,13 +491,14 @@ io_uring. The benchmark server serves TLS on its port + 1 (`TLS_PORT`), only whe
 Decided 2026-10-20, task 055, replacing the epoll benchmark server as the one build
 that serves TLS. `server/server_epoll.goose` serves no TLS, as `server/server.goose`
 doesn't, and `server/server_tls.goose`, built with `scripts/build.sh`'s `TLS=1`, is the
-epoll server with the TLS listener. Linking goose-tls maps libcrypto, libssl, and their
+epoll server with the TLS listener; since the io_uring loop serves TLS (2026-10-20,
+task 014.02), `server/server_tls_uring.goose` is the io_uring server with it. Linking goose-tls maps libcrypto, libssl, and their
 libz and libzstd at startup, 2.3 MB of resident pages that the epoll server's peak RSS
 carried on every benchmark, with no TLS listener (1012e705: 3.6 → 6.0 MB). HttpArena's
 image holds both builds and starts the TLS one only when HttpArena mounts a certificate,
 so the one container still serves 8080, 8081, and 8082 together, as the entry above
-decided. `scripts/test.sh` tests the epoll loop with the TLS build, so the listener stays
-tested. Rejected: loading OpenSSL only once `Config.tls` is set, which is goose-tls's
+decided. `scripts/test.sh` tests the epoll and io_uring loops with their TLS builds, so
+the listener stays tested. Rejected: loading OpenSSL only once `Config.tls` is set, which is goose-tls's
 to do, with `dlopen` behind its calls; and keeping one build, whose plaintext cells
 carried OpenSSL's pages.
 

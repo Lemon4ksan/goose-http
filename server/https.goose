@@ -1,7 +1,7 @@
-// The epoll loop's TLS listener: HTTP/1.1 over TLS 1.3 on TLS_PORT, by
-// default the port + 1, as HttpArena's 8081 is beside 8080, with the PEM
-// certificate chain TLS_CERT and its key TLS_KEY. Without both, or with
-// TLS_PORT=0, no listener serves TLS.
+// The TLS listener: HTTP/1.1 over TLS 1.3 on TLS_PORT, by default the port
+// + 1, as HttpArena's 8081 is beside 8080, with the PEM certificate chain
+// TLS_CERT and its key TLS_KEY. Without both, or with TLS_PORT=0, no
+// listener serves TLS.
 import std;
 import os;
 import http;
@@ -36,12 +36,21 @@ fn tls_listener(cfg: http::Config&, also: u8[>..]&) {
     format(also, ", TLS on port ", p);
 }
 
-thread_fn worker_tls(cfg: http::Config, ctx: tls::Context) {
+thread_fn worker_tls_epoll(cfg: http::Config, ctx: tls::Context) {
     var server = http::tls_server(ctx);
     let e = http::serve_epoll(cfg, Transfer { .. }, server, handle);
     http::release(server);
     http::exit_on_error(e);
 }
 
-// The epoll loop's workers, each with the TLS context, if any.
-fn tls_workers(cfg: http::Config) { http::run(cfg, tls_ctx, worker_tls); }
+thread_fn worker_tls(cfg: http::Config, ctx: tls::Context) {
+    var server = http::tls_server(ctx);
+    let e = http::serve(cfg, Transfer { .. }, server, handle);
+    http::release(server);
+    http::exit_on_error(e);
+}
+
+// The workers, each with the TLS context, if any.
+fn tls_workers(cfg: http::Config, epoll: bool) {
+    if epoll { http::run(cfg, tls_ctx, worker_tls_epoll); } else { http::run(cfg, tls_ctx, worker_tls); }
+}

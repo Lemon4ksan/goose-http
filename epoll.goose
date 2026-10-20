@@ -65,6 +65,7 @@ fn tls_serves(t: NoTls&) -> bool { false }
 fn tls_open(t: NoTls&) -> i32 { -1 }
 fn tls_ready(t: NoTls&, k: i32) -> bool { false }
 fn tls_recv(t: NoTls&, k: i32, fd: i32, buf: u8[:]) -> i64, bool { return -1, false; }
+fn tls_take(t: NoTls&, k: i32, bytes: const u8[:], out: u8[>..]&) -> bool { false }
 fn tls_seal(t: NoTls&, k: i32, w: u8[>..]&, from: i64, last: bool) -> bool { false }
 fn tls_close(t: NoTls&, k: i32, fd: i32, clean: bool) {}
 

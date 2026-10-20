@@ -1,8 +1,8 @@
 // The benchmark server: TechEmpower's and HttpArena's routes (routes.goose),
 // served by either of the package's loops, and task 002's echo servers.
 // server.goose and server_epoll.goose are its root files, which differ in the
-// loop they serve with when LOOP doesn't name one, and server_tls.goose is
-// server_epoll.goose with the TLS listener.
+// loop they serve with when LOOP doesn't name one, and server_tls_uring.goose
+// and server_tls.goose are the same two with the TLS listener.
 import std;
 import os;
 import http;
@@ -18,10 +18,10 @@ fn usage() {
 // Runs the mode the command line names. The http mode serves with the loop
 // LOOP names, epoll or uring (iocp on Windows, the same loop), or with
 // default_loop without it. uring-epoll is the uring loop over the emulation
-// it falls back to where io_uring is blocked. TLS adds the epoll loop's TLS
-// listener, if the root file serves one (https.goose), and EPOLL runs the
-// epoll loop's workers.
-fn run<TLS, EPOLL>(default_loop: const u8[:]) {
+// it falls back to where io_uring is blocked. TLS adds the TLS listener, if
+// the root file serves one (https.goose), and WORKERS runs the workers,
+// given cfg and whether the loop is epoll.
+fn run<TLS, WORKERS>(default_loop: const u8[:]) {
     let argv = args();
     guard argv.len >= 2 else { usage(); }
     var port: i32 = 8080;
@@ -61,7 +61,7 @@ fn run<TLS, EPOLL>(default_loop: const u8[:]) {
         }
         var v6only: u8[>..] = [];
         cfg.ipv6_only = env("IPV6_ONLY", v6only);
-        serve_http(cfg, default_loop, TLS, EPOLL);
+        serve_http(cfg, default_loop, TLS, WORKERS);
     }
     else if mode == "echo-blocking" { echo_blocking(port); }
     else if mode == "echo-epoll" { echo_epoll(port); }
@@ -74,11 +74,13 @@ thread_fn worker(cfg: http::Config) { http::exit_on_error(http::serve(cfg, Trans
 
 thread_fn worker_epoll(cfg: http::Config) { http::exit_on_error(http::serve_epoll(cfg, Transfer { .. }, handle)); }
 
-// A root file's TLS and EPOLL for run, without TLS.
+// A root file's TLS and WORKERS for run, without TLS.
 fn no_tls(cfg: http::Config&, also: u8[>..]&) {}
-fn epoll_workers(cfg: http::Config) { http::run(cfg, worker_epoll); }
+fn workers(cfg: http::Config, epoll: bool) {
+    if epoll { http::run(cfg, worker_epoll); } else { http::run(cfg, worker); }
+}
 
-fn serve_http<TLS, EPOLL>(given: http::Config, default_loop: const u8[:]) {
+fn serve_http<TLS, WORKERS>(given: http::Config, default_loop: const u8[:]) {
     // SIGTERM and SIGINT stop the workers gracefully.
     http::exit_on_error(http::stop_on_signals());
     var cfg = given;
@@ -109,7 +111,7 @@ fn serve_http<TLS, EPOLL>(given: http::Config, default_loop: const u8[:]) {
         cfg.listeners.push(http::Listener { port: p as i32, h2c: true });
         format(also, ", h2c on port ", p);
     }
-    if epoll && !starts_with(cfg.address, "unix:") { TLS(cfg, also); }
+    if !starts_with(cfg.address, "unix:") { TLS(cfg, also); }
     let n = http::worker_count(cfg);
     load_dataset();
     // The backend lane of /later and /events, one thread that serves every worker.
@@ -130,7 +132,7 @@ fn serve_http<TLS, EPOLL>(given: http::Config, default_loop: const u8[:]) {
     for run in positive("SERVER_RUNS", 1) {
         print("http: ", n, if n == 1 { " worker" } else { " workers" }, " on port ", cfg.port,
               if cfg.address.len > 0 { " at " } else { "" }, cfg.address, also, ", ", name, " loop", ring);
-        if epoll { EPOLL(cfg) } else { http::run(cfg, worker) }
+        WORKERS(cfg, epoll);
     }
     http::lane_stop(backend_lane);
 }

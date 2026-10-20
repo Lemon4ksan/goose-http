@@ -76,7 +76,7 @@ any directory:
 
 | Command | What it does |
 |---|---|
-| `scripts/build.sh` | Builds the benchmark server into `build/server` with `goose build`, at `-O2` for Goose and gcc: on Linux `server/server.goose`, which serves with the io_uring loop, or with `LOOP=epoll` `server/server_epoll.goose`, which serves with the epoll loop, and with `TLS=1` too `server/server_tls.goose`, which adds the TLS listener and links OpenSSL. |
+| `scripts/build.sh` | Builds the benchmark server into `build/server` with `goose build`, at `-O2` for Goose and gcc: on Linux `server/server.goose`, which serves with the io_uring loop, or with `LOOP=epoll` `server/server_epoll.goose`, which serves with the epoll loop, and with `TLS=1` `server/server_tls_uring.goose` or `server/server_tls.goose` instead, which add the TLS listener and link OpenSSL. |
 | `scripts/test.sh` | Runs every test, and stops at the first failure ([below](#run-every-test)). |
 | `test/run_tests.py` | Runs the tests in `test/` and compares their output with `test/expected/` ([below](#run-the-tests-in-test)). |
 | `scripts/test-http.sh` | Tests the HTTP server of `build/server` ([below](#test-the-http-server)). |
@@ -117,12 +117,13 @@ port, and `H2C_PORT=0` turns it off.
 `scripts/test.sh` runs the whole suite, and stops at the first failure:
 
 1. `goose --check` of each root file: `server/server.goose`, `server/server_epoll.goose`,
-   `server/server_tls.goose`, and the examples listed in `scripts/test.sh`.
+   `server/server_tls.goose`, `server/server_tls_uring.goose`, and the examples listed
+   in `scripts/test.sh`.
 2. `test/run_tests.py`: the tests in `test/` ([below](#run-the-tests-in-test)).
 3. For each loop, `scripts/build.sh` and then `scripts/test-http.sh`: uring and epoll on
    Linux and macOS, with `LOOP=uring-epoll` against the uring build on Linux too, and
-   iocp on Windows. The epoll loop's is the TLS build (`TLS=1`), whose TLS listener the
-   tests take too. After the epoll build's, `scripts/test-h2spec.sh`, which fetches
+   iocp on Windows. The uring and epoll loops' are the TLS builds (`TLS=1`), whose TLS
+   listener the tests take too. After the epoll build's, `scripts/test-h2spec.sh`, which fetches
    h2spec v2.6.0 into `build/` and runs it against the h2c port. h2spec's only builds
    are x86-64: on macOS it needs Rosetta 2, and on Linux on arm64 the step is skipped,
    with a note ([run it from an x86-64 container](#docker-on-macos)). With
@@ -201,7 +202,7 @@ cd ~ && cargo install oha --locked
 `GOOSE_COMMIT` and Linux on arm64, which has no Goose release archive, build Goose from
 source, with `sudo apt-get install -y cmake ninja-build g++`.
 
-The epoll build of the benchmark server, `examples/tls`, and `test/tls/` import
+The TLS builds of the benchmark server, `examples/tls`, and `test/tls/` import
 goose-tls, which builds with CMake and OpenSSL 3's headers, and `scripts/test-http.sh`
 makes its test certificate with `openssl`:
 
@@ -239,7 +240,7 @@ brew install cmake wrk nghttp2 oha openssl@3
 
 The scripts fetch the `macos-arm64` or `macos-x64` release; CMake is for `GOOSE_COMMIT`
 and for goose-tls, which builds with Homebrew's `openssl@3` (macOS's own `libssl` is
-LibreSSL, without headers) for the epoll build of the benchmark server, `examples/tls`,
+LibreSSL, without headers) for the TLS builds of the benchmark server, `examples/tls`,
 and `test/tls/`.
 TinyCC finds the SDK headers through `xcrun --show-sdk-path`, so it needs Xcode or the
 Command Line Tools. `goose build --cc gcc` works because macOS's gcc is Apple clang. The
@@ -263,7 +264,7 @@ The io_uring loop runs natively on Windows through `shim/iocp.c` and `shim/net_w
 which `http.build` lists under `c_sources_windows`
 ([architecture](architecture.md#c-in-the-package)), and
 `scripts/test-http.sh` and `scripts/test-echo.sh` pass there, in Git Bash. The epoll loop doesn't build on Windows. Windows isn't for benchmarks.
-TLS, which only the epoll loop serves, isn't set up on Windows: `test/run_tests.py`
+TLS, which IOCP doesn't serve, isn't set up on Windows: `test/run_tests.py`
 leaves out `test/tls/` there, and `scripts/test-examples.sh` `examples/tls`.
 
 The scripts fetch the `windows-x64` release ([Get Goose](#get-goose)). `goose build`

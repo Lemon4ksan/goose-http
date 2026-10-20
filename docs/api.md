@@ -722,7 +722,7 @@ IOCP. `H2C_PORT` names another port, and `H2C_PORT=0` turns it off.
 
 ### HTTPS
 
-`http::serve_epoll` serves HTTP/1.1 over TLS 1.3 on the listeners that ask for it, with
+Both loops serve HTTP/1.1 over TLS 1.3 on the listeners that ask for it, with
 [goose-tls](https://github.com/kaitk/goose-tls) over OpenSSL 3. Only a program that
 imports the module `http.tls` needs goose-tls, which its root file declares, and it
 builds with CMake and OpenSSL's headers
@@ -735,7 +735,7 @@ import http.tls;
 
 thread_fn worker(cfg: http::Config, ctx: tls::Context) {
     var server = http::tls_server(ctx);
-    let e = http::serve_epoll(cfg, server) { req, body, out =>
+    let e = http::serve(cfg, server) { req, body, out =>
         http::respond(out, 200, "text/plain", "Hello, World!");
     };
     http::release(server);
@@ -758,19 +758,21 @@ fn main() {
   to the context, which `http::release(server)` frees once the loop has returned.
   The context is goose-tls's: a certificate chain and key, from PEM files or text,
   TLS 1.3 only, and the ALPN protocols to offer, `http/1.1` here.
-- `http::serve_epoll(cfg, server) { req, body, out => ... }` and
-  `http::serve_epoll(cfg, fresh, server) { ev, st, out => ... }` are the two
-  `serve_epoll`s with the TLS of the listeners that ask for it. Without a context,
-  or with `tls` on an h2c listener, the loop fails with `EINVAL` before it listens, as
-  `serve_epoll` without a `TlsServer` does on any TLS listener.
+- `http::serve(cfg, server) { req, body, out => ... }` and
+  `http::serve(cfg, fresh, server) { ev, st, out => ... }` are the two `serve`s with
+  the TLS of the listeners that ask for it, and `http::serve_epoll` takes the same
+  arguments. Without a context, or with `tls` on an h2c listener, the loop fails with
+  `EINVAL` before it listens, as either loop without a `TlsServer` does on any TLS
+  listener. On Windows, `http::serve` fails with `ENOSYS` on a TLS listener.
 
 Handlers don't change, and neither do the limits and timeouts, but for the handshake:
 a client has `Config.request_ms` from its connection to finish it. A connection that
-closes after its response sends close_notify. Files are read in pieces rather than
-sent by `sendfile`. h2 over TLS, and the kernel's TLS (kTLS) on Linux, are still to
-come; `http::serve` fails with `ENOSYS` on a TLS listener.
+closes after its response sends close_notify, and so does an idle one that times out
+or is closed by a stop. Files are read in pieces rather than sent by `sendfile` or
+splice. h2 over TLS, and the kernel's TLS (kTLS) on Linux, are still to come.
 
-The benchmark server, with `LOOP=epoll`, serves TLS on its port + 1, as HttpArena's
-8081 is beside 8080, when `TLS_CERT` and `TLS_KEY` name a PEM certificate chain and
-its key. `TLS_PORT` names another port, and `TLS_PORT=0` turns it off.
+The benchmark server's TLS build (`scripts/build.sh` with `TLS=1`) serves TLS on its
+port + 1, as HttpArena's 8081 is beside 8080, with either loop, when `TLS_CERT` and
+`TLS_KEY` name a PEM certificate chain and its key. `TLS_PORT` names another port, and
+`TLS_PORT=0` turns it off.
 

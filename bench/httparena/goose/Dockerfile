@@ -18,12 +18,14 @@ COPY *.goose http.build /server/
 COPY shim /server/shim
 COPY server /server/server
 COPY scripts/build.sh /server/scripts/build.sh
-# The epoll loop: Docker's default seccomp profile blocks io_uring. Two
-# builds: without TLS, and with its TLS listener (server/server_tls.goose),
-# which links OpenSSL.
-RUN GOOSE=$(cat /goose-path) LOOP=epoll /server/scripts/build.sh && \
+# The io_uring loop: HttpArena starts every entry with seccomp=unconfined,
+# which lets io_uring through Docker's default profile. Where io_uring_setup
+# still fails, the loop runs on its emulation over epoll, and the server's
+# first line says so. Two builds: without TLS, and with its TLS listener
+# (server/server_tls_uring.goose), which links OpenSSL.
+RUN GOOSE=$(cat /goose-path) LOOP=uring /server/scripts/build.sh && \
     cp /server/build/server /server/build/server-plain && \
-    GOOSE=$(cat /goose-path) TLS=1 LOOP=epoll /server/scripts/build.sh
+    GOOSE=$(cat /goose-path) TLS=1 LOOP=uring /server/scripts/build.sh
 
 FROM ubuntu:26.04
 # The package links liburing on Linux, whichever loop the server runs, and

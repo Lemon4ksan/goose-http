@@ -1,6 +1,7 @@
-// HTTP/1.1 over TLS in serve_epoll, with goose-tls's server TLS 1.3 over
-// OpenSSL 3 (task 014). Only a program that imports this module needs that
-// package, which its root file declares at the tag this file names:
+// HTTP/1.1 over TLS in serve_epoll and serve, with goose-tls's server TLS
+// 1.3 over OpenSSL 3 (task 014). Only a program that imports this module
+// needs that package, which its root file declares at the tag this file
+// names:
 //
 //   import http from "github.com/kaitk/goose-http@<tag>";
 //   import tls from "github.com/kaitk/goose-tls@v0.0.1";
@@ -36,8 +37,8 @@ struct TlsSlot {
 
 // A worker's TLS: the context its connections are accepted from, the
 // buffer the socket's bytes are read into before they're fed to OpenSSL,
-// and each connection's state, by the slot EpollConn.tls names, with the
-// first free one.
+// and each connection's state, by the slot EpollConn.tls or RingConn.tls
+// names, with the first free one.
 struct TlsServer {
     ctx: tls::Context,
     free: i32 = -1,
@@ -66,6 +67,17 @@ fn serve_epoll<S, H>(cfg: Config, fresh: S, t: TlsServer&) -> Error {
     return epoll_loop(cfg, fresh, t, H);
 }
 
+// serve(cfg), whose listeners with tls serve it with t. On Windows it fails
+// with ENOSYS on a TLS listener.
+fn serve<H>(cfg: Config, t: TlsServer&) -> Error {
+    return ring_loop(cfg, false, t) { ev, st, out => whole(ev, out, H); };
+}
+
+// serve(cfg, fresh), whose listeners with tls serve it with t.
+fn serve<S, H>(cfg: Config, fresh: S, t: TlsServer&) -> Error {
+    return ring_loop(cfg, fresh, t, H);
+}
+
 fn tls_serves(t: TlsServer&) -> bool { tls::ok(t.ctx) }
 
 // A connection for a socket just accepted: its slot, or -1 when OpenSSL
@@ -86,38 +98,46 @@ fn tls_open(t: TlsServer&) -> i32 {
 
 fn tls_ready(t: TlsServer&, k: i32) -> bool { t.slots[k].ready }
 
+// Reads plaintext into buf from what slot k holds, through its handshake
+// first, until buf is full or OpenSSL wants more input. Returns the count,
+// and whether the connection is done after it: the client sent
+// close_notify, or the handshake or a record failed.
+fn tls_plain(s: TlsSlot&, buf: u8[:]) -> i64, bool {
+    if !s.ready {
+        let h = tls::handshake(s.conn);
+        if h == 0 { s.ready = true; }
+        else if h != tls::WANT_INPUT { return 0, true; }
+    }
+    var got = 0;
+    if s.ready {
+        while got < buf.len {
+            let r = tls::read(s.conn, buf[got..]);
+            if r > 0 {
+                got += r;
+                continue;
+            }
+            if r == tls::WANT_INPUT { break; }
+            return got, true;   // CLOSED or FAILED
+        }
+    }
+    return got, false;
+}
+
 // Reads plaintext into buf from slot k's socket fd, through its handshake
 // first. Returns the count, with whether the socket was emptied and every
 // whole record read; 0 when the handshake has bytes to send before it can
 // go on; -EAGAIN once the socket is empty; or another value below 0 when
 // the connection is done: the client closed it, sent close_notify, or failed
-// the handshake.
+// the handshake. What came before a close_notify is returned first, and the
+// next call returns the close.
 fn tls_recv(t: TlsServer&, k: i32, fd: i32, buf: u8[:]) -> i64, bool {
     let s .= t.slots[k];
     guard buf.len > 0 else { return -1, false; }
     var empty = false;
     loop {
-        if !s.ready {
-            let h = tls::handshake(s.conn);
-            if h == 0 { s.ready = true; }
-            else if h != tls::WANT_INPUT { return -1, false; }
-        }
-        var got = 0;
-        if s.ready {
-            while got < buf.len {
-                let r = tls::read(s.conn, buf[got..]);
-                if r > 0 {
-                    got += r;
-                    continue;
-                }
-                if r == tls::WANT_INPUT { break; }
-                // CLOSED or FAILED: what came before it is answered first,
-                // and the next call returns it.
-                guard got > 0 else { return -1, false; }
-                return got, false;
-            }
-        }
-        if got > 0 { return got, empty && got < buf.len; }
+        let got, done = tls_plain(s, buf);
+        if got > 0 { return got, !done && empty && got < buf.len; }
+        guard !done else { return -1, false; }
         if tls::pending(s.conn) > 0 { return 0, false; }
         if empty { return -EAGAIN, true; }
         let n = net_recv(fd, t.wire);
@@ -126,6 +146,23 @@ fn tls_recv(t: TlsServer&, k: i32, fd: i32, buf: u8[:]) -> i64, bool {
         guard n > 0 else { return -1, false; }
         guard tls::feed(s.conn, t.wire[..n]) == n else { return -1, false; }
         empty = n < t.wire.len;
+    }
+}
+
+// tls_recv for bytes already received, as the ring delivers them: feeds
+// them to slot k, and appends to out the plaintext they complete. False once
+// the connection is done, after what came before; its alert, if any, waits
+// for tls_seal.
+fn tls_take(t: TlsServer&, k: i32, bytes: const u8[:], out: u8[>..]&) -> bool {
+    let s .= t.slots[k];
+    guard tls::feed(s.conn, bytes) == bytes.len else { return false; }
+    loop {
+        let end = out.len;
+        out.resize(end + t.wire.len, 0);
+        let got, done = tls_plain(s, out[end..]);
+        out.resize(end + got, 0);
+        guard !done else { return false; }
+        if got < t.wire.len { return true; }
     }
 }
 

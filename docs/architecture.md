@@ -253,21 +253,22 @@ beneath it work on bytes alone:
 
 ## TLS
 
-`serve_epoll` serves HTTP/1.1 over TLS 1.3 on a listener with `Config.tls` or a
+Both loops serve HTTP/1.1 over TLS 1.3 on a listener with `Config.tls` or a
 `Listener`'s `tls`, through [goose-tls](https://github.com/kaitk/goose-tls) and OpenSSL,
 from the optional module `http.tls` (`tls.goose`)
-([decisions](decisions.md#tls-is-goose-tls-reached-from-the-module-httptls)). `serve`
-doesn't serve TLS yet, and fails with `ENOSYS` on a TLS listener.
+([decisions](decisions.md#tls-is-goose-tls-reached-from-the-module-httptls)). On
+Windows, `serve` fails with `ENOSYS` on a TLS listener.
 
-The loop's code is `epoll_loop`, which takes the listeners' TLS as an untyped
-parameter: a `NoTls` from `serve_epoll(cfg, fresh)`, or an `http::TlsServer` from
-`http.tls`'s `serve_epoll(cfg, fresh, server)`. A `TlsServer` is a worker's: its
-reference to the context, a 16 KB buffer the socket's bytes are read into, and a slot
-per TLS connection, which `EpollConn.tls` names, -1 on a plain connection. A slot holds
-the `tls::Conn`, whether its handshake is done, and whether close_notify is queued.
+The loops' code is `epoll_loop` and `ring_loop`, which take the listeners' TLS as an
+untyped parameter: a `NoTls` from `serve_epoll(cfg, fresh)` or `serve(cfg, fresh)`, or
+an `http::TlsServer` from `http.tls`'s `serve_epoll(cfg, fresh, server)` or
+`serve(cfg, fresh, server)`. A `TlsServer` is a worker's: its reference to the context,
+a 16 KB buffer the socket's bytes are read into, and a slot per TLS connection, which
+`EpollConn.tls` or `RingConn.tls` names, -1 on a plain connection. A slot holds the
+`tls::Conn`, whether its handshake is done, and whether close_notify is queued.
 
-A TLS connection's bytes pass through its `tls::Conn` between the socket and the
-worker's buffers, and everything above them is unchanged:
+On the epoll loop, a TLS connection's bytes pass through its `tls::Conn` between the
+socket and the worker's buffers, and everything above them is unchanged:
 
 - **Reading.** `tls_recv` advances the handshake, then decrypts into the read buffer
   what OpenSSL holds before it reads the socket again, so an edge-triggered event is
@@ -288,8 +289,27 @@ worker's buffers, and everything above them is unchanged:
   progresses; past it the sweep closes the connection, without a 408. After the
   handshake, the connection's timeouts are a plain connection's.
 
+The io_uring loop does the same with the bytes its completions carry, and sends every
+byte TLS makes through the ring, in order with the connection's other sends:
+
+- **Reading.** A receive's ciphertext is copied out of its provided buffer and given
+  to `tls_take`, which feeds it to OpenSSL and decrypts until OpenSSL wants more
+  input, through the handshake first. The plaintext is answered as a plain
+  connection's received bytes are, and then what OpenSSL has to send is queued.
+- **Writing.** `flush` seals the write buffer in its place before it queues it, so
+  the ring's copy and `Config.max_queued` count the records.
+- **Files** are read with `pread` in pieces, rather than spliced.
+- **Closing.** The ring's sockets block, so the loop never sends to one directly, and
+  `ring_close` drops what is still queued. A connection that ends cleanly goes the way
+  a refusal does instead: close_notify, or a failed handshake's alert, is queued, its
+  side is shut down once it's sent, and the client has `Config.linger_ms` to close.
+  That is how a client's close_notify, a failed handshake, an idle connection's
+  timeout, and a stop end a TLS connection; one whose client closes the socket or
+  resets it, or whose send fails, is closed at once.
+- **Timeouts** are the epoll loop's.
+
 The handshake and the record layer run in user space on every platform. goose-tls can
-move a connection's record layer to the kernel on Linux (kTLS), which the loop doesn't
+move a connection's record layer to the kernel on Linux (kTLS), which the loops don't
 use yet.
 
 ## Mail between threads

@@ -4,7 +4,7 @@
 # (test/run_tests.py, which typechecks and runs each one and reports every
 # failure among them), then each loop's build of the server
 # (scripts/build.sh) with scripts/test-http.sh against it, which tests h2c
-# too where the loop serves it, and TLS on the epoll loop's TLS build (TLS=1),
+# too where the loop serves it, and TLS on the TLS builds (TLS=1) but iocp's,
 # scripts/test-h2spec.sh against each loop but iocp where h2spec has a binary,
 # and with AUTOBAHN=1, scripts/test-autobahn.sh against each build, which
 # needs Docker, then scripts/test-echo.sh, and scripts/test-examples.sh, which builds each
@@ -57,6 +57,7 @@ drain() {
 }
 
 for f in "$root"/server/server.goose "$root"/server/server_epoll.goose "$root"/server/server_tls.goose \
+    "$root"/server/server_tls_uring.goose \
     "$root"/examples/hello/hello.goose "$root"/examples/routes/routes.goose \
     "$root"/examples/api/api.goose "$root"/examples/upload/upload.goose \
     "$root"/examples/later/later.goose "$root"/examples/files/files.goose \
@@ -70,9 +71,9 @@ step "test/run_tests.py"
 python3 "$root/test/run_tests.py"
 
 for loop in $loops; do
-    # The epoll loop's tests take its TLS listener too, from the TLS build.
+    # The tests take the TLS listener too, from the TLS build, but on IOCP.
     step "LOOP=$loop build.sh"
-    if [ "$loop" = epoll ]; then TLS=1 LOOP=$loop "$root/scripts/build.sh"; else LOOP=$loop "$root/scripts/build.sh"; fi
+    if [ "$loop" != iocp ]; then TLS=1 LOOP=$loop "$root/scripts/build.sh"; else LOOP=$loop "$root/scripts/build.sh"; fi
     drain
     step "test-http.sh, $loop loop"
     LOOP=$loop "$root/scripts/test-http.sh"

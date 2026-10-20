@@ -1,5 +1,5 @@
-// The benchmark server with the epoll loop's TLS listener (https.goose), served
-// with http::serve_epoll unless LOOP says otherwise: epoll on Linux, kqueue on
+// The benchmark server with the TLS listener (https.goose), served with
+// http::serve_epoll unless LOOP says otherwise: epoll on Linux, kqueue on
 // macOS. This root declares goose-tls, and builds with OpenSSL;
 // server_epoll.goose is the same server without TLS, which doesn't map it.
 import http from "../";

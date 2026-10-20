@@ -1,3 +1,4 @@
 no context: tls true
+serve, no context: tls true
 h2c and TLS: tls true
-serve, a TLS listener: tls true
+serve, h2c and TLS: tls true

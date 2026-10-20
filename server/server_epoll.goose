@@ -6,4 +6,4 @@ import compress from "github.com/kaitk/goose-compress@v0.1.1";
 import hash from "github.com/kaitk/goose-hash@v0.0.4";
 import app;
 
-fn main() { run("epoll", no_tls, epoll_workers); }
+fn main() { run("epoll", no_tls, workers); }
