@@ -64,6 +64,8 @@ Several agents work in these repositories at once (2026-10-20).
   checkout. Ask if it's in your way.
 - Keep logs, exports, and scratch files in a directory of your own: a session's
   scratchpad may be shared by several agents.
+- Problems with your own sandbox, such as no network or no SSH, go in your report,
+  not in the docs.
 
 ## Goose
 
