@@ -1,7 +1,7 @@
 # 058: TLS connections' memory
 
-Status: in-progress (measured, and goose-tls's fix is on its `main`, 2026-10-20; the
-goose-tls release, the pin move, and json-tls's rerun are open)
+Status: in-progress (measured; goose-tls's fix released as `v0.0.2` and the pin moved
+to it, 2026-10-20; json-tls's rerun is open)
 
 On HttpArena's json-tls, at 4,096 connections, the Goose entry used 272 MiB, the most
 of the five measured: ntex 152, axum 170, sark 175, and actix 188 MiB (task 014.02,
@@ -25,10 +25,12 @@ handshakes in flight when 4,096 clients connect at once. goose-http's share is u
       buffers")
 - [x] Taken where it saves memory at no cost in rate beyond the runs' spread, or
       recorded here with its numbers: on goose-tls's `main`, `6fc4279`
-- [ ] json-tls rerun against the Rust entries, its memory recorded in 014.02. It waits
-      for a goose-tls release with the change and this repository's pin moved to it
-      (the tag in `tls.goose`, `server/server_tls.goose`, `test/tls/tls_config.goose`,
-      and `examples/tls/tls.goose`): HttpArena builds goose-tls at that tag.
+- [ ] json-tls rerun against the Rust entries, its memory recorded in 014.02. goose-tls
+      `v0.0.2` (`36ab3f8`) has the change, and the pin moved to it on 2026-10-20 in
+      `tls.goose`, `server/server_tls.goose`, `test/tls/tls_config.goose`,
+      `examples/tls/tls.goose`, and `docs/api.md`. `scripts/test.sh` passed on the
+      desktop (WSL2 kernel `6.18.54.1-microsoft-standard-WSL2`, Goose `f114b5a`,
+      `PORT=29880`), with the kTLS pass and h2spec 146 of 146 on each loop.
 
 ## Measured
 
