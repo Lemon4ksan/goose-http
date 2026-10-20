@@ -112,8 +112,8 @@ Goose `dcc2747`, goose-tls `v0.0.1`.
   same Mac and Docker Desktop:
   - `scripts/test.sh` with `PORT=29880`, macOS: every step passes, 51 tests at -O0 and
     -O2; the TLS block, `tls-slow`, and the stop with an idle TLS connection on both
-    the uring build (the ring emulated on kqueue) and the epoll build, each now the
-    TLS build (`TLS=1`); h2spec 146 of 146 on each; `examples/tls`.
+    the uring loop (the ring emulated on kqueue) and the epoll loop, each from a TLS
+    build (`TLS=1`); h2spec 146 of 146 on each; `examples/tls`.
   - `scripts/test.sh` with `PORT=29880`, Linux (arm64 `ubuntu:26.04` image built
     fresh, kernel 7.0.14-linuxkit, `--security-opt seccomp=unconfined`, OpenSSL
     3.5.5): every step passes, the same TLS checks on the uring build on io_uring
@@ -157,8 +157,16 @@ HttpArena's json-tls and 8gbit on Linux.
    close_notify directly, the ring queues it and closes as a refusal does (CLOSING,
    shut down once sent, `linger_ms`): for a client's close_notify, a failed
    handshake's alert, an idle timeout, and a stop. `close_conn` itself sends nothing,
-   since `ring_close` drops unsent sends. `TLS=1 LOOP=uring` builds
-   `server/server_tls_uring.goose`.
+   since `ring_close` drops unsent sends. The TLS build, `server/server_tls.goose`,
+   serves it with `LOOP=uring` at run time.
+
+   Two checks are pending, on the desktop (2026-10-20):
+   - Plaintext's user instructions per request on the io_uring loop, before this
+     branch and after it: every plain receive now goes through `take` and a `c.tls`
+     check in `received`. If it costs anything beyond the runs' spread, revert the
+     plain path's part (keep the plain receive inline, with the TLS branch beside it).
+   - The TLS receive path's copy of the decrypted bytes from `plain` into `rbuf`,
+     measured on json-tls, before anyone decrypts into `rbuf` directly.
 5. Windows: goose-tls hasn't been built there; `test/tls/` and `examples/tls` are
    skipped, and `server/server_epoll.goose`'s typecheck in `scripts/test.sh` now
    fetches goose-tls there too (untried).
