@@ -8,7 +8,9 @@
 # http::serve, the default on Linux), which needs liburing (apt liburing-dev)
 # on Linux and runs over an emulation on kqueue on macOS, or epoll
 # (server/server_epoll.goose, http::serve_epoll, the default on macOS, over
-# kqueue). The package's sidecar, http.build, names
+# kqueue). TLS=1 builds the epoll server with its TLS listener instead
+# (server/server_tls.goose), which links OpenSSL (apt libssl-dev); the others
+# serve no TLS and don't map it. The package's sidecar, http.build, names
 # the C in shim/ it links on each platform.
 #
 # On Windows, in Git Bash, the loop is iocp, http::serve over I/O completion
@@ -29,7 +31,7 @@ Linux) loop=${LOOP:-uring} cc=${CC:-gcc} ;;
 *) loop=${LOOP:-epoll} cc=${CC:-gcc} ;;
 esac
 case $loop in
-epoll) main=server_epoll ;;
+epoll) main=server_epoll; [ "${TLS:-}" != 1 ] || main=server_tls ;;
 uring | iocp) main=server ;;
 *) echo "scripts/build.sh: LOOP is epoll, uring, or iocp"; exit 2 ;;
 esac

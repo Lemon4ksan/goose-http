@@ -1,7 +1,8 @@
 // The benchmark server: TechEmpower's and HttpArena's routes (routes.goose),
 // served by either of the package's loops, and task 002's echo servers.
 // server.goose and server_epoll.goose are its root files, which differ in the
-// loop they serve with when LOOP doesn't name one.
+// loop they serve with when LOOP doesn't name one, and server_tls.goose is
+// server_epoll.goose with the TLS listener.
 import std;
 import os;
 import http;

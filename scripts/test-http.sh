@@ -41,9 +41,9 @@ $client dataset "$dataset"
 if [ -n "$windows" ]; then export DATASET=$(cygpath -m "$dataset"); else export DATASET=$dataset; fi
 if [ -n "$windows" ]; then log_path=$(cygpath -m "$log"); else log_path=$log; fi
 export FILES="$files_path"
-# A self-signed RSA-2048 pair, as HttpArena mounts one, for the epoll build's
-# TLS listener on the port + 1 (server/https.goose). The other builds ignore
-# it.
+# A self-signed RSA-2048 pair, as HttpArena mounts one, for the TLS build's
+# listener on the port + 1 (server/server_tls.goose, https.goose). The other
+# builds ignore it.
 certs=$(mktemp -d)
 if [ -z "$windows" ] && command -v openssl >/dev/null; then
     openssl req -x509 -newkey rsa:2048 -nodes -keyout "$certs/server.key" -out "$certs/server.crt" \
