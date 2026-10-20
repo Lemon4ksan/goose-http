@@ -1,9 +1,10 @@
 // HTTP/1.1 on bytes alone: the request parser, the Date header, and the
-// responses. Nothing here makes a system call or needs another of the
-// package's files, so bench/parse.sh builds it alone.
+// responses. Nothing here makes a system call, and of the package's files it
+// needs only mail.goose's MailAddress, so bench/parse.sh builds it with those.
 namespace http;
 
 import std;
+import mail;
 
 // The longest request head (the request line, the header fields, and the
 // blank line), unless parse's caller sets another. The server's read buffer

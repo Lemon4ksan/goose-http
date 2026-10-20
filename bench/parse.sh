@@ -17,8 +17,10 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 # Imports resolve from the root file's directory. message.goose is namespace
-# http, and needs none of the package's other files.
+# http, and needs only mail.goose, which needs handle.goose; the mail shim's
+# functions go unused, so nothing links them.
 cp "$root/message.goose" "$tmp/http.goose"
+cp "$root/mail.goose" "$root/handle.goose" "$tmp"
 cp "$root"/bench/parse/*.goose "$tmp"
 printf 'request\tinstructions/parse\tns/parse\n'
 for f in "$root"/bench/parse/*.goose; do
