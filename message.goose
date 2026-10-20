@@ -249,12 +249,18 @@ fn each_field<F>(req: const Request&) {
     }
 }
 
+// Where a field line ends, for find_any.
+let LINE_END = byte_set("\r");
+
 // The field line at fields[pos..], which parse checked: its name, its value
-// without the whitespace around it, and where the next line starts.
+// without the whitespace around it, and where the next line starts. The
+// name's first byte that isn't a token character is its colon. find_any
+// scans 16 bytes at a time, where a byte loop over tier C's long lines, a
+// bearer token among them, took a fifth of a request's instructions.
 fn field_at(fields: const u8[:], pos: i64) -> const u8[:], const u8[:], i64 {
     let line = fields[pos..];
-    let colon = position(line, ':');
-    let end = position(line, '\r');
+    let colon = find_any(line, NAME_END);
+    let end = find_any(line, LINE_END);
     var v0 = colon + 1;
     while v0 < end && (line[v0] == ' ' || line[v0] == '\t') { v0++; }
     var v1 = end;

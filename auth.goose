@@ -51,16 +51,27 @@ fn bearer(req: const Request&) -> const u8[:], bool {
     return token, true;
 }
 
+// Where find_any stops a token68: a byte other than a letter, a digit, and
+// "-._~+/". find_any scans 16 bytes at a time, where a byte loop over a
+// bearer token as long as a JWT took a quarter of a request's cycles.
+let TOKEN68_END = token68_end_set();
+
+fn token68_end_set() -> ByteSet {
+    var m = [true; 256];
+    for i in 256 {
+        let c = i as u8;
+        let letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+        if letter || is_digit(c) || c == '-' || c == '.' || c == '_' || c == '~' || c == '+' || c == '/' {
+            m[i] = false;
+        }
+    }
+    return byte_set(m);
+}
+
 // Whether s is a token68: letters, digits, and "-._~+/", then any '='s.
 fn is_token68(s: const u8[:]) -> bool {
-    var i = 0;
-    while i < s.len {
-        let c = s[i];
-        let letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
-        guard letter || is_digit(c) || c == '-' || c == '.' || c == '_' || c == '~' || c == '+' ||
-              c == '/' else { break; }
-        i++;
-    }
+    var i = find_any(s, TOKEN68_END);
+    if i < 0 { i = s.len; }
     guard i > 0 else { return false; }
     while i < s.len && s[i] == '=' { i++; }
     return i == s.len;

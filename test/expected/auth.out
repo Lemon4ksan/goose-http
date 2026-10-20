@@ -1,4 +1,5 @@
 basic: Aladdin, open sesame
 bearer: x==, in any case of the scheme
+token68: 9408 cases of 48 lengths
 refused: 6 Bearer, 7 Basic, a bad scheme
 challenge: 401

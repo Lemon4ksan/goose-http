@@ -4,6 +4,14 @@ import std;
 import http from "../../";
 import check from "../";
 
+// A token68 of len bytes, of every kind of byte it takes.
+fn token_of(len: i64) -> u8[>..] {
+    let kinds = "aZ09-._~+/";
+    var t: u8[>..] = [];
+    for i in len { t.push(kinds[i % kinds.len]); }
+    return t;
+}
+
 fn main() {
     var buf: u8[>..] = [];
     var decoded: u8[>..] = [];
@@ -34,6 +42,34 @@ fn main() {
         let tn, okn = http::bearer(rn);
         assert(!okn && tn.len == 0);
     }
+    // is_token68 and field_at scan 16 bytes at a time: a token of every length
+    // up to 48 is taken whole, with '='s after it, from a request whose field
+    // it ends; a bad byte at any position refuses it, and so does an '=' but at
+    // its end.
+    var cases = 0;
+    for len in 1..49 {
+        let t = token_of(len);
+        var head: u8[>..] = [];
+        format(head, "Authorization: Bearer ", t, "==\r\nX-After: 1\r\n");
+        var held: u8[>..] = [];
+        let rl = check::request("POST", head, held);
+        let tl, okl = http::bearer(rl);
+        assert(okl && tl.len == len + 2 && tl[..len] == t);
+        for at in len {
+            for bad in [' ', '!', ',', '"', 0x7f, 0x80, 0xff] {
+                var b = token_of(len);
+                b[at] = bad as u8;
+                assert(!http::is_token68(b));
+                cases += 1;
+            }
+            var e = token_of(len);
+            e[at] = '=';
+            assert(http::is_token68(e) == (at > 0 && at == len - 1));
+            cases += 1;
+        }
+    }
+    print("token68: ", cases, " cases of 48 lengths");
+
     let r4 = check::request("POST", "Authorization: Negotiate\r\n", buf);
     let alone, none, oka = http::authorization(r4);
     assert(oka && alone == "Negotiate" && none == "");
