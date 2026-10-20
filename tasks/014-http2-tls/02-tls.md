@@ -1,7 +1,8 @@
 # 014.02: HTTP/1.1 over TLS
 
 Status: in-progress (started 2026-10-19). HTTP/1.1 over TLS 1.3 serves from the epoll
-loop, on `main`; see "Handover" at the end for what remains.
+loop, on `main`, and from the io_uring loop on the branch `tls-uring` (2026-10-20); see
+"Handover" at the end for what remains.
 
 Task 014's phase 2: HTTPS through [goose-tls](https://github.com/kaitk/goose-tls)
 (OpenSSL 3 over memory BIOs) from the module `http.tls`, for HttpArena's json-tls and
@@ -22,7 +23,8 @@ Task 014's phase 2: HTTPS through [goose-tls](https://github.com/kaitk/goose-tls
       `scripts/test-http.sh`, run by `scripts/test.sh` on macOS and on Linux (2026-10-19)
 - [x] The API's names agreed ("Answers" below, 2026-10-19)
 - [ ] HttpArena's TLS validation passed, and json-tls and 8gbit measured on Linux
-- [ ] TLS in the io_uring loop, which fails with `ENOSYS` on a TLS listener for now
+- [x] TLS in the io_uring loop, tested on macOS's emulated ring and on Linux's io_uring
+      (2026-10-20); Windows' IOCP still fails with `ENOSYS` on a TLS listener
 
 ## Handover
 
@@ -105,6 +107,25 @@ Goose `dcc2747`, goose-tls `v0.0.1`.
   `/json/N?m=M` matches the dataset with `application/json`; 8gbit echoes 1 B to
   100 KB byte for byte, chunked 10 KB and 100 KB, and an empty body with 200.
 
+- TLS in the io_uring loop, on the branch `tls-uring` at `4324c388` (rebased onto
+  `main` at `f793dce0`; Goose `f114b5ac`, goose-tls `v0.0.1`), 2026-10-20, on the
+  same Mac and Docker Desktop:
+  - `scripts/test.sh` with `PORT=29880`, macOS: every step passes, 51 tests at -O0 and
+    -O2; the TLS block, `tls-slow`, and the stop with an idle TLS connection on both
+    the uring build (the ring emulated on kqueue) and the epoll build, each now the
+    TLS build (`TLS=1`); h2spec 146 of 146 on each; `examples/tls`.
+  - `scripts/test.sh` with `PORT=29880`, Linux (arm64 `ubuntu:26.04` image built
+    fresh, kernel 7.0.14-linuxkit, `--security-opt seccomp=unconfined`, OpenSSL
+    3.5.5): every step passes, the same TLS checks on the uring build on io_uring
+    itself (its first line names no emulated ring), on `LOOP=uring-epoll`, and on
+    epoll; h2spec skipped, as on any arm64 Linux.
+  - HttpArena's validation on `4324c388`, with the entry built `LOOP=uring` and
+    `meta.json`'s `engine` `io_uring`: `bench/httparena.sh validate` as above
+    (driver image built fresh, `SERVER_CPUS=0-2 LOAD_CPUS=3-9`): 64 passed, 0
+    failed, with the same json-tls and 8gbit checks. The image, started as the
+    harness does it (`--security-opt seccomp=unconfined`, a certificate in
+    `/certs`), prints `uring loop` with no emulated ring, and `TLS on port 8081`.
+
 No measurement yet: the macOS runs are smoke tests, and the comparison that counts is
 HttpArena's json-tls and 8gbit on Linux.
 
@@ -113,14 +134,11 @@ HttpArena's json-tls and 8gbit on Linux.
 1. (Done: the names, "Answers" below.)
 2. HttpArena: the image builds and the validation passes ("What passes"); json-tls
    and 8gbit remain to measure on Linux against the Rust entries (task 014's phase 2
-   criterion), after item 4. HttpArena starts every entry with
-   `--security-opt seccomp=unconfined` (`scripts/lib/framework.sh` and
-   `scripts/validate.sh` at the pinned commit, checked 2026-10-20), so io_uring works
-   there, and 23 entries name it as their engine. The Dockerfile's comment that
-   Docker's seccomp profile blocks io_uring is wrong for HttpArena: the entry builds
-   the epoll server, the slower loop, for every profile. Once item 4 is done, the
-   entry builds `LOOP=uring`, `meta.json`'s `engine` becomes `io_uring`, and the
-   validation runs again before json-tls and 8gbit are measured.
+   criterion). HttpArena starts every entry with `--security-opt seccomp=unconfined`
+   (`scripts/lib/framework.sh` and `scripts/validate.sh` at the pinned commit, checked
+   2026-10-20), so io_uring works there, and 23 entries name it as their engine. The
+   entry now builds `LOOP=uring`, `meta.json`'s `engine` is `io_uring`, and the
+   validation passed again on it ("What passes", 2026-10-20).
 3. kTLS (phase 3): not started. Docker Desktop's kernel (`7.0.14-linuxkit`) has no
    `tls` module (`/proc/sys/net/ipv4/tcp_available_ulp` is missing, checked
    2026-10-19), so it needs a Linux machine or VM whose kernel has `CONFIG_TLS`.
@@ -130,23 +148,28 @@ HttpArena's json-tls and 8gbit on Linux.
    then plain `recv`/`send`/`sendfile` on the socket, `recvmsg` with a control
    buffer on `EIO`, and `sendmsg` with `TLS_SET_RECORD_TYPE` for close_notify and
    KeyUpdate. `recvmsg`/`sendmsg` with control messages are goose-http shim work.
-4. io_uring, next (2026-10-20): TLS listeners in `uring.goose`, then the benchmark
-   server's TLS with `LOOP=uring` (`server/app.goose` adds it only for epoll). It can
-   be built and tested on a Mac in a Linux container with
-   `--security-opt seccomp=unconfined`. Two points of the epoll path don't carry over:
-   `tls_recv` reads the socket itself with `net_recv`, where the ring delivers the
-   ciphertext in completions, so the ring needs to feed received bytes to
-   `tls::feed` and then read; and `tls_close` sends close_notify with one direct
-   `net_send`, which on the ring's blocking sockets could stall the worker, so it
-   goes out through the ring's send instead.
+4. (Done on `tls-uring`, 2026-10-20: TLS in the io_uring loop, and the benchmark
+   server's with `LOOP=uring`.) `ring_loop` takes the TLS as `epoll_loop` does, with
+   `RingConn.tls` in the padding after `state`. A receive's ciphertext goes to
+   `tls_take` (`tls::feed`, then `tls::read` until `WANT_INPUT`, sharing `tls_plain`
+   with `tls_recv`), and `flush` seals the write buffer before `ring_send`, so every
+   TLS byte goes through the ring in order. Where epoll's `close_conn` sends
+   close_notify directly, the ring queues it and closes as a refusal does (CLOSING,
+   shut down once sent, `linger_ms`): for a client's close_notify, a failed
+   handshake's alert, an idle timeout, and a stop. `close_conn` itself sends nothing,
+   since `ring_close` drops unsent sends. `TLS=1 LOOP=uring` builds
+   `server/server_tls_uring.goose`.
 5. Windows: goose-tls hasn't been built there; `test/tls/` and `examples/tls` are
    skipped, and `server/server_epoll.goose`'s typecheck in `scripts/test.sh` now
    fetches goose-tls there too (untried).
 6. Smaller points:
    - A TLS connection's file responses go through `pread` in pieces at any size;
      with kTLS they could go back to `sendfile`.
-   - `tls_close` sends close_notify or an alert with one nonblocking `send`, and
-     drops it if the socket doesn't take it.
+   - On epoll, `tls_close` sends close_notify or an alert with one nonblocking
+     `send`, and drops it if the socket doesn't take it.
+   - On the ring, a TLS connection closed by an idle timeout or a stop lingers up to
+     `linger_ms` for the client to close, where epoll closes it at once; a stop can
+     take that long, within `grace_ms`.
    - OpenSSL's `SSL_new` failing at accept closes the socket without a report: the
      shim's error codes have no `ENOMEM`.
 
