@@ -125,6 +125,12 @@ Goose `dcc2747`, goose-tls `v0.0.1`.
     failed, with the same json-tls and 8gbit checks. The image, started as the
     harness does it (`--security-opt seccomp=unconfined`, a certificate in
     `/certs`), prints `uring loop` with no emulated ring, and `TLS on port 8081`.
+  - Again on `b0bf0c20`, after the review (2026-10-20), with the TLS build back to
+    `server/server_tls.goose` (`TLS=1 LOOP=epoll`), run with `LOOP=uring`: every step
+    of `scripts/test.sh` passes on macOS and on Linux as above, and HttpArena's
+    validation passes, 64 of 64. In the image, built plain with `LOOP=uring` and TLS
+    with `TLS=1 LOOP=epoll`, and started with `LOOP=uring`, each server prints
+    `uring loop` with no emulated ring.
 
 No measurement yet: the macOS runs are smoke tests, and the comparison that counts is
 HttpArena's json-tls and 8gbit on Linux.
