@@ -32,9 +32,10 @@ response behind them. `scripts/test-http.sh` ignores wrk's timeouts for that rea
   Goose checkout's `src/runtime`, `-O2 -g -fno-omit-frame-pointer -no-pie`, and
   `-luring -lm -pthread`, then resolve `perf script`'s addresses with `addr2line -f -i`.
 - A Unix socket can't listen on `/mnt/c`: `listen` fails with `Operation not
-  supported`. `test/outbound/outbound_loop.goose` listens on Unix sockets in its own
-  directory, so `scripts/test.sh` fails it when the checkout is under `/mnt/c` and
-  passes it from a clone on WSL's own filesystem (2026-10-19).
+  supported`. `test/run_tests.py` gives each test program a `TMPDIR` of its own in the
+  system's temporary directory, and a test that listens on a Unix socket puts it there,
+  as `test/outbound/outbound_loop.goose` does; one that put it in its working
+  directory under `build/test/` failed from a checkout under `/mnt/c` (2026-10-19).
 - Docker Desktop's host network is the Docker VM's, not WSL's loopback. HttpArena's
   readiness probes and cgroup reads use helper containers; published ports reach WSL.
 

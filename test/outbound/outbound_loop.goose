@@ -3,9 +3,21 @@
 // with what came back: a round trip, a large send, a backend that closes, a
 // refused connect, and a connect that times out against a full backlog. On
 // serve's loop, wait_socket fails with ENOSYS. The loops listen on Unix
-// sockets in the test's own directory, so parallel runs share no port.
+// sockets in the TMPDIR test/run_tests.py gives each run, so parallel runs
+// share no port.
 import std;
+import os;
 import http from "../../";
+
+// A Unix socket's address in TMPDIR, or in the working directory without it.
+// A Unix socket can't be made on every filesystem, such as WSL's /mnt/c.
+fn unix_address(name: const u8[:]) -> u8[>..] {
+    var dir: u8[>..] = [];
+    var a: u8[>..] = [];
+    if env("TMPDIR", dir) && dir.len > 0 { format(a, "unix:", dir, "/", name); }
+    else { format(a, "unix:", name); }
+    return a;
+}
 
 let LARGE = 4 << 20;
 
@@ -231,16 +243,18 @@ fn main() {
     }
     let ports = Ports { backend: port, refused: gone_port, full: full_port };
     let b = thread_spawn(backend, lfd);
-    let cfg = http::Config { address: "unix:epoll.sock", workers: 1, mail_slots: 16, max_waiting: 16, .. };
+    let epoll = unix_address("epoll.sock");
+    let cfg = http::Config { address: epoll, workers: 1, mail_slots: 16, max_waiting: 16, .. };
     let w = thread_spawn(worker, cfg, ports);
-    get("unix:epoll.sock", "/ping");
-    get("unix:epoll.sock", "/large");
-    get("unix:epoll.sock", "/closes");
-    get("unix:epoll.sock", "/refused");
-    get("unix:epoll.sock", "/timeout");
-    let rcfg = http::Config { address: "unix:ring.sock", workers: 1, mail_slots: 16, max_waiting: 16, .. };
+    get(epoll, "/ping");
+    get(epoll, "/large");
+    get(epoll, "/closes");
+    get(epoll, "/refused");
+    get(epoll, "/timeout");
+    let ring = unix_address("ring.sock");
+    let rcfg = http::Config { address: ring, workers: 1, mail_slots: 16, max_waiting: 16, .. };
     let r = thread_spawn(ring_worker, rcfg, ports);
-    get("unix:ring.sock", "/ping");
+    get(ring, "/ping");
     http::stop();
     thread_wait(w);
     thread_wait(r);

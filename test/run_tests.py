@@ -9,7 +9,10 @@ process of its own, all in parallel. A run passes when its stdout is
 test/expected/<name>.out, every nonblank line of test/expected/<name>.stderr,
 if there is one, occurs in its stderr, and it exits 0, or not 0 where
 test/expected/<name>.aborts exists. Each test builds and runs in a directory
-of its own, build/test/O<level>/<name>/, so files it writes meet no other's.
+of its own, build/test/O<level>/<name>/, so files it writes meet no other's,
+and each run gets a fresh TMPDIR of its own in the system's temporary
+directory, for files such as Unix sockets that the checkout's filesystem may
+not hold (WSL's /mnt/c).
 
 A file with `// error: <message>` lines is a fixture that must not compile:
 `goose --multi-test --check` must exit 1, with each message in its diagnostics.
@@ -26,8 +29,10 @@ import concurrent.futures
 import difflib
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -46,10 +51,10 @@ TIMEOUT = 300
 MULTIMARK = "==== goose --multi-test: exit"
 
 
-def run(argv, cwd=None):
+def run(argv, cwd=None, env=None):
     """(exit code, stdout, stderr) of argv, as text with LF line endings."""
     try:
-        r = subprocess.run([str(a) for a in argv], cwd=cwd, capture_output=True,
+        r = subprocess.run([str(a) for a in argv], cwd=cwd, env=env, capture_output=True,
                            timeout=TIMEOUT)
     except subprocess.TimeoutExpired:
         return None, "", f"timed out after {TIMEOUT} s"
@@ -176,7 +181,12 @@ class Tests:
             if code != 0:
                 results[level] = (out + err, None)
             else:
-                results[level] = (None, run([exe.with_name(test.stem + EXE)], cwd=work))
+                tmp = tempfile.mkdtemp(prefix=f"goose-http-{test.stem}-")
+                try:
+                    results[level] = (None, run([exe.with_name(test.stem + EXE)], cwd=work,
+                                                env={**os.environ, "TMPDIR": tmp}))
+                finally:
+                    shutil.rmtree(tmp, ignore_errors=True)
         return results
 
     def check_programs(self, programs, checked):
