@@ -37,6 +37,13 @@ struct EpollConn<S> {
     out: u8[:],         // still to send
 }
 
+// What a turn of answering did, for advance: whether it moved the exchange
+// on, and whether it has more to write before it reads.
+struct EpollTurn {
+    moved: bool,
+    full: bool,
+}
+
 // Serves HTTP as cfg says, answering each request with H, until a call fails
 // or stop ends it, and returns its error, with every socket it opened
 // closed. On Windows it fails at once with ENOSYS.
@@ -284,7 +291,30 @@ fn epoll_loop<S, H>(cfg: Config, fresh: S, tls) -> Error {
             c.out = c.out[..0];
         }
         sealed = wbuf.len;
-        guard advance(c, hup, wake) else { return false; }
+        // advance takes the answering as a block, so that its HTTP/1.1 copy
+        // captures none of the h2 driver's state: one advance for both took
+        // that state as 27 more arguments at each call, and stayed a C
+        // function of its own, which cost an HTTP/1.1 request about 170
+        // instructions (task 056).
+        let going = if c.h2 >= 0 {
+            advance(c, hup, wake) { c, ev =>
+                let before = wbuf.len;
+                let rest, full = h2_answer(c, driving, h2conns[c.h2], h2streams, spill, rbuf, rlen, wbuf, cfg.write_buffer,
+                                           h2out, h2fields, h2pseudo, h2cookie, h2huff, h2fb, common, cfg, fresh, stopping, now, ev,
+                                           wake_at, timers, overdue, h2gen, H);
+                let moved = rest != rlen || wbuf.len > before;
+                rlen = rest;
+                EpollTurn { moved: moved, full: full }
+            }
+        } else {
+            advance(c, hup, wake) { c, ev =>
+                let rest, done, full = answer(c, rbuf, rlen, wbuf, common, cfg, fresh, stopping, now, ev, H) { false };
+                rlen = rest;
+                if c.x.stream.rearm && start_wait(c, timers, now) { overdue.push(c.x.stream.later.key); }
+                EpollTurn { moved: done > 0, full: full }
+            }
+        };
+        guard going else { return false; }
         if rlen > 0 {
             c.held = spill.alloc_slice(rlen);
             copy_into(c.held, rbuf[..rlen]);
@@ -323,8 +353,9 @@ fn epoll_loop<S, H>(cfg: Config, fresh: S, tls) -> Error {
     // arrive raises a new event, so it isn't followed by a recv that would
     // block, unless hup: a close that arrived with the last bytes raises none.
     // While the exchange waits, it stops reading once rbuf is full; an
-    // upgraded one's answer takes what arrives (holds_input).
-    fn advance(c: EpollConn<S>&, hup: bool, wake: const Event&) -> bool {
+    // upgraded one's answer takes what arrives (holds_input). A answers,
+    // given c and ev, and returns an EpollTurn.
+    fn advance<A>(c: EpollConn<S>&, hup: bool, wake: const Event&) -> bool {
         var progress = false;
         var drained = false;
         var got = 0;
@@ -332,24 +363,12 @@ fn epoll_loop<S, H>(cfg: Config, fresh: S, tls) -> Error {
         var ev = wake;
         loop {
             var full = false;
-            if c.h2 >= 0 {
-                if c.state == OPEN {
-                    let before = wbuf.len;
-                    let rest, f = h2_answer(c, driving, h2conns[c.h2], h2streams, spill, rbuf, rlen, wbuf, cfg.write_buffer,
-                                            h2out, h2fields, h2pseudo, h2cookie, h2huff, h2fb, common, cfg, fresh, stopping, now, ev, wake_at, timers, overdue,
-                                            h2gen, H);
-                    ev.kind = NO_EVENT;
-                    if rest != rlen || wbuf.len > before { progress = true; }
-                    rlen = rest;
-                    full = f;
-                }
-            } else if c.state == OPEN && c.x.stream.file < 0 && (rlen > 0 || c.x.stream.open && c.x.body == BodyReader.None || ev.kind != NO_EVENT) {
-                let rest, done, f = answer(c, rbuf, rlen, wbuf, common, cfg, fresh, stopping, now, ev, H) { false };
+            if c.state == OPEN && (c.h2 >= 0 || c.x.stream.file < 0 &&
+                                   (rlen > 0 || c.x.stream.open && c.x.body == BodyReader.None || ev.kind != NO_EVENT)) {
+                let turn = A(c, ev);
                 ev.kind = NO_EVENT;
-                rlen = rest;
-                if done > 0 { progress = true; }
-                full = f;
-                if c.x.stream.rearm && start_wait(c, timers, now) { overdue.push(c.x.stream.later.key); }
+                if turn.moved { progress = true; }
+                full = turn.full;
             }
             if c.tls >= 0 {
                 guard tls_seal(tls, c.tls, wbuf, sealed, c.state == CLOSING) else { return false; }
