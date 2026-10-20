@@ -76,7 +76,7 @@ any directory:
 
 | Command | What it does |
 |---|---|
-| `scripts/build.sh` | Builds the benchmark server into `build/server` with `goose build`, at `-O2` for Goose and gcc: on Linux `server/server.goose`, which serves with the io_uring loop, or with `LOOP=epoll` `server/server_epoll.goose`, which serves with the epoll loop, and with `TLS=1` `server/server_tls_uring.goose` or `server/server_tls.goose` instead, which add the TLS listener and link OpenSSL. |
+| `scripts/build.sh` | Builds the benchmark server into `build/server` with `goose build`, at `-O2` for Goose and gcc: on Linux `server/server.goose`, which serves with the io_uring loop, or with `LOOP=epoll` `server/server_epoll.goose`, which serves with the epoll loop, and with `LOOP=epoll TLS=1` `server/server_tls.goose`, which adds the TLS listener, links OpenSSL, and serves either loop as `LOOP` says at run time. |
 | `scripts/test.sh` | Runs every test, and stops at the first failure ([below](#run-every-test)). |
 | `test/run_tests.py` | Runs the tests in `test/` and compares their output with `test/expected/` ([below](#run-the-tests-in-test)). |
 | `scripts/test-http.sh` | Tests the HTTP server of `build/server` ([below](#test-the-http-server)). |
@@ -117,13 +117,13 @@ port, and `H2C_PORT=0` turns it off.
 `scripts/test.sh` runs the whole suite, and stops at the first failure:
 
 1. `goose --check` of each root file: `server/server.goose`, `server/server_epoll.goose`,
-   `server/server_tls.goose`, `server/server_tls_uring.goose`, and the examples listed
-   in `scripts/test.sh`.
+   `server/server_tls.goose`, and the examples listed in `scripts/test.sh`.
 2. `test/run_tests.py`: the tests in `test/` ([below](#run-the-tests-in-test)).
 3. For each loop, `scripts/build.sh` and then `scripts/test-http.sh`: uring and epoll on
    Linux and macOS, with `LOOP=uring-epoll` against the uring build on Linux too, and
-   iocp on Windows. The uring and epoll loops' are the TLS builds (`TLS=1`), whose TLS
-   listener the tests take too. After the epoll build's, `scripts/test-h2spec.sh`, which fetches
+   iocp on Windows. The uring and epoll loops' build is the TLS build (`TLS=1`), run
+   with `LOOP` set to the loop, whose TLS listener the tests take too. After the epoll
+   build's, `scripts/test-h2spec.sh`, which fetches
    h2spec v2.6.0 into `build/` and runs it against the h2c port. h2spec's only builds
    are x86-64: on macOS it needs Rosetta 2, and on Linux on arm64 the step is skipped,
    with a note ([run it from an x86-64 container](#docker-on-macos)). With

@@ -492,14 +492,14 @@ Decided 2026-10-20, task 055, replacing the epoll benchmark server as the one bu
 that serves TLS. `server/server_epoll.goose` serves no TLS, as `server/server.goose`
 doesn't, and `server/server_tls.goose`, built with `scripts/build.sh`'s `TLS=1`, is the
 epoll server with the TLS listener; since the io_uring loop serves TLS (2026-10-20,
-task 014.02), `server/server_tls_uring.goose` is the io_uring server with it. Linking goose-tls maps libcrypto, libssl, and their
-libz and libzstd at startup, 2.3 MB of resident pages that the epoll server's peak RSS
+task 014.02), it serves the listener on that loop too with `LOOP=uring` at run time.
+Linking goose-tls maps libcrypto, libssl, and their libz and libzstd at startup, 2.3 MB of resident pages that the epoll server's peak RSS
 carried on every benchmark, with no TLS listener (1012e705: 3.6 → 6.0 MB). HttpArena's
 image holds both builds and starts the TLS one only when HttpArena mounts a certificate,
 so the one container still serves 8080, 8081, and 8082 together, as the entry above
-decided. `scripts/test.sh` tests the epoll and io_uring loops with their TLS builds, so
-the listener stays tested. Rejected: loading OpenSSL only once `Config.tls` is set, which is goose-tls's
-to do, with `dlopen` behind its calls; and keeping one build, whose plaintext cells
+decided. `scripts/test.sh` tests the epoll and io_uring loops with the TLS build, so
+the listener stays tested. Rejected: loading OpenSSL only once `Config.tls` is set,
+which is goose-tls's to do, with `dlopen` behind its calls; and keeping one build, whose plaintext cells
 carried OpenSSL's pages.
 
 ## WebSocket is an optional module over upgrade

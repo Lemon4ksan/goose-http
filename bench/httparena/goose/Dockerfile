@@ -22,10 +22,11 @@ COPY scripts/build.sh /server/scripts/build.sh
 # which lets io_uring through Docker's default profile. Where io_uring_setup
 # still fails, the loop runs on its emulation over epoll, and the server's
 # first line says so. Two builds: without TLS, and with its TLS listener
-# (server/server_tls_uring.goose), which links OpenSSL.
+# (server/server_tls.goose), which links OpenSSL and serves either loop as
+# LOOP says at run time.
 RUN GOOSE=$(cat /goose-path) LOOP=uring /server/scripts/build.sh && \
     cp /server/build/server /server/build/server-plain && \
-    GOOSE=$(cat /goose-path) TLS=1 LOOP=uring /server/scripts/build.sh
+    GOOSE=$(cat /goose-path) TLS=1 LOOP=epoll /server/scripts/build.sh
 
 FROM ubuntu:26.04
 # The package links liburing on Linux, whichever loop the server runs, and
@@ -43,5 +44,5 @@ EXPOSE 8080 8081 8082
 # as its connections. It left plaintext's instructions per request unchanged.
 # TLS with the certificate HttpArena mounts at /certs, for the profiles that
 # mount it, from the TLS build; without one, the build that doesn't map
-# OpenSSL.
-CMD ["/bin/sh", "-c", "server=/server; if [ -r /certs/server.crt ] && [ -r /certs/server.key ]; then export TLS_CERT=/certs/server.crt TLS_KEY=/certs/server.key; server=/server-tls; fi; WORKERS=${WORKERS:-$(nproc)} MAIL_SLOTS=256 MAX_WAITING=16384 exec $server http 8080"]
+# OpenSSL. Both on the io_uring loop.
+CMD ["/bin/sh", "-c", "server=/server; if [ -r /certs/server.crt ] && [ -r /certs/server.key ]; then export TLS_CERT=/certs/server.crt TLS_KEY=/certs/server.key; server=/server-tls; fi; LOOP=uring WORKERS=${WORKERS:-$(nproc)} MAIL_SLOTS=256 MAX_WAITING=16384 exec $server http 8080"]
