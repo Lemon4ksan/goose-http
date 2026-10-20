@@ -409,12 +409,21 @@ fn heavy_error(out: http::Reply, status: i32) {
     http::respond(out, status, "application/json", body);
 }
 
-fn is_base64url(s: const u8[:]) -> bool {
-    guard s.len > 0 else { return false; }
-    for c in s {
-        if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_') { return false; }
+// A byte that is neither base64url nor '.', and '.', for find_any, which
+// scans 16 bytes at a time, as goose-rest's server checks the token: a byte
+// loop over tier C's 560-byte tokens took over a quarter of a request's cycles.
+let NOT_JWT = not_jwt_set();
+let DOT = byte_set(".");
+
+fn not_jwt_set() -> ByteSet {
+    var m = [true; 256];
+    for c in 256 {
+        if c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_' ||
+           c == '.' {
+            m[c] = false;
+        }
     }
-    return true;
+    return byte_set(m);
 }
 
 // Whether Authorization is a bearer token of three base64url segments.
@@ -422,11 +431,12 @@ fn has_bearer(req: http::Request) -> bool {
     let v, has = http::field_of(req, "authorization");
     guard has && v.len > 7 && v[..7] == "Bearer " else { return false; }
     let t = v[7..];
-    let a = position(t, '.');
+    guard find_any(t, NOT_JWT) < 0 else { return false; }
+    let a = find_any(t, DOT);
     guard a > 0 else { return false; }
     let rest = t[a + 1..];
-    let b = position(rest, '.');
-    return b > 0 && is_base64url(t[..a]) && is_base64url(rest[..b]) && is_base64url(rest[b + 1..]);
+    let b = find_any(rest, DOT);
+    return b > 0 && b + 1 < rest.len && find_any(rest[b + 1..], DOT) < 0;
 }
 
 // A start and an end day, end after start and at most 31 days on, and the
