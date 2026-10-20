@@ -673,7 +673,7 @@ other isn't in the binary.
 - `http::serve_epoll` is faster on macOS, and on Linux uses a quarter of the memory.
 
 The benchmark server links both. `LOOP` picks: `uring` (`iocp` on Windows), `epoll`,
-or `uring-epoll`, and `REQUIRE_RING=1` sets `Config.require_ring`. See
+or `uring-epoll`. See
 [architecture](architecture.md#completion-loop).
 
 ### Several ports, and h2c

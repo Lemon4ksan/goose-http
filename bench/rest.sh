@@ -51,10 +51,6 @@
 #   ZRK            zrk 2.3.0's x86-64 release, as HttpArena pins it
 set -eu
 
-# A Goose server on the io_uring loop exits where io_uring is blocked, rather
-# than measure the emulation over epoll.
-export REQUIRE_RING=1
-
 root=$(cd "$(dirname "$0")/.." && pwd)
 cache=${CACHE:-$HOME/.cache/goose-http-bench}
 . "$root/scripts/goose.sh"

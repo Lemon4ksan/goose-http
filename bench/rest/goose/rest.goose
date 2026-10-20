@@ -35,9 +35,8 @@
 //   POST  /api/v3/bookings/batch                 JSON: each booking's id, or 422 with the errors
 //   POST  /api/v3/forms                          a form: its fields, decoded
 //
-//   REST_DATA=DIR TIER=a|b|c|d WORKERS=n [LOOP=epoll] [REQUIRE_RING=1] [JSON=template] rest [port]
+//   REST_DATA=DIR TIER=a|b|c|d WORKERS=n [LOOP=epoll] [JSON=template] rest [port]
 //
-// REQUIRE_RING=1 makes the io_uring loop fail where it would emulate the ring.
 // TIER picks the dataset to load, tier A's by default. JSON=template answers
 // from each record's JSON, written once at startup, with the per-request
 // values added, where the default writes each response's JSON from the
@@ -853,10 +852,7 @@ fn main() {
     }
     var loop_name: u8[>..] = [];
     let epoll = env("LOOP", loop_name) && loop_name == "epoll";
-    var required: u8[>..] = [];
-    let require_ring = env("REQUIRE_RING", required) && required == "1" && !epoll;
-    let cfg = http::Config { port: port, workers: n, max_body: if writes { IMPORT_LIMIT } else { http::MAX_BODY },
-                             require_ring: require_ring, .. };
+    let cfg = http::Config { port: port, workers: n, max_body: if writes { IMPORT_LIMIT } else { http::MAX_BODY }, .. };
     http::exit_on_error(http::stop_on_signals());
     let count = http::worker_count(cfg);
     mallopt(M_MMAP_THRESHOLD, 131072);

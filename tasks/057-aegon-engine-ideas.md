@@ -59,12 +59,14 @@ instructions per request, rate, and peak RSS before and after:
 
 - **Requiring io_uring**, as Aegon's `AEGON_ENGINE=io_uring` does, so that running on
   epoll by mistake is visible: `Config.require_ring` (2026-10-20). `serve` then fails
-  with call `io_uring` where it would emulate the ring, and the benchmark servers exit
-  with `REQUIRE_RING=1`, which `bench/run.sh`, `bench/rest.sh`, and `bench/files.sh`
-  set. `test/http/require_ring.goose` checks it on macOS (`ENOSYS`) and on Linux, arm64
-  in Docker Desktop (`ubuntu:26.04`, kernel 7.0.14-linuxkit): under the default seccomp
-  profile the server exits with `EPERM`, and with `seccomp=unconfined` it serves on
-  io_uring.
+  with call `io_uring` where it would emulate the ring. `test/http/require_ring.goose`
+  checks it on macOS (`ENOSYS`) and on Linux, arm64 in Docker Desktop (`ubuntu:26.04`,
+  kernel 7.0.14-linuxkit): under the default seccomp profile `serve` fails with
+  `EPERM`, and with `seccomp=unconfined` it starts on io_uring.
+- The benchmark servers and scripts don't set it (2026-10-20). They measure only on
+  Linux machines where io_uring works, the server's startup line already names an
+  emulated ring and its reason in each run's log, and setting it would need
+  exceptions for macOS checks and for `-uring-epoll`.
 
 ## Acceptance criteria
 
