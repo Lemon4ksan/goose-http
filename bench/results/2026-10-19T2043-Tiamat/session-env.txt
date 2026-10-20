@@ -1,0 +1,11 @@
+date: 2026-10-19T20:45:49Z
+machine: Tiamat
+kernel: 6.18.54.1-microsoft-standard-WSL2
+cpu: AMD Ryzen 7 5800X3D 8-Core Processor, 16 logical CPUs
+wsl: WSL version: 3.0.3.0
+goose-rest: 85f5542 (v0.2.0), goose-http: 6512e790 (code as v0.4.0)
+goose: f114b5a, /mnt/c/Users/kait/projects/goose/goose-rest/build/goose-f114b5ac52cfad4bc73038aede53ac7e470b0ad3/build/goose, sha256 de623dc6839e92f58b5ed27fde7fc094f7b4011289aa1b4ba3ade32f2c0d8380
+gcc: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+rates: A 100000, B 24000, C 1700; reuse: none
+tests: run apart, goose-http's from a clone on WSL's filesystem at 4eeb467, goose-rest's at b01c545
+results: /mnt/c/Users/kait/projects/goose/goose-http/bench/results/2026-10-19T2043-Tiamat, 2026-10-19T2043-Tiamat-files; /mnt/c/Users/kait/projects/goose/goose-rest/bench/results/2026-10-19T2043-rest-Tiamat

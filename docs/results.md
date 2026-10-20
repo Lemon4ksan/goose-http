@@ -17,6 +17,143 @@ WSL2 loopback runs through a VM; its kernel cost differs from bare metal. Runs t
 2026-10-12 use kernel 6.18.40.1-microsoft-standard-WSL2. The 2026-10-14 runs use
 6.18.54.1-microsoft-standard-WSL2. Each run's `env.txt` records the environment.
 
+## 2026-10-19: v0.4.0, Goose builds only
+
+A session script that runs goose-rest's `bench/all.sh` steps after its tests measured
+both repositories' Goose servers on the desktop, machine name Tiamat, in session
+`2026-10-19T2043`: the Goose builds, goose-rest's `bench/rest.sh check`,
+`bench/run.sh`, `bench/files.sh`, goose-rest's `bench/rest.sh run`,
+`bench/instructions.sh`, and goose-rest's `bench/rest.sh count`. The tests ran apart:
+this repository's suite passed at `4eeb467c` from a clone on WSL's own filesystem,
+since `outbound_loop` listens on Unix sockets, which `/mnt/c` can't hold
+([known issues](known-issues.md#kernel-and-toolchain)). The server is `6512e790`,
+`v0.4.0` with changes to `bench/*.sh` and the docs only. The compiler is Goose master
+`f114b5a`, which `scripts/goose.sh` pins. Kernel 6.18.54.1-microsoft-standard-WSL2,
+gcc 15.2.0 at `-O2`. The `key.txt` is the
+[2026-10-18 session](#2026-10-18-v037-goose-builds-only)'s, and the machine passed the
+idle check before the session began. No competitor of this repository's ran. The
+session's [steps](../bench/results/2026-10-19T2043-Tiamat/session-steps.txt) and
+[environment](../bench/results/2026-10-19T2043-Tiamat/session-env.txt) are kept.
+
+Plaintext lost up to 11% on epoll and up to 8.5% on io_uring, with about 10% more user
+instructions per request on both loops, and the epoll server's peak RSS grew by 2.4 MB.
+[Task 055](../tasks/055-v0.4.0-plaintext-cost.md) traces both to two commits:
+WebSocket's `1bc944a3`, whose `ws_read` branch, inlined into the benchmark server's
+handler in `server/routes.goose`, costs about 117 user instructions per request on a
+path that never takes it, and its `Transfer` field about 22; and TLS's `1012e705`, which
+links OpenSSL into the epoll server. `v0.3.7` built with `f114b5a` counts what it
+counted at `v2026.2`, so the compiler isn't the cause.
+
+### Plaintext and JSON at v0.4.0
+
+```sh
+SERVERS="goose goose-uring" bench/run.sh
+```
+
+The settings of the [earlier run](#plaintext-and-json-at-v037). 4 workers, from the
+[summary](../bench/results/2026-10-19T2043-Tiamat/summary.md), against `edd83c4b`'s
+cells:
+
+| Loop | Test | Conns | `v0.3.7` | `v0.4.0` | Change |
+|---|---|---:|---:|---:|---:|
+| io_uring | plaintext | 256 | 7.10 M (6.91-7.17) | 6.50 M (6.37-6.51) | -8.5% |
+| io_uring | plaintext | 1,024 | 7.04 M (6.84-7.04) | 6.47 M (6.23-6.52) | -8.1% |
+| io_uring | plaintext | 4,096 | 6.42 M (6.34-6.52) | 6.12 M (6.08-6.14) | -4.6% |
+| io_uring | JSON | 256 | 517 K (509-519) | 515 K (514-516) | -0.4% |
+| io_uring | JSON | 1,024 | 510 K (500-511) | 498 K (496-503) | -2.4% |
+| epoll | plaintext | 256 | 5.44 M (5.39-5.54) | 4.94 M (4.85-5.03) | -9.2% |
+| epoll | plaintext | 1,024 | 5.38 M (5.31-5.48) | 4.88 M (4.83-4.92) | -9.3% |
+| epoll | plaintext | 4,096 | 5.25 M (5.24-5.29) | 4.69 M (4.60-4.78) | -10.5% |
+| epoll | JSON | 256 | 411 K (411-411) | 399 K (395-404) | -2.9% |
+| epoll | JSON | 1,024 | 408 K (402-409) | 395 K (394-397) | -3.2% |
+
+With 1 worker, plaintext fell 2.5-10.7% on epoll and 3.5-6.6% on io_uring, and JSON
+3.1-7.4% and 1.4-4.2%. Every plaintext cell is below the earlier range, and most fell
+further than the 2.2-6.4% the cells moved between the two previous sessions. Peak RSS
+is 5.8-7.8 MB on epoll and 5.2-16.7 MB on io_uring, against 3.4-4.9 MB and 5.0-16.3 MB.
+Every cell had zero errors and no clock steps.
+
+### Instruction counts at v0.4.0
+
+```sh
+bench/instructions.sh goose goose-uring
+```
+
+The settings of the [earlier counts](#instruction-counts-at-v037)
+([counts](../bench/results/2026-10-19T2043-Tiamat/instructions.txt)):
+
+| Loop | Instructions/req | User instructions/req | Cycles/req | Peak RSS |
+|---|---:|---:|---:|---:|
+| epoll, `v0.3.7` | 2,540-2,551 | 1,598-1,604 | 2,040-2,047 | 3.4-3.5 MB |
+| epoll, `v0.4.0` | 2,697-2,724 | 1,760-1,778 | 2,207-2,223 | 5.8-5.9 MB |
+| io_uring, `v0.3.7` | 2,601-2,632 | 1,634-1,653 | 1,757-1,769 | 5.9 MB |
+| io_uring, `v0.4.0` | 2,760-2,791 | 1,792-1,812 | 1,856-1,867 | 5.9-6.0 MB |
+
+At the medians, user instructions per request rise 11.1% on epoll, from 1,599 to 1,776,
+and 9.5% on io_uring, from 1,646 to 1,802; cycles rise 8.5% and 5.4%. `v0.3.7` rebuilt
+with `f114b5a` counts 1,596-1,609 and 1,644-1,663. A bisect of `main`'s first parents,
+one run per step, and builds of `1bc944a3` without its changes to the server give the
+split in task 055. goose-rest's `bench/rest.sh count` doesn't show the cost, since this
+repository's REST server has no WebSocket route: tier A's item counts 4,159 user
+instructions on it, against 4,107 on 2026-10-18.
+
+### Static files at v0.4.0
+
+```sh
+SERVERS="goose goose-uring goose-uring-epoll" bench/files.sh
+```
+
+The settings of the [earlier run](#static-files-at-v037)
+([summary](../bench/results/2026-10-19T2043-Tiamat-files/summary.md)):
+
+| Server | 4 KB, 1 worker | 4 KB, 4 | 64 KB, 1 | 64 KB, 4 | 1 MB, 1 | 1 MB, 4 |
+|---|---:|---:|---:|---:|---:|---:|
+| Goose epoll | 55.5 K/s | 190 K/s | 2.12 GB/s | 7.89 GB/s | 10.7 GB/s | 22.3 GB/s |
+| Goose io_uring | 83.4 K/s | 237 K/s | 1.99 GB/s | 6.92 GB/s | 10.6 GB/s | 21.8 GB/s |
+| Goose, emulated ring | 75.4 K/s | 218 K/s | 2.77 GB/s | 8.32 GB/s | 12.6 GB/s | 22.2 GB/s |
+
+Against `edd83c4b`'s medians, the 4 KB cells moved by -3.0% to -0.6%, the 64 KB cells by
+-2.6% to -0.7%, and the 1 MB cells by -1.4% to +1.0%. At 1 MB with 4 workers wrk used
+80.1-80.2 s of CPU in each 10 s run, the client's limit. Every cell had zero errors.
+
+### REST tiers A to D at v0.4.0
+
+```sh
+SERVERS="goose-uring goose-epoll goose-uring-rest goose-epoll-rest aegon aegon-small" \
+    EXTRA="goose-uring-rest goose-epoll-rest aegon aegon-small" \
+    RATE_A=100000 RATE_B=24000 RATE_C=1700 bench/rest.sh run   # from goose-rest
+```
+
+The session's own step, at goose-rest `85f5542`, `v0.2.0`, which imports this
+repository at `v0.4.0`
+([summary](https://github.com/kaitk/goose-rest/blob/main/bench/results/2026-10-19T2043-rest-Tiamat/summary.md)).
+The settings of the [earlier run](#rest-tiers-a-to-d-at-v037). Every server passed its
+checks and reached every fixed rate with zero errors. Aegon, goose-rest's newest
+competitor, ran in the same step on tiers A to C
+([goose-rest's benchmarks](https://github.com/kaitk/goose-rest/blob/main/docs/benchmarks.md)).
+Medians and ranges, serialized, against `edd83c4b`'s:
+
+| Server | A | B | C | C, templates | Uploads alone |
+|---|---:|---:|---:|---:|---:|
+| io_uring, `edd83c4b` | 608 K/s (605-608) | 316 K/s (312-317) | 64.0 K/s (63.8-64.2) | 153 K/s (151-155) | 1,182/s |
+| io_uring, `6512e790` | 601 K/s (598-602) | 319 K/s (318-319) | 64.1 K/s (63.9-64.1) | 153 K/s (152-153) | 1,162/s |
+| epoll, `edd83c4b` | 469 K/s (463-471) | 247 K/s (245-248) | 62.9 K/s (62.1-62.9) | 145 K/s (145-146) | 1,192/s |
+| epoll, `6512e790` | 453 K/s (442-453) | 247 K/s (242-250) | 61.9 K/s (61.4-62.5) | 144 K/s (143-144) | 1,187/s |
+
+The cells moved by -3.5% to +0.9%, the most on epoll's tier A: -3.5% serialized, and
+-5.3% templated, 456 K against 482 K. Tiers B and C stayed within 1.6%. Uploads alone
+fell 1.7% on io_uring and 0.4% on epoll.
+
+Peak RSS over the three runs, in MB, A, B, C, C templated, and uploads alone: io_uring
+12.7, 30.5, 70.7, 57.7, and 70.8; epoll 7.6, 28.9, 69.2, 57.6, and 69.2, each within
+0.2 MB of `edd83c4b`'s, as the REST server imports no TLS. Tier D beside forms: io_uring
+164-173 uploads a second with forms at 7.5-7.6 K/s, against 168-169 and 7.5-7.6 K/s;
+epoll 120-122 uploads a second with forms at 7.7-7.8 K/s, against 123-124 and
+7.8-7.9 K/s.
+
+Tier C's reads at 1,700 a second: beside uploads, the io_uring loop's p99 is
+4.58-7.43 ms against epoll's 0.49-1.51 ms, and 0.15-0.89 ms on both loops alone.
+
 ## 2026-10-18: v0.3.7, Goose builds only
 
 goose-rest's `bench/all.sh` measured both repositories' Goose servers on the desktop,

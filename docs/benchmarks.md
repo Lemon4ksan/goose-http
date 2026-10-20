@@ -20,8 +20,8 @@ The method, each load generator, and the servers' pins and builds:
 
 | Workload | Goose server | Goose compiler | Kernel | Date | Command |
 |---|---|---|---|---|---|
-| Plaintext and JSON, every connection count | `edd83c4b`, `v0.3.7` | `v2026.2` (`3ee3871`) | 6.18.54.1 | 2026-10-18 | `bench/run.sh` |
-| REST saturation rates, uploads, and peak memory, both loops | `edd83c4b`, `v0.3.7` | `v2026.2` (`3ee3871`) | 6.18.54.1 | 2026-10-18 | goose-rest's `bench/rest.sh run`, steps 1 and 2 |
+| Plaintext and JSON, every connection count | `6512e790`, `v0.4.0` | master `f114b5a` | 6.18.54.1 | 2026-10-19 | `bench/run.sh` |
+| REST saturation rates, uploads, and peak memory, both loops | `6512e790`, `v0.4.0` | master `f114b5a` | 6.18.54.1 | 2026-10-19 | goose-rest's `bench/rest.sh run`, steps 1 and 2 |
 | REST reads beside uploads at 16,000/s, both loops | `bc75f2a` | `46356c2` | 6.18.54.1 | 2026-10-14 | `bench/rest.sh run`, step 4 |
 | REST memory, idle | `1818526` | `46356c2` | 6.18.54.1 | 2026-10-14 | VmRSS 3 s after listening; task 025 |
 | Static files | `fcfd80d` | `5c83a5a` | 6.18.40.1 | 2026-10-12 | `bench/files.sh` |
@@ -41,31 +41,32 @@ over the columns; peak RSS is the highest of a server's cells.
 |---|---:|---:|---:|---:|---:|---:|
 | libreactorng (C)\* | 7.02 M | 7.46 M | 7.01 M | 540 K | 610 K | 72 MB |
 | vanilla-io_uring (V)\* | **8.12 M** | **8.26 M** | **7.58 M** | 453 K | 462 K | 155 MB |
-| Goose io_uring | 7.10 M | 7.04 M | 6.42 M | 517 K | 510 K | 16 MB |
+| Goose io_uring | 6.50 M | 6.47 M | 6.12 M | 515 K | 498 K | 17 MB |
 | zix (Zig) | 5.19 M | 5.37 M | 4.83 M | **561 K** | **614 K** | 39 MB |
-| Goose epoll | 5.44 M | 5.38 M | 5.25 M | 411 K | 408 K | **4.9 MB** |
+| Goose epoll | 4.94 M | 4.88 M | 4.69 M | 399 K | 395 K | **7.8 MB** |
 | xitca-web (Rust) | 3.37 M | 3.60 M | 3.22 M | 419 K | 445 K | 69 MB |
 | tokio (Rust) | 3.83 M | 3.79 M | 3.63 M | 381 K | 373 K | 163 MB |
 | hyper (Rust) | 2.66 M | 2.64 M | 2.53 M | 294 K | 287 K | 81 MB |
 
 \* Answers plaintext without parsing the request.
 
-Goose is `edd83c4b`, `v0.3.7`, with compiler `v2026.2`, measured on 2026-10-18 in a
+Goose is `6512e790`, `v0.4.0`, with Goose master `f114b5a`, measured on 2026-10-19 in a
 session without competitors
-([record](results.md#2026-10-18-v037-goose-builds-only)). Competitors remain the
+([record](results.md#2026-10-19-v040-goose-builds-only)). Competitors remain the
 earlier field run on the same machine and kernel, so their gaps to Goose include
-session drift. Against the `3785950e`, `v0.3.6`, cells this table had before, whose
-request path is the same at the same compiler, every Goose cell rose 2.2-6.4%, so
-sessions drift by at least that much.
+session drift. Against the `edd83c4b`, `v0.3.7`, cells this table had before, plaintext
+fell 4.6-8.5% on io_uring and 9.2-10.5% on epoll, and JSON 0.4-3.2%; epoll's peak RSS
+rose from 4.9 to 7.8 MB. Both come from the benchmark server's WebSocket route and its
+link to OpenSSL, not the compiler ([task 055](../tasks/055-v0.4.0-plaintext-cost.md)).
 
 `bench/count.sh` on `bc75f2a`: 1,836.0 user instructions per plaintext request on
 epoll and 1,885.4 on io_uring, one worker, 10 million requests, 3 runs. Against
 `e4f7b55` rebuilt at the same compiler pin, epoll costs 2.9 instructions and 3.55%
 more user cycles; io_uring saves 3.2 instructions, with overlapping cycle ranges.
-`bench/instructions.sh` on `edd83c4b`, `v0.3.7`, at `v2026.2` counts 1,598-1,604 user
-instructions per plaintext request on epoll and 1,634-1,653 on io_uring, 2.8% more and
-0.2% fewer than `3785950e` at the medians, with 1.6% and 2.5% fewer cycles
-([record](results.md#instruction-counts-at-v037)).
+`bench/instructions.sh` on `6512e790`, `v0.4.0`, at `f114b5a` counts 1,760-1,778 user
+instructions per plaintext request on epoll and 1,792-1,812 on io_uring, 11.1% and 9.5%
+more than `edd83c4b` at the medians, with 8.5% and 5.4% more cycles
+([record](results.md#instruction-counts-at-v040)).
 
 The [main comparison](results.md#2026-10-14-main-against-the-readme-benchmark-build)
 records the `bc75f2a` runs and ranges. The
@@ -122,18 +123,18 @@ rows go by average rank.
 
 | Server | A | B | C | C, templates\* | Uploads | Reads p99 |
 |---|---:|---:|---:|---:|---:|---:|
-| Goose io_uring | **608 K/s** | **316 K/s** | **64.0 K/s** | **153 K/s** | 1,182/s | 8.5-18.0 ms |
-| Goose epoll | 469 K/s | 247 K/s | 62.9 K/s | 145 K/s | **1,192/s** | **1.8-2.6 ms** |
+| Goose io_uring | **601 K/s** | **319 K/s** | **64.1 K/s** | **153 K/s** | 1,162/s | 8.5-18.0 ms |
+| Goose epoll | 453 K/s | 247 K/s | 61.9 K/s | 144 K/s | **1,187/s** | **1.8-2.6 ms** |
 | xitca-web (Rust)‡ | 407 K/s | 235 K/s | 38.2 K/s | 113 K/s | 1,016/s | 2.4-4.6 ms |
 | dusty (Zig)§ | 359 K/s | 177 K/s | 25.7 K/s | 136 K/s | 1,151/s | 6.7-42 ms |
 | hyper (Rust) | 285 K/s | 157 K/s | 33.7 K/s | 125 K/s | 1,159/s | 11-29 ms |
 | tokio (Rust)‡ | 393 K/s | 183 K/s | 31.6 K/s | 100 K/s | 1,034/s | 1.1-5.8 s† |
 
-Goose's A to C rates and uploads come from a session on 2026-10-18
-([record](results.md#rest-tiers-a-to-d-at-v037)), Goose at `edd83c4b`, `v0.3.7`, with
-compiler `v2026.2`. dusty's and hyper's come from a run right after it, the same night,
-on the same machine and kernel. "Reads p99" is from the earlier runs at 16,000 a
-second, Goose's at `bc75f2a`; the 2026-10-18 runs offered the reads at 1,700 a
+Goose's A to C rates and uploads come from a session on 2026-10-19
+([record](results.md#rest-tiers-a-to-d-at-v040)), Goose at `6512e790`, `v0.4.0`, with
+Goose master `f114b5a`. dusty's and hyper's come from a run the night before, on the
+same machine and kernel. "Reads p99" is from the earlier runs at 16,000 a second,
+Goose's at `bc75f2a`; the 2026-10-18 and 2026-10-19 runs offered the reads at 1,700 a
 second.  
 ‡ From the earlier field run on the same machine and kernel; sessions have drifted by up
 to 5%.
@@ -145,15 +146,15 @@ to 5%.
 package.
 
 Peak RSS at saturation, in MB, the highest peak over each cell's three runs.
-Both Goose loops, dusty, and hyper are from the 2026-10-18 runs above, on the
-machine and with the load settings above. xitca-web and tokio retain the earlier field
+Both Goose loops are from the 2026-10-19 session, and dusty and hyper from the
+2026-10-18 run above, on the machine and with the load settings above. xitca-web and tokio retain the earlier field
 run on the same machine and kernel. Bold is the column's lowest among these recorded
 runs.
 
 | Server | A | B | C | C, templates | Uploads |
 |---|---:|---:|---:|---:|---:|
-| Goose io_uring | 12.6 MB | 30.3 MB | 70.6 MB | **57.6 MB** | 70.6 MB |
-| Goose epoll | **7.6 MB** | **28.9 MB** | 69.3 MB | 57.7 MB | 69.1 MB |
+| Goose io_uring | 12.7 MB | 30.5 MB | 70.7 MB | 57.7 MB | 70.8 MB |
+| Goose epoll | **7.6 MB** | **28.9 MB** | 69.2 MB | **57.6 MB** | 69.2 MB |
 | xitca-web (Rust) | 32 MB | 68 MB | 490 MB | 512 MB | 56 MB |
 | dusty (Zig)§ | 16 MB | 42 MB | 216 MB | 241 MB | **31 MB** |
 | hyper (Rust) | 14 MB | 29 MB | **37 MB** | 74 MB | 73 MB |
@@ -209,11 +210,11 @@ and 96 connections, 3 runs of 10 s, medians. Bold is the column's best.
 
 1 MB with 4 workers is wrk's limit, not the servers'. CPU per request, in-memory
 responses, and Windows: [results](results.md#static-files). A Goose-only run at
-`edd83c4b`, `v0.3.7`, with compiler `v2026.2` on 2026-10-18 had wrk on 8 threads and 64
-connections, and stopped at the client's limit of 21.9-22.3 GB/s at 1 MB with 4
+`6512e790`, `v0.4.0`, with Goose master `f114b5a` on 2026-10-19 had wrk on 8 threads and
+64 connections, and stopped at the client's limit of 21.8-22.3 GB/s at 1 MB with 4
 workers; it doesn't replace this table. In that run the emulated ring, the loop Goose
 falls back to where io_uring isn't available, leads epoll with 1 worker by 31% at 64 KB
-and 16% at 1 MB ([record](results.md#static-files-at-v037)).
+and 17% at 1 MB ([record](results.md#static-files-at-v040)).
 
 ## Compression
 
@@ -253,26 +254,27 @@ response. The measurements, the gzip levels compared, and the logs:
 
 From the runs in this file:
 
-- **Plaintext**, to vanilla-io_uring by 13-15%, and to libreactorng by 6-8% at 1,024
-  and 4,096 connections. Both answer without parsing the request.
-- **JSON**, to zix by 8-17% and to libreactorng by 4-16%, on the io_uring loop. The
-  epoll loop also trails xitca-web, by 2-8%. These gaps span sessions.
-- **Epoll's instructions per plaintext request**: 1,598-1,604 user instructions at
-  `v0.3.7`, 2.8% more than `v0.3.6`'s at the medians with the same request path, and
-  above the 1,538-1,586 that path has counted across runs; the cause isn't measured
-  ([record](results.md#instruction-counts-at-v037)).
-- **REST memory**: the Goose io_uring loop holds 70.6 MB on tier C serialized against
-  hyper's 37 MB the same night. The templated path holds 57.6 MB, below hyper's
+- **Plaintext**, to vanilla-io_uring by 19-22%, and to libreactorng by 7-13%. Both
+  answer without parsing the request. The epoll loop also trails zix, by 3-9%.
+- **JSON**, to zix by 8-19% and to libreactorng by 5-18%, on the io_uring loop. The
+  epoll loop also trails xitca-web, by 5-11%. These gaps span sessions.
+- **`v0.4.0` against `v0.3.7`**: 9.5-11.1% more user instructions per plaintext request
+  at the medians, plaintext up to 10.5% slower, and 2.4 MB more on the epoll server.
+  The benchmark server's WebSocket route costs the instructions on requests that never
+  upgrade, and its OpenSSL link the memory
+  ([task 055](../tasks/055-v0.4.0-plaintext-cost.md)).
+- **REST memory**: the Goose io_uring loop holds 70.7 MB on tier C serialized against
+  hyper's 37 MB the night before. The templated path holds 57.6 MB, below hyper's
   74 MB. Records still cost a copy per worker (task 025).
 - **REST reads beside uploads on the io_uring loop**: p99 8.5-18.0 ms against the epoll
   loop's 1.8-2.6 ms and xitca-web's earlier 2.4-4.6 ms.
 - **Uploads beside the forms role** (tier D), to tokio: 252-279 uploads a second in the
-  field run against the io_uring loop's 168-169 at `edd83c4b` (2026-10-18), though Goose
+  field run against the io_uring loop's 164-173 at `6512e790` (2026-10-19), though Goose
   served the forms at 7.5-7.6 K/s against tokio's 3.7-3.9 K/s
   ([summary](../bench/results/2026-10-14-rest-field/summary.md#tier-d)).
-- **REST reads beside uploads at 1,700 a second**, at `edd83c4b`: the io_uring loop's
-  p99 is 5.18-8.36 ms against epoll's 0.38-1.29 ms, so the gap above isn't only the
-  16,000/s rate's ([record](results.md#rest-tiers-a-to-d-at-v037)).
+- **REST reads beside uploads at 1,700 a second**, at `6512e790`: the io_uring loop's
+  p99 is 4.58-7.43 ms against epoll's 0.49-1.51 ms, so the gap above isn't only the
+  16,000/s rate's ([record](results.md#rest-tiers-a-to-d-at-v040)).
 - **Since `e4f7b55`**, at `bc75f2a`: io_uring uploads beside fixed-rate reads lose
   5.80%, and read-only CPU cost rises on both loops; neither was rerun at `b03a446`,
   whose faster serialization should cut the reads' cost. Epoll adds 2.9 user
