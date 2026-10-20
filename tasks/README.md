@@ -48,13 +48,13 @@ its implementation is already on `main`.
 
 Next, in the order requested on 2026-10-14: task 032's shared benchmark harness, then
 goose-rest's first benchmark run on the desktop. The HTTP changes it needs are on
-`main`. Task 031's shared REST application module is separate open work.
+`main`.
 
 | Open work | Remaining outcome or dependency |
 |---|---|
 | 006: platform ports | Platform subtasks are done; the optional conditional-compilation goal remains unresolved. |
 | 012: macOS benchmarks | Complete the Docker matrix; retain the platform and client limits. |
-| 014: HTTP/2 and TLS | h2c serves from the epoll and io_uring loops (014.01), with a question open; HTTP/1.1 over TLS serves from the epoll loop and passes HttpArena's validation (014.02). TLS in io_uring, measuring HttpArena's TLS profiles, kTLS, and h2 over TLS remain. |
+| 014: HTTP/2 and TLS | h2c serves from the epoll and io_uring loops (014.01), with a question open; HTTP/1.1 over TLS serves from the epoll and io_uring loops, passes HttpArena's validation, and is measured on json-tls and 8gbit (014.02, 2026-10-20). kTLS and h2 over TLS remain. |
 | 016: worker memory | Finish source accounting, reductions, and the Goose-side question. |
 | 017: IOCP speed | Read the kernel trace and evaluate candidates against the recorded baseline. |
 | 022: compression | Record approval of the implemented boundary and finish outstanding platform validation. |
@@ -63,7 +63,6 @@ goose-rest's first benchmark run on the desktop. The HTTP changes it needs are o
 | 026: reads beside uploads | Measure and reduce completion-loop read latency without losing upload throughput. |
 | 027: idiomatic API | Record the pending tier C templated benchmark recheck; API and examples are on `main`. |
 | 029: embedded aarch64 | Validate on a board; emulated tests do not settle it. |
-| 031: shared REST application | Split is on `main` and checked in Docker; recheck idle memory on the desktop against task 025's tables. |
 | 032: shared benchmark harness | Reuse one harness across scripts and document external server integration. |
 | 034: Goose releases | goose-http and goose-rest build and pass from the release on every platform; goose-compress and our own packages remain. |
 | 045: pinning | Parked on the branch `placement`; returns only if bare-metal Linux measures a gain. |

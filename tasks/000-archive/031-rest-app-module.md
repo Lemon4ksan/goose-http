@@ -1,7 +1,7 @@
 # 031: Split the REST server's application out of its routes
 
-Status: in-progress (asked for 2026-10-14). The split is on `main`, checked on Linux in
-Docker on a Mac; the desktop's idle memory recheck remains (below).
+Status: done (asked for 2026-10-14; the desktop's idle memory checked 2026-10-20). The
+split is on `main`, checked on Linux in Docker on a Mac and on the desktop.
 
 goose-rest's benchmark server (its task 010) is a copy of `bench/rest/goose/rest.goose` at
 `e27ab21` with its own routes: about 2,450 of its 2,883 lines are the same. The copy
@@ -28,7 +28,7 @@ the server's own workers.
 - [x] Idle VmRSS per worker on tiers A and C matches task 025's last table, so the
       globals behind a module copy no more on `thread_spawn` than before; if they do,
       the reduction goes in `docs/goose-findings.md` (matched against the build before
-      the split on the same machine; the desktop's figures are pending, below)
+      the split on the same machine, and on the desktop on 2026-10-20, below)
 - [x] `app.goose`'s header says goose-rest imports it, so a rename there is a breaking
       change for goose-rest's next pin move
 
@@ -105,10 +105,25 @@ other rounds didn't. The module's globals copy as they did. These are the VM's f
 with its default huge pages, not the desktop's, so they compare the two builds, not
 task 025's table.
 
-### Pending on Linux
+### On the desktop (2026-10-20)
 
-On the desktop (WSL2), at the commit after the split and at `13b9aa33`: `bench/rest.sh
-build`, then `bench/rest-memory.sh` with `TIERS="a c"`, and the idle VmRSS with 4
-workers, epoll, 3 s after listening, to compare with task 025's last tables. No rate run
-is needed: the request path's functions are the same, but for tier D's answers
-returning their status (`bench/codegen.sh 13b9aa33 <commit>` shows it, if wanted).
+Ryzen 7 5800X3D, WSL2 kernel `6.18.54.1-microsoft-standard-WSL2`, Goose `f114b5a`.
+`bench/rest/goose/rest.goose` from `git archive` of `13b9aa33` (before) and `6e57c429`
+(the split), each built with `goose build --cc gcc --standalone`, the datasets of
+`bench/rest/gen.goose`. Each server alone on CPUs 0-3, epoll, no request sent, VmRSS 3 s
+after it listened, one run per cell, in KB:
+
+| Tier, JSON | Before, 1 / 2 / 4 workers | After, 1 / 2 / 4 workers |
+|---|---|---|
+| A, serialize | 4,020 / 4,952 / 6,424 | 4,148 / 4,828 / 6,420 |
+| A, template | 5,120 / 5,408 / 5,744 | 5,284 / 5,464 / 5,840 |
+| C, serialize | 13,688 / 23,684 / 44,144 | 13,680 / 23,860 / 44,132 |
+| C, template | 21,456 / 23,436 / 27,240 | 21,348 / 23,356 / 27,264 |
+
+Every 4-worker cell is within 0.1 MB of its before, and within 0.3 MB of task 025's
+last table (`bench/results/2026-10-14-rest-idle-main/idle.tsv`, `1818526`: 6,356,
+5,632, 43,932, and 27,020 KB). `bench/rest-memory.sh` with `TIERS="a c"`, run in each
+commit's tree, splits the same: per mapping (the data stacks, arenas, large mallocs,
+thread stacks, and files), each cell's figures before and after differ by at most
+150 KB, the data stacks not at all (6,496 and 12,992 KB on C serialized, 0
+elsewhere). The module's globals copy on `thread_spawn` as they did.
