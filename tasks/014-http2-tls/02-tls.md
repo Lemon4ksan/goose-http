@@ -113,7 +113,14 @@ HttpArena's json-tls and 8gbit on Linux.
 1. (Done: the names, "Answers" below.)
 2. HttpArena: the image builds and the validation passes ("What passes"); json-tls
    and 8gbit remain to measure on Linux against the Rust entries (task 014's phase 2
-   criterion).
+   criterion), after item 4. HttpArena starts every entry with
+   `--security-opt seccomp=unconfined` (`scripts/lib/framework.sh` and
+   `scripts/validate.sh` at the pinned commit, checked 2026-10-20), so io_uring works
+   there, and 23 entries name it as their engine. The Dockerfile's comment that
+   Docker's seccomp profile blocks io_uring is wrong for HttpArena: the entry builds
+   the epoll server, the slower loop, for every profile. Once item 4 is done, the
+   entry builds `LOOP=uring`, `meta.json`'s `engine` becomes `io_uring`, and the
+   validation runs again before json-tls and 8gbit are measured.
 3. kTLS (phase 3): not started. Docker Desktop's kernel (`7.0.14-linuxkit`) has no
    `tls` module (`/proc/sys/net/ipv4/tcp_available_ulp` is missing, checked
    2026-10-19), so it needs a Linux machine or VM whose kernel has `CONFIG_TLS`.
@@ -123,8 +130,15 @@ HttpArena's json-tls and 8gbit on Linux.
    then plain `recv`/`send`/`sendfile` on the socket, `recvmsg` with a control
    buffer on `EIO`, and `sendmsg` with `TLS_SET_RECORD_TYPE` for close_notify and
    KeyUpdate. `recvmsg`/`sendmsg` with control messages are goose-http shim work.
-4. io_uring: TLS listeners in `uring.goose`, then the benchmark server's TLS with
-   `LOOP=uring` (`server/app.goose` adds it only for epoll).
+4. io_uring, next (2026-10-20): TLS listeners in `uring.goose`, then the benchmark
+   server's TLS with `LOOP=uring` (`server/app.goose` adds it only for epoll). It can
+   be built and tested on a Mac in a Linux container with
+   `--security-opt seccomp=unconfined`. Two points of the epoll path don't carry over:
+   `tls_recv` reads the socket itself with `net_recv`, where the ring delivers the
+   ciphertext in completions, so the ring needs to feed received bytes to
+   `tls::feed` and then read; and `tls_close` sends close_notify with one direct
+   `net_send`, which on the ring's blocking sockets could stall the worker, so it
+   goes out through the ring's send instead.
 5. Windows: goose-tls hasn't been built there; `test/tls/` and `examples/tls` are
    skipped, and `server/server_epoll.goose`'s typecheck in `scripts/test.sh` now
    fetches goose-tls there too (untried).
