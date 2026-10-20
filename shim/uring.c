@@ -155,8 +155,9 @@ void urp_destroy(int64_t h);
 int64_t urp_waker(int64_t h, uint64_t tag);
 int32_t urp_listeners(void);
 
-/* ur_create's flag, ring.goose's RING_EMULATE. */
+/* ur_create's flags, ring.goose's RING_EMULATE and RING_REQUIRE. */
 #define UR_EMULATE 1
+#define UR_REQUIRE 2
 
 /* Whether h is an emulated ring, and the emulation's own handle for it. */
 #define UR_EMULATED(h) (((h) & 1) != 0)
@@ -212,7 +213,7 @@ int64_t ur_create(int32_t entries, int32_t nbufs, int32_t buflen, int32_t flags)
     int r = io_uring_queue_init_params((unsigned)entries, &u->ring, &p);
     if (r < 0) {
         free(u);
-        return ur_emulate(entries, nbufs, buflen);
+        return flags & UR_REQUIRE ? r : ur_emulate(entries, nbufs, buflen);
     }
     u->nbufs = (uint32_t)nbufs;
     u->buflen = (uint32_t)buflen;
@@ -223,7 +224,7 @@ int64_t ur_create(int32_t entries, int32_t nbufs, int32_t buflen, int32_t flags)
         io_uring_queue_exit(&u->ring);
         free(u->bufs);
         free(u);
-        return r == -ENOMEM ? r : ur_emulate(entries, nbufs, buflen);
+        return r == -ENOMEM || (flags & UR_REQUIRE) ? r : ur_emulate(entries, nbufs, buflen);
     }
     int mask = io_uring_buf_ring_mask((unsigned)nbufs);
     for (int i = 0; i < nbufs; i++)

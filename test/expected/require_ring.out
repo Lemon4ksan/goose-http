@@ -1,0 +1,2 @@
+emulated and required: io_uring true
+required where the ring is emulated: true

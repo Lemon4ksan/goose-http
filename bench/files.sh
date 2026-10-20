@@ -25,6 +25,10 @@
 #   OUT           bench/results/<date>-<machine>-files
 set -eu
 
+# A Goose server on the io_uring loop exits where io_uring is blocked, rather
+# than measure the emulation over epoll; -uring-epoll asks for the emulation.
+export REQUIRE_RING=1
+
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/scripts/goose.sh"
 bin=$root/build/bench
@@ -84,7 +88,7 @@ cpu_ticks() {
 start() {
     case $1 in
     goose*-uring-epoll)
-        FILES=$www/files LOOP=uring-epoll WORKERS=$2 taskset -c "$3" "$bin/${1%-epoll}" http "$port" &
+        FILES=$www/files LOOP=uring-epoll REQUIRE_RING=0 WORKERS=$2 taskset -c "$3" "$bin/${1%-epoll}" http "$port" &
         ;;
     goose*) FILES=$www/files WORKERS=$2 taskset -c "$3" "$bin/$1" http "$port" & ;;
     nginx)

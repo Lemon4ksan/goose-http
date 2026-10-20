@@ -90,6 +90,13 @@ fn serve_http<TLS, EPOLL>(given: http::Config, default_loop: const u8[:]) {
         write_stderr("LOOP must be epoll, uring, uring-epoll, or iocp\n");
         exit(2);
     }
+    // REQUIRE_RING=1 makes the uring loop exit where it would emulate the ring.
+    var required: u8[>..] = [];
+    cfg.require_ring = env("REQUIRE_RING", required) && required == "1" && !epoll;
+    guard !(cfg.require_ring && cfg.emulate_ring) else {
+        write_stderr("REQUIRE_RING and LOOP=uring-epoll contradict each other\n");
+        exit(2);
+    }
     // The server also serves h2c, HTTP/2 with prior knowledge, on H2C_PORT,
     // by default the port + 2, as HttpArena's 8082 is beside 8080, where its
     // loop takes a second listener: not on Windows (ring_listeners).
@@ -123,6 +130,10 @@ fn serve_http<TLS, EPOLL>(given: http::Config, default_loop: const u8[:]) {
     if probe < 0 && !cfg.emulate_ring {
         var text: u8[128] = [0; 128];
         let k = http::net_strerror(-probe, text);
+        guard !cfg.require_ring else {
+            write_stderr(str("REQUIRE_RING: no io_uring here (io_uring_setup: ", text[..k], ")\n"));
+            exit(1);
+        }
         format(ring, " on an emulated ring (io_uring_setup: ", text[..k], ")");
     }
     // SERVER_RUNS serves again after each stop, for testing a loop called

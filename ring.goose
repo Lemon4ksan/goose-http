@@ -25,10 +25,12 @@ let ECANCELED = 125;
 // buflen bytes; nbufs is a power of two. A tag fits in 62 bits. On Linux the
 // ring is shim/ring_epoll.c's emulation over epoll where io_uring_setup
 // fails, or with RING_EMULATE in flags; on macOS it always is, over kqueue.
+// With RING_REQUIRE, Linux returns io_uring's error instead of emulating.
 extern "ur_create" fn ring_create(entries: i32, nbufs: i32, buflen: i32, flags: i32) -> i64;
 
-// ring_create's flag.
+// ring_create's flags.
 let RING_EMULATE: i32 = 1;
+let RING_REQUIRE: i32 = 2;
 
 // Whether ring_create gets the platform's own ring: 0, or -code for why it
 // falls back to the emulation (ENOSYS on macOS, which has no other). A

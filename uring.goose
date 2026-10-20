@@ -64,6 +64,11 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
     for l in cfg.listeners {
         guard !l.tls else { return Error { call: "tls", code: ENOSYS }; }
     }
+    guard !(cfg.require_ring && cfg.emulate_ring) else { return Error { call: "io_uring", code: EINVAL }; }
+    if cfg.require_ring {
+        let probe = ring_probe();
+        guard probe == 0 else { return Error { call: "io_uring", code: -probe }; }
+    }
     // The listeners, Config.port's first, and whether each serves h2c.
     var lfds: i32[..MAX_LISTENERS + 1] = [];
     var h2c_at: bool[..MAX_LISTENERS + 1] = [];
@@ -80,7 +85,7 @@ fn serve<S, H>(cfg: Config, fresh: S) -> Error {
         h2c_at.push(if k == 0 { cfg.h2c } else { cfg.listeners[k - 1].h2c });
     }
     let r = ring_create(cfg.ring_entries, cfg.ring_buffers, cfg.ring_buffer_size,
-                        if cfg.emulate_ring { RING_EMULATE } else { 0 });
+                        if cfg.emulate_ring { RING_EMULATE } else if cfg.require_ring { RING_REQUIRE } else { 0 });
     guard r >= 0 else {
         close_listeners();
         return Error { call: "io_uring", code: -r };

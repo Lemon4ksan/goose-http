@@ -136,8 +136,9 @@ connection never goes to a new one that reuses the fd.
 
 Where io_uring isn't available, such as under Docker's default seccomp profile, with
 io_uring disabled, or on an older kernel, the ring falls back to the emulation in
-`shim/ring_epoll.c`. `http::ring_probe()` reports why, and `Config.emulate_ring`
-selects the emulation for tests.
+`shim/ring_epoll.c`. `http::ring_probe()` reports why, `Config.emulate_ring`
+selects the emulation for tests, and `Config.require_ring` makes `serve` fail instead
+of falling back: `ring_create`'s `RING_REQUIRE` returns io_uring's error.
 
 ### Platforms
 

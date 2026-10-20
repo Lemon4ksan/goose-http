@@ -130,6 +130,11 @@ struct Config {
     // where io_uring_setup fails, as in Docker's default seccomp profile: for
     // testing that fallback.
     emulate_ring: bool = false,
+    // serve fails with call "io_uring" where it would emulate the ring:
+    // where io_uring_setup fails on Linux, and always on macOS. Windows'
+    // completion port is its own. So a run that meant to measure io_uring
+    // can't end up on epoll unnoticed.
+    require_ring: bool = false,
     // The bytes of responses a serve connection may have queued and not yet
     // sent, its send in flight's too. Past this, the loop stops reading from
     // it until the client takes what it was sent, as serve_epoll does when a

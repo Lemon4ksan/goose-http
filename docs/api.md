@@ -666,10 +666,14 @@ other isn't in the binary.
 - `http::serve` is the default. On Linux 12-22% faster than epoll, at 2-5 times the
   peak RSS, 10-16 MB with 4 workers. Where `io_uring_setup` fails, as under Docker's
   default seccomp profile, it emulates the ring on epoll; `http::ring_probe()` says why.
+  With `Config.require_ring`, `serve` fails with call `io_uring` and that error
+  instead, before it opens a listener, so that a server meant to run on io_uring
+  doesn't run on epoll unnoticed. On macOS it always fails (`ENOSYS`); on Windows the
+  completion port is the platform's own.
 - `http::serve_epoll` is faster on macOS, and on Linux uses a quarter of the memory.
 
 The benchmark server links both. `LOOP` picks: `uring` (`iocp` on Windows), `epoll`,
-or `uring-epoll`. See
+or `uring-epoll`, and `REQUIRE_RING=1` sets `Config.require_ring`. See
 [architecture](architecture.md#completion-loop).
 
 ### Several ports, and h2c

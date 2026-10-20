@@ -1,6 +1,7 @@
 # 057: Engine ideas from Aegon
 
-Status: todo. The verdicts below were set 2026-10-20.
+Status: in-progress. The verdicts below were set 2026-10-20; the setting that requires
+io_uring is in.
 
 Aegon's I/O engine (io_uring, epoll, and IOCP behind one interface,
 [its guide](https://udaykhare09.github.io/Aegon/guide/core/io-engine)) is close to
@@ -53,11 +54,20 @@ instructions per request, rate, and peak RSS before and after:
   with such a request. Goose has no explicit vector types or movemask (spec §7.12), so a
   wider scan depends on what the C compiler vectorizes, which may decide the result; an
   operation found missing goes in `docs/goose-findings.md`.
-- **Requiring io_uring.** A setting under which the server exits when io_uring can't
-  start, rather than falling back to the emulation. Aegon's `AEGON_ENGINE=io_uring`
-  does this, so that running on epoll by mistake in production is visible.
+
+## Taken
+
+- **Requiring io_uring**, as Aegon's `AEGON_ENGINE=io_uring` does, so that running on
+  epoll by mistake is visible: `Config.require_ring` (2026-10-20). `serve` then fails
+  with call `io_uring` where it would emulate the ring, and the benchmark servers exit
+  with `REQUIRE_RING=1`, which `bench/run.sh`, `bench/rest.sh`, and `bench/files.sh`
+  set. `test/http/require_ring.goose` checks it on macOS (`ENOSYS`) and on Linux, arm64
+  in Docker Desktop (`ubuntu:26.04`, kernel 7.0.14-linuxkit): under the default seccomp
+  profile the server exits with `EPERM`, and with `seccomp=unconfined` it serves on
+  io_uring.
 
 ## Acceptance criteria
 
 - [ ] Each idea under "To measure" measured and adopted, or set aside with its numbers
-- [ ] A setting that requires io_uring, in `docs/api.md`'s event loops section
+- [x] A setting that requires io_uring, in `docs/api.md`'s event loops section
+      (2026-10-20)

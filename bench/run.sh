@@ -49,6 +49,10 @@
 #                 rerun beside an earlier one shows by how much.
 set -eu
 
+# A Goose server on the io_uring loop exits where io_uring is blocked, rather
+# than measure the emulation over epoll.
+export REQUIRE_RING=1
+
 # Bump METHOD when a change here changes what a cell measures, so REUSE stops
 # copying cells measured the old way.
 METHOD=1
