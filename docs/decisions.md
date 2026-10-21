@@ -514,6 +514,18 @@ that aren't data (close_notify, alerts, KeyUpdates) go through `recvmsg` and
 user space under the same context. Rejected: a `Config` field, which would duplicate
 the context's choice, and a check per request rather than per connection.
 
+## HttpArena's entry uses the Rust entries' key exchange
+
+Decided 2026-10-20, task 058.
+
+The benchmark server takes `TLS_GROUPS` for goose-tls's `tls::use_groups`, and
+HttpArena's entry sets it to `X25519:P-256:P-384`, what the Rust entries' rustls with
+the `ring` provider offers. Without it, OpenSSL 3.5's default puts X25519MLKEM768
+first, which the Rust entries don't negotiate, and which costs each connection about
+6 KB more and each handshake more bytes. The server's default, and any program's,
+stays OpenSSL's: post-quantum is right for a real server. Rejected: changing the
+default for everyone to match a benchmark.
+
 ## The benchmark server's TLS is a build of its own
 
 Decided 2026-10-20, task 055, replacing the epoll benchmark server as the one build

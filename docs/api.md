@@ -730,7 +730,7 @@ builds with CMake and OpenSSL's headers
 
 ```rust
 import http from "github.com/kaitk/goose-http@<tag>";
-import tls from "github.com/kaitk/goose-tls@v0.0.2";
+import tls from "github.com/kaitk/goose-tls@v0.0.3";
 import http.tls;
 
 thread_fn worker(cfg: http::Config, ctx: tls::Context) {

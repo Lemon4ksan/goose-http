@@ -36,6 +36,10 @@ RUN apt-get update -qq && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=build /server/build/server-plain /server
 COPY --from=build /server/build/server /server-tls
+# The key exchange groups of HttpArena's Rust entries, whose rustls with the
+# ring provider offers these, rather than OpenSSL's default with
+# X25519MLKEM768 first, which costs each connection about 6 KB more.
+ENV TLS_GROUPS=X25519:P-256:P-384
 # HTTP/1.1 on 8080, HTTP/1.1 over TLS on 8081, the port + 1, and h2c with
 # prior knowledge on 8082, the port + 2.
 EXPOSE 8080 8081 8082

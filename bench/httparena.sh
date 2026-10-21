@@ -61,7 +61,7 @@ out=${OUT:-$root/bench/results/httparena-$(date -u +%Y-%m-%dT%H%M)-$machine}
 # The runs happen in the checkout, so a relative OUT is taken from here.
 case $out in /*) ;; *) out=$PWD/$out ;; esac
 
-HTTPARENA_COMMIT=0720ee57dc20424cc3fa3fc1735946a1abaf1a59
+HTTPARENA_COMMIT=3717e256e9e4c1783f040c126341c5c4a11abe42
 GCANNON_COMMIT=11c802b2bdfe9af2fac4ac2571ae2de4c530cc62
 # zrk-2.3.0-aarch64-linux.tar.gz's SHA-256, from the release's SHA256SUMS.txt.
 ZRK_ARM64_SHA256=361f2632e3cee672cf6a8676438c9fa93e8a5702a0007bacc266861767bab213

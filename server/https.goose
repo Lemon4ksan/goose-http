@@ -1,7 +1,8 @@
 // The TLS listener: HTTP/1.1 over TLS 1.3 on TLS_PORT, by default the port
 // + 1, as HttpArena's 8081 is beside 8080, with the PEM certificate chain
 // TLS_CERT and its key TLS_KEY. Without both, or with TLS_PORT=0, no
-// listener serves TLS. KTLS=1 asks for kTLS.
+// listener serves TLS. KTLS=1 asks for kTLS, and TLS_GROUPS sets the key
+// exchange groups (tls::use_groups), OpenSSL's default otherwise.
 import std;
 import os;
 import http;
@@ -29,6 +30,11 @@ fn tls_listener(cfg: http::Config&, also: u8[>..]&) {
     let ctx, ok = tls::server_files(cert, key, ["http/1.1"]);
     guard ok else {
         write_stderr(str("TLS_CERT and TLS_KEY: ", tls::error_text(), "\n"));
+        exit(2);
+    }
+    var groups: u8[>..] = [];
+    if env("TLS_GROUPS", groups) && !tls::use_groups(ctx, groups) {
+        write_stderr(str("TLS_GROUPS: OpenSSL doesn't know a group in '", groups, "' ", tls::error_text(), "\n"));
         exit(2);
     }
     tls_ctx = ctx;
