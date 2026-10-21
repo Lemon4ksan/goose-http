@@ -33,7 +33,6 @@ cache=${CACHE:-$HOME/.cache/goose-http-bench}
 out=$root/build/bench
 odin=${ODIN:-odin}
 zig=${ZIG:-zig}
-PATH=$HOME/.cargo/bin:$PATH
 
 ODIN_VERSION=dev-2026-10
 ODIN_HTTP_REPO=https://github.com/laytan/odin-http.git
@@ -66,14 +65,6 @@ if [ "${ONLY:-}" = goose ]; then
     ls -l "$out"
     exit 0
 fi
-
-# TechEmpower builds its Rust entries for the machine they run on, and
-# HttpArena's tokio image does too.
-for name in may-minihttp hyper tokio; do
-    (cd "$cache" && RUSTFLAGS="-C target-cpu=native" cargo build --release --locked \
-        --manifest-path "$root/bench/$name/Cargo.toml" --target-dir "$cache/target-$name")
-    cp "$cache/target-$name/release/bench-$name" "$out/$name"
-done
 
 "$odin" version | grep -q "$ODIN_VERSION" || {
     echo "bench/build.sh: odin-http needs Odin $ODIN_VERSION, not: $("$odin" version)"
@@ -155,12 +146,6 @@ VMODULES=$cache/vmodules "$v/v" -prod -gc none "$root/bench/vanilla-epoll" \
 # -d vanilla_tls.
 VMODULES=$cache/vmodules "$v/v" -prod -d vanilla_io_uring "$root/bench/vanilla-io_uring" \
     -o "$out/vanilla-io_uring"
-
-# The flags of TechEmpower's xitca-web entry (its .cargo/config.toml).
-(cd "$cache" && RUSTFLAGS="-C target-cpu=native --cfg tokio_unstable" cargo build --release \
-    --locked --manifest-path "$root/bench/xitca-web/Cargo.toml" \
-    --target-dir "$cache/target-xitca-web")
-cp "$cache/target-xitca-web/release/bench-xitca-web" "$out/xitca-web"
 
 # libreactorng as HttpArena's image builds it: patched, configured with
 # -O3 -march=native, and installed, here under CACHE. The install is a static

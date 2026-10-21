@@ -2,3 +2,6 @@
 *.py text eol=lf
 # Golden files: test/run_tests.py writes them with LF on every platform.
 /test/expected/** text eol=lf
+*.goose linguist-detectable=true
+*.goose linguist-language=Go
+bench/** linguist-vendored=true

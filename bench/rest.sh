@@ -56,7 +56,6 @@ cache=${CACHE:-$HOME/.cache/goose-http-bench}
 . "$root/scripts/goose.sh"
 bin=$root/build/rest
 data=${DATA:-$root/build/rest}
-PATH=$HOME/.cargo/bin:$PATH
 
 ZRK_VERSION=2.3.0
 ZRK_SHA256=ab6f1c1ce34ce73f52afd106419d15e5c494bd1cedd475afa56babb85b09a816
@@ -81,15 +80,6 @@ build)
         ls -l "$bin"
         exit 0
     fi
-    # As bench/build.sh builds bench/NAME: for this machine, from CACHE, and
-    # xitca-web with its TechEmpower entry's flags.
-    for name in hyper tokio may-minihttp xitca-web; do
-        flags="-C target-cpu=native"
-        [ "$name" != xitca-web ] || flags="$flags --cfg tokio_unstable"
-        (cd "$cache" && RUSTFLAGS="$flags" cargo build --release --locked \
-            --manifest-path "$root/bench/rest/$name/Cargo.toml" --target-dir "$cache/target-rest-$name")
-        cp "$cache/target-rest-$name/release/rest-$name" "$bin/rest-$name"
-    done
     odin=${ODIN:-odin}
     pin() { sed -n "s/^$1=//p" "$root/bench/build.sh"; }
     "$odin" version | grep -q "$(pin ODIN_VERSION)" ||
@@ -134,7 +124,7 @@ run) ;;
     ;;
 esac
 
-servers=${SERVERS:-goose-uring goose-epoll hyper}
+servers=${SERVERS:-goose-uring goose-epoll}
 server_cpus=${SERVER_CPUS:-0-3}
 client_cpus=${CLIENT_CPUS:-4-15}
 threads=${CLIENT_THREADS:-8}
@@ -187,7 +177,6 @@ trap '[ -z "$pid" ] || kill "$pid" 2>/dev/null' EXIT
     echo "goose-http: $(git -C "$root" rev-parse --short HEAD)$(git -C "$root" diff --quiet || echo ' (modified)')"
     echo "goose: $(goose_version)"
     echo "cc: $(${CC:-cc} --version | head -1)"
-    echo "rustc: $(rustc --version)"
     case " $servers " in *" odin-http "* | *" tina "*)
         echo "odin: $(${ODIN:-odin} version), odin-http $(git -C "$cache/deps/odin-http" rev-parse --short HEAD)," \
             "tina $(git -C "$cache/deps/tina" rev-parse --short HEAD)"

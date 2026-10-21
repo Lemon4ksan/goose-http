@@ -20,7 +20,7 @@ set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 bin=$root/build/bench-macos
 cache=${CACHE:-$HOME/.cache/goose-http-bench-macos}
-servers=${SERVERS:-goose may-minihttp hyper tokio}
+servers=${SERVERS:-goose}
 workers=${WORKERS:-4}
 threads=${THREADS:-4}
 tests=${TESTS:-plaintext:256 plaintext:1024 json:256}
@@ -30,17 +30,10 @@ warmup=${WARMUP:-3}
 port=${PORT:-29380}
 machine=${MACHINE:-$(hostname -s)}
 out=${OUT:-$root/bench/results/$(date -u +%Y-%m-%d)-$machine}
-PATH=$HOME/.cargo/bin:$PATH
 
 mkdir -p "$bin" "$cache" "$out"
 "$root/scripts/build.sh" >/dev/null
 cp "$root/build/server" "$bin/goose"
-for name in $servers; do
-    case $name in goose) continue ;; esac
-    (cd "$cache" && RUSTFLAGS="-C target-cpu=native" cargo build -q --release --locked \
-        --manifest-path "$root/bench/$name/Cargo.toml" --target-dir "$cache/target-$name")
-    cp "$cache/target-$name/release/bench-$name" "$bin/$name"
-done
 
 ulimit -n 65536
 host='Host: tfb-server'
