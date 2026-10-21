@@ -37,7 +37,15 @@ conns=${CONNS:-256}
 runs=${RUNS:-3}
 port=${PORT:-29380}
 if [ -n "$windows" ]; then pause=${PAUSE:-15}; else pause=${PAUSE:-0}; fi
-oha=${OHA:-oha}
+oha=${OHA:-$root/build/bench/loader${windows:+.exe}}
+if [ ! -x "$oha" ]; then
+    mkdir -p "$(dirname "$oha")"
+    if [ -n "$windows" ]; then
+        ${CC:-gcc} -O2 "$root/bench/loader.c" -lws2_32 -o "$oha"
+    else
+        ${CC:-cc} -O2 "$root/bench/loader.c" -o "$oha"
+    fi
+fi
 machine=${MACHINE:-$(hostname)}
 out=${OUT:-$root/bench/results/$(date -u +%Y-%m-%dT%H%M)-$machine-oha}
 
@@ -81,7 +89,7 @@ cpu() {
     echo "requests: $requests, connections: $conns, runs: $runs, pin: ${PIN:-none}"
     echo "goose-http: $(git -C "$root" rev-parse --short HEAD)$(git -C "$root" diff --quiet || echo ' (modified)')"
     echo "goose: $(goose_version)"
-    echo "oha: $("$oha" --version)"
+    echo "loader: c11"
     echo "servers: $servers"
 } >"$out/env.txt"
 printf 'server\tworkers\tpath\trun\trps\tok\tother\tuser_s\tkernel_s\tuser_us\tkernel_us\n' \

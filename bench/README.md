@@ -17,8 +17,8 @@ bench/store.sh         # reads from http.store: scalars and records against stor
 bench/httparena.sh     # HttpArena's harness, in Docker, with Goose as an entry
 bench/run-macos.sh     # a short matrix natively on macOS, into bench/results/<date>-<machine>/
 bench/files.sh         # static files, and /bytes from memory, against nginx and Caddy
-bench/oha.sh           # Goose builds with oha, on Windows (Git Bash) or Linux, for IOCP
-bench/rest.sh          # task 021's REST tiers, 9 servers: build, then run (about 2 h 25 min)
+bench/oha.sh           # Goose builds with loader, on Windows (Git Bash) or Linux, for IOCP
+bench/rest.sh          # task 021's REST tiers: build, then run (about 2 h 25 min)
 bench/table.py         # README.md's plaintext and JSON table from run.sh's runs.tsv files
 ```
 
@@ -28,8 +28,8 @@ servers below, most of which can't serve a file: nginx, Ubuntu's (`apt install n
 the release binary `bench/build.sh` fetches and checks against a pinned SHA-256. The
 script writes each one's configuration in its `start` function.
 
-They need Linux (`taskset`, `perf`, `/proc`; on Windows, WSL), `GOOSE`, and
-`~/.cargo/bin` on `PATH`. The environment configures them (see the comment at the top
+They need Linux (`taskset`, `perf`, `/proc`; on Windows, WSL) and `GOOSE`.
+The environment configures them (see the comment at the top
 of each). [Toolchain](#toolchain) lists the tools beyond the
 [development setup](../docs/development.md#linux), and
 [known issues](../docs/known-issues.md#benchmarks) the traps they work around. Run a
@@ -56,7 +56,6 @@ on Ubuntu 26.04 in WSL2:
 | Tool | Source | Version used (2026-10-10) |
 |---|---|---|
 | perf | apt `linux-perf` | 7.0.14 (package `7.0.0-38.38`) |
-| Rust | rustup ([Linux test tools](../docs/development.md#linux)) | rustc 1.99.0, cargo 1.99.0, for the Rust servers |
 | Odin | `/opt/odin-dev-2026-10` | `dev-2026-10` (`dev-2026-10-nightly:84bc3fc`, LLVM 20.1.8), for odin-http |
 | Zig | `/opt/zig-0.16.0` | 0.16.0, for dusty, zix, and zeemo |
 | V | built by `bench/build.sh` in its cache | 0.5.2 `b99970b`, for vanilla-epoll; needs apt `liburing-dev` (2.14) |

@@ -2,7 +2,7 @@
 # Starts the HTTP server of build/server and tests it: the endpoints with
 # curl, TechEmpower's checks, pipelining, keep-alive, hostile and slow
 # clients, and many connections at once with scripts/http_client.py, then
-# short wrk, h2load, and oha runs that must see only 200s and no errors. The
+# short wrk and h2load runs that must see only 200s and no errors. The
 # epoll build also serves h2c on the port + 2 and, where openssl makes it a
 # certificate, HTTP/1.1 over TLS on the port + 1, which it tests the same way.
 # Fails on the first error, or if the server died along the way.
@@ -10,7 +10,6 @@
 # PORT picks the port (29080): keep it below the kernel's ephemeral range
 # (32768 and up), as for test-echo.sh. WORKERS sets the server's worker
 # count (4). KTLS=1, passed to the server, tests TLS through Linux's kTLS.
-# oha is looked for on PATH and in ~/.cargo/bin.
 #
 # On Windows, in Git Bash, it tests the IOCP build and leaves out the load
 # runs and the fd limit run (docs/development.md, "Windows").
@@ -21,7 +20,6 @@ port=${PORT:-29080}
 export WORKERS="${WORKERS:-4}"
 url=http://127.0.0.1:$port
 client="python3 $root/scripts/http_client.py $port"
-oha=$(command -v oha || echo "$HOME/.cargo/bin/oha")
 log=$(mktemp)
 out=$(mktemp)
 # The directory the server's /files/ serves, which the client fills.
@@ -286,7 +284,7 @@ fi
 # Load generators, briefly: every response a 200, and no errors. wrk times
 # requests with the wall clock, which WSL2 steps back now and then, and
 # counts each request in flight across a step as a timeout; its timeouts are
-# left to h2load and oha, which use a monotonic clock.
+# left to h2load, which uses a monotonic clock.
 wrk_ok() {
     ! grep -E 'Non-2xx' "$out" || fail "wrk $1"
     ! grep -E 'Socket errors' "$out" | grep -v 'connect 0, read 0, write 0,' || fail "wrk $1"
@@ -300,13 +298,10 @@ h2load --h1 -c 64 -m 16 -n 200000 "$url/plaintext" >"$out"
 grep -q 'succeeded, 0 failed, 0 errored, 0 timeout' "$out" || { cat "$out"; fail "h2load"; }
 grep -q 'status codes: 200000 2xx, 0 3xx, 0 4xx, 0 5xx' "$out" || { cat "$out"; fail "h2load"; }
 grep -E '^requests:' "$out"
-# A request count, not -z: at a deadline oha aborts the requests in flight
-# and lists them as errors.
-"$oha" -n 500000 -c 64 --no-tui "$url/json" >"$out"
-grep -q 'Success rate:.100.00%' "$out" || { cat "$out"; fail "oha"; }
-! grep -q 'Error distribution' "$out" || { cat "$out"; fail "oha"; }
-grep -q '\[200\] 500000 responses' "$out" || { cat "$out"; fail "oha"; }
-grep -E '\[200\]' "$out"
+h2load --h1 -c 64 -n 500000 "$url/json" >"$out"
+grep -q 'succeeded, 0 failed, 0 errored, 0 timeout' "$out" || { cat "$out"; fail "h2load json"; }
+grep -q 'status codes: 500000 2xx, 0 3xx, 0 4xx, 0 5xx' "$out" || { cat "$out"; fail "h2load json"; }
+grep -E '^requests:' "$out"
 echo "load: ok"
 
 # h2c, on the port the server says it serves it on (H2C_PORT, the port + 2):

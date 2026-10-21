@@ -181,14 +181,11 @@ scripts, and `CC` the C compiler, as for `goose build --cc`. In Git Bash, run it
 
 **OS:** tested only on Ubuntu 26.04.1 LTS so far (2026-10-10).
 
-Install the C compilers, liburing, and the test tools, then run `scripts/test.sh`. oha
-builds with cargo, from [rustup](https://rustup.rs), and lands in `~/.cargo/bin`:
+Install the C compilers, liburing, and the test tools, then run `scripts/test.sh`:
 
 ```sh
 sudo apt-get install -y gcc clang libc6-dev liburing-dev git curl python3 \
     wrk nghttp2-client netcat-openbsd strace linux-perf
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-cd ~ && cargo install oha --locked
 ```
 
 `GOOSE_COMMIT` and Linux on arm64, which has no Goose release archive, build Goose from
@@ -217,7 +214,7 @@ Bazzite 43 (2026-10-20):
 distrobox create -n goose -i registry.fedoraproject.org/fedora-toolbox:43
 distrobox enter goose -- sudo dnf install -y gcc clang cmake ninja-build \
     liburing-devel openssl-devel openssl perl git curl nghttp2 perf nmap-ncat \
-    strace binutils cargo
+    strace binutils
 ```
 
 | Tool | Source | Version used (2026-10-10) |
@@ -228,7 +225,6 @@ distrobox enter goose -- sudo dnf install -y gcc clang cmake ninja-build \
 | curl | apt | 8.18.0 |
 | wrk | apt | 4.1.0 (`4.1.0-4build3`) |
 | h2load | apt `nghttp2-client` | 1.68.0 |
-| oha | `cargo install oha --locked` | 1.16.0, with cargo 1.99.0 |
 | liburing | apt `liburing-dev` | 2.14, for the io_uring loop (`LOOP=uring`) |
 
 ### macOS
@@ -243,7 +239,7 @@ The platform mapping is in
 Install the tools with Homebrew, then run `scripts/test.sh`:
 
 ```sh
-brew install cmake wrk nghttp2 oha openssl@3
+brew install cmake wrk nghttp2 openssl@3
 ```
 
 The scripts fetch the `macos-arm64` or `macos-x64` release; CMake is for `GOOSE_COMMIT`

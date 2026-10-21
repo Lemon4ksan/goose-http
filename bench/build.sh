@@ -61,6 +61,7 @@ LOOP=epoll "$root/scripts/build.sh"
 cp "$root/build/server" "$out/goose"
 ${CC:-cc} -O2 -shared -fPIC "$root/bench/wrk-monotonic.c" -o "$out/wrk-monotonic.so"
 ${CC:-cc} -O2 "$root/bench/latency.c" -o "$out/latency"
+${CC:-cc} -O2 "$root/bench/loader.c" -o "$out/loader"
 if [ "${ONLY:-}" = goose ]; then
     ls -l "$out"
     exit 0

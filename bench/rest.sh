@@ -48,7 +48,7 @@
 #                  RATE_C, and step 4 RATE_C.
 #   MACHINE        a short name for the machine (the host name), for OUT
 #   DATA           build/rest; OUT bench/results/<date>-rest-<machine>
-#   ZRK            zrk 2.3.0's x86-64 release, as HttpArena pins it
+#   ZRK            load generator binary (default: build/bench/loader)
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -57,24 +57,17 @@ cache=${CACHE:-$HOME/.cache/goose-http-bench}
 bin=$root/build/rest
 data=${DATA:-$root/build/rest}
 
-ZRK_VERSION=2.3.0
-ZRK_SHA256=ab6f1c1ce34ce73f52afd106419d15e5c494bd1cedd475afa56babb85b09a816
-zrk=${ZRK:-$cache/zrk-$ZRK_VERSION/zrk}
+zrk=${ZRK:-$root/build/bench/loader}
 
 case ${1:-} in
 build)
-    mkdir -p "$bin" "$data"
+    mkdir -p "$bin" "$data" "$(dirname "$zrk")"
     goose=$GOOSE
     "$goose" build --cc gcc --standalone -o "$bin/gen" "$root/bench/rest/gen.goose"
     "$bin/gen" "$data"
     "$goose" build --cc gcc --standalone -o "$bin/rest" "$root/bench/rest/goose/rest.goose"
     if [ ! -x "$zrk" ]; then
-        curl -sSLf -o "$cache/zrk.tar.gz" \
-            "https://github.com/zoxy-io/zrk/releases/download/v$ZRK_VERSION/zrk-$ZRK_VERSION-x86_64-linux.tar.gz"
-        [ "$(sha256sum <"$cache/zrk.tar.gz" | cut -d' ' -f1)" = "$ZRK_SHA256" ] ||
-            { echo "bench/rest.sh: zrk.tar.gz doesn't match ZRK_SHA256"; exit 1; }
-        mkdir -p "$(dirname "$zrk")"
-        tar -xzf "$cache/zrk.tar.gz" -C "$(dirname "$zrk")" zrk
+        ${CC:-cc} -O2 "$root/bench/loader.c" -o "$zrk"
     fi
     if [ "${ONLY:-}" = goose ]; then
         ls -l "$bin"
@@ -187,7 +180,7 @@ trap '[ -z "$pid" ] || kill "$pid" 2>/dev/null' EXIT
             "zio $(sed -n 's/.*zio?ref=v\([0-9.]*\)#.*/\1/p' "$root/bench/rest/dusty/build.zig.zon")"
     ;; esac
     echo "wrk: $(wrk -v 2>&1 | head -1)"
-    echo "zrk: $ZRK_VERSION"
+    echo "loader: c11"
     echo "servers: $servers"
     for s in $servers; do
         [ -z "$(no_d "$s")" ] || echo "tier d skipped for $s: $(no_d "$s")"
