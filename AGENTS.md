@@ -62,6 +62,8 @@ Several agents work in these repositories at once (2026-10-20).
   branch is merged.
 - Leave alone a branch, a commit, or an uncommitted change that isn't yours, in any
   checkout. Ask if it's in your way.
+- `arm32-handles` and `restart-workers` are old and deprecated: don't update, rebase,
+  or merge them, and don't treat their commits as pending work (2026-10-21).
 - Keep logs, exports, and scratch files in a directory of your own: a session's
   scratchpad may be shared by several agents.
 - Problems with your own sandbox, such as no network or no SSH, go in your report,
