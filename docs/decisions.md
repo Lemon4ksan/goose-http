@@ -261,12 +261,35 @@ cost is rejected.
 Kept 2026-10-19, task 050. With `thread_spawn_contained`
 ([aardappel/goose#38](https://github.com/aardappel/goose/pull/38)) in the pin, an abort
 can end only its thread, and `http::run` restarting an aborted worker was built and
-tested on Linux and macOS. It is parked on the branch `restart-workers`: it added a
+tested on Linux and macOS. It is kept on the branch `restart-workers`, an experiment not
+pursued now: it added a
 watcher thread per worker, two queues, C to close what the dead worker opened, and a
 second mechanism for lanes, while the dead worker's connections still got no answer.
 One finding stays for whoever picks it up: on Linux, a dead ring's io_uring multishot
 accept keeps a closed listener in its `SO_REUSEPORT` group, and new connections hang
 there, so shut the listener down before closing it.
+
+Kept 2026-10-21, after a second look. Of the branch's costs, the watcher threads, both
+queues, and closing the listener from another thread came from its design. The rest are
+inherent in an abort that leaves C resources open. A dead worker's connections exist
+only in its own Goose memory, so closing them needs each connection's owner recorded in
+C at accept and close, which is code on the request path. Without that, their fds stay
+open for good, since their idle timers died with the thread. Its ring's memory, its TLS
+sessions, a lane's database handles, which keep a transaction's locks, and a box's
+count, which `mail_adopt` had to settle, are left the same way. Erlang and Tina restart
+inside the process because their runtimes own every resource a unit holds; Goose owns
+only its memory. Several processes on one port give the smaller blast radius with no
+code ([patterns](patterns.md#a-crash-ends-the-process)): on arm64 Docker, native
+io_uring and epoll, two servers on port 29080 lost none of 400 new connections after
+one was killed. Two findings stay for whoever picks restarts up:
+
+- A pthread key's destructor runs on a contained worker's thread as it ends, whether it
+  returned or aborted, on macOS and glibc. It can close what that thread opened and
+  tell `main` which worker ended, with no watcher thread or queue. It must keep its
+  state in the key's record: `_Thread_local` values read -1 there on macOS. Windows'
+  `FlsAlloc` callback is the likely counterpart, untested.
+- Lanes would still need a thread that can name their `thread_fn`: the Goose change on
+  the fork's `thread-fn-values`, or a wrapper each program writes.
 
 ## A stop is a flag in the box, not a message
 

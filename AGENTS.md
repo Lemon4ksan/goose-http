@@ -62,8 +62,9 @@ Several agents work in these repositories at once (2026-10-20).
   branch is merged.
 - Leave alone a branch, a commit, or an uncommitted change that isn't yours, in any
   checkout. Ask if it's in your way.
-- `restart-workers` is old and deprecated: don't update, rebase, or merge it, and
-  don't treat its commits as pending work (2026-10-21).
+- `restart-workers` is an experiment not pursued now: don't update, rebase, or merge
+  it, and don't treat its commits as pending work (2026-10-21,
+  [decision](docs/decisions.md#a-crash-ends-the-process-and-a-service-manager-restarts-it)).
 - Keep logs, exports, and scratch files in a directory of your own: a session's
   scratchpad may be shared by several agents.
 - Problems with your own sandbox, such as no network or no SSH, go in your report,

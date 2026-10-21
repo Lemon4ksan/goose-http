@@ -288,6 +288,15 @@ a few crashes in a row, so a crash that repeats at startup doesn't loop:
 [running a server](api.md#running-a-server)). [Embedded Linux](embedded.md) has a whole
 systemd unit.
 
+To lose fewer connections to a crash on Linux, run two or more processes on the same port,
+each with `Config.workers` set to its share of the cores, and each under the service
+manager: a systemd template unit's instances, or Compose's `deploy.replicas` with host
+networking. Every TCP listener has `SO_REUSEPORT`, so the kernel spreads new connections
+over all the processes' workers. A crash then resets only that process's connections,
+and the kernel takes its listeners out of the group at once. Each process has its own
+lanes, so a lane that must be the only one, such as a SQLite writer, needs one process,
+or a database that takes writers from several.
+
 ## State that workers share
 
 Each worker has its own copy of the program's globals, made when it starts, and workers
