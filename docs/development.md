@@ -38,23 +38,15 @@ What isn't Goose, and why, is in
 
 ## Get Goose
 
-Until the next release, the scripts build Goose master `f114b5a` (2026-10-19), which
-`goose_commit` in `scripts/goose.sh` pins: `http::run` and `http::lane_open` need
-[aardappel/goose#37](https://github.com/aardappel/goose/pull/37), which no release has
-yet. The commit also has
-[#41](https://github.com/aardappel/goose/pull/41), which keeps gcc from dropping the
-stores to a `ByteSet` that the byte search reads, a miscompile in gcc builds on Linux
-and WSL, and [#42](https://github.com/aardappel/goose/pull/42), which lets TinyCC find
-the C library on lib64 systems. The first script that needs the compiler clones and builds that commit as
-`GOOSE_COMMIT` does ([use another compiler](#use-another-compiler)), so it needs CMake
-and a C++ compiler. Once a release has #37, `goose_commit` is emptied and the release
-below pinned.
-
-Otherwise the scripts use the official Goose release that `scripts/goose.sh` pins: `v2026.2`
-(`3ee3871`), since 2026-10-16. The first script that needs the compiler downloads the release's
+The scripts use the official Goose release that `scripts/goose.sh` pins: `v2026.3`
+(`8511ae3`), since 2026-10-21. It has every fix the commit pinned before it was built for:
+[aardappel/goose#37](https://github.com/aardappel/goose/pull/37), which `http::run` and
+`http::lane_open` need, [#41](https://github.com/aardappel/goose/pull/41), gcc's
+`ByteSet` miscompile, and [#42](https://github.com/aardappel/goose/pull/42), TinyCC on
+lib64 systems. The first script that needs the compiler downloads the release's
 archive for the platform from
 [the releases page](https://github.com/aardappel/goose/releases), checks its SHA-256,
-and unpacks it into `build/goose-v2026.2-<platform>/`; later runs reuse it. To fetch the
+and unpacks it into `build/goose-v2026.3-<platform>/`; later runs reuse it. To fetch the
 compiler and print its path:
 
 ```sh
@@ -325,8 +317,8 @@ The Windows compiler typechecks the whole program without running it. With the r
 fetched (`scripts/goose.sh` in Git Bash):
 
 ```powershell
-build\goose-v2026.2-windows-x64\goose.exe --check server\server.goose
-build\goose-v2026.2-windows-x64\goose.exe --check test\http\parse.goose
+build\goose-v2026.3-windows-x64\goose.exe --check server\server.goose
+build\goose-v2026.3-windows-x64\goose.exe --check test\http\parse.goose
 ```
 
 `--check` and `-o out.c` don't compile the generated C, so the Linux-only C in `shim/` is
@@ -337,7 +329,7 @@ through TinyCC, which can't run the server ([above](#build-and-test)). Install i
 the release:
 
 ```powershell
-code --install-extension build\goose-v2026.2-windows-x64\vscode\goose-language.vsix
+code --install-extension build\goose-v2026.3-windows-x64\vscode\goose-language.vsix
 ```
 
 It needs VS Code 1.85 or later. If `code` on PATH belongs to an older install, call the
