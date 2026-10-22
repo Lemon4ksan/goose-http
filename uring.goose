@@ -68,8 +68,6 @@ fn ring_loop<S, H>(cfg: Config, fresh: S, tls) -> Error {
     guard cfg.listeners.len == 0 || !starts_with(cfg.address, "unix:") else {
         return Error { call: "listeners", code: EINVAL };
     }
-    // A completion port keeps one listener's accept.
-    guard cfg.listeners.len < ring_listeners() else { return Error { call: "listeners", code: ENOSYS }; }
     guard !(cfg.require_ring && cfg.emulate_ring) else { return Error { call: "io_uring", code: EINVAL }; }
     // The listeners' modes, Config.port's first.
     var h2c_at: bool[..MAX_LISTENERS + 1] = [];
@@ -77,13 +75,15 @@ fn ring_loop<S, H>(cfg: Config, fresh: S, tls) -> Error {
     for k in cfg.listeners.len + 1 {
         let h2c = if k == 0 { cfg.h2c } else { cfg.listeners[k - 1].h2c };
         let secure = if k == 0 { cfg.tls } else { cfg.listeners[k - 1].tls };
-        // Windows, which has no sendfile, serves no TLS so far.
-        guard !secure || net_sendfile(-1, -1, 0, 0) != -ENOSYS else { return Error { call: "tls", code: ENOSYS }; }
         // h2 over TLS, chosen by ALPN, is still to come.
         guard !secure || !h2c && tls_serves(tls) else { return Error { call: "tls", code: EINVAL }; }
+        // Windows, which has no sendfile, serves no TLS so far.
+        guard !secure || net_sendfile(-1, -1, 0, 0) != -ENOSYS else { return Error { call: "tls", code: ENOSYS }; }
         h2c_at.push(h2c);
         tls_at.push(secure);
     }
+    // A completion port keeps one listener's accept.
+    guard cfg.listeners.len < ring_listeners() else { return Error { call: "listeners", code: ENOSYS }; }
     if cfg.require_ring {
         let probe = ring_probe();
         guard probe == 0 else { return Error { call: "io_uring", code: -probe }; }

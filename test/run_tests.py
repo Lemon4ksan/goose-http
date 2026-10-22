@@ -70,6 +70,8 @@ def joined(text):
 
 def find_goose():
     goose = os.environ.get("GOOSE")
+    if not goose and WINDOWS and not shutil.which("sh"):
+        goose = shutil.which("goose")
     if not goose:
         code, out, err = run(["sh", ROOT / "scripts" / "goose.sh"])
         if code != 0:
