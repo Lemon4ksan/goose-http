@@ -198,6 +198,22 @@ reads p99 on an earlier build.
 Goose uses io_uring, except for uploads and reads p99, which use epoll. Results for
 every server and both Goose event loops: [docs/benchmarks.md](docs/benchmarks.md#rest-apis).
 
+### TLS
+
+HttpArena's json-tls and 8gbit against its Rust entries, on the same desktop on
+2026-10-20, with TLS 1.3 from [goose-tls](https://github.com/kaitk/goose-tls) over
+OpenSSL 3.5:
+
+| Workload | goose-http | Best Rust entry | |
+|---|---:|---:|---|
+| [json-tls](docs/benchmarks.md#tls), 4,096 connections | 177k req/s | 123k (ntex) | Fastest that HttpArena enables\* |
+| json-tls memory | 262 MiB | 152 MiB (ntex) | Most of five |
+| [8gbit](docs/benchmarks.md#tls), CPU per request | 42.2 µs | 40.7 µs (actix) | Second of four |
+
+\* sark, which HttpArena disables, served 215k.
+
+The memory is OpenSSL's, about 30 KB per connection, which goose-tls plans to cut.
+
 ## What isn't Goose
 
 All HTTP functionality is written in Goose: parsing, routing, responses, event loops,

@@ -27,6 +27,8 @@ The method, each load generator, and the servers' pins and builds:
 | Static files | `fcfd80d` | `5c83a5a` | 6.18.40.1 | 2026-10-12 | `bench/files.sh` |
 | Static files, Goose-only comparison at 64 connections | `0a016bb0`, `v0.4.3` | master `f114b5a` | 6.18.54.1 | 2026-10-20 | `bench/files.sh` |
 | Compression | `6f584e2`, goose-compress `4bed2d2` | `0bdbd18` | 6.18.54.1 | 2026-10-14 | `bench/httparena.sh run` |
+| TLS: json-tls | `ed811653`, goose-tls `v0.0.2` | `v2026.2` | 6.18.54.1 | 2026-10-20 | `bench/httparena.sh run` |
+| TLS: 8gbit | `fe07b188`, goose-tls `v0.0.1` | master `f114b5a` | 6.18.54.1 | 2026-10-20 | `bench/httparena.sh run` |
 
 Benchmarks run in overnight batches, so they lag the
 [Goose pin](development.md#get-goose).
@@ -239,6 +241,41 @@ actix's 35.4 K and dusty's 43.0 K. Compressing costs Goose about 24 µs of CPU p
 response. The measurements, the gzip levels compared, and the logs:
 [task 022.03](../tasks/022-compression/03-http-compress.md).
 
+## TLS
+
+HttpArena's json-tls and 8gbit, TLS 1.3 through goose-tls over OpenSSL 3.5. HttpArena
+`0720ee5`, the load generator in Docker on CPUs 4-15 with 4 threads, each server in its
+entry's image on CPUs 0-3, 3 runs of 5 s each, the best kept. The Goose entry is built
+`LOOP=uring`. The Rust entries are actix, ntex, axum over hyper, and sark, the only one
+on io_uring, which HttpArena disables for failing its validation.
+
+json-tls: 4,096 connections, wrk over TLS. Goose at goose-tls `v0.0.2`, the Rust
+entries from the run before it that evening:
+
+| Entry | Best | Server CPU | Memory |
+|---|---:|---:|---:|
+| sark | 214,683 | 245% | 175 MiB |
+| goose | 177,301 | 253% | 252-262 MiB |
+| ntex | 122,677 | 286% | 152 MiB |
+| axum | 104,246 | 290% | 170 MiB |
+| actix | 100,600 | 287% | 188 MiB |
+
+8gbit: 512 connections, zrk at a fixed 50,000 requests a second, uploads echoed. Goose
+at goose-tls `v0.0.1`. sark refused every connection.
+
+| Entry | CPU per request | p99 | p99.9 | Rate held |
+|---|---:|---:|---:|---:|
+| actix | 40.7 µs | 6.85 ms | 56.1 ms | 97.9% |
+| goose | 42.2 µs | 0.35 ms | 43.2 ms | 95.9% |
+| axum | 49.7 µs | 0.55 ms | 33.9 ms | 97.2% |
+| ntex | 49.8 µs | 0.43 ms | 47.6 ms | 97.5% |
+
+Goose leads json-tls among the entries HttpArena enables, by 45%, but holds the most
+memory: OpenSSL's state, about 30 KB per connection, and its handshakes in flight as
+4,096 clients connect (task 058). At goose-tls `v0.0.1` it held 272 MiB, with runs of
+175,250-188,349 a second; the `v0.0.2` run's best falls in that range. Every run:
+[task 014.02](../tasks/014-http2-tls/02-tls.md#measured).
+
 ## Other platforms
 
 - **Linux in Docker, M1 Pro** (2026-10-11, Goose `9623c6a`): Goose leads every cell
@@ -283,6 +320,10 @@ From the runs in this file:
   The [record](results.md#2026-10-14-main-against-the-readme-benchmark-build) includes
   every loss and range. The serialized B/C loss it records is gone at `b03a446`.
 - **Static files of 64 KB**, to nginx: by 3-9% on the epoll loop and 10-21% on io_uring.
+- **json-tls memory**, to every Rust entry: 252-262 MiB against 152-188 MiB, OpenSSL's
+  per connection ([TLS](#tls)).
+- **8gbit CPU per request**, to actix by 3.5%, holding 95.9% of the rate against
+  97.2-97.9% ([TLS](#tls)).
 - **Windows**, where IOCP serves well under io_uring's rate (above).
 
 Other HttpArena profiles and their measurement limits:

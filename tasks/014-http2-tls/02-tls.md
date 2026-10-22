@@ -190,12 +190,32 @@ CPU per request, from the server's cgroup over the run, and latency.
   responses this size. A profile of the TLS server under load would isolate it, so
   the check stays pending ("What remains", item 4).
 
+json-tls again at goose-tls `v0.0.2`, which frees the memory BIOs' buffers once empty
+(task 058), the same evening on the same desktop and HttpArena commit: goose-http
+`ed811653`, Goose release `v2026.2` (`scripts/goose.sh`'s pin there, against master
+`f114b5a` above), the entry built as above. `FRAMEWORKS=goose PROFILES=json-tls
+bench/httparena.sh run`, 3 runs of 5 s; the Rust entries weren't rerun. `env.txt` is
+in `bench/results/httparena-2026-10-20-tls-v0.0.2-Tiamat/`.
+
+| Entry | Runs | Best | Server CPU | Memory, each run |
+|---|---|---:|---:|---:|
+| goose, goose-tls `v0.0.2` | 176,460; 172,623; 177,301 | 177,301 | 253% | 252; 258; 262 MiB |
+
+- Memory fell 10-20 MiB (4-7%) from 272 MiB, as task 058's 10 MiB lower peak under
+  h2load predicted. It is still the most of the five: ntex holds 152 MiB, and the
+  next highest, actix, 188 MiB.
+- The best rate is 6% under the earlier run's best, within that run's spread
+  (175,250-188,349), with a different Goose build. Task 058 measured no rate cost
+  from the change under h2load. goose still leads the enabled Rust entries, by 45%
+  over ntex.
+
 ### What remains, in order
 
 1. (Done: the names, "Answers" below.)
 2. HttpArena: the image builds, the validation passes ("What passes"), and json-tls
    and 8gbit are measured against four Rust entries ("Measured", 2026-10-20). Open:
-   json-tls's memory, 272 MiB against the Rust entries' 152-188 MiB. HttpArena starts every entry with `--security-opt seccomp=unconfined`
+   json-tls's memory, 252-262 MiB at goose-tls `v0.0.2` against the Rust entries'
+   152-188 MiB, which is OpenSSL's per connection (task 058). HttpArena starts every entry with `--security-opt seccomp=unconfined`
    (`scripts/lib/framework.sh` and `scripts/validate.sh` at the pinned commit, checked
    2026-10-20), so io_uring works there, and 23 entries name it as their engine. The
    entry now builds `LOOP=uring`, `meta.json`'s `engine` is `io_uring`, and the

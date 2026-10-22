@@ -1,9 +1,9 @@
 # 058: TLS connections' memory
 
-Status: in-progress (measured; goose-tls's fix released as `v0.0.2` and the pin moved
-to it, 2026-10-20; json-tls's rerun is open: on bare-metal Linux it waits on Docker,
-or on rootless podman given the `cpuset` controller, `docs/known-issues.md`,
-"Benchmarks", 2026-10-21)
+Status: done (2026-10-22). goose-tls's fix is released as `v0.0.2` and pinned; json-tls
+at it holds 252-262 MiB against 272 MiB before. The rest is OpenSSL's, and goose-tls
+takes it up. A bare-metal Linux rerun waits on Docker, or on rootless podman given the
+`cpuset` controller (`docs/known-issues.md`, "Benchmarks", 2026-10-21).
 
 On HttpArena's json-tls, at 4,096 connections, the Goose entry used 272 MiB, the most
 of the five measured: ntex 152, axum 170, sark 175, and actix 188 MiB (task 014.02,
@@ -27,7 +27,10 @@ handshakes in flight when 4,096 clients connect at once. goose-http's share is u
       buffers")
 - [x] Taken where it saves memory at no cost in rate beyond the runs' spread, or
       recorded here with its numbers: on goose-tls's `main`, `6fc4279`
-- [ ] json-tls rerun against the Rust entries, its memory recorded in 014.02. goose-tls
+- [x] json-tls rerun against the Rust entries, its memory recorded in 014.02: 252-262
+      MiB over 3 runs on the desktop, 2026-10-20, goose-http `ed811653`, against the
+      Rust entries' 152-188 MiB from the same evening's run, which wasn't repeated
+      (014.02, "Measured"). goose-tls
       `v0.0.2` (`36ab3f8`) has the change, and the pin moved to it on 2026-10-20 in
       `tls.goose`, `server/server_tls.goose`, `test/tls/tls_config.goose`,
       `examples/tls/tls.goose`, and `docs/api.md`. `scripts/test.sh` passed on the
